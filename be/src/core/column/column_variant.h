@@ -434,11 +434,7 @@ public:
 
     bool is_finalized() const;
 
-    MutableColumnPtr clone_finalized() const {
-        auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnVariant*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
-        return finalized;
-    }
+    MutableColumnPtr clone_finalized() const;
 
     MutableColumnPtr clone() const override;
 

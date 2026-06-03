@@ -27,7 +27,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
 #include "core/column/column_variant.cpp"
 #include "core/column/common_column_test.h"
@@ -2037,6 +2039,41 @@ TEST_F(ColumnVariantTest, clone_finalized) {
     };
     auto cloned_object = VariantUtil::construct_advanced_varint_column();
     test_func(std::move(cloned_object));
+}
+
+TEST_F(ColumnVariantTest, clone_finalized_deep_copies_columns) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    source_column->finalize(ColumnVariant::FinalizeMode::READ_MODE);
+
+    auto cloned = source_column->clone_finalized();
+    auto* cloned_variant = assert_cast<ColumnVariant*>(cloned.get());
+    EXPECT_TRUE(cloned_variant->is_finalized());
+
+    for (const auto& source_subcolumn : source_column->get_subcolumns()) {
+        const auto* cloned_subcolumn =
+                cloned_variant->get_subcolumns().find_exact(source_subcolumn->path);
+        ASSERT_NE(cloned_subcolumn, nullptr);
+        EXPECT_NE(source_subcolumn->data.get_finalized_column_ptr().get(),
+                  cloned_subcolumn->data.get_finalized_column_ptr().get())
+                << source_subcolumn->path.get_path();
+    }
+    EXPECT_NE(source_column->get_sparse_column().get(), cloned_variant->get_sparse_column().get());
+    EXPECT_NE(source_column->get_doc_value_column().get(),
+              cloned_variant->get_doc_value_column().get());
+}
+
+TEST_F(ColumnVariantTest, serialize_does_not_finalize_source_column) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    ASSERT_FALSE(source_column->is_finalized());
+
+    const int be_exec_version = BeExecVersionManager::get_newest_version();
+    const auto size =
+            dt_variant->get_uncompressed_serialized_bytes(*source_column, be_exec_version);
+    EXPECT_FALSE(source_column->is_finalized());
+
+    auto buffer = std::make_unique<char[]>(size);
+    dt_variant->serialize(*source_column, buffer.get(), be_exec_version);
+    EXPECT_FALSE(source_column->is_finalized());
 }
 
 TEST_F(ColumnVariantTest, sanitize) {

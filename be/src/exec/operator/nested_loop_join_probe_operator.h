@@ -233,6 +233,7 @@ private:
     }
 
     bool _matched_rows_done;
+    Block _lazy_probe_block;
     int _probe_block_start_pos = 0;
     int _probe_block_pos; // current scan pos in _probe_block
     int _probe_side_process_count = 0;

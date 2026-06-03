@@ -80,6 +80,14 @@
 namespace doris {
 namespace {
 
+IColumn::WrappedPtr clone_column_deep(const IColumn::WrappedPtr& column) {
+    auto full_column = column->convert_to_full_column_if_const();
+    auto cloned = full_column->clone_resized(full_column->size());
+    cloned->for_each_subcolumn(
+            [](IColumn::WrappedPtr& subcolumn) { subcolumn = clone_column_deep(subcolumn); });
+    return cloned;
+}
+
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable,
                                  int precision = -1, int scale = -1) {
     DataTypePtr result = type == PrimitiveType::INVALID_TYPE
@@ -2793,6 +2801,35 @@ MutableColumnPtr ColumnVariant::clone() const {
     res->set_num_rows(num_rows);
 
     ENABLE_CHECK_CONSISTENCY(res.get());
+    return res;
+}
+
+MutableColumnPtr ColumnVariant::clone_finalized() const {
+    auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
+    Subcolumns new_subcolumns;
+    for (const auto& subcolumn : subcolumns) {
+        auto new_subcolumn = subcolumn->data;
+        for (auto& part : new_subcolumn.data) {
+            part = clone_column_deep(part);
+        }
+        if (subcolumn->data.is_root) {
+            new_subcolumns.create_root(std::move(new_subcolumn));
+        } else if (!new_subcolumns.add(subcolumn->path, std::move(new_subcolumn))) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "add path {} is error in clone_finalized()",
+                                   subcolumn->path.get_path());
+        }
+    }
+    if (!new_subcolumns.get_root()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "root is nullptr in clone_finalized()");
+    }
+    res->subcolumns = std::move(new_subcolumns);
+    res->serialized_sparse_column = clone_column_deep(serialized_sparse_column);
+    res->serialized_doc_value_column = clone_column_deep(serialized_doc_value_column);
+    res->set_num_rows(num_rows);
+
+    ENABLE_CHECK_CONSISTENCY(res.get());
+    res->finalize(FinalizeMode::READ_MODE);
     return res;
 }
 

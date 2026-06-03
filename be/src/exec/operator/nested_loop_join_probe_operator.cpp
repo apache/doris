@@ -39,7 +39,13 @@ constexpr int8_t MARK_TRUE = 1;
 constexpr int8_t MARK_NULL = -1;
 
 ColumnPtr make_const_column_from_row(const ColumnWithTypeAndName& source, size_t row, size_t rows) {
-    return ColumnConst::create(source.column->cut(row, 1), rows);
+    auto row_column = source.column->clone_empty();
+    if (source.column->is_null_at(row)) {
+        row_column->insert_default();
+    } else {
+        row_column->insert_from(*source.column, row);
+    }
+    return ColumnConst::create(std::move(row_column), rows);
 }
 
 ColumnPtr align_eval_column_nullable(const ColumnWithTypeAndName& target, const ColumnPtr& column) {
@@ -49,8 +55,34 @@ ColumnPtr align_eval_column_nullable(const ColumnWithTypeAndName& target, const 
     return column;
 }
 
+IColumn::WrappedPtr clone_column_deep(const IColumn::WrappedPtr& column) {
+    auto full_column = column->convert_to_full_column_if_const();
+    auto cloned = full_column->clone_resized(full_column->size());
+    cloned->for_each_subcolumn(
+            [](IColumn::WrappedPtr& subcolumn) { subcolumn = clone_column_deep(subcolumn); });
+    return cloned;
+}
+
+Status copy_block_rows(const Block& src, Block* dst) {
+    RETURN_IF_CATCH_EXCEPTION({
+        ColumnsWithTypeAndName copied_columns;
+        copied_columns.reserve(src.columns());
+        for (const auto& src_column : src.get_columns_with_type_and_name()) {
+            copied_columns.emplace_back(clone_column_deep(src_column.column), src_column.type,
+                                        src_column.name);
+        }
+        *dst = Block(std::move(copied_columns));
+    });
+    return Status::OK();
+}
+
 void append_many_from_source(MutableColumnPtr& dst_column, const ColumnWithTypeAndName& src_column,
                              size_t row, size_t rows) {
+    if (src_column.column->is_nullable() && src_column.column->is_null_at(row)) {
+        DCHECK(dst_column->is_nullable());
+        dst_column->insert_many_defaults(rows);
+        return;
+    }
     if (!src_column.column->is_nullable() && dst_column->is_nullable()) {
         const auto origin_size = dst_column->size();
         auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
@@ -65,6 +97,23 @@ void append_filtered_from_source(MutableColumnPtr& dst_column,
                                  const ColumnWithTypeAndName& src_column,
                                  const IColumn::Filter& filter, size_t selected_rows) {
     if (selected_rows == 0) {
+        return;
+    }
+    if (src_column.column->is_nullable()) {
+        DCHECK(dst_column->is_nullable());
+        size_t appended_rows = 0;
+        for (size_t row = 0; row < filter.size() && appended_rows < selected_rows; ++row) {
+            if (!filter[row]) {
+                continue;
+            }
+            if (src_column.column->is_null_at(row)) {
+                dst_column->insert_default();
+            } else {
+                dst_column->insert_from(*src_column.column, row);
+            }
+            ++appended_rows;
+        }
+        DCHECK_EQ(appended_rows, selected_rows);
         return;
     }
     auto filtered_column = src_column.column->filter(filter, selected_rows);
@@ -131,6 +180,7 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
     _child_block->clear();
+    _lazy_probe_block.clear();
 
     return JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>::close(
             state);
@@ -878,7 +928,7 @@ Status NestedLoopJoinProbeLocalState::generate_inner_join_block_data(RuntimeStat
     _probe_side_process_count = 0;
     DCHECK(!_need_more_input_data || !_matched_rows_done);
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto* probe_block = _child_block.get();
+    auto* probe_block = p._enable_lazy_materialize ? &_lazy_probe_block : _child_block.get();
 
     if (p._enable_lazy_materialize) {
         if (!_matched_rows_done && !_need_more_input_data) {
@@ -920,7 +970,7 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
     DCHECK(!_need_more_input_data || !_matched_rows_done);
 
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto* probe_block = _child_block.get();
+    auto* probe_block = p._enable_lazy_materialize ? &_lazy_probe_block : _child_block.get();
 
     if (p._enable_lazy_materialize) {
         if (!_matched_rows_done && !_need_more_input_data) {
@@ -1232,6 +1282,9 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* blo
     local_state._probe_block_pos = 0;
     local_state._need_more_input_data = false;
     local_state._shared_state->probe_side_eos = eos;
+    if (_enable_lazy_materialize) {
+        RETURN_IF_ERROR(copy_block_rows(*block, &local_state._lazy_probe_block));
+    }
 
     if (!_is_output_probe_side_only) {
         auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
