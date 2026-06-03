@@ -65,7 +65,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
-import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -130,7 +129,6 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 public class IcebergScanNode extends FileQueryScanNode {
 
@@ -404,19 +402,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         List<TPartitionKeyValue> partitionKeyValues =
                 FileScanNode.buildPartitionKeyValues(fromPathKeys, fromPathValues);
-        if (partitionKeyValues.isEmpty()) {
-            return;
-        }
-        rangeDesc.setColumnsFromPathKeys(partitionKeyValues.stream()
-                .map(TPartitionKeyValue::getKey)
-                .collect(Collectors.toList()));
-        rangeDesc.setColumnsFromPath(partitionKeyValues.stream()
-                .map(TPartitionKeyValue::getValue)
-                .collect(Collectors.toList()));
-        rangeDesc.setColumnsFromPathIsNull(partitionKeyValues.stream()
-                .map(TPartitionKeyValue::isIsNull)
-                .collect(Collectors.toList()));
-        FileScanNode.fillTablePartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
+        FileScanNode.fillPathPartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
     }
 
     private void setIcebergPositionDeleteSysTableParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit,
@@ -1046,9 +1032,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                 split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
                         partitionData, partitionSpec, sessionVariable.getTimeZone()));
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
-                        partitionData, k -> IcebergUtils.getIdentityPartitionInfoMap(
-                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
-                if (!partitionInfoMap.isEmpty()) {
+                        partitionData, k -> IcebergUtils.getPartitionInfoMap(
+                                partitionData, partitionSpec, sessionVariable.getTimeZone()));
+                // Only set partition values if all partitions are identity transform. For non-identity
+                // partitions, getPartitionInfoMap returns null.
+                if (partitionInfoMap != null) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
             } else {

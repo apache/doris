@@ -74,6 +74,7 @@ import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -755,5 +756,56 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("backend 10001 is a smooth upgrade source"));
         }
+    }
+
+    @Test
+    public void testCreateIcebergSplitSetsIdentityPartitionValuesWithoutRuntimeFilterPrune() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setEnableRuntimeFilterPartitionPrune(false);
+        TestIcebergScanNode node = new TestIcebergScanNode(sv);
+
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "dt", Types.StringType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).identity("dt").build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "20260319");
+
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(icebergTable.specs())
+                .thenReturn(Collections.singletonMap(partitionSpec.specId(), partitionSpec));
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.name()).thenReturn("tbl");
+
+        Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTableField.setAccessible(true);
+        icebergTableField.set(node, icebergTable);
+        Field isPartitionedTableField = IcebergScanNode.class.getDeclaredField("isPartitionedTable");
+        isPartitionedTableField.setAccessible(true);
+        isPartitionedTableField.set(node, true);
+        Field partitionMapInfosField = IcebergScanNode.class.getDeclaredField("partitionMapInfos");
+        partitionMapInfosField.setAccessible(true);
+        partitionMapInfosField.set(node, new HashMap<PartitionData, Map<String, String>>());
+        Field storagePropertiesMapField = IcebergScanNode.class.getDeclaredField("storagePropertiesMap");
+        storagePropertiesMapField.setAccessible(true);
+        storagePropertiesMapField.set(node, Collections.emptyMap());
+
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(dataFile.path()).thenReturn("file:///tmp/data-file.parquet");
+        Mockito.when(dataFile.fileSizeInBytes()).thenReturn(128L);
+        Mockito.when(dataFile.specId()).thenReturn(partitionSpec.specId());
+        Mockito.when(dataFile.partition()).thenReturn(partitionData);
+
+        FileScanTask task = Mockito.mock(FileScanTask.class);
+        Mockito.when(task.file()).thenReturn(dataFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(128L);
+        Mockito.when(task.deletes()).thenReturn(Collections.emptyList());
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("createIcebergSplit", FileScanTask.class);
+        method.setAccessible(true);
+        IcebergSplit split = (IcebergSplit) method.invoke(node, task);
+
+        Assert.assertEquals("20260319", split.getIcebergPartitionValues().get("dt"));
     }
 }

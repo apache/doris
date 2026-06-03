@@ -576,12 +576,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // fileSize only be used when format is orc or parquet and TFileType is broker
         // When TFileType is other type, it is not necessary
         rangeDesc.setFileSize(fileSplit.getFileLength());
-        if (!columnsFromPathKeys.isEmpty()) {
-            rangeDesc.setColumnsFromPath(columnsFromPath);
-            rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
-            rangeDesc.setColumnsFromPathIsNull(columnsFromPathIsNull);
-        }
-
         rangeDesc.setFileType(fileSplit.getLocationType());
         rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());
         if (fileSplit.getLocationType() == TFileType.FILE_HDFS) {
@@ -591,7 +585,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         List<TPartitionKeyValue> partitionKeyValues =
                 FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath);
-        FileScanNode.fillTablePartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
+        FileScanNode.fillPathPartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
         return rangeDesc;
     }
 

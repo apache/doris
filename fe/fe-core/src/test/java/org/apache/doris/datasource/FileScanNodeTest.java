@@ -62,6 +62,11 @@ public class FileScanNodeTest {
         Assert.assertEquals("country=cn/dt=20260319",
                 FileScanNode.buildPartitionName(Arrays.asList("country", "dt"),
                         Arrays.asList("cn", "20260319")));
+        List<TPartitionKeyValue> partitionKeyValues = FileScanNode.buildPartitionKeyValues(
+                Arrays.asList("country", "dt"), Arrays.asList(null, "20260319"));
+        Assert.assertEquals("country=/dt=20260319", FileScanNode.buildPartitionName(partitionKeyValues));
+        Assert.assertEquals("", partitionKeyValues.get(0).getValue());
+        Assert.assertTrue(partitionKeyValues.get(0).isIsNull());
         Assert.assertEquals("", FileScanNode.buildPartitionName(Collections.singletonList("dt"), null));
         Assert.assertEquals("", FileScanNode.buildPartitionName(Collections.singletonList("dt"),
                 Arrays.asList("20260319", "extra")));
@@ -86,6 +91,25 @@ public class FileScanNodeTest {
         Assert.assertEquals("cn", range.getPartitionValues().get(0).getValue());
         Assert.assertEquals("dt", range.getPartitionValues().get(1).getKey());
         Assert.assertEquals("20260319", range.getPartitionValues().get(1).getValue());
+    }
+
+    @Test
+    public void testFillPathPartitionContextWithNullPartitionValue() {
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getNameWithFullQualifiers()).thenReturn("hms_ctl.db.tbl");
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        List<TPartitionKeyValue> partitionKeyValues = FileScanNode.buildPartitionKeyValues(
+                Arrays.asList("country", "dt"), Arrays.asList(null, "20260319"));
+
+        FileScanNode.fillPathPartitionContext(range, table, partitionKeyValues);
+
+        Assert.assertEquals(Arrays.asList("country", "dt"), range.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("", "20260319"), range.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(true, false), range.getColumnsFromPathIsNull());
+        Assert.assertEquals("country=/dt=20260319", range.getPartitionName());
+        Assert.assertEquals(2, range.getPartitionValuesSize());
+        Assert.assertTrue(range.getPartitionValues().get(0).isIsNull());
     }
 
     @Test

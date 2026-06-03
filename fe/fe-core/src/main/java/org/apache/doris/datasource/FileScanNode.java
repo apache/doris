@@ -129,7 +129,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         List<TPartitionKeyValue> partitionKeyValues = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (int i = 0; i < partitionKeys.size(); i++) {
-            partitionKeyValues.add(new TPartitionKeyValue(partitionKeys.get(i), partitionValues.get(i)));
+            partitionKeyValues.add(buildPartitionKeyValue(partitionKeys.get(i), partitionValues.get(i)));
         }
         return partitionKeyValues;
     }
@@ -140,18 +140,20 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         return partitionValues.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
-                .map(entry -> {
-                    TPartitionKeyValue keyValue = new TPartitionKeyValue();
-                    keyValue.setKey(entry.getKey());
-                    if (entry.getValue() == null) {
-                        keyValue.setValue("");
-                        keyValue.setIsNull(true);
-                    } else {
-                        keyValue.setValue(entry.getValue());
-                    }
-                    return keyValue;
-                })
+                .map(entry -> buildPartitionKeyValue(entry.getKey(), entry.getValue()))
                 .collect(Collectors.toList());
+    }
+
+    private static TPartitionKeyValue buildPartitionKeyValue(String key, String value) {
+        TPartitionKeyValue keyValue = new TPartitionKeyValue();
+        keyValue.setKey(key);
+        if (value == null) {
+            keyValue.setValue("");
+            keyValue.setIsNull(true);
+        } else {
+            keyValue.setValue(value);
+        }
+        return keyValue;
     }
 
     public static String buildPartitionName(List<TPartitionKeyValue> partitionKeyValues) {
@@ -181,6 +183,41 @@ public abstract class FileScanNode extends ExternalScanNode {
         if (!partitionName.isEmpty()) {
             range.setPartitionName(partitionName);
         }
+    }
+
+    public static void fillPathPartitionContext(
+            TFileRangeDesc range, TableIf table, List<TPartitionKeyValue> partitionKeyValues) {
+        if (range == null || partitionKeyValues == null || partitionKeyValues.isEmpty()) {
+            return;
+        }
+        range.setColumnsFromPathKeys(getPartitionKeys(partitionKeyValues));
+        range.setColumnsFromPath(getPartitionValues(partitionKeyValues));
+        range.setColumnsFromPathIsNull(getPartitionValueIsNull(partitionKeyValues));
+        fillTablePartitionContext(range, table, partitionKeyValues);
+    }
+
+    private static List<String> getPartitionKeys(List<TPartitionKeyValue> partitionKeyValues) {
+        List<String> partitionKeys = Lists.newArrayListWithCapacity(partitionKeyValues.size());
+        for (TPartitionKeyValue partitionKeyValue : partitionKeyValues) {
+            partitionKeys.add(partitionKeyValue.getKey());
+        }
+        return partitionKeys;
+    }
+
+    private static List<String> getPartitionValues(List<TPartitionKeyValue> partitionKeyValues) {
+        List<String> partitionValues = Lists.newArrayListWithCapacity(partitionKeyValues.size());
+        for (TPartitionKeyValue partitionKeyValue : partitionKeyValues) {
+            partitionValues.add(partitionKeyValue.getValue());
+        }
+        return partitionValues;
+    }
+
+    private static List<Boolean> getPartitionValueIsNull(List<TPartitionKeyValue> partitionKeyValues) {
+        List<Boolean> partitionValueIsNull = Lists.newArrayListWithCapacity(partitionKeyValues.size());
+        for (TPartitionKeyValue partitionKeyValue : partitionKeyValues) {
+            partitionValueIsNull.add(partitionKeyValue.isIsNull());
+        }
+        return partitionValueIsNull;
     }
 
     protected void setPushDownCount(long count) {

@@ -1605,7 +1605,6 @@ public class VectorColumn {
     }
 
     public void updateMeta(VectorColumn meta) {
-        meta.appendLong(isConst ? 1L : 0L);
         if (columnType.isUnsupported()) {
             meta.appendLong(0);
         } else if (columnType.isStringType()) {
