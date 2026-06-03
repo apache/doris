@@ -104,6 +104,8 @@ reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::Colu
             .name = std::move(name),
             .type = std::move(type),
             .children = {},
+            .default_expr = nullptr,
+            .is_partition_key = false,
     });
     return &parent->children.back();
 }
