@@ -478,7 +478,7 @@ public class SystemInfoService {
 
     class BeIdComparator implements Comparator<Backend> {
         public int compare(Backend a, Backend b) {
-            return (int) (a.getId() - b.getId());
+            return Long.compare(a.getId(), b.getId());
         }
     }
 
