@@ -80,7 +80,7 @@ public:
     }
 
     Status execute_column(VExprContext* /*context*/, const Block* /*block*/, Selector* /*selector*/,
-						  size_t /*count*/, ColumnPtr& result_column) const override {
+                          size_t /*count*/, ColumnPtr& result_column) const override {
         result_column = _column;
         return Status::OK();
     }
