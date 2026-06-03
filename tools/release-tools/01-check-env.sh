@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Step 00 - prepare / check the signing environment.
+# Step 01 - prepare / check the signing environment.
 # Read-mostly. The only state-changing paths (import key / generate key /
 # publish KEYS / edit gpg.conf) are opt-in and prompt before acting.
 set -euo pipefail
@@ -194,7 +194,7 @@ fi
 if [[ -n "${ASF_USERNAME:-}" && -n "${ASF_PASSWORD:-}" ]]; then
   ok "ASF_USERNAME/ASF_PASSWORD present in env"
 else
-  warn "ASF_USERNAME/ASF_PASSWORD not both set - needed for SVN upload (step 10) and KEYS publish"
+  warn "ASF_USERNAME/ASF_PASSWORD not both set - needed for SVN upload (step 02) and KEYS publish"
 fi
 
 echo

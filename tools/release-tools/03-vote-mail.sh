@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Step 20 - generate the [VOTE] email draft for dev@doris.apache.org.
+# Step 03 - generate the [VOTE] email draft for dev@doris.apache.org.
 # Draft only: it writes a .txt and .eml; you send it from your @apache.org mail.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,7 +37,7 @@ if [[ -n "${SIGNING_KEY}" ]]; then
 else
   SIGNER="$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1=="sec"{w=1} $1=="fpr"&&w{print $10; exit}')"
 fi
-[[ -n "$SIGNER" ]] || die "no signing key found; run ./00-check-env.sh first"
+[[ -n "$SIGNER" ]] || die "no signing key found; run ./01-check-env.sh first"
 FPR="$(gpg --list-keys --with-colons "$SIGNER" | awk -F: '/^fpr:/{print $10; exit}')"
 
 mkdir -p "$WORK_DIR"

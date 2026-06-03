@@ -19,31 +19,46 @@ under the License.
 
 # Doris release helper scripts
 
-Helper scripts for an Apache Doris Release Manager to cut a **source** release candidate, in three steps:
-**check the signing environment → package + sign + upload the source tarball → draft the `[VOTE]` email.**
-
-The scripts are reusable across releases — they hold no version. Edit `release.env` each time.
-Branch prep, issue cleanup, patch merges and tag creation are out of scope: the tag must already
-exist and be pushed to `apache/doris` before you start.
-
-## Files
-- `release.env` — all configuration (version, paths, signing key, SVN URLs, email). **Edit this first.**
-- `00-check-env.sh` — check / prepare the GPG signing environment and ASF credentials.
-- `10-package-sign-upload.sh` — `git archive` the tag, GPG-sign, sha512, upload to the dev SVN.
-- `20-vote-mail.sh` — generate the `[VOTE]` email draft.
+Helper scripts for an Apache Doris Release Manager (RM) to cut a **source** release candidate:
+package and sign the source tarball, upload it to the Apache dev SVN, and draft the `[VOTE]` email.
 
 ## Prerequisites
-- Tools on `PATH`: `git`, `gpg`, `svn`, `sha512sum`, `curl`, `gzip`.
-- A local clone of `apache/doris` with the release tag fetched.
-- A GPG signing key (step 00 can import an existing one, or generate and publish a new one).
+Have these ready before you run anything:
+- The release **tag is already created and pushed** to `apache/doris` — these scripts only verify it
+  (branch prep, patch merges and tag creation are out of scope).
+- A local clone of `apache/doris` with that tag fetched.
+- These tools on `PATH`: `git`, `gpg`, `svn`, `sha512sum`, `curl`, `gzip`.
+- A GPG signing key — or let step 01 import an existing one, or generate and publish a new one.
 - ASF credentials exported in your shell (used for the SVN upload and the KEYS publish):
   ```bash
   export ASF_USERNAME=<your-apache-id>
   export ASF_PASSWORD='<your-apache-ldap-password>'
   ```
+- `release.env` filled in for this release — see [Configuration](#configuration) for the fields.
 
-## Configure
-Open `release.env` and set at least:
+## Steps
+Run from this directory, in order:
+1. **Check the signing environment** — `./01-check-env.sh`. Re-run until it ends with
+   `environment looks READY`.
+2. **Package, sign & upload** — `./02-package-sign-upload.sh`. Builds and signs the source tarball
+   and uploads it to the dev SVN. It pauses twice for confirmation; nothing public happens before
+   the final confirm.
+3. **Draft the vote email** — `./03-vote-mail.sh`. Prompts for the Release Notes URL and prints the
+   draft; review it and send it yourself from your `@apache.org` address.
+
+---
+
+Everything below is reference detail.
+
+## Files
+- `release.env` — all configuration (version, paths, signing key, SVN URLs, email). **Edit this first.**
+- `01-check-env.sh` — check / prepare the GPG signing environment and ASF credentials.
+- `02-package-sign-upload.sh` — `git archive` the tag, GPG-sign, sha512, upload to the dev SVN.
+- `03-vote-mail.sh` — generate the `[VOTE]` email draft.
+
+## Configuration
+The scripts are reusable across releases — they hold no version; edit `release.env` each time.
+Set at least:
 - `REPO_DIR` — path to your local `apache/doris` git checkout.
 - `VERSION` / `RC` — e.g. `4.0.6` and `rc02`; `TAG` is derived as `${VERSION}-${RC}`.
 - `GIT_REMOTE` — the git remote pointing at `github.com/apache/doris`.
@@ -55,23 +70,16 @@ Doris dist repos. Artifacts are **source-only**: `apache-doris-<tag>-src.tar.gz`
 All output (tarball, signatures, SVN checkouts, email draft) goes to `WORK_DIR`
 (`~/doris-release/<tag>` by default), outside the git repo.
 
-## Run order
-```bash
-./00-check-env.sh             # must end with "environment looks READY"
-./10-package-sign-upload.sh   # pauses twice for confirmation before the public SVN commit
-./20-vote-mail.sh             # prompts for the Release Notes URL, then prints the draft
-```
-
-### What each step does
-- **00** verifies the required tools, your `GPG_TTY` / `gpg.conf`, resolves (or helps you create) a
+## What each step does
+- **01** verifies the required tools, your `GPG_TTY` / `gpg.conf`, resolves (or helps you create) a
   signing key, checks it is present in the live published `KEYS`, runs a test sign + verify, and
   confirms your ASF credentials. It is read-mostly: every state-changing action (edit `gpg.conf`,
   import / generate a key, publish `KEYS`) prompts before acting.
-- **10** checks the local tag matches `GIT_REMOTE`, builds the source tarball from the tag with
+- **02** checks the local tag matches `GIT_REMOTE`, builds the source tarball from the tag with
   `git archive`, signs it and writes the `.sha512`, then uploads the three files to
   `dev/doris/<tag>/` on the Apache dist SVN. **Eyeball the target URL** at the confirm prompt before
   committing — nothing public happens until the final confirm.
-- **20** writes `vote-email.txt` and `vote-email.eml` into `WORK_DIR` and prints the draft. Review it
+- **03** writes `vote-email.txt` and `vote-email.eml` into `WORK_DIR` and prints the draft. Review it
   and send it yourself from your `@apache.org` address.
 
 ## Not automated (on purpose)

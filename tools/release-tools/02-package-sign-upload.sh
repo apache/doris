@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Step 10 - package the source tarball, sign it, and upload to the Apache dev SVN.
+# Step 02 - package the source tarball, sign it, and upload to the Apache dev SVN.
 # The SVN commit is outward-facing: it pauses twice for confirmation before commit.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,7 +39,7 @@ if [[ -n "${SIGNING_KEY}" ]]; then
 else
   SIGNER="$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1=="sec"{w=1} $1=="fpr"&&w{print $10; exit}')"
 fi
-[[ -n "$SIGNER" ]] || die "no signing key found; run ./00-check-env.sh first"
+[[ -n "$SIGNER" ]] || die "no signing key found; run ./01-check-env.sh first"
 ok "signer: $SIGNER"
 
 # 1. verify the tag matches the apache remote (don't release a local-only tag)
@@ -84,4 +84,4 @@ echo "Will commit the above to: ${DEV_SVN_DIR}/"
 confirm "FINAL confirm - svn commit now?" || { warn "left staged (uncommitted) at $wc"; exit 0; }
 svn commit "${svn_auth[@]}" -m "Add ${TAG}" "$wc"
 ok "committed. Vote artifacts now at: ${DEV_SVN_DIR}/"
-echo "Next: ./20-vote-mail.sh"
+echo "Next: ./03-vote-mail.sh"
