@@ -389,7 +389,7 @@ Status finish_and_write_column_writer(ColumnWriter* writer) {
 void release_processed_subcolumn_write_entry(SubcolumnWriteEntry* entry) {
     DCHECK(entry != nullptr);
     DCHECK(entry->subcolumn != nullptr);
-    ColumnVariant::Subcolumn released_subcolumn;
+    ColumnVariant::Subcolumn released_subcolumn(0, true);
     std::swap(*entry->subcolumn, released_subcolumn);
     if (entry->rowids != nullptr) {
         std::vector<uint32_t> released_rowids;
