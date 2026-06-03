@@ -159,7 +159,7 @@ public:
         if (computed_value_idx < 0) {
             return Status::Corruption("Nested parquet value is absent for column {}", column_name);
         }
-        DORIS_CHECK(_batch->values_column != nullptr);
+        DORIS_CHECK(_batch->values_column.get() != nullptr);
         if (computed_value_idx >= _batch->values_column->size()) {
             return Status::Corruption("Nested parquet value index is out of range for column {}",
                                       column_name);
