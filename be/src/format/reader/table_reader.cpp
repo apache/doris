@@ -52,26 +52,21 @@ void collect_table_slot_ids(const VExprSPtr& expr, std::set<int>* slot_ids) {
     }
 }
 
-void build_table_filters_from_conjunct(const VExprSPtr& conjunct,
-                                       std::vector<TableFilter>* table_filters) {
+Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, RuntimeState* state,
+                                         std::vector<TableFilter>* table_filters) {
     if (conjunct == nullptr) {
-        return;
-    }
-    if (conjunct->node_type() == TExprNodeType::COMPOUND_PRED &&
-        conjunct->op() == TExprOpcode::COMPOUND_AND) {
-        for (const auto& child : conjunct->children()) {
-            build_table_filters_from_conjunct(child, table_filters);
-        }
-        return;
+        return Status::OK();
     }
     std::set<int> slot_ids;
-    collect_table_slot_ids(conjunct, &slot_ids);
+    collect_table_slot_ids(conjunct->root(), &slot_ids);
     if (!slot_ids.empty()) {
         TableFilter table_filter;
-        table_filter.conjunct = VExprContext::create_shared(conjunct);
+        table_filter.conjunct = nullptr;
+        RETURN_IF_ERROR(conjunct->clone(state, table_filter.conjunct));
         table_filter.slot_ids.assign(slot_ids.begin(), slot_ids.end());
         table_filters->push_back(std::move(table_filter));
     }
+    return Status::OK();
 }
 
 Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc::Format format,
@@ -169,7 +164,8 @@ Status TableReader::init(TableReadOptions&& options) {
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
     for (const auto& conjunct : _conjuncts) {
-        build_table_filters_from_conjunct(conjunct->root(), &_table_filters);
+        RETURN_IF_ERROR(
+                build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
     }
     return Status::OK();
 }
