@@ -35,6 +35,7 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.Collections;
@@ -75,13 +76,56 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(hmsExternalTable, Optional.empty(), Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
             Mockito.verify(hmsExternalTable, Mockito.times(1))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(hmsExternalTable, Mockito.times(1)).getBaseSchema();
+            Mockito.verify(hmsExternalTable, Mockito.times(1)).initSelectedPartitions(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testPreloadHiveSchemaAndPartitionsBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Cover the plain Hive path: no latest snapshot preload, but schema and partition metadata are warmed.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(connectContext.getQueryIdentifier()).thenReturn("query-hive");
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hmsExternalTable.getId()).thenReturn(19L);
+        Mockito.when(hmsExternalTable.getName()).thenReturn("hive_tbl");
+        Mockito.when(hmsExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(hmsExternalTable.getDlaType()).thenReturn(DLAType.HIVE);
+        Mockito.when(hmsExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(hmsExternalTable.supportInternalPartitionPruned()).thenReturn(true);
+        Mockito.when(hmsExternalTable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hmsExternalTable, Optional.empty(), Optional.empty());
+
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
+            Mockito.verify(hmsExternalTable, Mockito.never())
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
             Mockito.verify(hmsExternalTable, Mockito.times(1)).getBaseSchema();
             Mockito.verify(hmsExternalTable, Mockito.times(1)).initSelectedPartitions(Mockito.any());
@@ -106,8 +150,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(hmsExternalTable, Optional.empty(), Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertFalse(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
@@ -150,8 +193,7 @@ public class StatementContextTest {
                     Optional.of(new TableSnapshot("2024-01-01 00:00:00", TableSnapshot.VersionType.TIME)),
                     Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
@@ -189,8 +231,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(jdbcExternalTable, Optional.empty(), Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
@@ -223,8 +264,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(pluginExternalTable, Optional.empty(), Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertFalse(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(0, result.getCandidateTableCount());
@@ -255,8 +295,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(hmsExternalTable, Optional.empty(), Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertFalse(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
@@ -299,8 +338,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(icebergExternalTable, Optional.empty(), Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
@@ -341,8 +379,7 @@ public class StatementContextTest {
                     Optional.of(new TableSnapshot("2024-01-01 00:00:00", TableSnapshot.VersionType.TIME)),
                     Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
@@ -379,22 +416,25 @@ public class StatementContextTest {
         Mockito.when(paimonExternalTable.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
                 .thenReturn(mvccSnapshot);
         Mockito.when(paimonExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
-        Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(false);
+        Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(true);
+        Mockito.when(paimonExternalTable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(paimonExternalTable, Optional.empty(), Optional.empty());
 
-            StatementContext.ExternalMetadataPreloadResult result =
-                    statementContext.preloadExternalTablesBeforeLock();
+            ExternalMetadataPreloadResult result = statementContext.preloadExternalTablesBeforeLock();
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
-            Mockito.verify(paimonExternalTable, Mockito.times(1))
+            // Verify the latest snapshot is loaded before partition metadata warmup consumes it.
+            InOrder inOrder = Mockito.inOrder(paimonExternalTable);
+            inOrder.verify(paimonExternalTable, Mockito.times(1))
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
-            Mockito.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
+            inOrder.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
+            inOrder.verify(paimonExternalTable, Mockito.times(1)).initSelectedPartitions(Mockito.any());
         } finally {
             statementContext.close();
         }

@@ -422,8 +422,7 @@ public class NereidsPlanner extends Planner {
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true).collect());
         // Preload external metadata before internal table locks are acquired.
         long preloadStartTime = TimeUtils.getStartTimeMs();
-        StatementContext.ExternalMetadataPreloadResult preloadResult =
-                statementContext.preloadExternalTablesBeforeLock();
+        ExternalMetadataPreloadResult preloadResult = statementContext.preloadExternalTablesBeforeLock();
         long preloadElapsedTime = TimeUtils.getElapsedTimeMs(preloadStartTime);
         // Record preload timing in the query profile as a dedicated planner sub-stage.
         if (statementContext.getConnectContext().getExecutor() != null && preloadResult.isExecuted()) {

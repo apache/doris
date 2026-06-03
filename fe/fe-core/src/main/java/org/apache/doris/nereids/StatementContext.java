@@ -1080,7 +1080,7 @@ public class StatementContext implements Closeable {
 
     // Preload metadata that is commonly accessed during planning before internal table locks are acquired.
     private boolean preloadExternalTable(ExternalTablePreloadInfo preloadInfo) {
-        ExternalTable table = preloadInfo.table;
+        ExternalTable table = preloadInfo.getTable();
         long preloadStartTime = TimeUtils.getStartTimeMs();
         // Preload the latest snapshot only when every relation uses the latest view of the table.
         boolean supportsLatestSnapshot = supportsLatestSnapshotPreload(table);
@@ -1107,8 +1107,8 @@ public class StatementContext implements Closeable {
                             + "[supportsLatestSnapshot={}, preloadLatestSnapshot={}, preloadSchema={}, "
                             + "preloadPartition={}, hasLatestRelation={}, hasNonLatestRelation={}, elapsedMs={}]",
                     getPreloadQueryIdentifier(), getExternalTableLogName(table), supportsLatestSnapshot,
-                    preloadLatestSnapshot, preloadSchema, preloadPartition, preloadInfo.hasLatestOnlyRelation,
-                    preloadInfo.hasNonLatestRelation, TimeUtils.getElapsedTimeMs(preloadStartTime));
+                    preloadLatestSnapshot, preloadSchema, preloadPartition, preloadInfo.hasLatestOnlyRelation(),
+                    preloadInfo.hasNonLatestRelation(), TimeUtils.getElapsedTimeMs(preloadStartTime));
         }
         return preloadLatestSnapshot || preloadSchema || preloadPartition;
     }
@@ -1148,67 +1148,6 @@ public class StatementContext implements Closeable {
         // Hive and Hudi share HMSExternalTable, but only Hudi has a meaningful latest snapshot to preload.
         DLAType dlaType = ((HMSExternalTable) table).getDlaType();
         return dlaType == DLAType.HUDI;
-    }
-
-    private static class ExternalTablePreloadInfo {
-        private final ExternalTable table;
-        private boolean hasLatestOnlyRelation;
-        private boolean hasNonLatestRelation;
-
-        private ExternalTablePreloadInfo(ExternalTable table) {
-            this.table = table;
-        }
-
-        private void markLatestRelation() {
-            hasLatestOnlyRelation = true;
-        }
-
-        private void markNonLatestRelation() {
-            hasNonLatestRelation = true;
-        }
-
-        private boolean shouldPreloadLatestSnapshot() {
-            return hasLatestOnlyRelation && !hasNonLatestRelation;
-        }
-    }
-
-    static class ExternalMetadataPreloadResult {
-        private final boolean executed;
-        private final int candidateTableCount;
-        private final int preloadedTableCount;
-        private final String skipReason;
-
-        private ExternalMetadataPreloadResult(boolean executed, int candidateTableCount,
-                int preloadedTableCount, String skipReason) {
-            this.executed = executed;
-            this.candidateTableCount = candidateTableCount;
-            this.preloadedTableCount = preloadedTableCount;
-            this.skipReason = skipReason;
-        }
-
-        static ExternalMetadataPreloadResult executed(int candidateTableCount, int preloadedTableCount) {
-            return new ExternalMetadataPreloadResult(true, candidateTableCount, preloadedTableCount, "");
-        }
-
-        static ExternalMetadataPreloadResult skipped(int candidateTableCount, String skipReason) {
-            return new ExternalMetadataPreloadResult(false, candidateTableCount, 0, skipReason);
-        }
-
-        boolean isExecuted() {
-            return executed;
-        }
-
-        int getCandidateTableCount() {
-            return candidateTableCount;
-        }
-
-        int getPreloadedTableCount() {
-            return preloadedTableCount;
-        }
-
-        String getSkipReason() {
-            return skipReason;
-        }
     }
 
     private static class CloseableResource implements Closeable {
