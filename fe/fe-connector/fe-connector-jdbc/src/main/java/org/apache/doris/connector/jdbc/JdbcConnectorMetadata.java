@@ -96,6 +96,24 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public void createDatabase(ConnectorSession session, String dbName,
+            Map<String, String> properties) {
+        boolean ifNotExists = Boolean.parseBoolean(
+                properties.get("jdbc_if_not_exists"));
+        String sql = client.getCreateDatabaseSql(dbName, ifNotExists);
+        LOG.info("Executing CREATE DATABASE: {} (ifNotExists={})", sql, ifNotExists);
+        client.executeStmt(sql);
+    }
+
+    @Override
+    public void dropDatabase(ConnectorSession session, String dbName,
+            boolean ifExists) {
+        String sql = client.getDropDatabaseSql(dbName, ifExists);
+        LOG.info("Executing DROP DATABASE: {}", sql);
+        client.executeStmt(sql);
+    }
+
+    @Override
     public List<String> listTableNames(ConnectorSession session, String dbName) {
         return client.getTablesNameList(dbName);
     }
