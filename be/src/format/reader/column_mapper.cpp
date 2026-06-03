@@ -302,6 +302,20 @@ static const SchemaField* resolve_file_child(const std::vector<SchemaField>& chi
     return &children[selector.ordinal - 1];
 }
 
+static const ColumnMapping* resolve_mapped_child(const std::vector<ColumnMapping>& child_mappings,
+                                                 const StructChildSelector& selector) {
+    if (selector.by_name) {
+        const auto child_it = std::ranges::find_if(child_mappings, [&](const auto& child_mapping) {
+            return child_mapping.table_column_name == selector.name;
+        });
+        return child_it == child_mappings.end() ? nullptr : &*child_it;
+    }
+    if (selector.ordinal == 0 || selector.ordinal > child_mappings.size()) {
+        return nullptr;
+    }
+    return &child_mappings[selector.ordinal - 1];
+}
+
 static Status build_filter_projection_path(const std::vector<SchemaField>& children,
                                            std::span<const StructChildSelector> selectors,
                                            FieldProjection* projection) {
@@ -327,6 +341,47 @@ static Status build_filter_projection_path(const std::vector<SchemaField>& child
     FieldProjection child_projection;
     RETURN_IF_ERROR(
             build_filter_projection_path(child->children, selectors.subspan(1), &child_projection));
+    if (child_projection.field_id < 0) {
+        projection->field_id = -1;
+        return Status::OK();
+    }
+    projection->children.push_back(std::move(child_projection));
+    return Status::OK();
+}
+
+// Prefer the table-to-file mapping tree for nested filter projection. This keeps renamed
+// children and field-id schema evolution in the mapper instead of leaking table names into the
+// file reader request. The file schema fallback below is only for filter-only children that do not
+// have an output child mapping yet.
+static Status build_filter_projection_path(const ColumnMapping& mapping,
+                                           std::span<const StructChildSelector> selectors,
+                                           FieldProjection* projection) {
+    DORIS_CHECK(projection != nullptr);
+    if (selectors.empty()) {
+        return Status::InvalidArgument("Nested struct selector path is empty");
+    }
+    const auto* child_mapping = resolve_mapped_child(mapping.child_mappings, selectors.front());
+    if (child_mapping == nullptr) {
+        return build_filter_projection_path(mapping.original_file_children, selectors, projection);
+    }
+    if (!child_mapping->field_id.has_value()) {
+        projection->field_id = -1;
+        return Status::OK();
+    }
+    projection->field_id = *child_mapping->field_id;
+    projection->project_all_children = selectors.size() == 1;
+    projection->children.clear();
+    if (selectors.size() == 1) {
+        return Status::OK();
+    }
+    FieldProjection child_projection;
+    if (child_mapping->child_mappings.empty()) {
+        RETURN_IF_ERROR(build_filter_projection_path(child_mapping->original_file_children,
+                                                     selectors.subspan(1), &child_projection));
+    } else {
+        RETURN_IF_ERROR(build_filter_projection_path(*child_mapping, selectors.subspan(1),
+                                                     &child_projection));
+    }
     if (child_projection.field_id < 0) {
         projection->field_id = -1;
         return Status::OK();
@@ -363,6 +418,49 @@ static const SchemaField* resolve_filter_schema_path(const std::vector<SchemaFie
     return leaf;
 }
 
+// Resolve a nested predicate through ColumnMapping when possible. The returned child-id path and
+// leaf type are file-local, so parquet pruning can stay independent from table/global schema.
+static bool resolve_mapped_filter_schema_path(const ColumnMapping& mapping,
+                                              std::span<const StructChildSelector> selectors,
+                                              std::vector<int32_t>* file_child_id_path,
+                                              std::string* leaf_name, DataTypePtr* leaf_type) {
+    DORIS_CHECK(file_child_id_path != nullptr);
+    DORIS_CHECK(leaf_name != nullptr);
+    DORIS_CHECK(leaf_type != nullptr);
+    if (selectors.empty()) {
+        return false;
+    }
+    const auto* child_mapping = resolve_mapped_child(mapping.child_mappings, selectors.front());
+    if (child_mapping == nullptr) {
+        return false;
+    }
+    if (!child_mapping->field_id.has_value()) {
+        file_child_id_path->clear();
+        return false;
+    }
+    file_child_id_path->push_back(*child_mapping->field_id);
+    if (selectors.size() == 1) {
+        if (child_mapping->file_type == nullptr ||
+            is_complex_type(remove_nullable(child_mapping->file_type)->get_primitive_type())) {
+            file_child_id_path->clear();
+            return false;
+        }
+        *leaf_name = child_mapping->file_column_name;
+        *leaf_type = remove_nullable(child_mapping->file_type);
+        return true;
+    }
+    if (child_mapping->child_mappings.empty()) {
+        file_child_id_path->clear();
+        return false;
+    }
+    if (!resolve_mapped_filter_schema_path(*child_mapping, selectors.subspan(1), file_child_id_path,
+                                           leaf_name, leaf_type)) {
+        file_child_id_path->clear();
+        return false;
+    }
+    return true;
+}
+
 static bool resolve_nested_predicate_target(const NestedStructPath& path,
                                             const std::vector<ColumnMapping>& mappings,
                                             NestedPredicateTargetInfo* target) {
@@ -377,6 +475,17 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
         return false;
     }
     std::vector<int32_t> file_child_id_path;
+    std::string leaf_name;
+    DataTypePtr file_leaf_type;
+    if (resolve_mapped_filter_schema_path(*mapping_it, path.selectors, &file_child_id_path,
+                                          &leaf_name, &file_leaf_type)) {
+        target->root_file_column_id = *mapping_it->field_id;
+        target->file_child_id_path = std::move(file_child_id_path);
+        target->leaf_name = std::move(leaf_name);
+        target->file_leaf_type = std::move(file_leaf_type);
+        return true;
+    }
+
     const auto* leaf = resolve_filter_schema_path(mapping_it->original_file_children,
                                                   path.selectors, &file_child_id_path);
     if (leaf == nullptr || leaf->type == nullptr ||
@@ -1088,8 +1197,8 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
             }
 
             FieldProjection child_projection;
-            RETURN_IF_ERROR(build_filter_projection_path(mapping_it->original_file_children,
-                                                         path.selectors, &child_projection));
+            RETURN_IF_ERROR(
+                    build_filter_projection_path(*mapping_it, path.selectors, &child_projection));
             if (child_projection.field_id < 0) {
                 continue;
             }
@@ -1173,6 +1282,7 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
     for (const auto& table_column : projected_columns) {
         ColumnMapping mapping;
         mapping.table_column_id = table_column.id;
+        mapping.table_column_name = table_column.name;
         mapping.table_type = table_column.type;
         if (table_column.is_partition_key && partition_values.contains(table_column.name)) {
             // 1. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
@@ -1380,6 +1490,7 @@ Status TableColumnMapper::_create_direct_mapping(const TableColumn& table_column
         return Status::InvalidArgument("mapping is null");
     }
     mapping->field_id = file_field.id;
+    mapping->table_column_name = table_column.name;
     mapping->file_column_name = file_field.name;
     mapping->original_file_type = file_field.type;
     mapping->original_file_children = file_field.children;
@@ -1400,6 +1511,7 @@ Status TableColumnMapper::_create_direct_mapping(const TableColumn& table_column
                 }
                 ColumnMapping child_mapping;
                 child_mapping.table_column_id = table_child.id;
+                child_mapping.table_column_name = table_child.name;
                 child_mapping.file_column_name = table_child.name;
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
@@ -1410,6 +1522,7 @@ Status TableColumnMapper::_create_direct_mapping(const TableColumn& table_column
             }
             ColumnMapping child_mapping;
             child_mapping.table_column_id = table_child.id;
+            child_mapping.table_column_name = table_child.name;
             child_mapping.table_type = table_child.type;
             RETURN_IF_ERROR(_create_direct_mapping(table_child, *file_child, &child_mapping));
             mapping->child_mappings.push_back(std::move(child_mapping));

@@ -174,6 +174,7 @@ SELECT s.name FROM t WHERE s.id > 5;
 - output child 顺序保持优先，filter-only child 追加到 read projection。
 - filter-only child 不加入 `ColumnMapping.child_mappings`，避免 table output materialization 把它当作输出字段。
 - `ColumnMapping` 保存 `original_file_type` / `original_file_children`，重复创建 split-local request 时可以从原始 file schema 重建 read projection。
+- nested filter projection 优先通过 `ColumnMapping.child_mappings` 映射 table child 到 file child；没有 child mapping 的 filter-only path 再回退到 file schema 解析。
 
 ### 5.3 nested file-layer pruning target
 
@@ -183,6 +184,7 @@ SELECT s.name FROM t WHERE s.id > 5;
 - `file_child_id_path` 是 top-level file column 下的 file-local child field id path，不是 table id，也不是 ordinal。
 - mapper 会从 AND 语义下的 `struct_element(...) op literal` / `literal op struct_element(...)` 构造 nested file-layer pruning hint。
 - mapper 会从 AND 语义下的 `struct_element(...) IN (...)` 构造 nested `IN_LIST` pruning hint。
+- 对已经存在 `ColumnMapping` 的 nested child，mapper 使用 table child name + field-id mapping 生成 file-local `file_child_id_path`，支持 table/file nested child rename。
 - 不从 OR/NOT/任意函数子树中提取 pruning predicate，避免把非必要条件当成必需条件裁剪。
 - literal 转换到 file leaf type 失败、path 解析失败、leaf 不是 primitive 时，不生成 pruning hint。
 
@@ -259,7 +261,7 @@ page index 对 repeated leaf 的 row range 语义复杂。本轮只允许 non-re
 ## 7. 后续工作
 
 - 如果后续 Arrow writer 或外部 fixture 能稳定提供 bloom filter metadata，补 nested bloom pruning 的真实 parquet fixture。
-- schema change 场景下，把 table nested path 到 file nested path 的 mapping 入口收敛到 mapper，不让 file reader 理解 table/global schema。
+- 完整复杂 child schema change 需要 FE/table reader 提供完整 nested table mapping；file reader 仍不理解 table/global schema。
 - LIST/MAP/repeated leaf 只有在 Dremel row semantics 和 row-range 语义明确后再接入 pruning。
 
 ## 8. 需要避免的实现

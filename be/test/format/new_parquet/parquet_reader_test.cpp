@@ -740,6 +740,61 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     EXPECT_EQ(read_type->get_element_name(1), "a");
 }
 
+TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
+    auto id_type = std::make_shared<DataTypeInt32>();
+    reader::SchemaField file_child;
+    file_child.id = 101;
+    file_child.name = "file_id";
+    file_child.type = id_type;
+    reader::SchemaField struct_field;
+    struct_field.id = 100;
+    struct_field.name = "s";
+    struct_field.type = std::make_shared<DataTypeStruct>(DataTypes {id_type}, Strings {"file_id"});
+    struct_field.children = {file_child};
+
+    reader::TableColumn table_child;
+    table_child.id = 101;
+    table_child.name = "table_id";
+    table_child.type = id_type;
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "s";
+    table_column.type = std::make_shared<DataTypeStruct>(DataTypes {id_type}, Strings {"table_id"});
+    table_column.children = {table_child};
+
+    auto filter_expr = std::make_shared<TestFunctionExpr>(
+            "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    filter_expr->add_child(
+            struct_element_expr(TableSlotRef::create_shared(100, 100, -1, table_column.type, "s"),
+                                id_type, "table_id"));
+    filter_expr->add_child(TableLiteral::create_shared(id_type, Field::create_field<TYPE_INT>(5)));
+    reader::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .slot_ids = {100},
+    };
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_FIELD_ID;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
+
+    reader::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& projection = request.predicate_columns[0];
+    EXPECT_EQ(projection.field_id, 100);
+    ASSERT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 1);
+    EXPECT_EQ(projection.children[0].field_id, 101);
+
+    ASSERT_EQ(request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 100);
+    EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({101}));
+    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
+}
+
 TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();

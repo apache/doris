@@ -62,6 +62,7 @@ enum TableVirtualColumnType {
 // 这是 table 层和 file 层的核心边界对象。
 struct ColumnMapping {
     int32_t table_column_id = -1;
+    std::string table_column_name;
     // File-local field id for top-level columns, or child id for nested columns.
     std::optional<int32_t> field_id;
     std::string file_column_name;
