@@ -25,7 +25,9 @@ import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -45,8 +47,8 @@ public class StatementContextTest {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
         HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
-        DatabaseIf<TableIf> database = Mockito.mock(DatabaseIf.class);
-        CatalogIf<DatabaseIf> catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
         MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnablePreloadExternalMetadata(true);
@@ -123,8 +125,8 @@ public class StatementContextTest {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
         HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
-        DatabaseIf<TableIf> database = Mockito.mock(DatabaseIf.class);
-        CatalogIf<DatabaseIf> catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnablePreloadExternalMetadata(true);
 
@@ -231,5 +233,134 @@ public class StatementContextTest {
         } finally {
             statementContext.close();
         }
+    }
+
+    @Test
+    public void testSkipPreloadWhenNoInternalTableNeedsPlanReadLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Skip preload when the statement does not require any internal plan-time read lock.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(false);
+        Mockito.when(hmsExternalTable.getId()).thenReturn(15L);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hmsExternalTable, Optional.empty(), Optional.empty());
+
+            StatementContext.ExternalMetadataPreloadResult result =
+                    statementContext.preloadExternalTablesBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertFalse(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    "no internal tables require plan-time read lock", result.getSkipReason());
+            Mockito.verify(hmsExternalTable, Mockito.never()).getBaseSchema();
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testPreloadIcebergLatestSnapshotBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Cover the dedicated Iceberg latest-snapshot preload branch before the lock phase.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(icebergExternalTable.getId()).thenReturn(16L);
+        Mockito.when(icebergExternalTable.getName()).thenReturn("iceberg_tbl");
+        Mockito.when(icebergExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(icebergExternalTable.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(mvccSnapshot);
+        Mockito.when(icebergExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(icebergExternalTable.supportInternalPartitionPruned()).thenReturn(false);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(icebergExternalTable, Optional.empty(), Optional.empty());
+
+            StatementContext.ExternalMetadataPreloadResult result =
+                    statementContext.preloadExternalTablesBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
+            Mockito.verify(icebergExternalTable, Mockito.times(1))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(icebergExternalTable, Mockito.times(1)).getBaseSchema();
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testPreloadPaimonLatestSnapshotBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PaimonExternalTable paimonExternalTable = Mockito.mock(PaimonExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Cover the dedicated Paimon latest-snapshot preload branch before the lock phase.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(paimonExternalTable.getId()).thenReturn(17L);
+        Mockito.when(paimonExternalTable.getName()).thenReturn("paimon_tbl");
+        Mockito.when(paimonExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(paimonExternalTable.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(mvccSnapshot);
+        Mockito.when(paimonExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(false);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(paimonExternalTable, Optional.empty(), Optional.empty());
+
+            StatementContext.ExternalMetadataPreloadResult result =
+                    statementContext.preloadExternalTablesBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
+            Mockito.verify(paimonExternalTable, Mockito.times(1))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private DatabaseIf<TableIf> mockDatabase() {
+        return Mockito.mock(DatabaseIf.class);
+    }
+
+    private CatalogIf<?> mockCatalog() {
+        return Mockito.mock(CatalogIf.class);
     }
 }

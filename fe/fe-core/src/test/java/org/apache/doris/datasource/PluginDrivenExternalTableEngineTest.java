@@ -122,17 +122,83 @@ public class PluginDrivenExternalTableEngineTest {
                 "JDBC schema init should observe the injected debug-point delay");
     }
 
+    @Test
+    public void testInitSchemaReturnsEmptyWhenTableHandleMissing() {
+        Connector connector = createMockConnector(false, false);
+        PluginDrivenExternalTable table = createTableWithCatalogType("jdbc", connector);
+
+        // Return an empty schema result when the connector cannot resolve the table handle.
+        Assertions.assertFalse(table.initSchema().isPresent(),
+                "Missing connector table handles should produce an empty schema result");
+    }
+
+    @Test
+    public void testInitSchemaAppliesRemoteColumnNameMapping() {
+        Connector connector = createMockConnector(true, true);
+        PluginDrivenExternalTable table = createTableWithCatalogType("jdbc", connector);
+
+        // Verify that plugin-driven schema loading preserves mapped column names from the connector.
+        Optional<SchemaCacheValue> schema = table.initSchema();
+        Assertions.assertTrue(schema.isPresent(), "Schema should be present when a table handle exists");
+        Assertions.assertEquals("mapped_id", schema.get().getSchema().get(0).getName(),
+                "Mapped remote column names should be reflected in Doris schema metadata");
+    }
+
+    @Test
+    public void testEsInitSchemaDoesNotSleepOnJdbcDebugPoint() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("es");
+        DebugPointUtil.addDebugPointWithParams("PluginDrivenExternalTable.initSchema.sleep",
+                java.util.Collections.singletonMap("sleepMs", "500"));
+
+        // Keep the JDBC-only debug point isolated from non-JDBC plugin tables.
+        long startTime = System.currentTimeMillis();
+        table.initSchema();
+        long elapsedMs = System.currentTimeMillis() - startTime;
+
+        Assertions.assertTrue(elapsedMs < 400,
+                "Non-JDBC schema init should ignore the JDBC-only debug-point delay");
+    }
+
     // -------- Helpers --------
 
     private PluginDrivenExternalTable createTableWithCatalogType(String catalogType) {
-        TestablePluginCatalog catalog = new TestablePluginCatalog(catalogType);
-        ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        return createTableWithCatalogType(catalogType, createMockConnector(true, false));
+    }
+
+    private PluginDrivenExternalTable createTableWithCatalogType(String catalogType, Connector connector) {
+        TestablePluginCatalog catalog = new TestablePluginCatalog(catalogType, connector);
+        ExternalDatabase<PluginDrivenExternalTable> db = mockExternalDatabase();
         Mockito.when(db.getFullName()).thenReturn("test_db");
         Mockito.when(db.getRemoteName()).thenReturn("test_db");
 
         PluginDrivenExternalTable table = new PluginDrivenExternalTable(
                 1L, "test_table", "test_table", catalog, db);
         return table;
+    }
+
+    private Connector createMockConnector(boolean tableExists, boolean renameColumn) {
+        Connector connector = Mockito.mock(Connector.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTableSchema schema = new ConnectorTableSchema("test_table",
+                Collections.singletonList(new ConnectorColumn(
+                        "id", ConnectorType.of("INT", -1, -1), "", true, null, true)),
+                null, Collections.emptyMap());
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        Mockito.when(metadata.getTableHandle(Mockito.any(ConnectorSession.class), Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(tableExists ? Optional.of(handle) : Optional.empty());
+        Mockito.when(metadata.getTableSchema(Mockito.any(ConnectorSession.class), Mockito.eq(handle))).thenReturn(schema);
+        Mockito.when(metadata.fromRemoteColumnName(Mockito.any(ConnectorSession.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString())).thenAnswer(invocation -> {
+                    String remoteName = invocation.getArgument(3);
+                    return renameColumn ? "mapped_" + remoteName : remoteName;
+                });
+        return connector;
+    }
+
+    @SuppressWarnings("unchecked")
+    private ExternalDatabase<PluginDrivenExternalTable> mockExternalDatabase() {
+        return Mockito.mock(ExternalDatabase.class);
     }
 
     /**
@@ -142,8 +208,8 @@ public class PluginDrivenExternalTableEngineTest {
     private static class TestablePluginCatalog extends PluginDrivenExternalCatalog {
         private final String catalogType;
 
-        TestablePluginCatalog(String catalogType) {
-            super(1L, "test-catalog", null, makeProps(catalogType), "", mockConnector());
+        TestablePluginCatalog(String catalogType, Connector connector) {
+            super(1L, "test-catalog", null, makeProps(catalogType), "", connector);
             this.catalogType = catalogType;
         }
 
@@ -171,23 +237,6 @@ public class PluginDrivenExternalTableEngineTest {
             Map<String, String> props = new HashMap<>();
             props.put("type", type);
             return props;
-        }
-
-        private static Connector mockConnector() {
-            Connector c = Mockito.mock(Connector.class);
-            ConnectorMetadata meta = Mockito.mock(ConnectorMetadata.class);
-            ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
-            ConnectorTableSchema schema = new ConnectorTableSchema("test_table",
-                    Collections.singletonList(new ConnectorColumn(
-                            "id", ConnectorType.of("INT", -1, -1), "", true, null, true)),
-                    null, Collections.emptyMap());
-            Mockito.when(c.getMetadata(Mockito.any())).thenReturn(meta);
-            Mockito.when(meta.getTableHandle(Mockito.any(ConnectorSession.class), Mockito.anyString(), Mockito.anyString()))
-                    .thenReturn(Optional.of(handle));
-            Mockito.when(meta.getTableSchema(Mockito.any(ConnectorSession.class), Mockito.eq(handle))).thenReturn(schema);
-            Mockito.when(meta.fromRemoteColumnName(Mockito.any(ConnectorSession.class), Mockito.anyString(),
-                    Mockito.anyString(), Mockito.anyString())).thenAnswer(invocation -> invocation.getArgument(3));
-            return c;
         }
     }
 }
