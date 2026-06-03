@@ -795,33 +795,53 @@ struct IsMutableColumns<> {
 };
 
 // prefer assert_cast than check_and_get
-template <typename Type>
-const Type* check_and_get_column(const IColumn& column) {
-    return typeid_cast<const Type*>(&column);
+template <typename Type, typename From>
+const Type* check_and_get_column(const From& column) {
+    using FromType = std::remove_cv_t<From>;
+    static_assert(std::is_base_of_v<IColumn, FromType>,
+                  "check_and_get_column requires an IColumn-derived source type");
+    static_assert(!std::is_same_v<std::remove_cv_t<Type>, FromType>,
+                  "check_and_get_column is redundant for the same column type");
+    return typeid_cast<const Type*>(static_cast<const IColumn*>(&column));
 }
 
-template <typename Type>
-Type* check_and_get_column(IColumn& column) {
-    return typeid_cast<Type*>(&column);
+template <typename Type, typename From>
+Type* check_and_get_column(From& column) {
+    using FromType = std::remove_cv_t<From>;
+    static_assert(std::is_base_of_v<IColumn, FromType>,
+                  "check_and_get_column requires an IColumn-derived source type");
+    static_assert(!std::is_same_v<std::remove_cv_t<Type>, FromType>,
+                  "check_and_get_column is redundant for the same column type");
+    return typeid_cast<Type*>(static_cast<IColumn*>(&column));
 }
 
-template <typename Type>
-const Type* check_and_get_column(const IColumn* column) {
-    return typeid_cast<const Type*>(column);
+template <typename Type, typename From>
+const Type* check_and_get_column(const From* column) {
+    using FromType = std::remove_cv_t<From>;
+    static_assert(std::is_base_of_v<IColumn, FromType>,
+                  "check_and_get_column requires an IColumn-derived source type");
+    static_assert(!std::is_same_v<std::remove_cv_t<Type>, FromType>,
+                  "check_and_get_column is redundant for the same column type");
+    return typeid_cast<const Type*>(static_cast<const IColumn*>(column));
 }
 
-template <typename Type>
-Type* check_and_get_column(IColumn* column) {
-    return typeid_cast<Type*>(column);
+template <typename Type, typename From>
+Type* check_and_get_column(From* column) {
+    using FromType = std::remove_cv_t<From>;
+    static_assert(std::is_base_of_v<IColumn, FromType>,
+                  "check_and_get_column requires an IColumn-derived source type");
+    static_assert(!std::is_same_v<std::remove_cv_t<Type>, FromType>,
+                  "check_and_get_column is redundant for the same column type");
+    return typeid_cast<Type*>(static_cast<IColumn*>(column));
 }
 
-template <typename Type>
-bool is_column(const IColumn& column) {
-    return check_and_get_column<Type>(&column);
+template <typename Type, typename From>
+bool is_column(const From& column) {
+    return check_and_get_column<Type>(column);
 }
 
-template <typename Type>
-bool is_column(const IColumn* column) {
+template <typename Type, typename From>
+bool is_column(const From* column) {
     return check_and_get_column<Type>(column);
 }
 

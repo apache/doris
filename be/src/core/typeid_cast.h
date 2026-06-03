@@ -26,6 +26,22 @@
 #include "common/exception.h"
 #include "common/status.h"
 
+template <typename T>
+struct TypeIdCastNormalizedType {
+    using no_ref_t = std::remove_reference_t<T>;
+    using no_cv_t = std::remove_cv_t<no_ref_t>;
+    using type =
+            std::conditional_t<std::is_pointer_v<no_cv_t>,
+                               std::add_pointer_t<std::remove_cv_t<std::remove_pointer_t<no_cv_t>>>,
+                               no_cv_t>;
+};
+
+template <typename T>
+using TypeIdCastNormalizedType_t = typename TypeIdCastNormalizedType<T>::type;
+
+template <typename T>
+using TypeIdCastClassType_t = std::remove_pointer_t<TypeIdCastNormalizedType_t<T>>;
+
 /** Checks type by comparing typeid.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   * In the rest, behaves like a dynamic_cast.
@@ -33,6 +49,14 @@
 
 template <typename To, typename From>
 To typeid_cast(From* from) {
+    static_assert(!std::is_same_v<TypeIdCastNormalizedType_t<To>, TypeIdCastNormalizedType_t<From>>,
+                  "typeid_cast is redundant for the same type after removing cv/ref qualifiers");
+    static_assert(std::is_class_v<TypeIdCastClassType_t<To>> &&
+                          std::is_class_v<TypeIdCastClassType_t<From>>,
+                  "typeid_cast requires casting between class pointer types");
+    static_assert(std::is_base_of_v<TypeIdCastClassType_t<From>, TypeIdCastClassType_t<To>>,
+                  "typeid_cast only supports downcast from a base type to a derived type");
+
 #ifndef NDEBUG
     try {
         if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
