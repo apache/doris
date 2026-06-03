@@ -355,6 +355,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
                                                        HashTableCtxType& context,
                                                        HashTableType& hash_table,
                                                        const size_t size_to_revoke, bool eos) {
+    RETURN_IF_CANCELLED(state);
     Status status;
 
     context.init_iterator();
@@ -426,6 +427,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
 }
 
 Status PartitionedAggSinkLocalState::_revoke_memory(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     if (_eos) {
         return Status::OK();
     }

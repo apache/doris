@@ -79,6 +79,7 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
 }
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     if (!_writer) {
         return Status::OK();
     }
