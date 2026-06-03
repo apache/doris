@@ -211,7 +211,7 @@ Status parse_one_lru_entry(std::ifstream& in, std::string& filename, io::UInt128
 
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
-    gflags::SetUsageMessage(usage);
+    google::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     std::ifstream in(FLAGS_filename, std::ios::binary);

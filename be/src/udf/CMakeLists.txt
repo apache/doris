@@ -26,3 +26,5 @@ file(GLOB PYTHON_UDF_SOURCES "python/*.cpp")
 # can have dependencies on our other libs. The second version is shipped as part
 # of the UDF sdk, which can't use other libs.
 add_library(Udf STATIC ${PYTHON_UDF_SOURCES})
+target_link_libraries(Udf PUBLIC ${COMMON_THIRDPARTY})
+target_compile_options(Udf PRIVATE -Wno-shadow -Wno-undef -Wno-unused-template -Wno-conversion -Wno-pedantic)

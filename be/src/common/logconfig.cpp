@@ -133,7 +133,8 @@ void custom_prefix(std::ostream& s, const google::LogMessageInfo& l, void* arg) 
     if constexpr (custom_date_time_format) {
         s << std::put_time(&tm_time, config::sys_log_custom_date_time_format.c_str());
         if (!config::sys_log_custom_date_time_ms_format.empty()) {
-            s << fmt::format(config::sys_log_custom_date_time_ms_format, l.time.usec() / 1000);
+            s << fmt::format(fmt::runtime(config::sys_log_custom_date_time_ms_format),
+                             l.time.usec() / 1000);
         }
     } else {
         s << std::put_time(&tm_time, "%Y%m%d %H:%M:%S");

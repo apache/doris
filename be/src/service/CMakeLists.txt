@@ -40,9 +40,20 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)
+    # Force -fPIC (not -fPIE) to match the PCH target which is a STATIC library.
+    # Clang's PCH validator rejects PIC/PIE mismatches.
+    target_compile_options(doris_be PRIVATE -fPIC)
 
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
+    )
+
+    # Help linker resolve bare -lcurl, -lcares, -ldeflate injected by
+    # AWS SDK and other third-party CMake transitive dependencies
+    target_link_directories(doris_be PRIVATE
+        ${CMAKE_BINARY_DIR}/lib
+        ${CMAKE_BINARY_DIR}/thirdparty/cares/lib64
+        ${CMAKE_BINARY_DIR}/thirdparty/libdeflate
     )
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)

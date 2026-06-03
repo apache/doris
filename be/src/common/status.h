@@ -19,6 +19,23 @@
 
 #include "common/check.h"         // IWYU pragma: export
 #include "common/compiler_util.h" // IWYU pragma: keep
+
+// Restore fmt 7's implicit enum→underlying conversion for fmt 8. Many BE call
+// sites format raw enums (FieldType / PrimitiveType / ErrorCode / Aws::S3::
+// S3Errors / WarmUpProgress / ...) and rely on the formatter being visible
+// wherever <fmt/format.h> is. Placing it in status.h — included by virtually
+// every BE translation unit — keeps it universally available.
+namespace fmt {
+template <typename E>
+struct formatter<E, std::enable_if_t<std::is_enum_v<E>, char>>
+        : formatter<std::underlying_type_t<E>> {
+    template <typename FormatContext>
+    auto format(E e, FormatContext& ctx) const {
+        return formatter<std::underlying_type_t<E>>::format(
+                static_cast<std::underlying_type_t<E>>(e), ctx);
+    }
+};
+} // namespace fmt
 #include "common/config.h"
 #include "common/expected.h"
 #include "util/stack_util.h"
@@ -435,7 +452,7 @@ public:
         if constexpr (sizeof...(args) == 0) {
             status._err_msg->_msg = msg;
         } else {
-            status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
+            status._err_msg->_msg = fmt::format(fmt::runtime(msg), std::forward<Args>(args)...);
         }
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace &&
             config::enable_stacktrace) {
@@ -454,7 +471,7 @@ public:
         if constexpr (sizeof...(args) == 0) {
             status._err_msg->_msg = msg;
         } else {
-            status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
+            status._err_msg->_msg = fmt::format(fmt::runtime(msg), std::forward<Args>(args)...);
         }
         if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace &&
             config::enable_stacktrace) {
@@ -469,7 +486,7 @@ public:
     template <bool stacktrace = true, typename... Args>
     static Status FatalError(std::string_view msg, Args&&... args) {
 #ifndef NDEBUG
-        LOG(FATAL) << fmt::format(msg, std::forward<Args>(args)...);
+        LOG(FATAL) << fmt::format(fmt::runtime(msg), std::forward<Args>(args)...);
 #endif
         return Error<ErrorCode::FATAL_ERROR, stacktrace>(msg, std::forward<Args>(args)...);
     }

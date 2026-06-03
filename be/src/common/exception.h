@@ -26,6 +26,8 @@
 #include <string_view>
 #include <utility>
 
+// status.h is the home for the generic fmt enum→underlying formatter (fmt 8
+// no longer does this implicitly); include it before fmt::format on enums.
 #include "common/status.h"
 #include "util/defer_op.h" // IWYU pragma: keep
 
@@ -41,7 +43,7 @@ public:
     // Format message with fmt::format, like the logging functions.
     template <typename... Args>
     Exception(int code, const std::string_view& fmt, Args&&... args)
-            : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
+            : Exception(code, fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...)) {}
 
     int code() const { return _code; }
     std::string message() const { return _err_msg ? _err_msg->_msg : ""; }

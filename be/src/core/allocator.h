@@ -103,8 +103,8 @@ public:
 
     static void release_unused() {
 #if defined(USE_JEMALLOC)
-        jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
-                  nullptr, 0);
+        je_mallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
+                   nullptr, 0);
 #endif // defined(USE_JEMALLOC)
     }
 };

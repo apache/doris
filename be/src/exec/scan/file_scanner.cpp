@@ -72,10 +72,12 @@
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
+#ifdef ENABLE_PAIMON_CPP
 #include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
 #include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
+#endif
 #include "format/table/remote_doris_reader.h"
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
@@ -1068,6 +1070,7 @@ Status FileScanner::_get_next_reader() {
         TFileFormatType::type format_type = _get_current_format_type();
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
+#ifdef ENABLE_PAIMON_CPP
             if (range.table_format_params.table_format_type == "paimon" &&
                 !range.table_format_params.paimon_params.__isset.paimon_split) {
                 // use native reader
@@ -1080,6 +1083,7 @@ Status FileScanner::_get_next_reader() {
                     return Status::InternalError("Not supported paimon file format: {}", format);
                 }
             }
+#endif
         }
 
         bool push_down_predicates = _should_push_down_predicates(format_type);
@@ -1101,6 +1105,7 @@ Status FileScanner::_get_next_reader() {
                         range, _state, _profile);
                 init_status = static_cast<GenericReader*>(mc_reader.get())->init_reader(&jni_ctx);
                 _cur_reader = std::move(mc_reader);
+#ifdef ENABLE_PAIMON_CPP
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
                 if (_state->query_options().__isset.enable_paimon_cpp_reader &&
@@ -1124,6 +1129,7 @@ Status FileScanner::_get_next_reader() {
                             static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
                     _cur_reader = std::move(paimon_reader);
                 }
+#endif
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 auto hudi_reader = HudiJniReader::create_unique(
@@ -1388,6 +1394,7 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                 });
         init_status = static_cast<GenericReader*>(iceberg_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(iceberg_reader);
+#ifdef ENABLE_PAIMON_CPP
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "paimon") {
         // PaimonParquetReader IS-A ParquetReader, no wrapping needed
@@ -1396,6 +1403,7 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                 _io_ctx, _state, file_meta_cache_ptr);
         init_status = static_cast<GenericReader*>(paimon_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(paimon_reader);
+#endif
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
         // HudiParquetReader IS-A ParquetReader, no wrapping needed
@@ -1480,6 +1488,7 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
         init_status = static_cast<GenericReader*>(iceberg_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(iceberg_reader);
+#ifdef ENABLE_PAIMON_CPP
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "paimon") {
         // PaimonOrcReader IS-A OrcReader, no wrapping needed
@@ -1489,6 +1498,7 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
         init_status = static_cast<GenericReader*>(paimon_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(paimon_reader);
+#endif
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
         // HudiOrcReader IS-A OrcReader, no wrapping needed

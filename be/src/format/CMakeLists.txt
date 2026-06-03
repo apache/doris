@@ -29,6 +29,10 @@ if (NOT BUILD_RUST_READERS)
     list(REMOVE_ITEM SRC_FILES ${LANCE_FILES})
 endif()
 
+if(NOT ENABLE_PAIMON_CPP)
+    list(FILTER SRC_FILES EXCLUDE REGEX ".*paimon.*\\.cpp$")
+endif()
+
 add_library(Format STATIC ${SRC_FILES})
 
 pch_reuse(Format)

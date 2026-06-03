@@ -939,7 +939,7 @@ private:
     std::string _import_label;
     std::string _db_name;
     std::string _load_dir;
-    int64_t _load_job_id;
+    int64_t _load_job_id = -1;
     int64_t _wal_id = -1;
     size_t _content_length = 0;
 

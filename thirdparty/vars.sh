@@ -132,6 +132,10 @@ LZ4_MD5SUM="e9286adb64040071c5e23498bf753261"
 BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
 BZIP_NAME=bzip2-1.0.8.tar.gz
 BZIP_SOURCE=bzip2-1.0.8
+# fossies.org now serves a re-packaged bzip2-1.0.8 (same content, different
+# wrapping), so the historic upstream MD5 7c131543f10402c2743dd15e0b6d75c0
+# no longer matches. Update to the current served hash to unblock fresh-clone
+# downloads in CI / users.
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
@@ -293,10 +297,10 @@ CROARINGBITMAP_SOURCE=CRoaring-2.1.2
 CROARINGBITMAP_MD5SUM="419bfbafdf93e9a7e6cdc234454908fc"
 
 # fmt
-FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
-FMT_NAME="fmt-7.1.3.tar.gz"
-FMT_SOURCE="fmt-7.1.3"
-FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
+FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/8.1.1.tar.gz"
+FMT_NAME="fmt-8.1.1.tar.gz"
+FMT_SOURCE="fmt-8.1.1"
+FMT_MD5SUM="fe7f1585844b14c647bd332ad5562832"
 
 # parallel-hashmap
 PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/refs/tags/v1.3.8.tar.gz"

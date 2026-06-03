@@ -22,6 +22,20 @@ project(doris_cloud CXX C)
 # Write compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Sanitizer builds (ASAN/MSAN/TSAN/UBSAN/LSAN) cannot use prebuilt thirdparty —
+# the prebuilt libs are not instrumented. BE forces USE_CONTRIB_SOURCE=ON for
+# those build types; cloud must do the same so its include_directories block
+# below picks the source-mode paths.
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR
+    "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT" OR
+    "${CMAKE_BUILD_TYPE}" STREQUAL "TSAN" OR
+    "${CMAKE_BUILD_TYPE}" STREQUAL "MSAN" OR
+    "${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN" OR
+    "${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
+    set(USE_CONTRIB_SOURCE ON CACHE BOOL "Build thirdparty from source" FORCE)
+    message(STATUS "Cloud sanitizer build (${CMAKE_BUILD_TYPE}): forcing USE_CONTRIB_SOURCE=ON")
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(cppcheck)
 
@@ -164,8 +178,29 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
 
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "MSAN")
+    set(USE_LIBCPP ON)
+    set(USE_JEMALLOC OFF)
+endif()
+
 if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "MSAN")
+        # MSAN: use instrumented libc++ built from source
+        set(_MSAN_LIBCXX_DIR "$ENV{DORIS_THIRDPARTY}/build_msan_libcxx")
+        if (EXISTS "${_MSAN_LIBCXX_DIR}/lib/libc++.a")
+            message(STATUS "MSAN: using instrumented libc++ from ${_MSAN_LIBCXX_DIR}")
+            set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -nostdinc++ -isystem ${_MSAN_LIBCXX_DIR}/include/c++/v1")
+            set(MSAN_LIBCXX_LIBS
+                "${_MSAN_LIBCXX_DIR}/lib/libc++.a"
+                "${_MSAN_LIBCXX_DIR}/lib/libc++abi.a"
+                "${_MSAN_LIBCXX_DIR}/lib/libunwind.a")
+        else()
+            message(WARNING "MSAN: instrumented libc++ not found, falling back to toolchain libc++")
+            set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
+        endif()
+    else()
+        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
+    endif()
     add_definitions(-DUSE_LIBCPP)
 endif()
 
@@ -223,6 +258,9 @@ SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined")
 # If use -O0 to compile, process may stack overflow when start. https://github.com/apache/doris/issues/8868
 SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
 
+# MSAN flags — must use instrumented libc++ (set above)
+SET(CXX_FLAGS_MSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=memory -fsanitize-memory-track-origins=2 -fsanitize-ignorelist=$ENV{DORIS_HOME}/conf/msan_ignorelist.txt -fno-omit-frame-pointer -DMEMORY_SANITIZER")
+
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
     SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG})
@@ -236,6 +274,8 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
     SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_UBSAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
     SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_TSAN}")
+elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "MSAN")
+    SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_MSAN}")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
@@ -261,6 +301,47 @@ include_directories(
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
+
+# Source-mode (USE_CONTRIB_SOURCE=ON): ${THIRDPARTY_DIR}/include is empty —
+# headers live under thirdparty/src/<lib>/ and the build tree. Mirror the
+# subset BE's CMakeLists.txt exposes so cloud/src/ can find fmt, brpc's
+# generated butil/config.h, aws-cpp-sdk-core (cJSON, SDKConfig.h), etc.
+if (USE_CONTRIB_SOURCE)
+    # cloud's CMakeLists.txt is invoked as a separate top-level project rooted
+    # at ${DORIS_HOME}/cloud/, so CMAKE_SOURCE_DIR points there; go up one to
+    # reach thirdparty/. BE's source-mode build dir is be/build_<TYPE>/thirdparty,
+    # while cloud has its own build_<TYPE> tree — point at BE's so we reuse the
+    # already-generated headers (configure_file outputs from aws_sdk.cmake,
+    # brpc, jemalloc, etc.).
+    set(_CLOUD_TP_SRC "${CMAKE_SOURCE_DIR}/../thirdparty/src")
+    set(_CLOUD_TP_BUILD "${CMAKE_SOURCE_DIR}/../be/build_${CMAKE_BUILD_TYPE}/thirdparty")
+    include_directories(SYSTEM
+        ${_CLOUD_TP_SRC}/fmt-8.1.1/include
+        ${_CLOUD_TP_SRC}/brpc-1.4.0/src
+        ${_CLOUD_TP_BUILD}/brpc
+        ${_CLOUD_TP_SRC}/glog-0.6.0/src
+        ${_CLOUD_TP_BUILD}/glog
+        ${_CLOUD_TP_SRC}/protobuf-21.11/src
+        ${_CLOUD_TP_SRC}/aws-sdk-cpp-1.11.219/src/aws-cpp-sdk-core/include
+        ${_CLOUD_TP_BUILD}/aws-sdk-gen/aws-cpp-sdk-core/include
+        ${_CLOUD_TP_SRC}/aws-sdk-cpp-1.11.219/generated/src/aws-cpp-sdk-s3/include
+        ${_CLOUD_TP_SRC}/aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/include
+        ${_CLOUD_TP_SRC}/aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-common/include
+        ${_CLOUD_TP_SRC}/boost_1_81_0
+        ${_CLOUD_TP_SRC}/abseil-cpp-20250512.1
+        ${_CLOUD_TP_SRC}/rapidjson-232389d4f1012dddec4ef84861face2d2ba85709/include
+        ${_CLOUD_TP_SRC}/jemalloc-5.3.0/include
+        ${_CLOUD_TP_BUILD}/jemalloc_config
+        ${_CLOUD_TP_BUILD}/thrift_gen
+        ${_CLOUD_TP_SRC}/thrift-0.16.0/lib/cpp/src
+        # azure-sdk-for-cpp: cloud/src/recycler uses azure/core, azure/storage/blobs,
+        # azure/storage/common; the identity path mirrors BE for symmetry.
+        ${_CLOUD_TP_SRC}/azure-sdk-for-cpp-azure-core_1.16.0/sdk/core/azure-core/inc
+        ${_CLOUD_TP_SRC}/azure-sdk-for-cpp-azure-core_1.16.0/sdk/identity/azure-identity/inc
+        ${_CLOUD_TP_SRC}/azure-sdk-for-cpp-azure-core_1.16.0/sdk/storage/azure-storage-blobs/inc
+        ${_CLOUD_TP_SRC}/azure-sdk-for-cpp-azure-core_1.16.0/sdk/storage/azure-storage-common/inc
+    )
+endif()
 
 option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
 if (ENABLE_HDFS_STORAGE_VAULT)
@@ -364,6 +445,9 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${TSAN_LIBS})
     add_definitions("-DTHREAD_SANITIZER")
+elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "MSAN")
+    # MSAN: no extra malloc lib, clang links sanitizer runtime automatically
+    add_definitions("-DMEMORY_SANITIZER")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
@@ -400,7 +484,9 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 set(FDB_VERSIONS "7.1.57" "7.3.69")
 set(FDB_DEFAULT_VERSION "7.1.57")
 include(install_fdb)
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
+# --allow-multiple-definition: aws-c-io's tls_channel_handler.c and s2n_tls_channel_handler.c
+# both define aws_tls_key_operation_* (upstream design for GCC, needs explicit flag for lld)
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib -Wl,--allow-multiple-definition")
 
 set(DORIS_CLOUD_LIBS
     CloudGen
@@ -457,6 +543,10 @@ if (${MAKE_TEST} STREQUAL "OFF")
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_cloud PROPERTIES ENABLE_EXPORTS 1)
     target_link_libraries(doris_cloud ${DORIS_LINK_LIBS})
+
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "MSAN" AND MSAN_LIBCXX_LIBS)
+        target_link_libraries(doris_cloud -nostdlib++ ${MSAN_LIBCXX_LIBS})
+    endif()
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib)
     install(TARGETS doris_cloud DESTINATION ${OUTPUT_DIR}/lib)

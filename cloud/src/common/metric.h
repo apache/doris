@@ -22,7 +22,10 @@
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "common/logging.h"
 #include "meta-store/txn_kv.h"

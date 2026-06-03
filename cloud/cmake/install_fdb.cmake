@@ -239,6 +239,14 @@ function(setup_default_fdb version)
     execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_DIR}/lib64/libfdb_c.so")
     execute_process(COMMAND "cp" "-r" "${FDB_INSTALL_DIR}/include/foundationdb" "${THIRDPARTY_DIR}/include/foundationdb")
     execute_process(COMMAND "cp" "${FDB_INSTALL_DIR}/lib64/libfdb_c.so" "${THIRDPARTY_DIR}/lib64/libfdb_c.so")
+    # In source mode (no build-thirdparty.sh, no installed/lib -> lib64 symlink),
+    # cloud/CMakeLists.txt links with -L${THIRDPARTY_DIR}/lib but install_fdb only
+    # populates lib64/. Mirror the .so into lib/ so -lfdb_c resolves in either layout.
+    # NOTE: use cp (not symlink) — install_fdb_library() does install(FILES lib/libfdb_c.so)
+    # which preserves absolute symlink targets in the deploy output (dead links in CI).
+    execute_process(COMMAND "${CMAKE_COMMAND}" "-E" "make_directory" "${THIRDPARTY_DIR}/lib")
+    execute_process(COMMAND "rm" "-f" "${THIRDPARTY_DIR}/lib/libfdb_c.so")
+    execute_process(COMMAND "cp" "${THIRDPARTY_DIR}/lib64/libfdb_c.so" "${THIRDPARTY_DIR}/lib/libfdb_c.so")
 
     # Set FDB API version for the default version
     set(api_version_var "FDB_CONFIG_${version}_API_VERSION")

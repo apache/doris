@@ -56,6 +56,10 @@ Usage: $0 <options>
      [no option]                build all components
      --fe                       build Frontend. Default ON.
      --be                       build Backend. Default ON.
+     --asan                     build Backend in ASAN (AddressSanitizer) mode. Implies --be.
+     --tsan                     build Backend in TSAN (ThreadSanitizer) mode. Implies --be.
+     --ubsan                    build Backend in UBSAN (UndefinedBehaviorSanitizer) mode. Implies --be.
+     --ut                       build Backend unit tests. Implies --be and ASAN mode (unless overridden).
      --meta-tool                build Backend meta tool. Default OFF.
      --file-cache-microbench    build Backend file cache microbench tool. Default OFF.
      --cloud                    build Cloud. Default OFF.
@@ -70,6 +74,8 @@ Usage: $0 <options>
      --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
      --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
      --clean                    clean and build target
+     --use-source               build thirdparty from source (default; required for sanitizer builds)
+     --use-prebuilt             link prebuilt thirdparty from \$DORIS_THIRDPARTY/installed (Release/Debug only)
      --output                   specify the output directory
      -j                         build Backend parallel
 
@@ -98,8 +104,15 @@ Usage: $0 <options>
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
+    $0 --be --asan                          build Backend with AddressSanitizer
+    $0 --be --tsan                          build Backend with ThreadSanitizer
+    $0 --be --ubsan                          build Backend with UndefinedBehaviorSanitizer
+    $0 --ut                                 build Backend unit tests (ASAN mode)
+    $0 --ut --tsan                          build Backend unit tests (TSAN mode)
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
     $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
+    $0 --be --use-prebuilt                  link prebuilt thirdparty (must run \`bash thirdparty/build-thirdparty.sh\` first)
+    $0 --be --use-source                    build thirdparty from source (default for sanitizer builds)
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -127,6 +140,9 @@ clean_be() {
     # while building be.
     CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
+    if [[ "${MAKE_TEST}" == "ON" ]]; then
+        CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+    fi
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
@@ -167,6 +183,13 @@ if ! OPTS="$(getopt \
     -l 'disable-dynamic-arch' \
     -l 'clean' \
     -l 'coverage' \
+    -l 'asan' \
+    -l 'tsan' \
+    -l 'ut' \
+    -l 'ubsan' \
+    -l 'msan' \
+    -l 'use-prebuilt' \
+    -l 'use-source' \
     -l 'help' \
     -l 'output:' \
     -o 'hj:' \
@@ -198,6 +221,7 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
+MAKE_TEST='OFF'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -301,6 +325,49 @@ else
             DENABLE_CLANG_COVERAGE='ON'
             shift
             ;;
+        --asan)
+            BUILD_TYPE='ASAN'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
+        --tsan)
+            BUILD_TYPE='TSAN'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
+        --ubsan)
+            BUILD_TYPE='UBSAN'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
+        --msan)
+            BUILD_TYPE='MSAN'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
+        --use-prebuilt)
+            USE_CONTRIB_SOURCE_OVERRIDE='OFF'
+            shift
+            ;;
+        --use-source)
+            USE_CONTRIB_SOURCE_OVERRIDE='ON'
+            shift
+            ;;
+        --ut)
+            MAKE_TEST='ON'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
         -h)
             HELP=1
             shift
@@ -352,23 +419,8 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
-# build thirdparty libraries if necessary. check last thirdparty lib installation
-if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
-    LAST_THIRDPARTY_LIB='libbrotlienc.a'
-else
-    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
-fi
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
-    rm -rf "${DORIS_THIRDPARTY}/installed"
-
-    if [[ "${CLEAN}" -eq 0 ]]; then
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
-    else
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
-    fi
-fi
+# download thirdparty source code if necessary (CMake will build from source)
+# "${DORIS_THIRDPARTY}/download-thirdparty.sh"
 
 update_submodule() {
     local submodule_path=$1
@@ -437,8 +489,19 @@ if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
 BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
-if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
+# For UT builds, default to ASAN mode if no BUILD_TYPE is explicitly set
+if [[ "${MAKE_TEST}" == 'ON' && -z "${BUILD_TYPE}" ]]; then
+    BUILD_TYPE='ASAN'
+    BUILD_TYPE_LOWWER='asan'
+fi
+if [[ "${BUILD_TYPE_LOWWER}" == "asan" || "${BUILD_TYPE_LOWWER}" == "tsan" || "${BUILD_TYPE_LOWWER}" == "ubsan" ]]; then
     USE_JEMALLOC='OFF'
+    # Sanitizer builds must disable PCH to avoid PIE mismatch errors
+    ENABLE_PCH='OFF'
+    # UT builds enable injection points by default
+    if [[ "${MAKE_TEST}" == 'ON' ]]; then
+        ENABLE_INJECTION_POINT='ON'
+    fi
 elif [[ -z "${USE_JEMALLOC}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         USE_JEMALLOC='ON'
@@ -598,6 +661,136 @@ echo "Feature List: ${DORIS_FEATURE_LIST}"
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
+
+# Ensure protoc and thrift compilers are available before generating code.
+# They may be missing after a --clean (broken symlinks pointing into deleted build dirs).
+_PROTOC_BIN="${DORIS_THIRDPARTY}/installed/bin/protoc"
+_THRIFT_BIN="${DORIS_THIRDPARTY}/installed/bin/thrift"
+_GENSRC_TOOLS_DIR="${DORIS_THIRDPARTY}/_gensrc_tools"
+
+# Make sure thirdparty source tree is populated before protoc/thrift fallback
+# tries to compile them from src/. CI may export DORIS_THIRDPARTY= to force
+# rebuild, so thirdparty/installed/ is empty AND thirdparty/src/ starts empty
+# on a fresh clone.
+if [[ "${USE_CONTRIB_SOURCE_OVERRIDE}" != "OFF" ]]; then
+    _tp_src_count_pre=0
+    if [[ -d "${DORIS_THIRDPARTY}/src" ]]; then
+        _tp_src_count_pre=$(find "${DORIS_THIRDPARTY}/src" -maxdepth 1 -mindepth 1 | wc -l)
+    fi
+    if [[ "${_tp_src_count_pre}" -lt 10 ]]; then
+        # Apache Doris CI mounts /var/local/thirdparty/src/ into the build
+        # container with all extracted source trees pre-staged (the mirror at
+        # doris-thirdparty-repo.bj.bcebos.com is missing a few newer tarballs,
+        # so falling through to download-thirdparty.sh is flaky). Prefer the
+        # CI-staged tree when present.
+        _CI_TP_SRC="/var/local/thirdparty/src"
+        _ci_src_count=0
+        if [[ -d "${_CI_TP_SRC}" ]]; then
+            _ci_src_count=$(find "${_CI_TP_SRC}" -maxdepth 1 -mindepth 1 | wc -l)
+        fi
+        if [[ "${_ci_src_count}" -ge 10 ]]; then
+            echo "[build.sh] using ${_ci_src_count} staged thirdparty source entries from ${_CI_TP_SRC}"
+            mkdir -p "${DORIS_THIRDPARTY}/src"
+            for _ci_entry in "${_CI_TP_SRC}"/*; do
+                _ci_name=$(basename "${_ci_entry}")
+                if [[ ! -e "${DORIS_THIRDPARTY}/src/${_ci_name}" ]]; then
+                    ln -sfn "${_ci_entry}" "${DORIS_THIRDPARTY}/src/${_ci_name}"
+                fi
+            done
+        else
+            echo "[build.sh] thirdparty/src appears empty (${_tp_src_count_pre} entries);"
+            echo "[build.sh] running download-thirdparty.sh to fetch sources..."
+            bash "${DORIS_THIRDPARTY}/download-thirdparty.sh"
+        fi
+    fi
+fi
+
+if [[ ! -x "${_PROTOC_BIN}" ]]; then
+    echo "protoc not found or not executable at ${_PROTOC_BIN}, building from source..."
+    _PROTOC_BUILD_DIR="${_GENSRC_TOOLS_DIR}/protoc_build"
+    mkdir -p "${_PROTOC_BUILD_DIR}"
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER="${CC}" \
+        -DCMAKE_CXX_COMPILER="${CXX}" \
+        -Dprotobuf_BUILD_TESTS=OFF \
+        -Dprotobuf_BUILD_SHARED_LIBS=OFF \
+        -S "${DORIS_THIRDPARTY}/src/protobuf-21.11/cmake" \
+        -B "${_PROTOC_BUILD_DIR}"
+    "${CMAKE_CMD}" --build "${_PROTOC_BUILD_DIR}" --target protoc -j "${PARALLEL}"
+    if [[ -f "${_PROTOC_BUILD_DIR}/protoc" ]]; then
+        mkdir -p "$(dirname "${_PROTOC_BIN}")"
+        # cp not ln -sf: see thrift fallback block below for rationale (CI
+        # tarballs thirdparty/installed/ without _gensrc_tools).
+        cp -f "${_PROTOC_BUILD_DIR}/protoc" "${_PROTOC_BIN}"
+        echo "Built and installed protoc: ${_PROTOC_BIN} (from ${_PROTOC_BUILD_DIR}/protoc)"
+    else
+        echo "ERROR: Failed to build protoc from source" >&2
+        exit 1
+    fi
+fi
+
+if [[ ! -x "${_THRIFT_BIN}" ]]; then
+    echo "thrift not found or not executable at ${_THRIFT_BIN}, building from source..."
+    _THRIFT_BUILD_DIR="${_GENSRC_TOOLS_DIR}/thrift_build"
+    mkdir -p "${_THRIFT_BUILD_DIR}"
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER="${CC}" \
+        -DCMAKE_CXX_COMPILER="${CXX}" \
+        -DBUILD_TESTING=OFF \
+        -DBUILD_COMPILER=ON \
+        -DBUILD_TUTORIALS=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_LIBRARIES=OFF \
+        -DWITH_CPP=OFF \
+        -DWITH_JAVA=OFF \
+        -DWITH_PYTHON=OFF \
+        -DWITH_HASKELL=OFF \
+        -DWITH_C_GLIB=OFF \
+        -S "${DORIS_THIRDPARTY}/src/thrift-0.16.0" \
+        -B "${_THRIFT_BUILD_DIR}"
+    "${CMAKE_CMD}" --build "${_THRIFT_BUILD_DIR}" --target thrift-compiler -j "${PARALLEL}"
+    # thrift compiler binary may end up in different locations
+    _THRIFT_BUILT=""
+    for _candidate in "${_THRIFT_BUILD_DIR}/bin/thrift" "${_THRIFT_BUILD_DIR}/compiler/cpp/bin/thrift" "${_THRIFT_BUILD_DIR}/compiler/cpp/thrift"; do
+        if [[ -f "${_candidate}" ]]; then
+            _THRIFT_BUILT="${_candidate}"
+            break
+        fi
+    done
+    if [[ -n "${_THRIFT_BUILT}" ]]; then
+        mkdir -p "$(dirname "${_THRIFT_BIN}")"
+        # cp instead of ln -sf: CI tars thirdparty/installed/ and ships it to the
+        # regression cluster, where _gensrc_tools/ isn't present — a symlink
+        # would be dangling at runtime. Use a real file copy so the binary
+        # survives the tarball round-trip.
+        cp -f "${_THRIFT_BUILT}" "${_THRIFT_BIN}"
+        echo "Built and installed thrift: ${_THRIFT_BIN} (from ${_THRIFT_BUILT})"
+    else
+        echo "ERROR: Failed to build thrift compiler from source" >&2
+        exit 1
+    fi
+fi
+
+# Pre-build ragel if not available (needed by hyperscan during main build)
+_RAGEL_BIN="${DORIS_THIRDPARTY}/installed/bin/ragel"
+if [[ ! -x "${_RAGEL_BIN}" ]]; then
+    echo "ragel not found at ${_RAGEL_BIN}, building from source..."
+    _RAGEL_BUILD_DIR="${_GENSRC_TOOLS_DIR}/ragel_build"
+    _RAGEL_SRC="${DORIS_THIRDPARTY}/src/ragel-6.10"
+    if [[ -d "${_RAGEL_SRC}" ]]; then
+        mkdir -p "${_RAGEL_BUILD_DIR}"
+        cd "${_RAGEL_BUILD_DIR}"
+        "${_RAGEL_SRC}/configure" --prefix="${_RAGEL_BUILD_DIR}" 2>/dev/null
+        make -j "${PARALLEL}"
+        if [[ -f "${_RAGEL_BUILD_DIR}/ragel/ragel" ]]; then
+            mkdir -p "$(dirname "${_RAGEL_BIN}")"
+            ln -sf "${_RAGEL_BUILD_DIR}/ragel/ragel" "${_RAGEL_BIN}"
+            echo "Built and linked ragel: ${_RAGEL_BIN}"
+        fi
+        cd "${DORIS_HOME}"
+    fi
+fi
+
 "${DORIS_HOME}"/generated-source.sh noclean
 
 # Assesmble FE modules
@@ -680,10 +873,73 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
     CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
-    CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
+    if [[ "${MAKE_TEST}" == 'ON' ]]; then
+        CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+        echo "Build UT: ON (build dir: ${CMAKE_BUILD_DIR})"
+    else
+        CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
+    fi
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_be
     fi
+
+    # Ensure thirdparty is available for the selected mode.
+    # Source mode (default, also forced by sanitizers): needs thirdparty/src/
+    # populated by download-thirdparty.sh. Auto-trigger if empty so a fresh
+    # `git clone && ./build.sh --be` just works.
+    # Prebuilt mode (--use-prebuilt): needs thirdparty/installed/lib*/. Print
+    # instructions and exit if missing — we don't auto-download the prebuilt
+    # tarball because it's a release artifact and the user might want to pin
+    # to a specific version.
+    if [[ "${USE_CONTRIB_SOURCE_OVERRIDE}" != "OFF" ]]; then
+        _tp_src_count=0
+        if [[ -d "${DORIS_HOME}/thirdparty/src" ]]; then
+            _tp_src_count=$(find "${DORIS_HOME}/thirdparty/src" -maxdepth 1 -mindepth 1 | wc -l)
+        fi
+        if [[ "${_tp_src_count}" -lt 10 ]]; then
+            _CI_TP_SRC="/var/local/thirdparty/src"
+            _ci_src_count=0
+            if [[ -d "${_CI_TP_SRC}" ]]; then
+                _ci_src_count=$(find "${_CI_TP_SRC}" -maxdepth 1 -mindepth 1 | wc -l)
+            fi
+            if [[ "${_ci_src_count}" -ge 10 ]]; then
+                echo "[build.sh] using ${_ci_src_count} staged thirdparty source entries from ${_CI_TP_SRC}"
+                mkdir -p "${DORIS_HOME}/thirdparty/src"
+                for _ci_entry in "${_CI_TP_SRC}"/*; do
+                    _ci_name=$(basename "${_ci_entry}")
+                    if [[ ! -e "${DORIS_HOME}/thirdparty/src/${_ci_name}" ]]; then
+                        ln -sfn "${_ci_entry}" "${DORIS_HOME}/thirdparty/src/${_ci_name}"
+                    fi
+                done
+            else
+                echo "[build.sh] thirdparty/src appears empty (${_tp_src_count} entries);"
+                echo "[build.sh] running download-thirdparty.sh to fetch sources..."
+                bash "${DORIS_HOME}/thirdparty/download-thirdparty.sh"
+            fi
+        fi
+    else
+        if [[ ! -d "${DORIS_HOME}/thirdparty/installed/lib" ]] \
+           && [[ ! -d "${DORIS_HOME}/thirdparty/installed/lib64" ]]; then
+            # Auto-download + extract official prebuilt tarball.
+            # DORIS_PREBUILT_VERSION env var picks the release tag (master|2.1|3.0|3.1).
+            _prebuilt_version="${DORIS_PREBUILT_VERSION:-master}"
+            echo "[build.sh] thirdparty/installed/ is empty;"
+            echo "[build.sh] auto-downloading prebuilt thirdparty (version=${_prebuilt_version})..."
+            bash "${DORIS_HOME}/thirdparty/download-prebuild-thirdparty.sh" "${_prebuilt_version}"
+            _prebuilt_tar=$(ls "${DORIS_HOME}/thirdparty"/doris-thirdparty-prebuilt-*.tar.xz 2>/dev/null | head -1)
+            if [[ -z "${_prebuilt_tar}" ]] \
+               || [[ ! -f "${_prebuilt_tar}" ]]; then
+                echo "[build.sh] Prebuilt tarball not found after download."
+                echo "[build.sh] Set DORIS_PREBUILT_VERSION (master|2.1|3.0|3.1) or run"
+                echo "[build.sh]   bash thirdparty/build-thirdparty.sh"
+                echo "[build.sh] to build prebuilt from source instead (slow, 1-2 hours)."
+                exit 1
+            fi
+            echo "[build.sh] extracting ${_prebuilt_tar} → thirdparty/..."
+            tar -Jxf "${_prebuilt_tar}" -C "${DORIS_HOME}/thirdparty/"
+        fi
+    fi
+
     MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 
     if [[ -z "${BUILD_FS_BENCHMARK}" ]]; then
@@ -709,10 +965,12 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     cd "${CMAKE_BUILD_DIR}"
     "${CMAKE_CMD}" -G "${GENERATOR}" \
         -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
+        -DCMAKE_C_COMPILER="${CC}" \
+        -DCMAKE_CXX_COMPILER="${CXX}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
-        -DMAKE_TEST=OFF \
+        -DMAKE_TEST="${MAKE_TEST}" \
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
@@ -729,6 +987,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        ${USE_CONTRIB_SOURCE_OVERRIDE:+-DUSE_CONTRIB_SOURCE=${USE_CONTRIB_SOURCE_OVERRIDE}} \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -742,11 +1001,210 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+        # Fix bare library names injected by AWS SDK CMake internals
+        if [[ -f build.ninja ]]; then
+            sed -i 's| -lcurl | bin/libcurl.a |g' build.ninja
+            sed -i 's| -llibcurl_static | bin/libcurl.a |g' build.ninja
+            sed -i 's| -lcares | thirdparty/cares/lib64/libcares.a |g' build.ninja
+        fi
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
 
     cd "${DORIS_HOME}"
+fi
+
+# Populate installed/ with symlinks to source-built libraries for cloud module
+if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
+    _BE_BUILD_DIR="${DORIS_HOME}/be/build_${BUILD_TYPE:-Release}"
+    _TP_INSTALLED="${DORIS_THIRDPARTY}/installed"
+    _TP_LIB="${_TP_INSTALLED}/lib"
+    _TP_LIB64="${_TP_INSTALLED}/lib64"
+    _TP_INC="${_TP_INSTALLED}/include"
+    mkdir -p "${_TP_LIB}" "${_TP_LIB64}" "${_TP_INC}"
+
+    # Helper: create symlink only if target exists
+    _link() { [[ -f "$1" ]] && ln -sf "$1" "$2" 2>/dev/null || true; }
+    # Helper: find .a file in lib/ or bin/ and link to dest
+    _find_link() {
+        local name="$1" dest="$2"
+        local f="${_BE_BUILD_DIR}/lib/${name}"
+        [[ -f "${f}" ]] || f="${_BE_BUILD_DIR}/bin/${name}"
+        [[ -f "${f}" ]] && ln -sf "${f}" "${dest}" 2>/dev/null || true
+    }
+
+    # Bulk symlink all .a from BE build lib/ and bin/ dirs
+    for _f in "${_BE_BUILD_DIR}"/lib/*.a "${_BE_BUILD_DIR}"/bin/*.a; do
+        [[ -f "${_f}" ]] || continue
+        _bn=$(basename "${_f}")
+        _norm=$(echo "${_bn}" | sed 's/^lib_/lib/')
+        ln -sf "${_f}" "${_TP_LIB}/${_norm}" 2>/dev/null || true
+        ln -sf "${_f}" "${_TP_LIB64}/${_norm}" 2>/dev/null || true
+    done
+
+    # Subdirectory libraries
+    for _f in "${_BE_BUILD_DIR}"/thirdparty/cares/lib64/*.a \
+              "${_BE_BUILD_DIR}"/thirdparty/libevent/lib/*.a \
+              "${_BE_BUILD_DIR}"/thirdparty/krb5/lib/*.a \
+              "${_BE_BUILD_DIR}"/thirdparty/cyrus-sasl/lib/.libs/*.a \
+              "${_BE_BUILD_DIR}"/thirdparty/hadoop_hdfs/*.a; do
+        [[ -f "${_f}" ]] || continue
+        _bn=$(basename "${_f}")
+        ln -sf "${_f}" "${_TP_LIB}/${_bn}" 2>/dev/null || true
+        ln -sf "${_f}" "${_TP_LIB64}/${_bn}" 2>/dev/null || true
+    done
+
+    # Special name mappings for cloud module
+    _find_link "lib_jemalloc.a" "${_TP_LIB}/libjemalloc_doris.a"
+    _find_link "lib_ssl.a" "${_TP_LIB}/libssl.a"
+    _find_link "lib_crypto.a" "${_TP_LIB}/libcrypto.a"
+    _find_link "lib_xml2.a" "${_TP_LIB64}/libxml2.a"
+    _find_link "lib_lzma.a" "${_TP_LIB64}/liblzma.a"
+    _find_link "lib_idn.a" "${_TP_LIB64}/libidn.a"
+    _find_link "lib_gsasl.a" "${_TP_LIB}/libgsasl.a"
+    _find_link "libs2n.a" "${_TP_LIB}/libs2n.a"
+    _link "${_BE_BUILD_DIR}/thirdparty/cyrus-sasl/lib/.libs/libsasl2.a" "${_TP_LIB}/libsasl2.a"
+    # hadoop_hdfs — cloud expects installed/lib/hadoop_hdfs/native/libhdfs.a
+    mkdir -p "${_TP_LIB}/hadoop_hdfs/native"
+    _link "${_BE_BUILD_DIR}/thirdparty/hadoop_hdfs/libhdfs.a" "${_TP_LIB}/hadoop_hdfs/native/libhdfs.a"
+
+    # gperftools — cloud expects installed/gperftools/lib/
+    _GPERF="${_TP_INSTALLED}/gperftools"
+    mkdir -p "${_GPERF}/lib" "${_GPERF}/include"
+    # lib_pprof.a may be in lib/ or bin/ depending on build
+    _pprof_a="${_BE_BUILD_DIR}/lib/lib_pprof.a"
+    [[ -f "${_pprof_a}" ]] || _pprof_a="${_BE_BUILD_DIR}/bin/lib_pprof.a"
+    _link "${_pprof_a}" "${_GPERF}/lib/libprofiler.a"
+    _link "${_pprof_a}" "${_GPERF}/lib/libtcmalloc.a"
+    [[ -d "${DORIS_THIRDPARTY}/src/gperftools-2.10/src/gperftools" ]] && \
+        cp -rn "${DORIS_THIRDPARTY}/src/gperftools-2.10/src/gperftools" "${_GPERF}/include/" 2>/dev/null || true
+
+    # Populate installed/include with headers from source tree for cloud module
+    _TP_SRC="${DORIS_THIRDPARTY}/src"
+    # Direct include dir symlinks: src/xxx/include/yyy -> installed/include/yyy
+    for _pair in \
+        "glog-0.6.0/src:glog" \
+        "gflags-2.2.2/include:gflags" \
+        "protobuf-21.11/src:google" \
+        "brpc-1.4.0/src:brpc" \
+        "brpc-1.4.0/src:butil" \
+        "brpc-1.4.0/src:bthread" \
+        "brpc-1.4.0/src:bvar" \
+        "brpc-1.4.0/src:braft" \
+        "rocksdb-5.14.2/include:rocksdb" \
+        "fmt-7.1.3/include:fmt" \
+        "leveldb-1.23/include:leveldb" \
+        "curl-8.2.1/include:curl" \
+        "googletest-release-1.12.1/googletest/include:gtest" \
+        "googletest-release-1.12.1/googlemock/include:gmock" \
+        "aws-sdk-cpp-1.11.219/src/aws-cpp-sdk-core/include:aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-common/include:aws" \
+        "aliyun-openapi-cpp-sdk-1.36.1586/core/include:alibabacloud" \
+        "jsoncpp-1.9.5/include:json" \
+        "jemalloc-5.3.0/include:jemalloc" \
+        "doris-thirdparty-hadoop-3.3.6.6-for-doris/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/include/hdfs:hadoop_hdfs" \
+    ; do
+        _src_rel="${_pair%%:*}"
+        _dest="${_pair##*:}"
+        _src_full="${_TP_SRC}/${_src_rel}/${_dest}"
+        [[ -e "${_src_full}" ]] && ln -sfn "${_src_full}" "${_TP_INC}/${_dest}" 2>/dev/null || true
+    done
+    # AWS SDK has scattered include dirs — merge them
+    for _aws_sub in \
+        "aws-sdk-cpp-1.11.219/generated/src/aws-cpp-sdk-s3/include/aws" \
+        "aws-sdk-cpp-1.11.219/generated/src/aws-cpp-sdk-s3-crt/include/aws" \
+        "aws-sdk-cpp-1.11.219/src/aws-cpp-sdk-transfer/include/aws" \
+        "aws-sdk-cpp-1.11.219/src/aws-cpp-sdk-identity-management/include/aws" \
+        "aws-sdk-cpp-1.11.219/generated/src/aws-cpp-sdk-sts/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-io/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-cal/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-auth/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-http/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-s3/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-sdkutils/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-checksums/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-event-stream/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-compression/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/aws-c-mqtt/include/aws" \
+        "aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/crt/s2n/api" \
+    ; do
+        _full="${_TP_SRC}/${_aws_sub}"
+        [[ -d "${_full}" ]] && cp -rsn "${_full}/"* "${_TP_INC}/aws/" 2>/dev/null || true
+    done
+    # Build-generated headers
+    ln -sfn "${_BE_BUILD_DIR}/thirdparty/gflags/include/gflags" "${_TP_INC}/gflags" 2>/dev/null || true
+    ln -sfn "${_BE_BUILD_DIR}/thirdparty/glog" "${_TP_INC}/glog_gen" 2>/dev/null || true
+    # brpc proto-generated headers (hand-written build: at thirdparty/brpc/{brpc,butil,...}/*.pb.h)
+    # Source headers are already symlinked above from brpc-1.4.0/src/{brpc,butil,bthread,bvar}
+    # Only need to add generated .pb.h files on top
+    mkdir -p "${_TP_INC}/brpc" "${_TP_INC}/brpc/policy"
+    cp -f "${_BE_BUILD_DIR}/thirdparty/brpc/brpc/"*.pb.h "${_TP_INC}/brpc/" 2>/dev/null || true
+    cp -f "${_BE_BUILD_DIR}/thirdparty/brpc/brpc/policy/"*.pb.h "${_TP_INC}/brpc/policy/" 2>/dev/null || true
+    cp -f "${_BE_BUILD_DIR}/thirdparty/brpc/"*.pb.h "${_TP_INC}/" 2>/dev/null || true
+    # thrift config.h (hand-written build: at thirdparty/thrift_gen/thrift/config.h)
+    mkdir -p "${_TP_INC}/thrift"
+    cp -f "${_BE_BUILD_DIR}/thirdparty/thrift_gen/thrift/config.h" "${_TP_INC}/thrift/" 2>/dev/null || true
+    # Azure SDK headers
+    for _az in core identity storage-blobs storage-common; do
+        _az_inc="${_TP_SRC}/azure-sdk-for-cpp-azure-core_1.16.0/sdk"
+        case ${_az} in
+            core) _az_path="${_az_inc}/core/azure-core/inc/azure" ;;
+            identity) _az_path="${_az_inc}/identity/azure-identity/inc/azure" ;;
+            storage-blobs) _az_path="${_az_inc}/storage/azure-storage-blobs/inc/azure" ;;
+            storage-common) _az_path="${_az_inc}/storage/azure-storage-common/inc/azure" ;;
+        esac
+        [[ -d "${_az_path}" ]] && cp -rsn "${_az_path}/"* "${_TP_INC}/azure/" 2>/dev/null || true
+    done
+    mkdir -p "${_TP_INC}/azure"
+    # openssl headers
+    ln -sfn "${_TP_SRC}/openssl-OpenSSL_1_1_1s/include/openssl" "${_TP_INC}/openssl" 2>/dev/null || true
+    # uuid
+    mkdir -p "${_TP_INC}/uuid"
+    cp -n "${_TP_SRC}/libuuid-1.0.3/uuid.h" "${_TP_INC}/uuid/" 2>/dev/null || true
+    # smithy (AWS SDK)
+    cp -rsn "${_TP_SRC}/aws-sdk-cpp-1.11.219/src/aws-cpp-sdk-core/include/smithy" "${_TP_INC}/" 2>/dev/null || true
+    # rapidjson
+    ln -sfn "${_TP_SRC}/rapidjson-232389d4f1012dddec4ef84861face2d2ba85709/include/rapidjson" "${_TP_INC}/rapidjson" 2>/dev/null || true
+    # hadoop_hdfs (without version suffix, for cloud)
+    mkdir -p "${_TP_INC}/hadoop_hdfs"
+    cp -n "${_TP_SRC}/doris-thirdparty-hadoop-3.3.6.6-for-doris/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/include/hdfs/hdfs.h" "${_TP_INC}/hadoop_hdfs/" 2>/dev/null || true
+    # mysql headers from BE build
+    ln -sfn "${_BE_BUILD_DIR}/thirdparty/mysql_headers/include/mysql" "${_TP_INC}/mysql" 2>/dev/null || true
+    # Build-generated headers: glog, gflags, aws config.h
+    mkdir -p "${_TP_INC}/glog"
+    cp -rsn "${_TP_SRC}/glog-0.6.0/src/glog/"* "${_TP_INC}/glog/" 2>/dev/null || true
+    cp -f "${_BE_BUILD_DIR}/thirdparty/glog/glog/"*.h "${_TP_INC}/glog/" 2>/dev/null || true
+    cp -f "${_BE_BUILD_DIR}/thirdparty/gflags/include/gflags/"*.h "${_TP_INC}/gflags/" 2>/dev/null || true
+    cp -f "${_BE_BUILD_DIR}/thirdparty/aws-sdk-gen/aws-c-common/generated/include/aws/common/config.h" "${_TP_INC}/aws/common/" 2>/dev/null || true
+    # fdb_c (FoundationDB) - pre-built .so
+    _link "${DORIS_THIRDPARTY}/installed/lib64/libfdb_c.so" "${_TP_LIB}/libfdb_c.so"
+
+    # Build additional thirdparty targets needed by cloud but not by BE
+    echo "Building additional thirdparty targets for cloud module..."
+    cd "${_BE_BUILD_DIR}"
+    "${CMAKE_CMD}" --build . --target jsoncpp_static -- -j "${PARALLEL}" 2>/dev/null || true
+    # Symlink jsoncpp (output may be in lib/ or bin/)
+    _find_link "libjsoncpp.a" "${_TP_LIB64}/libjsoncpp.a"
+    _find_link "libjsoncpp.a" "${_TP_LIB}/libjsoncpp.a"
+    # uuid — cloud needs libuuid
+    _find_link "lib_libuuid.a" "${_TP_LIB64}/libuuid.a"
+    _find_link "lib_libuuid.a" "${_TP_LIB}/libuuid.a"
+    # ali-sdk — build from BE thirdparty (core only, added via add_subdirectory in ali_sdk.cmake)
+    "${CMAKE_CMD}" --build "${_BE_BUILD_DIR}" --target core -- -j "${PARALLEL}" 2>/dev/null || true
+    find "${_BE_BUILD_DIR}" -name "libalibabacloud-sdk-core.a" -exec ln -sf {} "${_TP_LIB64}/libalibabacloud-sdk-core.a" \; 2>/dev/null
+    find "${_BE_BUILD_DIR}" -name "libalibabacloud-sdk-core.a" -exec ln -sf {} "${_TP_LIB}/libalibabacloud-sdk-core.a" \; 2>/dev/null
+    # Re-run bulk symlink after extra builds to catch any new .a files
+    for _f in "${_BE_BUILD_DIR}"/lib/*.a; do
+        [[ -f "${_f}" ]] || continue
+        _bn=$(basename "${_f}")
+        _norm=$(echo "${_bn}" | sed 's/^lib_/lib/')
+        ln -sf "${_f}" "${_TP_LIB}/${_norm}" 2>/dev/null || true
+        ln -sf "${_f}" "${_TP_LIB64}/${_norm}" 2>/dev/null || true
+    done
+
+    cd "${DORIS_HOME}"
+    echo "Symlinked source-built libraries to ${_TP_INSTALLED} for cloud module"
 fi
 
 # Clean and build cloud
@@ -781,6 +1239,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
+        ${USE_CONTRIB_SOURCE_OVERRIDE:+-DUSE_CONTRIB_SOURCE=${USE_CONTRIB_SOURCE_OVERRIDE}} \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -915,7 +1374,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
-    cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
+    if [[ -d "${DORIS_THIRDPARTY}/installed/webroot" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
+    fi
     copy_common_files "${DORIS_OUTPUT}/fe/"
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
@@ -1124,7 +1585,11 @@ EOF
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
-    cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
+    # Prebuilt thirdparty ships webroot static assets; source-mode builds may
+    # not have it on a fresh tree. Only copy if the dir actually exists.
+    if [[ -d "${DORIS_THIRDPARTY}/installed/webroot" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
+    fi
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"

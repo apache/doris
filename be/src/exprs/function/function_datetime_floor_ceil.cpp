@@ -24,7 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && defined(__GLIBCXX__)
 #include <experimental/bits/simd.h>
 #endif
 #include <memory>

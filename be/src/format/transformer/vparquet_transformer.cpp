@@ -208,7 +208,9 @@ Status VParquetTransformer::_parse_properties() {
         //build arrow  writer properties
         ::parquet::ArrowWriterProperties::Builder arrow_builder;
         if (_parquet_options.enable_int96_timestamps) {
-            arrow_builder.enable_force_write_int96_timestamps();
+            // arrow 17 uses enable_deprecated_int96_timestamps; renamed to
+            // enable_force_write_int96_timestamps in newer arrow.
+            arrow_builder.enable_deprecated_int96_timestamps();
         }
         arrow_builder.store_schema();
         _arrow_properties = arrow_builder.build();

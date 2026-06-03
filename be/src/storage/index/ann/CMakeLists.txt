@@ -23,10 +23,13 @@ file(GLOB VECTOR_LIB_SRC CONFIGURE_DEPENDS
     ann_index_result_cache/*.cpp
 )
 
-find_package(OpenMP REQUIRED)
+find_package(OpenMP QUIET)
+if(NOT TARGET OpenMP::OpenMP_CXX)
+    add_library(OpenMP::OpenMP_CXX INTERFACE IMPORTED)
+endif()
 
 add_library(ann_index STATIC ${VECTOR_LIB_SRC})
-target_link_libraries(ann_index PUBLIC faiss OpenMP::OpenMP_CXX)
+target_link_libraries(ann_index PUBLIC faiss OpenMP::OpenMP_CXX ${COMMON_THIRDPARTY})
 
 # Some header files from faiss are used by doris, they will break compile check.
-target_compile_options(ann_index PRIVATE -Wno-shadow-field)
+target_compile_options(ann_index PRIVATE -Wno-shadow -Wno-shadow-field -Wno-undef -Wno-unused-template -Wno-conversion -Wno-pedantic -Wno-implicit-int-conversion)

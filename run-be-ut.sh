@@ -260,6 +260,40 @@ else
     BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 fi
 
+# UT builds are sanitizer builds, which force USE_CONTRIB_SOURCE=ON. Make sure
+# thirdparty/src is populated before cmake — mirrors build.sh's logic for
+# fresh CI containers (BE UT TC config does not run download-thirdparty.sh).
+if [[ "${USE_CONTRIB_SOURCE_OVERRIDE:-}" != "OFF" ]]; then
+    _tp_src_count_pre=0
+    if [[ -d "${DORIS_THIRDPARTY}/src" ]]; then
+        _tp_src_count_pre=$(find "${DORIS_THIRDPARTY}/src" -maxdepth 1 -mindepth 1 | wc -l)
+    fi
+    if [[ "${_tp_src_count_pre}" -lt 10 ]]; then
+        # Apache Doris CI mounts /var/local/thirdparty/src/ into the build
+        # container with all extracted source trees pre-staged (mirror at
+        # doris-thirdparty-repo.bj.bcebos.com is missing a few newer tarballs).
+        _CI_TP_SRC="/var/local/thirdparty/src"
+        _ci_src_count=0
+        if [[ -d "${_CI_TP_SRC}" ]]; then
+            _ci_src_count=$(find "${_CI_TP_SRC}" -maxdepth 1 -mindepth 1 | wc -l)
+        fi
+        if [[ "${_ci_src_count}" -ge 10 ]]; then
+            echo "[run-be-ut.sh] using ${_ci_src_count} staged thirdparty source entries from ${_CI_TP_SRC}"
+            mkdir -p "${DORIS_THIRDPARTY}/src"
+            for _ci_entry in "${_CI_TP_SRC}"/*; do
+                _ci_name=$(basename "${_ci_entry}")
+                if [[ ! -e "${DORIS_THIRDPARTY}/src/${_ci_name}" ]]; then
+                    ln -sfn "${_ci_entry}" "${DORIS_THIRDPARTY}/src/${_ci_name}"
+                fi
+            done
+        else
+            echo "[run-be-ut.sh] thirdparty/src appears empty (${_tp_src_count_pre} entries);"
+            echo "[run-be-ut.sh] running download-thirdparty.sh to fetch sources..."
+            bash "${DORIS_THIRDPARTY}/download-thirdparty.sh"
+        fi
+    fi
+fi
+
 cd "${CMAKE_BUILD_DIR}"
 "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \

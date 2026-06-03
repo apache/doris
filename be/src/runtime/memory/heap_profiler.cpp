@@ -30,8 +30,8 @@ void HeapProfiler::set_prof_active(bool prof) {
 #ifdef USE_JEMALLOC
     std::lock_guard guard(_mutex);
     try {
-        int err = jemallctl("prof.active", nullptr, nullptr, &prof, 1);
-        err |= jemallctl("prof.thread_active_init", nullptr, nullptr, &prof, 1);
+        int err = je_mallctl("prof.active", nullptr, nullptr, &prof, 1);
+        err |= je_mallctl("prof.thread_active_init", nullptr, nullptr, &prof, 1);
         if (err) {
             LOG(WARNING) << "jemalloc heap profiling start failed, " << err;
         } else {
@@ -48,7 +48,7 @@ bool HeapProfiler::get_prof_dump(const std::string& profile_file_name) {
     std::lock_guard guard(_mutex);
     const char* file_name_ptr = profile_file_name.c_str();
     try {
-        int err = jemallctl("prof.dump", nullptr, nullptr, &file_name_ptr, sizeof(const char*));
+        int err = je_mallctl("prof.dump", nullptr, nullptr, &file_name_ptr, sizeof(const char*));
         if (err) {
             LOG(WARNING) << "dump heap profile failed, " << err;
             return false;
@@ -93,9 +93,9 @@ bool HeapProfiler::check_active_heap_profiler() {
 #ifdef USE_JEMALLOC
     size_t value = 0;
     size_t sz = sizeof(value);
-    // A Bug in Jemalloc 5.3, `jemallctl("prof", &value, &sz, nullptr, 0)` always returns `0`,
+    // A Bug in Jemalloc 5.3, `je_mallctl("prof", &value, &sz, nullptr, 0)` always returns `0`,
     // the real conf `prof` value cannot be checked.
-    jemallctl("prof.active", &value, &sz, nullptr, 0);
+    je_mallctl("prof.active", &value, &sz, nullptr, 0);
     return value;
 #else
     return false;
@@ -106,7 +106,7 @@ bool HeapProfiler::check_enable_heap_profiler() {
 #ifdef USE_JEMALLOC
     bool prof = false;
     size_t sz = sizeof(prof);
-    if (jemallctl("opt.prof", &prof, &sz, nullptr, 0) != 0) {
+    if (je_mallctl("opt.prof", &prof, &sz, nullptr, 0) != 0) {
         LOG(WARNING) << "Failed to get option: opt.prof";
     }
     return prof;
@@ -144,7 +144,7 @@ std::string HeapProfiler::dump_heap_profile_to_dot() {
 
 bool HeapProfiler::heap_profiler_reset(size_t lg_sample) {
 #ifdef USE_JEMALLOC
-    int ret = jemallctl("prof.reset", nullptr, nullptr, &lg_sample, sizeof(lg_sample));
+    int ret = je_mallctl("prof.reset", nullptr, nullptr, &lg_sample, sizeof(lg_sample));
     if (ret != 0) {
         LOG(WARNING) << "jemallctl failed to set prof.reset:" << lg_sample
                      << ".Check whether JEMALLOC_CONF is configured with prof:true.";

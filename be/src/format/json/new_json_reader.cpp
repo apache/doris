@@ -1331,7 +1331,7 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
     std::string err_msg;
     if (!col_name.empty()) {
         fmt::memory_buffer error_buf;
-        fmt::format_to(error_buf, error_msg, col_name, _jsonpaths);
+        fmt::format_to(error_buf, fmt::runtime(error_msg), col_name, _jsonpaths);
         err_msg = fmt::to_string(error_buf);
     } else {
         err_msg = error_msg;

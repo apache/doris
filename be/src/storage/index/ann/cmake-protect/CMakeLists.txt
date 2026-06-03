@@ -22,7 +22,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 set(BUILD_WITHOUT_LAPACK OFF CACHE BOOL "Disable LAPACK support in OpenBLAS")
 set(NO_SHARED TRUE CACHE BOOL "Disable shared library in OpenBLAS")
 set(C_LAPACK TRUE CACHE BOOL "Enable C interface for LAPACK in OpenBLAS")
-set(USE_OPENMP TRUE CACHE BOOL "Enable OpenMP in OpenBLAS")
+# Disable OpenMP for all builds — ldb_toolchain's OpenMP offload libraries are missing
+set(USE_OPENMP FALSE CACHE BOOL "Disable OpenMP in OpenBLAS" FORCE)
 set(NOFORTRAN ON CACHE BOOL "Disable Fortran in OpenBLAS")
 set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static libraries in OpenBLAS")
 set(BUILD_TESTING OFF CACHE BOOL "Build shared libraries in OpenBLAS")
@@ -42,8 +43,23 @@ else()
         set(DYNAMIC_ARCH ON CACHE BOOL "Enable runtime CPU detection in OpenBLAS")
     endif ()
 endif ()
+
 # Set FAISS_ENABLE_GPU OFF before including FAISS to prevent CUDA language detection
 set(FAISS_ENABLE_GPU OFF CACHE BOOL "Enable GPU support in FAISS")
+
+# Strip sanitizer flags for OpenBLAS - its getarch tool runs at configure time
+# and cannot use ASAN/UBSAN instrumented code
+set(_SAVED_C_FLAGS "${CMAKE_C_FLAGS}")
+set(_SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REGEX REPLACE "-fsanitize[^ ]*" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-DUNDEFINED_BEHAVIOR_SANITIZER" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-DADDRESS_SANITIZER" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-DMEMORY_SANITIZER" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-fsanitize[^ ]*" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REGEX REPLACE "-DUNDEFINED_BEHAVIOR_SANITIZER" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REGEX REPLACE "-DADDRESS_SANITIZER" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REGEX REPLACE "-DMEMORY_SANITIZER" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
 # EXCLUDE_FROM_ALL so that binary in openblas is not installed.
 add_subdirectory(${PROJECT_SOURCE_DIR}/../contrib/openblas ${PROJECT_BINARY_DIR}/openblas EXCLUDE_FROM_ALL)
 
@@ -62,5 +78,22 @@ else()
     set(NO_AVX2 OFF CACHE BOOL "Disable AVX2 support in OpenBLAS" FORCE)
 endif()
 
+# Patch faiss to make OpenMP optional — ldb_toolchain doesn't support OpenMP
+set(_FAISS_CMAKE "${PROJECT_SOURCE_DIR}/../contrib/faiss/faiss/CMakeLists.txt")
+file(READ "${_FAISS_CMAKE}" _FAISS_CONTENT)
+if(_FAISS_CONTENT MATCHES "find_package\\(OpenMP REQUIRED\\)")
+    string(REPLACE "find_package(OpenMP REQUIRED)" "find_package(OpenMP QUIET)" _FAISS_CONTENT "${_FAISS_CONTENT}")
+    file(WRITE "${_FAISS_CMAKE}" "${_FAISS_CONTENT}")
+endif()
+
+# Create dummy OpenMP target if not found
+if(NOT TARGET OpenMP::OpenMP_CXX)
+    add_library(OpenMP::OpenMP_CXX INTERFACE IMPORTED GLOBAL)
+endif()
+
 # EXCLUDE_FROM_ALL so that binary in faiss is not installed.
 add_subdirectory(${PROJECT_SOURCE_DIR}/../contrib/faiss ${PROJECT_BINARY_DIR}/faiss EXCLUDE_FROM_ALL)
+
+# Restore sanitizer flags after both openblas and faiss are configured
+set(CMAKE_C_FLAGS "${_SAVED_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${_SAVED_CXX_FLAGS}")

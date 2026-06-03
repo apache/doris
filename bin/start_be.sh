@@ -361,6 +361,12 @@ export UBSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/ubsan_suppr.conf
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
 export UBSAN_OPTIONS=print_stacktrace=1:${UBSAN_OPTIONS}
+## MSAN does not support runtime suppressions — use compile-time ignorelist instead
+## MSAN-instrumented code uses ~3x stack space; increase stack size to avoid overflow
+ulimit -s 65536 2>/dev/null || true
+## log_path: redirect MSAN warnings to a separate file instead of polluting be.out
+## (MSAN appends .<pid> to the path automatically)
+export MSAN_OPTIONS=symbolize=1:halt_on_error=0:abort_on_error=0:poison_in_dtor=1:exit_code=0:fast_unwind_on_fatal=1:fast_unwind_on_malloc=1:log_path=${DORIS_HOME}/log/msan
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {

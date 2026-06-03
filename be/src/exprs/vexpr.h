@@ -425,9 +425,9 @@ protected:
     void close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
                                 const FunctionBasePtr& function) const;
 
-    TExprNodeType::type _node_type;
+    TExprNodeType::type _node_type {};
     // Used to check what opcode
-    TExprOpcode::type _opcode;
+    TExprOpcode::type _opcode {TExprOpcode::INVALID_OPCODE};
     DataTypePtr _data_type;
     VExprSPtrs _children; // in few hundreds
     TFunction _fn;

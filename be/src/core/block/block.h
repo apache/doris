@@ -726,8 +726,8 @@ private:
 
 struct IteratorRowRef {
     std::shared_ptr<Block> block;
-    int row_pos;
-    bool is_same;
+    int row_pos = -1;
+    bool is_same = false;
 
     template <typename T>
     int compare(const IteratorRowRef& rhs, const T& compare_arguments) const {

@@ -20,12 +20,14 @@
 #include "service/http/http_handler_with_auth.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) &&                              \
+        !defined(UNDEFINED_BEHAVIOR_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/heap-profiler.h>    // IWYU pragma: keep
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #endif
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) &&                              \
+        !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 #include <gperftools/profiler.h> // IWYU pragma: keep
 #endif
 #include <stdio.h>
@@ -68,6 +70,7 @@ public:
 void HeapAction::handle(HttpRequest* req) {
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(UNDEFINED_BEHAVIOR_SANITIZER) || defined(MEMORY_SANITIZER) ||             \
         defined(USE_JEMALLOC)
     (void)kPprofDefaultSampleSecs; // Avoid unused variable warning.
 
@@ -120,6 +123,7 @@ public:
 
 void GrowthAction::handle(HttpRequest* req) {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(UNDEFINED_BEHAVIOR_SANITIZER) || defined(MEMORY_SANITIZER) ||             \
         defined(USE_JEMALLOC)
     std::string str =
             "Growth profiling is not available with address sanitizer or jemalloc builds.";
@@ -144,7 +148,8 @@ public:
 };
 
 void ProfileAction::handle(HttpRequest* req) {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(UNDEFINED_BEHAVIOR_SANITIZER) || defined(MEMORY_SANITIZER)
     std::string str = "CPU profiling is not available with address sanitizer or jemalloc builds.";
     HttpChannel::send_reply(req, str);
 #else

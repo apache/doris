@@ -20,3 +20,4 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/common_cpp")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(CommonCPP STATIC ${SRC_FILES})
+target_link_libraries(CommonCPP PUBLIC ${COMMON_THIRDPARTY})

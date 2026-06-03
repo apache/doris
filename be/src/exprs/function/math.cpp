@@ -23,6 +23,7 @@
 #include <dlfcn.h>
 
 #include <cmath>
+#include <numbers>
 #include <string>
 #include <type_traits>
 

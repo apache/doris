@@ -275,7 +275,7 @@ int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
 
     std::string usage = get_usage(argv[0]);
-    gflags::SetUsageMessage(usage);
+    google::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_operation == "show_nested_files") {
@@ -727,6 +727,6 @@ int main(int argc, char** argv) {
         std::cerr << "invalid operation: " << FLAGS_operation << "\n" << usage << std::endl;
         return -1;
     }
-    gflags::ShutDownCommandLineFlags();
+    google::ShutDownCommandLineFlags();
     return 0;
 }
