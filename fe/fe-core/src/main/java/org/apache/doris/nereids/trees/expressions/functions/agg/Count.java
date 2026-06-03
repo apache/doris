@@ -100,12 +100,27 @@ public class Count extends NotNullableAggregateFunction
 
     static void checkDistinctArgument(Expression argument, Expression function) {
         DataType argumentType = argument.getDataType();
-        if (argumentType.isComplexType()
+        if (isUnsupportedDistinctArgument(argumentType)) {
+            throwDistinctArgumentException(function);
+        }
+    }
+
+    static void checkDistinctVariantArgument(Expression argument, Expression function) {
+        DataType argumentType = argument.getDataType();
+        if (argumentType.isVariantType()) {
+            throwDistinctArgumentException(function);
+        }
+    }
+
+    private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
+        return argumentType.isComplexType()
                 || argumentType.isObjectType()
                 || argumentType.isJsonType()
-                || argumentType.isVariantType()) {
-            throw new AnalysisException("COUNT DISTINCT could not process type " + function.toSql());
-        }
+                || argumentType.isVariantType();
+    }
+
+    private static void throwDistinctArgumentException(Expression function) {
+        throw new AnalysisException("COUNT DISTINCT could not process type " + function.toSql());
     }
 
     public boolean isStar() {

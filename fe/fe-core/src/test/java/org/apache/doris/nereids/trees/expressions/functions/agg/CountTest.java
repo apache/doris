@@ -57,8 +57,10 @@ class CountTest {
 
     @Test
     void testMultiDistinctCountAllowsArray() {
-        Assertions.assertDoesNotThrow(
-                () -> new MultiDistinctCount(SlotReference.of("arr", ArrayType.of(IntegerType.INSTANCE))));
+        MultiDistinctCount count = new MultiDistinctCount(
+                SlotReference.of("arr", ArrayType.of(IntegerType.INSTANCE)));
+
+        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
