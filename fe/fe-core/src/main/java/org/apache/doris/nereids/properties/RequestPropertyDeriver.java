@@ -463,15 +463,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         //  Distribution: partitionKeys
         //  Order: requiredOrderKeys
         WindowFrameGroup windowFrameGroup = window.getWindowFrameGroup();
-        // Window execution keeps the original semantic order keys in WindowFrameGroup. This list is only the
-        // required child physical property: rows must be grouped by partition keys first, then ordered inside each
-        // partition. If an order key repeats a partition key, e.g. PARTITION BY c2 ORDER BY c2, c3, the partition
-        // key is already covered by the leading required order. Keeping it again would require [c2, c2, c3] and may
-        // introduce a redundant sort above PartitionTopN, although [c2, c3] already satisfies the Window.
+        // all keys that need to be sorted, which includes BOTH partitionKeys and orderKeys from this group
         List<OrderKey> keysNeedToBeSorted = Lists.newArrayList();
-        Set<Expression> partitionKeys = windowFrameGroup.getPartitionKeys();
-        if (!partitionKeys.isEmpty()) {
-            keysNeedToBeSorted.addAll(partitionKeys.stream().map(partitionKey -> {
+        if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
+            keysNeedToBeSorted.addAll(windowFrameGroup.getPartitionKeys().stream().map(partitionKey -> {
                 // todo: haven't support isNullFirst, and its default value is false(see AnalyticPlanner,
                 //  but in LogicalPlanBuilder, its default value is true)
                 return new OrderKey(partitionKey, true, false);
@@ -480,7 +475,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (!windowFrameGroup.getOrderKeys().isEmpty()) {
             keysNeedToBeSorted.addAll(windowFrameGroup.getOrderKeys().stream()
                     .map(OrderExpression::getOrderKey)
-                    .filter(orderKey -> !partitionKeys.contains(orderKey.getExpr()))
                     .collect(Collectors.toList())
             );
         }

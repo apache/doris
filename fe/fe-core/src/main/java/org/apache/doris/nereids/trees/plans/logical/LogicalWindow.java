@@ -351,10 +351,36 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public Plan pushPartitionLimitThroughWindow(WindowExpression windowFunc,
             long partitionLimit, boolean hasGlobalLimit) {
         List<OrderExpression> orderKeys = prunePartitionKeys(windowFunc.getPartitionKeys(), windowFunc.getOrderKeys());
-        LogicalWindow<?> window = (LogicalWindow<?>) withChildren(new LogicalPartitionTopN<>(windowFunc.getFunction(),
+        LogicalPartitionTopN<Plan> partitionTopN = new LogicalPartitionTopN<>(windowFunc.getFunction(),
                 windowFunc.getPartitionKeys(), orderKeys, hasGlobalLimit, partitionLimit, Optional.empty(),
-                Optional.empty(), child(0)));
-        return window;
+                Optional.empty(), child(0));
+        // Keep the window's order keys consistent with the generated PartitionTopN. An order key that repeats a
+        // partition key is constant inside each partition, so dropping it changes neither the window function
+        // result nor the required order. Pruning the window here (not only on the PartitionTopN) avoids an
+        // inconsistent state where the window keeps [partitionKey, ...orderKeys] while its PartitionTopN child
+        // only provides [...orderKeys].
+        return withExpressionsAndChild(pruneWindowOrderKeys(windowExpressions), partitionTopN);
+    }
+
+    private static List<NamedExpression> pruneWindowOrderKeys(List<NamedExpression> windowExpressions) {
+        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+        for (NamedExpression expr : windowExpressions) {
+            if (!(expr instanceof Alias) || !(expr.child(0) instanceof WindowExpression)) {
+                builder.add(expr);
+                continue;
+            }
+            Alias alias = (Alias) expr;
+            WindowExpression windowExpression = (WindowExpression) alias.child();
+            List<OrderExpression> prunedOrderKeys =
+                    prunePartitionKeys(windowExpression.getPartitionKeys(), windowExpression.getOrderKeys());
+            if (prunedOrderKeys.size() == windowExpression.getOrderKeys().size()) {
+                builder.add(expr);
+            } else {
+                builder.add(new Alias(alias.getExprId(), windowExpression.withOrderKeys(prunedOrderKeys),
+                        alias.getName()));
+            }
+        }
+        return builder.build();
     }
 
     private static List<OrderExpression> prunePartitionKeys(List<Expression> partitionKeys,

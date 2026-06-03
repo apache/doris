@@ -159,7 +159,8 @@ public class GeneratePartitionTopnFromWindowTest implements MemoPatternMatchSupp
                                         && logicalPartitionTopN.getOrderKeys().equals(expectedOrderKeyList)
                                         && !logicalPartitionTopN.hasGlobalLimit()
                                         && logicalPartitionTopN.getPartitionLimit() == 100)
-                            )
+                            ).when(logicalWindow -> logicalWindow.getActualWindowExpressions().get(0)
+                                    .getOrderKeys().equals(expectedOrderKeyList))
                         ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
                     )
                 );
