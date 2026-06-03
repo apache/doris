@@ -34,6 +34,12 @@
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
 
+Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
+                                                      const DecodedColumnView& view) const {
+    return Status::NotSupported("read_column_from_decoded_values is not supported for {}",
+                                get_name());
+}
+
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
     DataTypeSerDeSPtrs serdes;
     serdes.reserve(types.size());

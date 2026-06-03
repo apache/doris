@@ -31,7 +31,7 @@ class TExprNode;
 class Block;
 class VExprContext;
 
-class VSlotRef MOCK_REMOVE(final) : public VExpr {
+class VSlotRef : public VExpr {
     ENABLE_FACTORY_CREATOR(VSlotRef);
 
 public:
@@ -67,11 +67,17 @@ public:
         column_ids.insert(_column_id);
     }
 
-    MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
+    virtual const std::string& column_name() const { return *_column_name; }
 
     uint64_t get_digest(uint64_t seed) const override;
 
     double execute_cost() const override { return 0.0; }
+
+protected:
+    VSlotRef(int slot_id, int column_id, int column_uniq_id)
+            : _slot_id(slot_id), _column_id(column_id), _column_uniq_id(column_uniq_id) {
+        _node_type = TExprNodeType::SLOT_REF;
+    }
 
 private:
     int _slot_id;

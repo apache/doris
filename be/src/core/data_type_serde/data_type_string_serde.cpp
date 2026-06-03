@@ -19,11 +19,28 @@
 
 #include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
+namespace {
+
+template <typename ColumnType>
+Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.binary_values == nullptr && view.row_count > 0) {
+        return Status::Corruption("Decoded binary values are null for {}", column.get_name());
+    }
+    auto& string_column = assert_cast<ColumnType&>(column);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        const auto& value = (*view.binary_values)[row];
+        string_column.insert_data(value.data, value.size);
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_json(const IColumn& column,
@@ -311,6 +328,17 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
                                        arrow_array->type_id());
     }
     return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::BINARY &&
+        view.value_kind != DecodedValueKind::FIXED_BINARY) {
+        return Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                    get_name(), static_cast<int>(view.value_kind));
+    }
+    return read_string_decoded_values<ColumnType>(column, view);
 }
 
 template <typename ColumnType>

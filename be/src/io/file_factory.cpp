@@ -57,21 +57,20 @@ namespace doris {
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
-io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
+io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
                                                       const io::FileDescription& fd) {
     io::FileReaderOptions opts {
             .cache_base_path {},
             .file_size = fd.file_size,
             .mtime = fd.mtime,
     };
-    if (config::enable_file_cache && state != nullptr &&
-        state->query_options().__isset.enable_file_cache &&
-        state->query_options().enable_file_cache && fd.file_cache_admission) {
+    if (config::enable_file_cache && option.__isset.enable_file_cache && option.enable_file_cache &&
+        fd.file_cache_admission) {
         opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    if (state != nullptr && state->query_options().__isset.file_cache_base_path &&
-        state->query_options().file_cache_base_path != RANDOM_CACHE_BASE_PATH) {
-        opts.cache_base_path = state->query_options().file_cache_base_path;
+    if (option.__isset.file_cache_base_path &&
+        option.file_cache_base_path != RANDOM_CACHE_BASE_PATH) {
+        opts.cache_base_path = option.file_cache_base_path;
     }
     return opts;
 }

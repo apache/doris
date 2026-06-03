@@ -97,4 +97,6 @@ enum TExprOpcode {
     MATCH_REGEXP = 76,
     MATCH_PHRASE_EDGE = 77,
     TRY_CAST = 78,
+    // Delete operator from Iceberg/Paimon
+    DELETE = 79,
 }

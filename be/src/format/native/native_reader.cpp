@@ -138,7 +138,7 @@ Status NativeReader::init_reader() {
     }
 
     io::FileReaderOptions reader_options =
-            FileFactory::get_reader_options(_state, file_description);
+            FileFactory::get_reader_options(_state->query_options(), file_description);
     auto reader_res =
             _io_ctx_holder ? io::DelegateReader::create_file_reader(
                                      _profile, system_properties, file_description, reader_options,

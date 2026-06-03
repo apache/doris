@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
@@ -447,6 +448,34 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                      << arrow_array->type()->id();
         return Status::InternalError("not support convert to datetimev2 from arrow type: {}",
                                      arrow_array->type()->id());
+    }
+    return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT64) {
+        return Status::NotSupported("DATETIMEV2 decoded reader expects INT64 source");
+    }
+    if (view.values == nullptr && view.row_count > 0) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnDateTimeV2&>(column).get_data();
+    const auto* values = reinterpret_cast<const int64_t*>(view.values);
+    static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
+    const int64_t second_mask = view.time_unit == DecodedTimeUnit::MILLIS ? 1000 : 1000000;
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        int64_t epoch_seconds = values[row] / second_mask;
+        int64_t sub_second = values[row] % second_mask;
+        if (sub_second < 0) {
+            sub_second += second_mask;
+            --epoch_seconds;
+        }
+        const int32_t microsecond = static_cast<int32_t>(sub_second * (1000000 / second_mask));
+        DateV2Value<DateTimeV2ValueType> datetime_value;
+        datetime_value.from_unixtime(epoch_seconds, utc_time_zone);
+        datetime_value.set_microsecond(static_cast<uint64_t>(microsecond));
+        data.push_back(datetime_value);
     }
     return Status::OK();
 }
