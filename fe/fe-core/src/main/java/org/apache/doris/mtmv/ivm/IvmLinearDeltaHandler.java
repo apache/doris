@@ -27,10 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -112,36 +110,6 @@ class IvmLinearDeltaHandler {
         IvmDeltaRewriteResult childResult = filter.child().accept(visitor, ctx);
         Plan newFilter = filter.withChildren(ImmutableList.of(childResult.plan));
         return new IvmDeltaRewriteResult(newFilter, childResult.dmlFactorSlot);
-    }
-
-    IvmDeltaRewriteResult rewriteJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
-        JoinType joinType = join.getJoinType();
-        if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
-            throw new AnalysisException(
-                    "IVM delta rewrite does not support join type: " + joinType);
-        }
-        if (join.isMarkJoin()) {
-            throw new AnalysisException(
-                    "IVM delta rewrite does not support mark join (subquery with disjunction).");
-        }
-
-        IvmDeltaRewriteResult leftResult = join.left().accept(visitor, ctx);
-        IvmDeltaRewriteResult rightResult = join.right().accept(visitor, ctx);
-
-        if (leftResult.dmlFactorSlot != null && rightResult.dmlFactorSlot != null) {
-            throw new AnalysisException(
-                    "IVM: both sides of join have dml_factor — expected at most one delta side");
-        }
-
-        LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(
-                leftResult.plan, rightResult.plan);
-
-        if (leftResult.dmlFactorSlot == null && rightResult.dmlFactorSlot == null) {
-            return new IvmDeltaRewriteResult(newJoin, null);
-        } else {
-            return helper.addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult, ctx);
-        }
     }
 
     IvmDeltaRewriteResult rewriteUnion(LogicalUnion union, IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
