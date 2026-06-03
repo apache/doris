@@ -47,7 +47,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // with the source tz, not Doris's; .out has no dependency on Doris tz):
 //   ts   -> '2024-06-15T11:00'  (verbatim, no tz semantics)
 //   tstz -> '2024-06-15T11:00'  (02:00Z rendered with Asia/Tokyo +09 = 11:00, == source)
-//   ttz  -> '02:00Z'            (UTC-normalized time-of-day, kept as-is; not zone-rendered)
+//   ttz  -> '02:00:00Z'         (UTC-normalized time-of-day, kept as-is; not zone-rendered)
 suite("test_streaming_postgres_job_jdbc_servertimezone", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_postgres_job_jdbc_servertimezone_name"
     def currentDb = (sql "select database()")[0][0]

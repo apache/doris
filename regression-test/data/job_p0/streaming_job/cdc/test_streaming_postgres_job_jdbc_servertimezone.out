@@ -7,9 +7,9 @@ tstz	datetime(6)	Yes	false	\N	NONE
 ttz	text	Yes	false	\N	NONE
 
 -- !select_snapshot --
-1	snapshot_tokyo	2024-06-15T11:00	2024-06-15T11:00	02:00Z
+1	snapshot_tokyo	2024-06-15T11:00	2024-06-15T11:00	02:00:00Z
 
 -- !select_binlog --
-1	snapshot_tokyo	2024-06-15T11:00	2024-06-15T11:00	02:00Z
-2	binlog_tokyo	2024-06-15T11:00	2024-06-15T11:00	02:00Z
+1	snapshot_tokyo	2024-06-15T11:00	2024-06-15T11:00	02:00:00Z
+2	binlog_tokyo	2024-06-15T11:00	2024-06-15T11:00	02:00:00Z
 

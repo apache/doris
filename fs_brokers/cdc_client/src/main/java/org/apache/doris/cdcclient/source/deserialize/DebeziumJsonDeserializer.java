@@ -37,7 +37,6 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.OffsetTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -323,10 +322,11 @@ public class DebeziumJsonDeserializer
 
     private Object convertZoneTime(Object dbzObj) {
         // timetz has no date, so a named zone's DST offset cannot be resolved. Following
-        // Debezium/PostgreSQL semantics, keep the UTC-normalized time-of-day with its offset rather
-        // than shifting it into serverTimeZone (which would drop the offset and mishandle DST).
+        // Debezium/PostgreSQL semantics, keep Debezium's UTC-normalized ZonedTime string as-is
+        // (offset preserved) rather than shifting it into serverTimeZone, which would drop the
+        // offset and mishandle DST.
         if (dbzObj instanceof String) {
-            return OffsetTime.parse((String) dbzObj).toString();
+            return dbzObj;
         }
         LOG.warn("Unable to convert to zone time, default {}", dbzObj);
         return dbzObj.toString();
