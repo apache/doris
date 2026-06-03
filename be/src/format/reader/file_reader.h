@@ -75,6 +75,9 @@ struct FieldProjection {
 // dictionary and bloom filter. Predicates must all belong to file_column_id.
 struct FileColumnPredicateFilter {
     ColumnId file_column_id = -1;
+    // File-local child field-id path under file_column_id. Empty means top-level scalar.
+    // The ids are Parquet/Doris file schema child ids, not table ids and not child ordinals.
+    std::vector<int32_t> file_child_id_path;
     std::vector<std::shared_ptr<ColumnPredicate>> predicates;
 };
 

@@ -81,6 +81,10 @@ struct ParquetColumnStatistics {
 // 结构参考 DuckDB ParquetStatisticsUtils：先把 Parquet metadata 转成统一统计对象，
 // 再由 filter/predicate 判断是否可以裁剪。这里不理解 table/global schema。
 struct ParquetStatisticsUtils {
+    static const ParquetColumnSchema* ResolvePredicateLeafSchema(
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+            const reader::FileColumnPredicateFilter& column_filter);
+
     static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema,
             const std::shared_ptr<::parquet::Statistics>& statistics);

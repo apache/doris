@@ -30,6 +30,7 @@
 #include "core/data_type/data_type.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/expr/literal.h"
+#include "format/reader/file_reader.h"
 
 namespace doris {
 class ColumnPredicate;
@@ -39,9 +40,6 @@ namespace doris::reader {
 
 struct TableColumn;
 struct TableFilter;
-struct SchemaField;
-struct FileScanRequest;
-struct FieldProjection;
 
 using TableColumnPredicates = std::map<int32_t, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
@@ -67,6 +65,8 @@ struct ColumnMapping {
     // File-local field id for top-level columns, or child id for nested columns.
     std::optional<int32_t> field_id;
     std::string file_column_name;
+    DataTypePtr original_file_type;
+    std::vector<SchemaField> original_file_children;
     std::vector<int32_t> file_path;
     DataTypePtr file_type;
     DataTypePtr table_type;
