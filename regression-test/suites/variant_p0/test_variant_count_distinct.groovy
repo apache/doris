@@ -36,6 +36,6 @@ suite("test_variant_count_distinct") {
 
     test {
         sql "SELECT COUNT(DISTINCT v['arr']) FROM test_variant_count_distinct_array_subcolumn"
-        exception "COUNT DISTINCT does not support VARIANT argument"
+        exception "COUNT DISTINCT could not process type"
     }
 }

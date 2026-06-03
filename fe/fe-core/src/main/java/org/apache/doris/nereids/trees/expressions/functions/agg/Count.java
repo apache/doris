@@ -93,25 +93,18 @@ public class Count extends NotNullableAggregateFunction
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
             if (distinct) {
-                checkDistinctArgument(argument, this.toSql());
+                checkDistinctArgument(argument, this);
             }
         }
     }
 
-    static void checkDistinctArgument(Expression argument, String functionSql) {
-        checkVariantArgument(argument, functionSql);
+    static void checkDistinctArgument(Expression argument, Expression function) {
         DataType argumentType = argument.getDataType();
-        if (argumentType.isComplexType() || argumentType.isObjectType() || argumentType.isJsonType()) {
-            throw new AnalysisException("COUNT DISTINCT could not process type " + functionSql);
-        }
-    }
-
-    static void checkVariantArgument(Expression argument, String functionSql) {
-        DataType argumentType = argument.getDataType();
-        if (argumentType.isVariantType()) {
-            throw new AnalysisException("COUNT DISTINCT does not support VARIANT argument in " + functionSql
-                    + ". Cast the VARIANT expression to STRING or another supported scalar type before using "
-                    + "COUNT DISTINCT.");
+        if (argumentType.isComplexType()
+                || argumentType.isObjectType()
+                || argumentType.isJsonType()
+                || argumentType.isVariantType()) {
+            throw new AnalysisException("COUNT DISTINCT could not process type " + function.toSql());
         }
     }
 

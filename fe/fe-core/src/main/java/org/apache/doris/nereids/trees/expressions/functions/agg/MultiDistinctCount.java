@@ -73,7 +73,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     @Override
     public void checkLegalityAfterRewrite() {
         for (Expression argument : getArguments()) {
-            Count.checkVariantArgument(argument, "COUNT(DISTINCT " + argument.toSql() + ")");
+            Count.checkDistinctArgument(argument, new Count(true, argument));
         }
     }
 

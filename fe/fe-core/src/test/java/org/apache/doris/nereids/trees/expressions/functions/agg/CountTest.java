@@ -41,9 +41,8 @@ class CountTest {
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 count::checkLegalityAfterRewrite);
-        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT does not support VARIANT argument"));
+        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
         Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT v)"));
-        Assertions.assertTrue(exception.getMessage().contains("Cast the VARIANT expression"));
     }
 
     @Test
@@ -52,9 +51,8 @@ class CountTest {
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 count::checkLegalityAfterRewrite);
-        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT does not support VARIANT argument"));
-        Assertions.assertTrue(exception.getMessage().contains("COUNT(DISTINCT v)"));
-        Assertions.assertTrue(exception.getMessage().contains("Cast the VARIANT expression"));
+        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
+        Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT v)"));
     }
 
     @Test
