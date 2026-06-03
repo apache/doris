@@ -17,7 +17,8 @@
 
 import java.util.regex.Pattern
 
-suite("test_jdbc_preload_profile", "p0,external,nonConcurrent") {
+// Run this suite in the external pipeline because it depends on external JDBC services.
+suite("test_jdbc_preload_profile", "external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (!"true".equalsIgnoreCase(enabled)) {
         return
