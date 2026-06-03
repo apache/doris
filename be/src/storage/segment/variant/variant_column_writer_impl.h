@@ -194,8 +194,12 @@ private:
     bool _has_extracted_variant_columns() const;
     Status _process_root_column(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                 size_t num_rows, int& column_id);
+    // Write parse-time subcolumns. This remains the path for nested group, legacy flatten nested,
+    // and ordinary VARIANT writes that do not use temporary doc-value staging.
     Status _process_subcolumns(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                size_t num_rows, int& column_id);
+    // Write plain non-doc VARIANT temporary doc-value staging: selected paths become materialized
+    // subcolumns and the remaining paths are emitted to sparse payload columns.
     Status _process_regular_doc_value_staging(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                               size_t num_rows, int& column_id);
     Status _process_doc_value_column(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
