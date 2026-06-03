@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -59,10 +60,11 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
         return projects.size() == logicalSetOperation.getOutput().size() && projects.stream().allMatch(e -> {
             if (e instanceof SlotReference) {
                 return true;
-            } else {
+            } else if (logicalSetOperation.getQualifier().equals(Qualifier.ALL)) {
                 Expression expr = ExpressionUtils.getExpressionCoveredByCast(e.child(0));
                 return expr instanceof SlotReference;
             }
+            return false;
         });
     }
 

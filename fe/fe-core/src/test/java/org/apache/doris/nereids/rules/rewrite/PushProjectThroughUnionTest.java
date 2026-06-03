@@ -107,6 +107,23 @@ public class PushProjectThroughUnionTest {
         }
     }
 
+    @Test
+    public void testCastProjectCanOnlyPushThroughUnionAll() {
+        SlotReference unionOutput = new SlotReference(new ExprId(10), "s",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        Alias castProject = new Alias(new ExprId(100),
+                new Cast(unionOutput, BigIntType.INSTANCE), "n");
+        ImmutableList<NamedExpression> projects = ImmutableList.of(castProject);
+
+        LogicalUnion unionAll = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(unionOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(projects, unionAll));
+
+        LogicalUnion unionDistinct = new LogicalUnion(Qualifier.DISTINCT,
+                ImmutableList.of(unionOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(projects, unionDistinct));
+    }
+
     private LogicalUnion findUnion(Plan p) {
         if (p instanceof LogicalUnion) {
             return (LogicalUnion) p;

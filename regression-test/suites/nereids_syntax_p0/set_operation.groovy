@@ -291,6 +291,17 @@ suite("set_operation") {
         select count(*) from (select 1, 2 union select 1,1 ) a;
     """
 
+    // DORIS-26135: do not push non-injective cast project below UNION DISTINCT.
+    // The two datetime values are distinct before the outer cast, but become
+    // equal after casting to date. The correct result keeps both rows.
+    order_qt_union46 """
+        select cast(dt as date) from (
+            select cast('2020-01-01 00:00:00' as datetime) dt
+            union
+            select cast('2020-01-01 01:00:00' as datetime) dt
+        ) t
+    """
+
     def tables = [
             "dwd_daytable",
     ]
