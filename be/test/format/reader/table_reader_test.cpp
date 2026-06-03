@@ -1600,21 +1600,22 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
-    ASSERT_TRUE(reader.init({
-                                    .projected_columns = projected_columns,
-                                    .column_predicates = {},
-                                    .conjuncts = {VExprContext::create_shared(
-                                            std::make_shared<TableInt32SumGreaterThanExpr>(0, 0, 1,
-                                                                                           1, 8))},
-                                    .format = FileFormat::PARQUET,
-                                    .scan_params = nullptr,
-                                    .io_ctx = nullptr,
-                                    .runtime_state = &state,
-                                    .scanner_profile = nullptr,
-                                    .allow_missing_columns = true,
-                                    .profile = nullptr,
-                            })
-                        .ok());
+    ASSERT_TRUE(
+            reader
+                    .init({
+                            .projected_columns = projected_columns,
+                            .column_predicates = {},
+                            .conjuncts = {VExprContext::create_shared(
+                                    std::make_shared<TableInt32SumGreaterThanExpr>(0, 0, 1, 1, 8))},
+                            .format = FileFormat::PARQUET,
+                            .scan_params = nullptr,
+                            .io_ctx = nullptr,
+                            .runtime_state = &state,
+                            .scanner_profile = nullptr,
+                            .allow_missing_columns = true,
+                            .profile = nullptr,
+                    })
+                    .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
 

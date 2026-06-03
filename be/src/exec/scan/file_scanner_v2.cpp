@@ -91,8 +91,8 @@ bool parse_non_negative_int(std::string_view value, int32_t* result) {
     return true;
 }
 
-reader::TableColumn* find_or_add_child(reader::TableColumn* parent, ColumnId id,
-                                       std::string name, DataTypePtr type) {
+reader::TableColumn* find_or_add_child(reader::TableColumn* parent, ColumnId id, std::string name,
+                                       DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
     for (auto& child : parent->children) {
         if (child.id == id || child.name == name) {
@@ -209,8 +209,7 @@ bool build_nested_children_from_access_paths(reader::TableColumn* column,
 } // namespace
 
 // TODO: Only support parquet format now
-bool FileScannerV2::is_supported(const TFileScanRangeParams& params,
-                                 const TFileRangeDesc& range) {
+bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
     return get_range_format_type(params, range) == TFileFormatType::FORMAT_PARQUET &&
            is_supported_table_format(range);
 }
