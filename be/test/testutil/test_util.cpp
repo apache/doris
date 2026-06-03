@@ -189,8 +189,11 @@ void load_data_from_csv(const DataTypeSerDeSPtrs serders, MutableColumns& column
             << "serder size: " << serders.size() << " column size: " << columns.size();
     ASSERT_EQ(serders.size(), idxes.size())
             << "serder size: " << serders.size() << " idxes size: " << idxes.size();
-    ASSERT_EQ(serders.size(), *idxes.end())
-            << "serder size: " << serders.size() << " idxes size: " << *idxes.end();
+    // Note: an earlier ASSERT here dereferenced idxes.end() (undefined
+    // behaviour on std::set). On Linux libstdc++ it happened to yield a value
+    // matching the previous check, so the assertion was effectively a
+    // duplicate of the size check above. On macOS libc++ it yields a
+    // different value and aborts the test. Drop the redundant UB assertion.
     std::ifstream file(file_path);
     if (!file) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",

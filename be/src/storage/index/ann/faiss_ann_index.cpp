@@ -17,6 +17,8 @@
 
 #include "storage/index/ann/faiss_ann_index.h"
 
+#ifndef DISABLE_ANN
+
 #include <faiss/index_io.h>
 #include <faiss/invlists/OnDiskInvertedLists.h>
 #include <faiss/invlists/PreadInvertedLists.h>
@@ -1146,3 +1148,5 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
 }
 
 } // namespace doris::segment_v2
+
+#endif // DISABLE_ANN

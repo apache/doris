@@ -19,10 +19,21 @@
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 
+# Strip ASAN/UBSAN flags so that getarch (compiled and run by OpenBLAS cmake at
+# configure time) does not hang during ASAN runtime initialization on macOS.
+# Only on Apple: the getarch hang is specific to Apple's ASAN runtime; on Linux
+# OpenBLAS builds fine with sanitizers, so keep them there for full instrumentation.
+if(APPLE)
+    foreach(_flag CMAKE_C_FLAGS CMAKE_CXX_FLAGS CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+        string(REGEX REPLACE "-fsanitize=[^ \t]*" "" ${_flag} "${${_flag}}")
+        string(REPLACE "-DADDRESS_SANITIZER" "" ${_flag} "${${_flag}}")
+        string(REPLACE "-DUNDEFINED_SANITIZER" "" ${_flag} "${${_flag}}")
+    endforeach()
+endif()
+
 set(BUILD_WITHOUT_LAPACK OFF CACHE BOOL "Disable LAPACK support in OpenBLAS")
 set(NO_SHARED TRUE CACHE BOOL "Disable shared library in OpenBLAS")
 set(C_LAPACK TRUE CACHE BOOL "Enable C interface for LAPACK in OpenBLAS")
-set(USE_OPENMP TRUE CACHE BOOL "Enable OpenMP in OpenBLAS")
 set(NOFORTRAN ON CACHE BOOL "Disable Fortran in OpenBLAS")
 set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static libraries in OpenBLAS")
 set(BUILD_TESTING OFF CACHE BOOL "Build shared libraries in OpenBLAS")
@@ -31,6 +42,20 @@ set(BUILD_BENCHMARKS OFF CACHE BOOL "Build benchmarks in OpenBLAS")
 set(NO_LAPACK OFF CACHE BOOL "Disable LAPACK in OpenBLAS")
 set(NO_CBLAS ON CACHE BOOL "Disable CBLAS in OpenBLAS")
 set(NO_AVX512 ON CACHE BOOL "Disable AVX512 in OpenBLAS")
+
+if(CMAKE_SYSTEM_NAME MATCHES "Darwin" AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    # On Apple Silicon: disable OpenMP in OpenBLAS (omp.h not in default include
+    # path) and force ARMV8 target to avoid getarch CPU-detection hang.
+    set(USE_OPENMP FALSE CACHE BOOL "Enable OpenMP in OpenBLAS" FORCE)
+    set(TARGET "ARMV8" CACHE STRING "OpenBLAS target architecture" FORCE)
+    # Make libomp headers visible to faiss and any other sub-target that needs them.
+    execute_process(COMMAND brew --prefix libomp OUTPUT_VARIABLE LIBOMP_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    include_directories(SYSTEM "${LIBOMP_PREFIX}/include")
+    set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   -I${LIBOMP_PREFIX}/include")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${LIBOMP_PREFIX}/include")
+else()
+    set(USE_OPENMP TRUE CACHE BOOL "Enable OpenMP in OpenBLAS")
+endif()
 
 # Allow overriding DYNAMIC_ARCH from build.sh via ENABLE_DYNAMIC_ARCH variable
 if (DEFINED ENABLE_DYNAMIC_ARCH)

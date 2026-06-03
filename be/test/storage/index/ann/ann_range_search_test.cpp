@@ -47,6 +47,8 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
+#ifndef DISABLE_ANN
+
 namespace doris {
 
 // select id, value,l2_distance_approximate(embedding, [1, 2, 3, 4, 5, 6, 7, 20]) as dist from ann_with_fulltext where l2_distance_approximate(embedding, [1, 2, 3, 4, 5, 6, 7, 20]) >= 10;
@@ -1028,3 +1030,5 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_NonLiteralRight) 
 }
 
 } // namespace doris
+
+#endif // DISABLE_ANN

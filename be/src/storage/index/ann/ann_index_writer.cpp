@@ -22,10 +22,13 @@
 #include <string>
 
 #include "common/cast_set.h"
+#ifndef DISABLE_ANN
 #include "storage/index/ann/faiss_ann_index.h"
+#endif
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 
 namespace doris::segment_v2 {
+#ifndef DISABLE_ANN
 static std::string get_or_default(const std::map<std::string, std::string>& properties,
                                   const std::string& key, const std::string& default_value) {
     auto it = properties.find(key);
@@ -34,6 +37,7 @@ static std::string get_or_default(const std::map<std::string, std::string>& prop
     }
     return default_value;
 }
+#endif
 
 AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta)
@@ -42,6 +46,7 @@ AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
 AnnIndexColumnWriter::~AnnIndexColumnWriter() {}
 
 Status AnnIndexColumnWriter::init() {
+#ifndef DISABLE_ANN
     Result<std::shared_ptr<DorisFSDirectory>> compound_dir = _index_file_writer->open(_index_meta);
 
     if (!compound_dir.has_value()) {
@@ -81,6 +86,9 @@ Status AnnIndexColumnWriter::init() {
     _float_array.reserve(block_size);
 
     return Status::OK();
+#else
+    return Status::NotSupported("ANN index is disabled in this build");
+#endif
 }
 
 Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values, size_t count) {

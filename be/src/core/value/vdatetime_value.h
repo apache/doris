@@ -841,7 +841,12 @@ public:
         requires std::is_integral_v<U>
     DateV2Value(U other) = delete;
 
+#ifndef __APPLE__
+    // Apple Clang 17: a user-declared defaulted copy constructor taking a
+    // non-const reference (T&) breaks std::is_trivially_copyable even when
+    // also = default. The const T& overload below is sufficient.
     DateV2Value(DateV2Value<T>& other) = default;
+#endif
 
     DateV2Value(const DateV2Value<T>& other) = default;
 

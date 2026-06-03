@@ -30,8 +30,8 @@ set(SRC_FILES ${SRC_FILES}
 )
 
 add_library(Exprs STATIC ${SRC_FILES})
-# function_array_distance uses faiss headers (platform_macros.h, distances.h),
-# which are exported by ann_index via PUBLIC linkage with faiss.
+# function_array_distance and vectorized_fn_call use ANN infrastructure types.
+# ann_index is always built (with FAISS stubs when DISABLE_ANN=ON) so always link.
 target_link_libraries(Exprs PRIVATE ann_index)
 
 pch_reuse(Exprs)

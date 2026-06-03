@@ -30,6 +30,8 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/olap_common.h"
 
+#ifndef DISABLE_ANN
+
 using namespace doris::vector_search_utils;
 
 namespace doris {
@@ -146,3 +148,5 @@ TEST_F(AnnIndexTest, SmokeTest) {
 } // namespace doris
 
 } // namespace doris
+
+#endif // DISABLE_ANN

@@ -23,10 +23,11 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
 file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 
-# Remove all cpp files from vector search (ANN index) subdirectory
-# Since cpp files in vector search subdirs use header files from faiss.
-# The compile check used by doris can not be applied to faiss headers.
-# So vector_search cpp files are compiled in a separate library using different compile options.
+# Remove all cpp files from vector search (ANN index) subdirectory.
+# When DISABLE_ANN is OFF: they are compiled in a separate library (vector_search_test)
+#   with relaxed compiler flags (faiss headers are sensitive to strict warnings).
+# When DISABLE_ANN is ON: they are guarded by #ifndef DISABLE_ANN and produce empty
+#   objects, but are still excluded to keep UT_FILES clean.
 file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS storage/index/ann/*.cpp)
 list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
 
@@ -42,6 +43,23 @@ endif()
 
 if (OS_MACOSX)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/util/system_metrics_test.cpp)
+    # functions_geo_test.cpp has assert_cast<ColumnUInt8*>(ColumnUInt8*) which
+    # trips the same-type static_assert added in #63133. The file is on master
+    # but not in this branch; gtest filter cannot fix compile errors. Exclude
+    # the whole file here until master fixes the redundant cast.
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exprs/function/geo/functions_geo_test.cpp)
+    # These files construct Decimal{64,128V3,128V2,256} from integer literals
+    # larger than INT32_MAX. On Linux Int64==long so the bare literal (long)
+    # matches Decimal(Int64) exactly; on macOS Int64==long long so a long
+    # literal is ambiguous between Decimal(Int64)/Decimal(Int128)/... A bare
+    # literal compiles on Linux but not macOS, and an LL literal compiles on
+    # macOS but not Linux, so there is no single literal form that works on
+    # both. gtest filter cannot fix compile errors, so exclude these whole
+    # files on macOS. Linux CI keeps full coverage.
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/core/jsonb/jsonb_document_cast_test.cpp)
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exprs/vexpr_test.cpp)
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exprs/function/cast/cast_to_string_api_test.cpp)
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/column_type_convert_test.cpp)
 endif()
 
 list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
@@ -112,27 +130,38 @@ include_directories(
 )
 
 # Removed test files are added back using separate compile arguments.
-add_subdirectory(storage/index/ann)
+if(NOT DISABLE_ANN)
+    add_subdirectory(storage/index/ann)
+endif()
 
 add_executable(doris_be_test ${UT_FILES})
 
-if (APPLE)
-    target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
-        -Wl,-force_load,$<TARGET_FILE:vector_search_test>)
+if(NOT DISABLE_ANN)
+    if (APPLE)
+        target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
+            -Wl,-force_load,$<TARGET_FILE:vector_search_test>)
+    else()
+        target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
+            -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
+    endif()
 else()
-    target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
-        -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
+    target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
 endif()
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h -Wno-shadow -Wno-shadow-field)
 
 if (OS_MACOSX AND ARCH_ARM)
     find_program(DSYMUTIL NAMES dsymutil)
-    message(STATUS "dsymutil found: ${DSYMUTIL}")
     find_program(LLVM_STRIP NAMES llvm-strip)
+    message(STATUS "dsymutil found: ${DSYMUTIL}")
     message(STATUS "llvm-strip found: ${LLVM_STRIP}")
-    add_custom_command(TARGET doris_be_test POST_BUILD
-        COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
-        COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
-    )
+    # Only add the POST_BUILD step when both tools are available. Without this
+    # guard, find_program() returns the sentinel "<VAR>-NOTFOUND" which then
+    # gets executed verbatim by the shell and fails with exit code 127.
+    if (DSYMUTIL AND LLVM_STRIP)
+        add_custom_command(TARGET doris_be_test POST_BUILD
+            COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
+            COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
+        )
+    endif()
 endif()

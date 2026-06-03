@@ -4,6 +4,7 @@ be/src/apache-orc/*
 be/src/clucene/*
 be/src/gutil/*
 be/src/glibc-compatibility/*
+be/src/macos_patches/*
 be/src/util/sse2neo.h
 be/src/util/sse2neon.h
 be/src/util/mustache/mustache.h

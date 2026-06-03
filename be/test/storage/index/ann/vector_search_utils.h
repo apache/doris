@@ -46,10 +46,13 @@
 #include "storage/tablet/tablet_schema.h"
 // Add CLucene RAM Directory header
 #include <CLucene/store/RAMDirectory.h>
+#ifndef DISABLE_ANN
 #include <faiss/MetricType.h>
+#endif
 
 using doris::segment_v2::DorisCompoundReader;
 
+#ifndef DISABLE_ANN
 namespace faiss {
 struct Index;
 struct IndexHNSWFlat;
@@ -58,6 +61,7 @@ struct IndexHNSWFlat;
 namespace doris::segment_v2 {
 class FaissVectorIndex;
 }
+#endif // DISABLE_ANN
 
 namespace doris::vector_search_utils {
 
@@ -68,6 +72,7 @@ std::vector<std::vector<float>> generate_test_vectors_matrix(int num_vectors, in
 // Generate random vectors as a flatten vector
 std::vector<float> generate_test_vectors_flatten(int num_vectors, int dimension);
 
+#ifndef DISABLE_ANN
 // Enum for different index types
 enum class IndexType {
     FLAT_L2,
@@ -112,6 +117,7 @@ std::vector<std::pair<int, float>> perform_native_index_range_search(faiss::Inde
 std::unique_ptr<doris::segment_v2::IndexSearchResult> perform_doris_index_range_search(
         segment_v2::VectorIndex* index, const float* query_vector, float radius,
         const segment_v2::IndexSearchParameters& params);
+#endif // DISABLE_ANN
 
 class MockIndexFileReader : public ::doris::segment_v2::IndexFileReader {
 public:
