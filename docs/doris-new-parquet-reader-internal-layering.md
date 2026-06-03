@@ -82,7 +82,7 @@ ParquetReader facade
 | Scan scheduler / batch selection | `parquet_scan.*`, `selection_vector.h` | 已按 selected row ranges 扫描，predicate columns 先读，non-predicate columns lazy materialize |
 | Column reader factory | `reader/column_reader.*` | 已集中创建 reader tree 和 Arrow `RecordReader` cache |
 | Column reader tree | `reader/scalar_column_reader.*`, `reader/row_position_column_reader.*`, `reader/struct_column_reader.*`, `reader/list_column_reader.*`, `reader/map_column_reader.*` | scalar、row-position、struct、list、map reader 已拆分；未投影 child 不再包 shape-only reader |
-| Nested shape/value assembler | `reader/nested_column_reader.*`, complex reader sinks | 已有 repeated assembler、overflow、parent/child sink state；shape/value stream 还未完全统一 |
+| Nested shape/value assembler | `reader/nested_column_reader.*` + LIST/MAP reader 局部 helper | 公共 header 已缩减到 357 行（batch/overflow/cursor/校验/appender）；LIST 内联 def/rep 循环，MAP 局部 assemble/repeated/value stream/slot stream 收敛到 map_column_reader.cpp |
 | Arrow leaf decode adapter | `reader/arrow_leaf_reader_adapter.*` | 已封装 Arrow `RecordReader` read/skip/value materialization |
 | Doris column materialization | `reader/*`, Doris `DataTypeSerDe` | scalar 主要走 SerDe；complex offsets/null map/child append 仍分布在 reader sink 中 |
 | Observability | `parquet_reader.*`, `parquet_statistics.*` | pruning profile 已接入；scheduler/adapter/nested overflow profile 仍不足 |
@@ -279,57 +279,45 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 ### 8. Nested Shape / Value Assembler
 
-组件：
+公共组件（`reader/nested_column_reader.*`）：
 
-- `NestedScalarBatch`
-- `NestedScalarOverflow`
-- `NestedStructBatch`
-- `NestedStructOverflow`
-- `NestedShapeCursor`
-- `NestedValueStream`
-- `NestedScalarSlotStream`
-- `NestedScalarValueAppender`
-- `NestedStructValueAppender`
-- `assemble_repeated_levels(...)`
-- `read_nested_scalar_batch(...)`
-- `read_nested_struct_batch(...)`
-- `RepeatedParentSinkState`
-- `RepeatedChildSinkState`
-- `RepeatedListValueSink`
-- `RepeatedNestedListValueSink`
-- `RepeatedMapValueSink`
-- `RepeatedMapListValueSink`
-- `RepeatedAlignedValueSkipSink`
+- `NestedScalarBatch` / `NestedScalarOverflow` — scalar leaf 的 def/rep levels + values 的中间载体和 overflow
+- `NestedStructBatch` / `NestedStructOverflow` — struct element 的多 child batch 和 overflow
+- `NestedShapeCursor` — 统一的 def/rep level 只读遍历器
+- `RepeatedParentSinkState` / `RepeatedChildSinkState` — LIST/MAP 共用的 parent/child 状态辅助
+- `NestedScalarValueAppender` / `NestedStructValueAppender` — scalar/struct child 值追加器
+- `read_nested_scalar_batch(...)` / `read_nested_struct_batch(...)` — 从 Arrow RecordReader 读取并填充 batch
+- 校验函数：`validate_nested_shape_alignment`、`validate_nested_scalar_alignment`、`validate_nested_struct_alignment`
+- overflow tail 函数：`move_nested_scalar_tail`、`move_nested_struct_tail`
+
+LIST/MAP 局部组件（各 reader 内部，不对外暴露）：
+
+- `list_column_reader.cpp`：`consume_list_level_stream`、`read_scalar_list_values`、`read_struct_list_values`、`read_nested_list_values` 及其 skip 变体
+- `map_column_reader.cpp`：`assemble_map_repeated_levels`、`MapValueStream`、`MapScalarSlotStream`、`MapValueSink`、`MapListValueSink` 及其 skip 变体
 
 职责：
 
-- 复制并持有 def/rep levels。
-- 将 Arrow decoded values materialize 到 Doris-owned temporary column。
-- 折叠 repeated levels，生成 parent rows。
-- 区分 null parent、empty parent、non-empty parent。
-- 写入 array/map offsets 和 nullable parent null map。
-- 写入 nullable scalar child/value 和 scalar-child struct value。
-- 对 map key/value 和 struct 多 child 做 level alignment check。
-- 维护 read-ahead overflow。
+- 公共层：复制并持有 def/rep levels；将 Arrow decoded values materialize 到 Doris-owned temporary column；提供 level 遍历和校验；维护 overflow 机制。
+- LIST 层：折叠 repeated levels 生成 parent rows；区分 null/empty/non-empty parent；写入 `ColumnArray` offsets + null map + child column。
+- MAP 层：折叠 repeated levels 生成 parent rows；处理 key/value 两个独立 stream 的对齐；写入 `ColumnMap` key + value + offsets + null map。
 
-当前状态：
+当前状态（post inline refactoring）：
 
-- scalar 和 struct batch 已适配到统一 shape view。
-- MAP scalar/struct value 已通过 `NestedValueStream` 统一 read、alignment 和 overflow tail。
-- MAP LIST value 的 key stream 已通过 `NestedScalarSlotStream` 统一按 value driver 消费 key slot。
-- LIST scalar element、LIST struct element、nested LIST scalar element 已通过统一 repeated sink 写入。
-- MAP scalar value、MAP struct value、MAP LIST scalar element value 已通过统一 repeated sink 写入。
+- 公共 `assemble_repeated_levels` 模板已删除。LIST 使用内联 def/rep level 循环直接写 `ColumnArray`，MAP 使用局部 `assemble_map_repeated_levels` 直接写 `ColumnMap`。
+- `NestedValueStream` / `NestedScalarSlotStream` 移到 `map_column_reader.cpp`，重命名为 `MapValueStream` / `MapScalarSlotStream`。
+- `RepeatedListValueSink` / `RepeatedNestedListValueSink` / `RepeatedMapValueSink` / `RepeatedMapListValueSink` / `RepeatedAlignedValueSkipSink` 从公共 header 删除——LIST 内联循环不需要 Sink 抽象，MAP 的 Sink 局部化在 `map_column_reader.cpp`。
+- 公共 `nested_column_reader.h` 从 789 行缩减到 357 行，仅保留 LIST 和 MAP 真正共用的基础件。
 
 剩余不足：
 
-- reader factory 仍需要按 child reader 类型选择合适的 value stream/appender。
+- `NestedScalarBatch::value_indices` 仍存在（内联循环中 def_level 检查与 value lookup 存在逻辑重复），可进一步删除。
 - nested MAP value、struct 内更深层 complex child 的组合覆盖还不完整。
 - struct value append 中非 scalar child 的推进仍依赖 `StructColumnReader` 当前接口。
 
 后续目标：
 
 - reader 文件只表达 LIST/MAP/STRUCT 自身的 Parquet 语义。
-- def/rep stream、overflow、alignment、shape-only 推进统一收敛到 nested assembler。
+- def/rep stream、overflow、alignment 继续由各 reader 内联或局部 helper 处理。
 - 新增 complex child 类型时不复制 list/map 主循环。
 
 ### 9. Arrow Leaf Decode Adapter
@@ -426,7 +414,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | Row position column | 已实现 | Column reader | 使用 row group `first_file_row` |
 | Top-level projection | 已实现 | Scheduler / Factory | 按 file-local column id 创建 reader |
 | Struct projection | 已实现 | Factory / Struct reader | 支持 child projection 和 nullable child |
-| List/Map nested projection | 部分实现 | Factory / Nested assembler | 已支持部分 complex child，shape/value stream 和 repeated sink 已统一，组合覆盖仍需补齐 |
+| List/Map nested projection | 部分实现 | Factory / Reader | LIST 标量/STRUCT/nested LIST、MAP 标量/STRUCT/LIST value 路径已支持；MAP nested map value 和更深层 complex child 组合仍未覆盖 |
 | Row group statistics pruning | 已实现 | Pruning | min/max/null count 转 Doris statistics 后判断 |
 | Dictionary row group pruning | 已实现 | Pruning | 当前覆盖 string-like dictionary predicate |
 | Page index pruning | 已实现 | Pruning / Scheduler | Arrow page index 转 row group-local row ranges |
@@ -437,13 +425,13 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 | Nullable STRUCT | 已实现 | Struct reader / Nested assembler | 对齐 child shape/null map |
 | STRUCT complex child | 部分实现 | Struct reader / Nested assembler | 支持部分 list/map child，仍需收敛分支 |
 | LIST scalar element | 已实现 | List reader / Nested assembler | 支持 null/empty/nullable scalar/overflow |
-| LIST struct element | 部分实现 | List reader / Nested assembler | 已有 struct batch/overflow，接口仍未统一 |
-| Nested LIST | 部分实现 | List reader / Nested assembler | 支持 scalar nested list，复用统一 repeated sink |
-| MAP scalar value | 已实现 | Map reader / Nested assembler | key required，value 支持 nullable scalar |
-| MAP struct/list value | 部分实现 | Map reader / Nested assembler | scalar/struct value stream、LIST value key slot stream 和 repeated sink 已收敛，组合覆盖仍需补齐 |
+| LIST struct element | 已实现 | List reader | `read_struct_list_values` 直接写 `ColumnArray`，使用 `NestedStructValueAppender` |
+| Nested LIST | 已实现 | List reader | `read_nested_list_values` 直接写 `ColumnArray`，两级 offset 跟踪 |
+| MAP scalar value | 已实现 | Map reader | key required，value 支持 nullable scalar；`MapValueSink` + `MapValueStream` 局部写入 `ColumnMap` |
+| MAP struct/list value | 已实现 | Map reader | struct value 使用 `MapValueSink<NestedStructBatch>`；LIST value 使用 `MapListValueSink` + `MapScalarSlotStream` 局部写入 `ColumnMap` |
 | MAP nested map value | 未完成 | Map reader / Nested assembler | 后续在统一 shape/value stream 上补 value appender |
 | Required/nullability corruption check | 部分实现 | Column reader / Nested assembler | list/map scalar 路径较完整，complex child 需继续统一 |
-| Schema change / schema evolution | 未实现 | 上层映射 + Factory | 当前只保留 file-local 边界 |
+| Schema change / schema evolution | 已实现 | TableReader / ColumnMapper | top-level 和 struct child 缺失列已通过 `is_missing` + 默认值填充处理；各 table format 集成验证待补 |
 | Page-level decoder | 未实现 | Adapter | 当前不替代 Arrow `RecordReader` |
 | Profile/metrics | 部分实现 | Observability | pruning 较完整，scheduler/adapter/nested 仍需补齐 |
 | BE unit tests | 部分实现 | Tests | column reader complex/path tests 已有，覆盖矩阵仍需补 |
@@ -492,39 +480,39 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 ### P3：Schema Change 接入准备
 
-目标：
+**状态：已基本完成，改为验证项。**
 
-- 不在 file-local reader 内直接实现 table schema evolution，但保证 reader 边界可以承接上层映射结果。
+当前 TableReader/ColumnMapper 已实现 P3 所需的全部机制：
 
-建议步骤：
+- `ColumnMapping::is_missing` + `allow_missing_columns` 处理文件不存在但表 schema 包含的列。
+- `_materialize_struct_mapping_column()` 对缺失子字段用 `create_column_const_with_default_value(rows)` 填充默认值。
+- `TableColumn::default_expr` 支持 FE 注入的非空默认值（ALTER TABLE ADD COLUMN DEFAULT）。
+- `BY_FIELD_ID` / `BY_NAME` / `BY_INDEX` 三种映射模式已覆盖各 table format 的列匹配需求。
+- `ProjectedStructFillsMissingChildWithDefault` UT 已覆盖 struct 子字段缺失场景。
 
-1. 明确 `FieldProjection` 中 file child slot 与 output child slot 的表达。
-2. 支持 missing projected child 由上层以 default/null reader 形式注入。
-3. 保证 factory 只消费 file-local schema + projection mapping。
-4. 为 field id/name/path mapping 预留测试入口。
+仍需验证：
 
-验收标准：
-
-- file-local reader 不知道 table/global schema。
-- schema evolution 不需要改 nested assembler 主循环。
+- 各 table format（Iceberg/Hive/Paimon）的 scan node 是否正确设置了 `allow_missing_columns` 和 `default_expr`。
+- 所有 schema change 场景的集成测试（add/drop/rename column, type promotion）。
 
 ### P4：评估 Page-level Decoder
 
-目标：
+**状态：保留，但前置条件（P1 observability）尚未满足。**
 
-- 在 profile 证明必要时，再考虑从 Arrow `RecordReader` 下沉到 page-level decoder。
+背景：
+- 当前 page-index pruning 已能算出哪些 page 需要读，输出 row ranges。
+- 但 Arrow `RecordReader::SkipRecords()` 仍然解压和解码被跳过的 page（只跳过 value 写入，不跳过 decompression + level decoding）。
+- 自研 page-level decoder 可以直接跳过 page 的 I/O 和解压（如旧 reader 的 `skip_page_data()`——纯文件 offset 前进），page gap 越大收益越明显。
 
-建议步骤：
+当前无 benchmark 数据支撑决策：
+- 新 reader 没有任何性能 test 或 profiling 基础设施。
+- 旧 reader 有详细的 decode 耗时统计（`decompress_time`、`decode_header_time`、`skip_page_header_num` 等），可作为参考。
+- P1（observability）必须先完成，才能判断 `RecordReader + skip/read/select` 的 page 级开销占比。
 
-1. 基于 P2 profile 分析 page index pruning 后的 IO/decode 成本。
-2. 如果 `RecordReader + skip/read/select` 不能避免主要开销，在 adapter 层封装 `GetColumnPageReader()`。
-3. 保持 column reader tree 的 row-level API 不变。
-4. 先支持 scalar leaf，再考虑 nested leaf stream。
-
-验收标准：
-
-- page-level decoder 是 adapter 内部实现细节。
-- scan scheduler 仍只消费 row ranges。
+如果 P1 证明 page-level skip 是瓶颈：
+- 编码器已全部存在于 `format/parquet/decoder/`（PLAIN、RLE_DICT、DELTA_*、BYTE_STREAM_SPLIT 共 7 种），不需要从零实现。
+- 主要工作是封装 Arrow `GetColumnPageReader()` + 复用已有 decoder + 集成到 `ScalarColumnReader` skip 路径。
+- 保持 column reader tree 的 row-level API 不变；page-level decoder 是 adapter 内部实现细节。
 
 ## 功能归位规则
 
@@ -540,13 +528,11 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 
 ## 当前与理想状态的差距
 
-当前结构已经完成第一轮文件归并和职责收敛：reader 代码集中在 `reader/`，scan 调度集中在 `parquet_scan.*`，metadata pruning 集中在 `parquet_statistics.*`。这比之前“每个小 helper 一个文件”的结构更接近 DuckDB 的 reader 目录组织。
+当前结构已经完成文件归并和职责收敛：reader 代码集中在 `reader/`，scan 调度集中在 `parquet_scan.*`，metadata pruning 集中在 `parquet_statistics.*`。LIST/MAP 的 Dremel 组装已从公共泛型模板改为各 reader 内联/局部 helper。
 
-主要差距仍在 nested 层：
+主要差距：
 
-- 现在已经有 repeated assembler、overflow state、shape/value stream 和统一 sink，但 complex child 组合还没有全部覆盖。
-- list/map 对已支持路径复用统一 sink；新增 nested MAP、struct deep complex child 仍需要补 value appender/shape-only reader 组合。
+- LIST 和 MAP 的已支持路径已完成内联/局部化，但 MAP nested map value、struct 内更深层 complex child 组合仍需要补 value appender。
 - schema change 还停留在边界预留阶段。
-- observability 还没补完整；bloom filter 已接入 row group pruning，但 check time 还没有单独拆分。
-
-后续优先级应先补 observability，再补剩余 complex child 组合。新增复杂类型 case 必须继续落在 nested assembler 的 value stream/appender/sink 结构上，避免 list/map reader 重新变厚。
+- observability 还没补完整；scheduler selected/skipped rows、nested overflow 次数、adapter 细分耗时仍未接入 profile。
+- 复杂类型的统计信息过滤和谓词过滤下推尚未实现（见独立文档）。
