@@ -25,22 +25,21 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // TIMESTAMP instant back to the exact wall clock the source shows. Doris data
 // then stays identical to MySQL, independent of Doris's own session tz.
 //
-// Source tz is Asia/Tokyo (+09, no DST), deliberately != Doris default +08, so
-// the case proves the rendering follows the SOURCE tz (not Doris). MySQL docker
-// has no tz table, so the source session uses the equivalent offset '+09:00'
-// while jdbc_url uses the IANA name 'Asia/Tokyo' (cdc resolves it via ZoneId).
-// Tokyo has no DST, so its offset is a constant +09 and the result is fully
-// deterministic.
+// Source tz is +09 (Tokyo), deliberately != Doris default +08, so the case
+// proves the rendering follows the SOURCE tz (not Doris). Both the source
+// session and jdbc_url use the fixed offset '+09:00' (not a named zone): forcing
+// the connection session to an offset needs no MySQL tz tables, and with no DST
+// the offset is constant so the result is fully deterministic.
 //
-// Setup (source tz = Asia/Tokyo = +09):
+// Setup (source tz = +09):
 //   source SET SESSION time_zone='+09:00', INSERT '2024-06-15 11:00:00'
 //     ts0 (TIMESTAMP) -> source-internal UTC instant 2024-06-15 02:00:00Z
 //     dt0 (DATETIME)  -> literal '2024-06-15 11:00:00'
-//   jdbc_url serverTimezone aligned to the SOURCE tz (Asia/Tokyo)
+//   jdbc_url serverTimezone aligned to the SOURCE tz (+09:00)
 //
 // Expectation at Doris (independent of Doris session tz, since cdc renders
 // with the source tz, not Doris's; .out has no dependency on Doris tz):
-//   ts0 -> '2024-06-15T11:00'  (02:00Z rendered with Asia/Tokyo +09 = 11:00, == source)
+//   ts0 -> '2024-06-15T11:00'  (02:00Z rendered with +09:00 = 11:00, == source)
 //   dt0 -> '2024-06-15T11:00'  (DATETIME has no tz semantics, stored verbatim)
 suite("test_streaming_mysql_job_jdbc_servertimezone", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
     def jobName = "test_streaming_mysql_job_jdbc_servertimezone_name"
@@ -63,7 +62,8 @@ suite("test_streaming_mysql_job_jdbc_servertimezone", "p0,external,mysql,externa
         // Doris data matches the source wall clock. Log Doris tz only to show
         // the result is independent of it.
         def sourceTz = "+09:00"
-        def jdbcTz = "Asia/Tokyo"
+        // %2B is a URL-encoded '+': a literal '+' in a jdbc URL decodes to a space
+        def jdbcTz = "%2B09:00"
         log.info("Doris session time_zone = ${(sql "select @@time_zone")[0][0]}; cdc renders with source tz ${jdbcTz}.")
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
