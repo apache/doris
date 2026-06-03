@@ -64,16 +64,8 @@ public:
 
     void set_vector_index(std::shared_ptr<VectorIndex> index) { _vector_index = index; }
     size_t buffered_vector_capacity() const { return _buffered_vectors.capacity(); }
-    size_t read_buffer_capacity() const { return _read_buffer.capacity(); }
     size_t buffered_vector_rows(size_t dim) const { return _buffered_vectors.size() / dim; }
-    bool has_spool_file() const { return !_spool_file_path.empty(); }
     size_t add_chunk_rows(size_t dim) const { return _add_chunk_rows(dim); }
-    size_t training_sample_rows_limit(Int64 min_train_rows, size_t dim) const {
-        return _training_sample_rows_limit(min_train_rows, dim);
-    }
-    bool train_rows_exceed_chunk_bytes(size_t dim, Int64 min_train_rows) const {
-        return _train_rows_exceed_chunk_bytes(dim, min_train_rows);
-    }
 };
 
 class AnnIndexWriterTest : public ::testing::Test {
@@ -188,7 +180,6 @@ TEST_F(AnnIndexWriterTest, TestInitDoesNotPreallocateBuildChunk) {
 
     ASSERT_TRUE(writer->init().ok());
     EXPECT_EQ(writer->buffered_vector_capacity(), 0);
-    EXPECT_EQ(writer->read_buffer_capacity(), 0);
 }
 
 TEST_F(AnnIndexWriterTest, TestAddArrayValuesSuccess) {
@@ -478,7 +469,6 @@ TEST_F(AnnIndexWriterTest, TestNoTrainIndexAddsDirectly) {
         EXPECT_TRUE(status.ok());
     }
 
-    EXPECT_FALSE(writer->has_spool_file());
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(0));
@@ -536,7 +526,6 @@ TEST_F(AnnIndexWriterTest, TestNoTrainIndexRespectsBuildChunkBytes) {
             writer->add_array_values(sizeof(float), vectors.data(), nullptr,
                                      reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_TRUE(status.ok());
-    EXPECT_FALSE(writer->has_spool_file());
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(0));
@@ -677,7 +666,6 @@ TEST_F(AnnIndexWriterTest, TestSmallTrainRequiredIndexUsesMemoryBuffer) {
             writer->add_array_values(sizeof(float), vectors.data(), nullptr,
                                      reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_TRUE(status.ok());
-    EXPECT_FALSE(writer->has_spool_file());
     EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
 
@@ -695,7 +683,6 @@ TEST_F(AnnIndexWriterTest, TestSmallTrainRequiredIndexUsesMemoryBuffer) {
 
     status = writer->finish();
     EXPECT_TRUE(status.ok());
-    EXPECT_FALSE(writer->has_spool_file());
     EXPECT_EQ(writer->buffered_vector_rows(dim), 0);
 }
 
@@ -764,13 +751,13 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsOnceAndAddsAllRows) {
         EXPECT_TRUE(status.ok());
     }
 
-    EXPECT_TRUE(writer->has_spool_file());
+    EXPECT_EQ(writer->buffered_vector_rows(dim), 12);
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(2));
     {
         testing::InSequence sequence;
-        EXPECT_CALL(*mock_index, train(10, testing::_))
+        EXPECT_CALL(*mock_index, train(12, testing::_))
                 .Times(1)
                 .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*mock_index, add(10, testing::_))
@@ -786,12 +773,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsOnceAndAddsAllRows) {
     EXPECT_TRUE(status.ok());
 }
 
-TEST_F(AnnIndexWriterTest, TestTrainingSampleUsesReservoirAndMaxRows) {
-    const int64_t old_max_train_rows = config::ann_index_build_max_train_rows;
-    config::ann_index_build_max_train_rows = 6;
-    doris::Defer restore_config {
-            [&] { config::ann_index_build_max_train_rows = old_max_train_rows; }};
-
+TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsWithAllBufferedRows) {
     auto mock_index = std::make_shared<MockVectorIndex>();
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
                                                              _tablet_index.get());
@@ -825,30 +807,20 @@ TEST_F(AnnIndexWriterTest, TestTrainingSampleUsesReservoirAndMaxRows) {
             writer->add_array_values(sizeof(float), vectors.data(), nullptr,
                                      reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(writer->has_spool_file());
+    EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(2));
     {
         testing::InSequence sequence;
-        EXPECT_CALL(*mock_index, train(6, testing::_))
+        EXPECT_CALL(*mock_index, train(20, testing::_))
                 .Times(1)
                 .WillOnce(testing::Invoke([&](Int64 n, const float* vec) {
-                    EXPECT_EQ(n, 6);
-                    bool has_row_after_initial_sample = false;
-                    bool is_prefix_sample = true;
+                    EXPECT_EQ(n, num_rows);
                     for (size_t row = 0; row < static_cast<size_t>(n); ++row) {
                         const auto row_id = static_cast<size_t>(vec[row * dim]);
-                        EXPECT_LT(row_id, num_rows);
-                        if (row_id >= static_cast<size_t>(n)) {
-                            has_row_after_initial_sample = true;
-                        }
-                        if (row_id != row) {
-                            is_prefix_sample = false;
-                        }
+                        EXPECT_EQ(row_id, row);
                     }
-                    EXPECT_TRUE(has_row_after_initial_sample);
-                    EXPECT_FALSE(is_prefix_sample);
                     return Status::OK();
                 }));
         EXPECT_CALL(*mock_index, add(10, testing::_))
@@ -879,7 +851,6 @@ TEST_F(AnnIndexWriterTest, TestBuildChunkBytesCapsAddRows) {
 
     const size_t dim = 4;
     EXPECT_EQ(writer->add_chunk_rows(dim), 2);
-    EXPECT_EQ(writer->training_sample_rows_limit(1, dim), 2);
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(1));
     EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
@@ -905,7 +876,7 @@ TEST_F(AnnIndexWriterTest, TestBuildChunkBytesCapsAddRows) {
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(1));
     {
         testing::InSequence sequence;
-        EXPECT_CALL(*mock_index, train(2, testing::_))
+        EXPECT_CALL(*mock_index, train(6, testing::_))
                 .Times(1)
                 .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*mock_index, add(2, testing::_))
@@ -951,7 +922,6 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanMinTrainRows) {
                                      reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_TRUE(status.ok());
 
-    EXPECT_FALSE(writer->has_spool_file());
     EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
@@ -964,7 +934,7 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanMinTrainRows) {
     EXPECT_EQ(writer->buffered_vector_rows(dim), 0);
 }
 
-TEST_F(AnnIndexWriterTest, TestSkipBuildWhenMinTrainRowsExceedsChunkBytes) {
+TEST_F(AnnIndexWriterTest, TestMinTrainRowsCanExceedChunkBytes) {
     const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
     config::ann_index_build_chunk_bytes = 32;
     doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
@@ -981,7 +951,7 @@ TEST_F(AnnIndexWriterTest, TestSkipBuildWhenMinTrainRowsExceedsChunkBytes) {
     writer->set_vector_index(mock_index);
 
     const size_t dim = 4;
-    EXPECT_TRUE(writer->train_rows_exceed_chunk_bytes(dim, 5));
+    EXPECT_EQ(writer->add_chunk_rows(dim), 2);
 
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
     EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
@@ -1003,14 +973,23 @@ TEST_F(AnnIndexWriterTest, TestSkipBuildWhenMinTrainRowsExceedsChunkBytes) {
                                      reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
     EXPECT_TRUE(status.ok());
 
-    EXPECT_FALSE(writer->has_spool_file());
+    EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
-    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
-    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
-    EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(*mock_index, train(6, testing::_))
+                .Times(1)
+                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, add(2, testing::_))
+                .Times(3)
+                .WillRepeatedly(testing::Return(Status::OK()));
+        EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    }
 
     status = writer->finish();
     EXPECT_TRUE(status.ok());
+    EXPECT_EQ(writer->buffered_vector_rows(dim), 0);
 }
 
 TEST_F(AnnIndexWriterTest, TestIVFOnDiskMinTrainRows) {

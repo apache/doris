@@ -17,8 +17,6 @@
 
 #include "storage/index/ann/ann_index_writer.h"
 
-#include <fmt/format.h>
-
 #include <algorithm>
 #include <cstddef>
 #include <limits>
@@ -26,14 +24,8 @@
 #include <string>
 
 #include "common/cast_set.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/local_file_system.h"
-#include "runtime/exec_env.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
-#include "util/slice.h"
-#include "util/uid_util.h"
 
 namespace doris::segment_v2 {
 static std::string get_or_default(const std::map<std::string, std::string>& properties,
@@ -49,9 +41,7 @@ AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta)
         : _index_file_writer(index_file_writer), _index_meta(index_meta) {}
 
-AnnIndexColumnWriter::~AnnIndexColumnWriter() {
-    _delete_spool_file();
-}
+AnnIndexColumnWriter::~AnnIndexColumnWriter() = default;
 
 Status AnnIndexColumnWriter::init() {
     Result<std::shared_ptr<DorisFSDirectory>> compound_dir = _index_file_writer->open(_index_meta);
@@ -82,8 +72,6 @@ Status AnnIndexColumnWriter::init() {
     faiss_index->build(build_parameter);
 
     _vector_index = faiss_index;
-    _training_sample_seen_rows = 0;
-    _training_sample_rng.seed(0);
 
     LOG_INFO(
             "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
@@ -99,10 +87,7 @@ Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values
 }
 
 void AnnIndexColumnWriter::close_on_error() {
-    _delete_spool_file();
     _release_buffered_vectors();
-    _training_sample.clear();
-    _read_buffer.clear();
     _skip_build = true;
 }
 
@@ -118,25 +103,6 @@ size_t AnnIndexColumnWriter::_add_chunk_rows(size_t dim) const {
     return cast_set<size_t>(
             std::max<Int64>(1, std::min<Int64>(AnnIndexColumnWriter::chunk_size(),
                                                cast_set<Int64>(_chunk_rows_by_bytes(dim)))));
-}
-
-bool AnnIndexColumnWriter::_train_rows_exceed_chunk_bytes(size_t dim, Int64 min_train_rows) const {
-    DCHECK(dim > 0);
-    DCHECK(min_train_rows >= 0);
-    if (min_train_rows == 0) {
-        return false;
-    }
-    static constexpr Int64 FLOAT_BYTES = static_cast<Int64>(sizeof(float));
-    DORIS_CHECK(dim <= static_cast<size_t>(std::numeric_limits<Int64>::max() / FLOAT_BYTES));
-    const Int64 vector_bytes = cast_set<Int64>(dim) * FLOAT_BYTES;
-    return min_train_rows > AnnIndexColumnWriter::chunk_bytes() / vector_bytes;
-}
-
-size_t AnnIndexColumnWriter::_training_sample_rows_limit(Int64 min_train_rows, size_t dim) const {
-    DCHECK(min_train_rows > 0);
-    return cast_set<size_t>(std::max<Int64>(
-            min_train_rows, std::min<Int64>(config::ann_index_build_max_train_rows,
-                                            cast_set<Int64>(_add_chunk_rows(dim)))));
 }
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
@@ -167,26 +133,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     if (min_train_rows == 0) {
         RETURN_IF_ERROR(_add_vectors_in_chunks(p, num_rows));
     } else {
-        if (_train_rows_exceed_chunk_bytes(dim, min_train_rows)) {
-            static constexpr Int64 FLOAT_BYTES = static_cast<Int64>(sizeof(float));
-            const Int64 vector_bytes = cast_set<Int64>(dim) * FLOAT_BYTES;
-            const Int64 required_bytes =
-                    min_train_rows > std::numeric_limits<Int64>::max() / vector_bytes
-                            ? std::numeric_limits<Int64>::max()
-                            : min_train_rows * vector_bytes;
-            LOG(WARNING) << "Skip ANN index build because minimum training rows exceed build chunk "
-                            "byte limit, dim="
-                         << dim << ", min_train_rows=" << min_train_rows
-                         << ", required_bytes=" << required_bytes
-                         << ", ann_index_build_chunk_bytes=" << AnnIndexColumnWriter::chunk_bytes();
-            _skip_build = true;
-            _release_buffered_vectors();
-            _training_sample.clear();
-            _read_buffer.clear();
-            _delete_spool_file();
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(_append_vectors_need_train(p, num_rows, min_train_rows));
+        RETURN_IF_ERROR(_append_vectors_need_train(p, num_rows));
     }
     _total_rows += cast_set<int64_t>(num_rows);
 
@@ -208,16 +155,11 @@ int64_t AnnIndexColumnWriter::size() const {
 Status AnnIndexColumnWriter::finish() {
     if (_skip_build || _total_rows == 0) {
         LOG_INFO("No data to train/add for ANN index. Skipping index building.");
-        Status st = _index_file_writer->delete_index(_index_meta);
-        _delete_spool_file();
-        return st;
+        return _index_file_writer->delete_index(_index_meta);
     }
 
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
-    Status st =
-            min_train_rows == 0 ? _vector_index->save(_dir.get()) : _train_and_add(min_train_rows);
-    _delete_spool_file();
-    return st;
+    return min_train_rows == 0 ? _vector_index->save(_dir.get()) : _train_and_add(min_train_rows);
 }
 
 Status AnnIndexColumnWriter::_add_vectors_in_chunks(const float* vectors, size_t num_rows) {
@@ -236,101 +178,12 @@ Status AnnIndexColumnWriter::_add_vectors_in_chunks(const float* vectors, size_t
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::_append_vectors_need_train(const float* vectors, size_t num_rows,
-                                                        Int64 min_train_rows) {
+Status AnnIndexColumnWriter::_append_vectors_need_train(const float* vectors, size_t num_rows) {
     DCHECK(vectors != nullptr);
     DCHECK(num_rows > 0);
 
     const size_t dim = _vector_index->get_dimension();
-    const size_t sample_rows_limit = _training_sample_rows_limit(min_train_rows, dim);
-    if (!_spool_file_path.empty()) {
-        _sample_training_vectors(vectors, num_rows, dim, sample_rows_limit);
-        return _append_to_spool_file(vectors, num_rows * dim);
-    }
-
-    const size_t buffered_rows = _buffered_vectors.size() / dim;
-    const size_t buffered_rows_limit = sample_rows_limit;
-    if (buffered_rows <= buffered_rows_limit && num_rows <= buffered_rows_limit - buffered_rows) {
-        _buffered_vectors.insert(_buffered_vectors.end(), vectors, vectors + num_rows * dim);
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(_spill_buffered_vectors(dim, sample_rows_limit));
-    _sample_training_vectors(vectors, num_rows, dim, sample_rows_limit);
-    return _append_to_spool_file(vectors, num_rows * dim);
-}
-
-void AnnIndexColumnWriter::_sample_training_vectors(const float* vectors, size_t num_rows,
-                                                    size_t dim, size_t sample_rows_limit) {
-    DCHECK(vectors != nullptr);
-    DCHECK(num_rows > 0);
-    DCHECK(dim > 0);
-    DCHECK(sample_rows_limit > 0);
-    DCHECK(_training_sample.size() % dim == 0);
-
-    for (size_t row = 0; row < num_rows; ++row) {
-        const float* vector = vectors + row * dim;
-        ++_training_sample_seen_rows;
-        const size_t sample_rows = _training_sample.size() / dim;
-        if (sample_rows < sample_rows_limit) {
-            _training_sample.insert(_training_sample.end(), vector, vector + dim);
-            continue;
-        }
-
-        std::uniform_int_distribution<uint64_t> distribution(0, _training_sample_seen_rows - 1);
-        const uint64_t selected = distribution(_training_sample_rng);
-        if (selected < sample_rows_limit) {
-            float* dst = _training_sample.data() + cast_set<size_t>(selected) * dim;
-            std::copy(vector, vector + dim, dst);
-        }
-    }
-}
-
-Status AnnIndexColumnWriter::_spill_buffered_vectors(size_t dim, size_t sample_rows_limit) {
-    DCHECK(dim > 0);
-    DCHECK(_training_sample.empty());
-    DCHECK_EQ(_training_sample_seen_rows, 0);
-    if (!_buffered_vectors.empty()) {
-        DCHECK(_buffered_vectors.size() % dim == 0);
-    }
-    RETURN_IF_ERROR(_ensure_spool_file());
-    if (!_buffered_vectors.empty()) {
-        RETURN_IF_ERROR(_append_to_spool_file(_buffered_vectors.data(), _buffered_vectors.size()));
-        if (_buffered_vectors.size() / dim <= sample_rows_limit) {
-            _training_sample.swap(_buffered_vectors);
-            _training_sample_seen_rows = _training_sample.size() / dim;
-        } else {
-            _sample_training_vectors(_buffered_vectors.data(), _buffered_vectors.size() / dim, dim,
-                                     sample_rows_limit);
-        }
-    }
-    _release_buffered_vectors();
-    return Status::OK();
-}
-
-Status AnnIndexColumnWriter::_ensure_spool_file() {
-    if (_spool_file_writer != nullptr) {
-        return Status::OK();
-    }
-    DORIS_CHECK(ExecEnv::GetInstance()->get_tmp_file_dirs() != nullptr);
-    _spool_file_path = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir() /
-                       fmt::format("ann_index_build_{}.spool", UniqueId::gen_uid().to_string());
-    io::FileWriterOptions opts;
-    opts.sync_file_data = false;
-    return io::global_local_filesystem()->create_file(_spool_file_path, &_spool_file_writer, &opts);
-}
-
-Status AnnIndexColumnWriter::_append_to_spool_file(const float* vectors, size_t num_elements) {
-    const size_t bytes = num_elements * sizeof(float);
-    return _spool_file_writer->append(Slice(reinterpret_cast<const uint8_t*>(vectors), bytes));
-}
-
-Status AnnIndexColumnWriter::_flush_spool_writer() {
-    if (_spool_file_writer == nullptr) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_spool_file_writer->close());
-    _spool_file_writer.reset();
+    _buffered_vectors.insert(_buffered_vectors.end(), vectors, vectors + num_rows * dim);
     return Status::OK();
 }
 
@@ -340,89 +193,22 @@ Status AnnIndexColumnWriter::_train_and_add(Int64 min_train_rows) {
                 "Total data size {} is less than minimum {} rows required for ANN index training. "
                 "Skipping index building for this segment.",
                 _total_rows, min_train_rows);
-        RETURN_IF_ERROR(_flush_spool_writer());
         _release_buffered_vectors();
         return _index_file_writer->delete_index(_index_meta);
     }
 
     const size_t dim = _vector_index->get_dimension();
-    if (_spool_file_path.empty()) {
-        DCHECK(_buffered_vectors.size() % dim == 0);
-        const Int64 train_rows = cast_set<Int64>(_buffered_vectors.size() / dim);
-        DORIS_CHECK(train_rows >= min_train_rows);
-        RETURN_IF_ERROR(_vector_index->train(train_rows, _buffered_vectors.data()));
-        RETURN_IF_ERROR(_add_vectors_in_chunks(_buffered_vectors.data(), train_rows));
-        _release_buffered_vectors();
-    } else {
-        DCHECK(_training_sample.size() % dim == 0);
-        const Int64 train_rows = cast_set<Int64>(_training_sample.size() / dim);
-        DORIS_CHECK(train_rows >= min_train_rows);
-        RETURN_IF_ERROR(_vector_index->train(train_rows, _training_sample.data()));
-        {
-            PODArray<float> empty_training_sample;
-            _training_sample.swap(empty_training_sample);
-        }
-        RETURN_IF_ERROR(_flush_spool_writer());
-        RETURN_IF_ERROR(_add_spooled_vectors());
-    }
+    DCHECK(_buffered_vectors.size() % dim == 0);
+    const Int64 train_rows = cast_set<Int64>(_buffered_vectors.size() / dim);
+    DORIS_CHECK(train_rows >= min_train_rows);
+    RETURN_IF_ERROR(_vector_index->train(train_rows, _buffered_vectors.data()));
+    RETURN_IF_ERROR(_add_vectors_in_chunks(_buffered_vectors.data(), train_rows));
+    _release_buffered_vectors();
     return _vector_index->save(_dir.get());
-}
-
-Status AnnIndexColumnWriter::_add_spooled_vectors() {
-    DCHECK(!_spool_file_path.empty());
-    io::FileReaderSPtr reader;
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(_spool_file_path, &reader));
-
-    const size_t dim = _vector_index->get_dimension();
-    const size_t chunk_elements = _add_chunk_rows(dim) * dim;
-    _read_buffer.resize(chunk_elements);
-    const size_t buffer_bytes = chunk_elements * sizeof(float);
-    size_t offset = 0;
-    while (offset < reader->size()) {
-        const size_t bytes_to_read = std::min(buffer_bytes, reader->size() - offset);
-        DCHECK(bytes_to_read % sizeof(float) == 0);
-        size_t bytes_read = 0;
-        RETURN_IF_ERROR(reader->read_at(
-                offset, Slice(reinterpret_cast<uint8_t*>(_read_buffer.data()), bytes_to_read),
-                &bytes_read));
-        if (bytes_read != bytes_to_read) {
-            return Status::IOError(
-                    "Failed to read ANN index build spool file {}, expect {} bytes, "
-                    "got {} bytes",
-                    _spool_file_path.native(), bytes_to_read, bytes_read);
-        }
-        DCHECK((bytes_read / sizeof(float)) % dim == 0);
-        RETURN_IF_ERROR(_vector_index->add(cast_set<Int64>(bytes_read / sizeof(float) / dim),
-                                           _read_buffer.data()));
-        offset += bytes_read;
-    }
-    RETURN_IF_ERROR(reader->close());
-    PODArray<float> empty_read_buffer;
-    _read_buffer.swap(empty_read_buffer);
-    return Status::OK();
 }
 
 void AnnIndexColumnWriter::_release_buffered_vectors() {
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
-}
-
-void AnnIndexColumnWriter::_delete_spool_file() {
-    if (_spool_file_writer != nullptr) {
-        Status st = _spool_file_writer->close();
-        if (!st.ok()) {
-            LOG(WARNING) << "Failed to close ANN index build spool file "
-                         << _spool_file_path.native() << ": " << st;
-        }
-        _spool_file_writer.reset();
-    }
-    if (!_spool_file_path.empty()) {
-        Status st = io::global_local_filesystem()->delete_file(_spool_file_path);
-        if (!st.ok()) {
-            LOG(WARNING) << "Failed to delete ANN index build spool file "
-                         << _spool_file_path.native() << ": " << st;
-        }
-        _spool_file_path.clear();
-    }
 }
 } // namespace doris::segment_v2
