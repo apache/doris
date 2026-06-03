@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "core/block/materialize_block.h"
 #include "exec/exchange/local_exchanger.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "exec/partitioner/partitioner.h"
@@ -149,6 +150,9 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
 
     if (state->low_memory_mode()) {
         set_low_memory_mode(state);
+    }
+    if (!in_block->empty()) {
+        materialize_block_inplace(*in_block);
     }
     SinkInfo sink_info = {.channel_id = &local_state._channel_id,
                           .partitioner = local_state._partitioner.get(),
