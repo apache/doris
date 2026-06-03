@@ -46,6 +46,19 @@ public class IvmInfo {
         this.baseTableStreams = Maps.newHashMap();
     }
 
+    /** Deep-copy persisted IVM metadata before publishing an updated edit-log entry. */
+    public IvmInfo(IvmInfo other) {
+        this.enableIvm = other.enableIvm;
+        this.binlogBroken = other.binlogBroken;
+        this.runningIvmRefresh = other.runningIvmRefresh;
+        this.baseTableStreams = Maps.newHashMap();
+        if (other.baseTableStreams != null) {
+            for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : other.baseTableStreams.entrySet()) {
+                this.baseTableStreams.put(entry.getKey(), new IvmStreamRef(entry.getValue()));
+            }
+        }
+    }
+
     public boolean isEnableIvm() {
         return enableIvm;
     }

@@ -29,6 +29,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
@@ -1041,6 +1042,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 recoverPartition.setName(newPartitionName);
             }
 
+            // Recovering a partition restores visible rows from recycle metadata without row binlog entries.
+            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                    new BaseTableInfo(table), "Base table partition was recovered without row binlog");
             // recover partition
             table.addPartition(recoverPartition);
 

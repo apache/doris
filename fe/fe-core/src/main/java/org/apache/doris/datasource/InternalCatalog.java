@@ -1975,6 +1975,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        if (!isTempPartition) {
+            // Dropping a normal partition removes visible rows through metadata, not row binlog entries.
+            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                    new BaseTableInfo(olapTable), "Base table partition was dropped without row binlog");
+        }
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
     }
 
@@ -3713,6 +3718,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
             }
 
+            if (!origPartitions.isEmpty()) {
+                // Truncate replaces partitions through metadata, so existing row-binlog streams become incomplete.
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                        new BaseTableInfo(olapTable), "Base table was truncated without row binlog");
+            }
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
             oldPartitions = truncateTableInternal(olapTable, newPartitions,

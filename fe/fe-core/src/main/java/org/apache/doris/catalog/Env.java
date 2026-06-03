@@ -152,6 +152,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -7056,6 +7057,9 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
+        // Replacing partitions swaps visible data through metadata, so row-binlog continuity is broken.
+        getMtmvService().getRelationManager().markIvmBinlogBroken(
+                new BaseTableInfo(olapTable), "Base table partitions were replaced without row binlog");
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);

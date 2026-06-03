@@ -45,6 +45,12 @@ public class IvmStreamRef {
         this.latestTso = 0;
     }
 
+    /** Copy both persisted and transient stream positions for IVM metadata updates. */
+    public IvmStreamRef(IvmStreamRef other) {
+        this.consumedTso = other.consumedTso;
+        this.latestTso = other.latestTso;
+    }
+
     public long getConsumedTso() {
         return consumedTso;
     }

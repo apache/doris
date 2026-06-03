@@ -37,6 +37,19 @@ public class IvmStreamRefTest {
     }
 
     @Test
+    public void testCopyConstructor() {
+        IvmStreamRef ref = new IvmStreamRef(42L);
+        ref.setLatestTso(100L);
+
+        IvmStreamRef copy = new IvmStreamRef(ref);
+
+        Assertions.assertEquals(42L, copy.getConsumedTso());
+        Assertions.assertEquals(100L, copy.getLatestTso());
+        copy.setConsumedTso(200L);
+        Assertions.assertEquals(42L, ref.getConsumedTso());
+    }
+
+    @Test
     public void testIsUpToDateWhenEqual() {
         IvmStreamRef ref = new IvmStreamRef(10L);
         ref.setLatestTso(10L);
