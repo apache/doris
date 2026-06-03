@@ -648,10 +648,9 @@ protected:
                     value_mapping, value_column, value_column->size(), &value_column));
         }
         auto offsets_column = file_map->get_offsets_ptr()->convert_to_full_column_if_const();
-        auto result =
-                ColumnMap::create(IColumn::mutate(std::move(key_column)),
-                                  IColumn::mutate(std::move(value_column)),
-                                  IColumn::mutate(std::move(offsets_column)));
+        auto result = ColumnMap::create(IColumn::mutate(std::move(key_column)),
+                                        IColumn::mutate(std::move(value_column)),
+                                        IColumn::mutate(std::move(offsets_column)));
         if (mapping.table_type->is_nullable()) {
             auto null_map = ColumnUInt8::create();
             auto& null_map_data = null_map->get_data();
