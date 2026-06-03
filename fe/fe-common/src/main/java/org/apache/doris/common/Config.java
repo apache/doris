@@ -2124,7 +2124,7 @@ public class Config extends ConfigBase {
      * Heartbeat interval in seconds.
      * Default is 10, which means every 10 seconds, the master will send a heartbeat to all backends.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false)
     public static int heartbeat_interval_second = 10;
 
     /**

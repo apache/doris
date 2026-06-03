@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -2313,7 +2315,8 @@ public class SessionVariable implements Serializable, Writable {
                 "服务端 prepared statement 最大个数", "the maximum prepared statements server holds."})
     public int maxPreparedStmtCount = 100000;
 
-    @VarAttrDef.VarAttr(name = ENABLE_GRACEFUL_SHUTDOWN, flag = VarAttrDef.GLOBAL, needForward = true,
+    @VarAttrDef.VarAttr(name = ENABLE_GRACEFUL_SHUTDOWN, flag = VarAttrDef.GLOBAL,
+            setter = "setEnableGracefulShutdown", needForward = true,
             description = {
             "集群级别开关：当 FE 或 BE 准备做滚动重启 / 优雅退出时，由运维 SET GLOBAL 打开。"
                     + "打开后：(1) FE QueryCancelWorker / Coordinator.shouldCancel 不再因 BE alive=false "
@@ -6864,3 +6867,12 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 }
+    public void setEnableGracefulShutdown(String value) throws DdlException {
+        if (value.equalsIgnoreCase("TRUE")) {
+            enableGracefulShutdown = true;
+        } else if (value.equalsIgnoreCase("FALSE")) {
+            enableGracefulShutdown = false;
+        } else {
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, ENABLE_GRACEFUL_SHUTDOWN, value);
+        }
+    }

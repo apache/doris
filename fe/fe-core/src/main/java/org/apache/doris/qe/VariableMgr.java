@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -103,6 +104,9 @@ import javax.annotation.Nullable;
  */
 public class VariableMgr {
     private static final Logger LOG = LogManager.getLogger(VariableMgr.class);
+    private static final String HEARTBEAT_INTERVAL_SECOND = "heartbeat_interval_second";
+    private static final String FAST_HEARTBEAT_INTERVAL_SECONDS = "1";
+    private static final String DEFAULT_HEARTBEAT_INTERVAL_SECONDS = "10";
 
     // Map variable name to variable context which have enough information to change variable value.
     // This map contains info of all session and global variables.
@@ -448,12 +452,36 @@ public class VariableMgr {
         try {
 
             setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), value);
+            applyGlobalVariableSideEffect(name, value);
             // write edit log
             GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
             Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
         } finally {
             wlock.unlock();
         }
+    }
+
+    private static void applyGlobalVariableSideEffect(String name, String value) throws DdlException {
+        if (!SessionVariable.ENABLE_GRACEFUL_SHUTDOWN.equals(name) || Env.isCheckpointThread()) {
+            return;
+        }
+        String heartbeatInterval = parseBooleanValue(name, value)
+                ? FAST_HEARTBEAT_INTERVAL_SECONDS : DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+        try {
+            Env.getCurrentEnv().setMutableConfigWithCallback(HEARTBEAT_INTERVAL_SECOND, heartbeatInterval);
+        } catch (ConfigException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    private static boolean parseBooleanValue(String name, String value) throws DdlException {
+        if (value.equalsIgnoreCase("TRUE")) {
+            return true;
+        } else if (value.equalsIgnoreCase("FALSE")) {
+            return false;
+        }
+        ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, name, value);
+        return false;
     }
 
     public static void refreshDefaultSessionVariables(String versionMsg, String sessionVar, String value) {
@@ -540,6 +568,7 @@ public class VariableMgr {
                 try {
                     setValue(varContext.getObj(), new SessionVariableField(varContext.getField()),
                             root.get(varName).toString());
+                    applyGlobalVariableSideEffect((String) varName, root.get(varName).toString());
                 } catch (Exception exception) {
                     LOG.warn("Exception during replay global variabl {} oplog, {}, THIS EXCEPTION WILL BE IGNORED.",
                             (String) varName, exception.getMessage());

@@ -616,6 +616,7 @@ public class Env {
             .put("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler)
             .put("table_stream_partition_offset_cleanup_interval_second",
                     this::getTableStreamManager)
+            .put("heartbeat_interval_second", this::getHeartbeatMgr)
             .build();
 
     private TSOService tsoService;
