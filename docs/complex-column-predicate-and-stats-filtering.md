@@ -182,6 +182,7 @@ SELECT s.name FROM t WHERE s.id > 5;
 - `FileColumnPredicateFilter` 保留 `file_column_id`，新增 `file_child_id_path`。
 - `file_child_id_path` 是 top-level file column 下的 file-local child field id path，不是 table id，也不是 ordinal。
 - mapper 会从 AND 语义下的 `struct_element(...) op literal` / `literal op struct_element(...)` 构造 nested file-layer pruning hint。
+- mapper 会从 AND 语义下的 `struct_element(...) IN (...)` 构造 nested `IN_LIST` pruning hint。
 - 不从 OR/NOT/任意函数子树中提取 pruning predicate，避免把非必要条件当成必需条件裁剪。
 - literal 转换到 file leaf type 失败、path 解析失败、leaf 不是 primitive 时，不生成 pruning hint。
 
@@ -192,9 +193,9 @@ SELECT s.name FROM t WHERE s.id > 5;
 - `ParquetStatisticsUtils::ResolvePredicateLeafSchema()` 统一解析 top-level 或 nested target。
 - 解析结果必须是 primitive leaf、`leaf_column_id >= 0` 且 `max_repetition_level == 0`。
 - row group min/max statistics 使用 resolved leaf schema。
-- dictionary pruning 使用 resolved leaf schema 和 leaf `ColumnChunk`，仍保持 string-like、dictionary-encoded、EQ/IN_LIST 限制。
-- bloom filter 使用 resolved leaf schema，仍保持 supported primitive type、EQ/IN_LIST/null 相关限制。
-- page index 使用 resolved leaf schema，只允许 non-repeated primitive leaf；LIST/MAP/repeated leaf 直接跳过 page range pruning。
+- dictionary pruning 使用 resolved leaf schema 和 leaf `ColumnChunk`，仍保持 string-like、dictionary-encoded、EQ/IN_LIST 限制，并已有 nested struct 真实 parquet fixture 覆盖。
+- bloom filter 使用 resolved leaf schema，仍保持 supported primitive type、EQ/IN_LIST/null 相关限制；当前 Arrow writer 头文件没有稳定的 bloom 写入开关，因此先以 Arrow bloom adapter / pruning 逻辑单元测试覆盖。
+- page index 使用 resolved leaf schema，只允许 non-repeated primitive leaf；LIST/MAP/repeated leaf 直接跳过 page range pruning，并已有 nested struct 真实 parquet fixture 覆盖。
 
 ## 6. 统计信息 / pruning 设计约束
 
@@ -257,9 +258,7 @@ page index 对 repeated leaf 的 row range 语义复杂。本轮只允许 non-re
 
 ## 7. 后续工作
 
-- 扩展 UT 覆盖 nested struct 多层 path、反向比较、OR 不提取、缺失 child 不下推。
-- 增加 nested string leaf dictionary pruning、nested page index pruning、nested bloom pruning 的真实 parquet fixture。
-- 支持从 `IN_PRED` 的 `struct_element(...) IN (...)` 构造 nested `IN_LIST` pruning hint。
+- 如果后续 Arrow writer 或外部 fixture 能稳定提供 bloom filter metadata，补 nested bloom pruning 的真实 parquet fixture。
 - schema change 场景下，把 table nested path 到 file nested path 的 mapping 入口收敛到 mapper，不让 file reader 理解 table/global schema。
 - LIST/MAP/repeated leaf 只有在 Dremel row semantics 和 row-range 语义明确后再接入 pruning。
 
