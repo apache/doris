@@ -225,24 +225,22 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
                 context.column_name());
     }
     batch->levels_written = record_reader->levels_position();
-    batch->values_written = record_reader->values_written();
+    const int64_t values_written = record_reader->values_written();
     if (batch->levels_written > record_reader->levels_written()) {
         return Status::Corruption(
                 "Invalid nested parquet level position for column {}: position={}, levels={}",
                 context.column_name(), batch->levels_written, record_reader->levels_written());
     }
     if (batch->levels_written == 0 && batch->records_read > 0 &&
-        batch->values_written == batch->records_read &&
-        context.descriptor->max_definition_level() == 0 &&
+        values_written == batch->records_read && context.descriptor->max_definition_level() == 0 &&
         context.descriptor->max_repetition_level() == 0) {
         batch->levels_written = batch->records_read;
     }
-    if (batch->levels_written < batch->records_read || batch->values_written < 0 ||
-        batch->values_written > batch->levels_written) {
+    if (batch->levels_written < batch->records_read || values_written < 0 ||
+        values_written > batch->levels_written) {
         return Status::Corruption(
                 "Invalid nested parquet read result for column {}: rows={}, levels={}, values={}",
-                context.column_name(), batch->records_read, batch->levels_written,
-                batch->values_written);
+                context.column_name(), batch->records_read, batch->levels_written, values_written);
     }
     if (batch->levels_written == 0) {
         return Status::OK();
@@ -277,7 +275,7 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
 
     batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
     int64_t value_idx = 0;
-    const bool dense_value_slots = batch->values_written == batch->levels_written;
+    const bool dense_value_slots = values_written == batch->levels_written;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
         if (batch->def_levels[level_idx] < value_slot_definition_level ||
             batch->rep_levels[level_idx] > value_slot_repetition_level) {
@@ -286,7 +284,7 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
         if (dense_value_slots) {
             batch->value_indices[level_idx] = level_idx;
         } else {
-            if (value_idx >= batch->values_written) {
+            if (value_idx >= values_written) {
                 return Status::Corruption(
                         "Nested parquet reader returned fewer values than definition levels for "
                         "column {}",
@@ -297,11 +295,11 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
     }
     const auto value_type = remove_nullable(context.data_type());
     batch->values_column = value_type->create_column();
-    if (batch->values_written > 0) {
+    if (values_written > 0) {
         ArrowLeafReaderContext value_context = context;
         value_context.type = &value_type;
-        RETURN_IF_ERROR(append_leaf_values(value_context, *record_reader, batch->values_written,
-                                           nullptr, batch->values_column));
+        RETURN_IF_ERROR(append_leaf_values(value_context, *record_reader, values_written, nullptr,
+                                           batch->values_column));
     }
     return Status::OK();
 }

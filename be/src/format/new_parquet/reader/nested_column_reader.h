@@ -42,7 +42,6 @@ constexpr int64_t NESTED_READ_BATCH_ROWS = 4096;
 struct NestedScalarBatch {
     int64_t records_read = 0;
     int64_t levels_written = 0;
-    int64_t values_written = 0;
     std::vector<int16_t> def_levels;
     std::vector<int16_t> rep_levels;
     std::vector<int64_t> value_indices;
@@ -145,14 +144,15 @@ inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_
     dst.value_indices.resize(static_cast<size_t>(dst.levels_written), -1);
     dst.values_column = src.values_column->clone_empty();
 
+    int64_t values_written = 0;
     for (int64_t level_idx = start_level; level_idx < src.levels_written; ++level_idx) {
         const int64_t value_idx = src.value_indices[level_idx];
         if (value_idx < 0) {
             continue;
         }
-        dst.value_indices[static_cast<size_t>(level_idx - start_level)] = dst.values_written;
+        dst.value_indices[static_cast<size_t>(level_idx - start_level)] = values_written;
         dst.values_column->insert_from(*src.values_column, static_cast<size_t>(value_idx));
-        dst.values_written++;
+        values_written++;
     }
     overflow->batch = std::move(dst);
 }
