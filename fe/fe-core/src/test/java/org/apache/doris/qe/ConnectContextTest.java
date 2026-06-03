@@ -30,6 +30,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -46,6 +48,8 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.nio.channels.SocketChannel;
 import java.util.HashMap;
@@ -81,6 +85,15 @@ public class ConnectContextTest {
 
     @Test
     public void testResetConnectionClearsSessionState() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Auth auth = Mockito.mock(Auth.class);
+        ConnectScheduler connectScheduler = Mockito.mock(ConnectScheduler.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(internalCatalog);
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
@@ -202,6 +215,11 @@ public class ConnectContextTest {
 
     @Test
     public void testResetConnectionDropsMultipleTemporaryTables() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Auth auth = Mockito.mock(Auth.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
         ctx.addTempTableToDB("test_db", "test_temp_table1");
