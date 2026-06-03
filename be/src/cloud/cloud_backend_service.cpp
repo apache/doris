@@ -49,21 +49,8 @@ CloudBackendService::CloudBackendService(CloudStorageEngine& engine, ExecEnv* ex
 
 CloudBackendService::~CloudBackendService() = default;
 
-Status CloudBackendService::create_service(CloudStorageEngine& engine, ExecEnv* exec_env, int port,
-                                           std::unique_ptr<ThriftServer>* server,
-                                           std::shared_ptr<doris::CloudBackendService> service) {
-    service->_agent_server->cloud_start_workers(engine, exec_env);
-    // TODO: do we want a BoostThreadFactory?
-    // TODO: we want separate thread factories here, so that fe requests can't starve
-    // be requests
-    // std::shared_ptr<TProcessor> be_processor = std::make_shared<BackendServiceProcessor>(service);
-    auto be_processor = std::make_shared<BackendServiceProcessor>(service);
-
-    *server = std::make_unique<ThriftServer>("backend", be_processor, port,
-                                             config::be_service_threads);
-
-    LOG(INFO) << "Doris CloudBackendService listening on " << port;
-
+Status CloudBackendService::start_thrift_dependencies() {
+    _agent_server->cloud_start_workers(_engine, _exec_env);
     return Status::OK();
 }
 

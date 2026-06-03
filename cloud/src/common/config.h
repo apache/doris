@@ -57,6 +57,16 @@ CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 
+CONF_Bool(enable_tls, "false");
+CONF_String(tls_certificate_path, "");
+CONF_String(tls_private_key_path, "");
+CONF_String(tls_private_key_password, "");
+CONF_String(tls_verify_mode, "verify_peer");
+CONF_String(tls_ca_certificate_path, "");
+CONF_Int32(tls_cert_refresh_interval_seconds, "3600");
+CONF_String(tls_excluded_protocols, "");
+CONF_String(tls_peer_cert_required_san_dns, "");
+
 CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
 
 // logging
