@@ -931,8 +931,9 @@ public class StatementContext implements Closeable {
         }
         int preloadedTableCount = 0;
         for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
-            preloadExternalTable(preloadInfo);
-            preloadedTableCount++;
+            if (preloadExternalTable(preloadInfo)) {
+                preloadedTableCount++;
+            }
         }
         return ExternalMetadataPreloadResult.executed(externalTablePreloadInfos.size(), preloadedTableCount);
     }
@@ -1078,31 +1079,38 @@ public class StatementContext implements Closeable {
     }
 
     // Preload metadata that is commonly accessed during planning before internal table locks are acquired.
-    private void preloadExternalTable(ExternalTablePreloadInfo preloadInfo) {
+    private boolean preloadExternalTable(ExternalTablePreloadInfo preloadInfo) {
         ExternalTable table = preloadInfo.table;
         long preloadStartTime = TimeUtils.getStartTimeMs();
         // Preload the latest snapshot only when every relation uses the latest view of the table.
         boolean supportsLatestSnapshot = supportsLatestSnapshotPreload(table);
-        boolean preloadLatestSnapshot = preloadInfo.shouldPreloadLatestSnapshot() && supportsLatestSnapshot;
+        boolean latestOnlyRelation = preloadInfo.shouldPreloadLatestSnapshot();
+        boolean preloadLatestSnapshot = latestOnlyRelation && supportsLatestSnapshot;
+        // Skip schema and partition warmup for snapshot-aware tables when the query targets
+        // only non-latest relations such as time travel, branch, or tag references.
+        boolean preloadSchema = !supportsLatestSnapshot || latestOnlyRelation;
+        boolean preloadPartition = preloadSchema && table.supportInternalPartitionPruned();
         if (preloadLatestSnapshot) {
             loadSnapshots(table, Optional.empty(), Optional.empty());
         }
         // Preload schema access while no internal table lock is held.
-        table.getBaseSchema();
-        // Preload partition metadata only for engines that support internal partition pruning.
-        boolean preloadPartition = table.supportInternalPartitionPruned();
+        if (preloadSchema) {
+            table.getBaseSchema();
+        }
+        // Preload partition metadata only when the warmed schema matches the relation view.
         if (preloadPartition) {
             table.initSelectedPartitions(getSnapshot(table));
         }
         // Log the actual preload path per table to simplify manual verification in debug mode.
         if (LOG.isDebugEnabled()) {
             LOG.debug("{} preloaded external metadata for table {} "
-                            + "[supportsLatestSnapshot={}, preloadLatestSnapshot={}, preloadSchema=true, "
+                            + "[supportsLatestSnapshot={}, preloadLatestSnapshot={}, preloadSchema={}, "
                             + "preloadPartition={}, hasLatestRelation={}, hasNonLatestRelation={}, elapsedMs={}]",
                     getPreloadQueryIdentifier(), getExternalTableLogName(table), supportsLatestSnapshot,
-                    preloadLatestSnapshot, preloadPartition, preloadInfo.hasLatestOnlyRelation,
-                    preloadInfo.hasNonLatestRelation, TimeUtils.getStartTimeMs() - preloadStartTime);
+                    preloadLatestSnapshot, preloadSchema, preloadPartition, preloadInfo.hasLatestOnlyRelation,
+                    preloadInfo.hasNonLatestRelation, TimeUtils.getElapsedTimeMs(preloadStartTime));
         }
+        return preloadLatestSnapshot || preloadSchema || preloadPartition;
     }
 
     // Use the query identifier in debug logs so preload events can be correlated with a single statement.

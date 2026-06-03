@@ -309,6 +309,8 @@ public class SummaryProfile {
     private long parseSqlFinishTime = -1;
     @SerializedName(value = "nereidsPreloadExternalMetadataTime")
     private long nereidsPreloadExternalMetadataTime = 0;
+    @SerializedName(value = "nereidsLockTableStartTime")
+    private long nereidsLockTableStartTime = -1;
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
@@ -702,6 +704,10 @@ public class SummaryProfile {
         this.parseSqlFinishTime = parseSqlFinishTime;
     }
 
+    public void setNereidsLockTableStartTime(long lockTableStartTime) {
+        this.nereidsLockTableStartTime = lockTableStartTime;
+    }
+
     public void setNereidsLockTableFinishTime(long lockTableFinishTime) {
         this.nereidsLockTableFinishTime = lockTableFinishTime;
     }
@@ -879,7 +885,7 @@ public class SummaryProfile {
     }
 
     public int getNereidsLockTableTimeMs() {
-        return getTimeMs(nereidsLockTableFinishTime, parseSqlFinishTime);
+        return getTimeMs(nereidsLockTableFinishTime, nereidsLockTableStartTime);
     }
 
     public long getNereidsPreloadExternalMetadataTimeMs() {
@@ -976,7 +982,7 @@ public class SummaryProfile {
     }
 
     public String getPrettyNereidsLockTableTime() {
-        return getPrettyTime(nereidsLockTableFinishTime, parseSqlFinishTime, TUnit.TIME_MS);
+        return getPrettyTime(nereidsLockTableFinishTime, nereidsLockTableStartTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsAnalysisTime() {

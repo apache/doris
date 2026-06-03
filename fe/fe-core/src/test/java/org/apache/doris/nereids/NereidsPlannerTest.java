@@ -39,6 +39,7 @@ public class NereidsPlannerTest {
         planner.collectAndLockTable(false);
 
         Mockito.verify(summaryProfile).addNereidsPreloadExternalMetadataTime(Mockito.anyLong());
+        Mockito.verify(summaryProfile).setNereidsLockTableStartTime(Mockito.anyLong());
         Mockito.verify(summaryProfile).setNereidsLockTableFinishTime(Mockito.anyLong());
     }
 
@@ -52,6 +53,7 @@ public class NereidsPlannerTest {
         planner.collectAndLockTable(false);
 
         Mockito.verify(summaryProfile, Mockito.never()).addNereidsPreloadExternalMetadataTime(Mockito.anyLong());
+        Mockito.verify(summaryProfile).setNereidsLockTableStartTime(Mockito.anyLong());
         Mockito.verify(summaryProfile).setNereidsLockTableFinishTime(Mockito.anyLong());
     }
 

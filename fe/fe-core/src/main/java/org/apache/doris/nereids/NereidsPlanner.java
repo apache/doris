@@ -424,7 +424,7 @@ public class NereidsPlanner extends Planner {
         long preloadStartTime = TimeUtils.getStartTimeMs();
         StatementContext.ExternalMetadataPreloadResult preloadResult =
                 statementContext.preloadExternalTablesBeforeLock();
-        long preloadElapsedTime = TimeUtils.getStartTimeMs() - preloadStartTime;
+        long preloadElapsedTime = TimeUtils.getElapsedTimeMs(preloadStartTime);
         // Record preload timing in the query profile as a dedicated planner sub-stage.
         if (statementContext.getConnectContext().getExecutor() != null && preloadResult.isExecuted()) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
@@ -442,6 +442,11 @@ public class NereidsPlanner extends Planner {
                         statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getSkipReason(),
                         preloadResult.getCandidateTableCount());
             }
+        }
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            // Track only the actual lock() call here so the dedicated preload stage is not double counted.
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsLockTableStartTime(TimeUtils.getStartTimeMs());
         }
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());

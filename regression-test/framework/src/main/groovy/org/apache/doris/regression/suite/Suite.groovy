@@ -2024,12 +2024,10 @@ class Suite implements GroovyInterceptable {
 
     DebugPoint GetDebugPoint() {
         def execType = RegressionTest.getGroupExecType(group);
-        // Allow debug points in the external pipeline for JDBC profile cases that require external dependencies.
         if (execType != RegressionTest.GroupExecType.SINGLE
-            && execType != RegressionTest.GroupExecType.DOCKER
-            && !group.split(',').collect { it.trim() }.contains("external")) {
-            throw new Exception("Debug point must use in nonConcurrent, external, or docker suite, "
-                    + "need add 'nonConcurrent', 'external', or 'docker' to suite's belong groups, "
+            && execType != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Debug point must use in nonConcurrent suite or docker suite, "
+                    + "need add 'nonConcurrent' or 'docker' to suite's belong groups, "
                     + "see example demo_p0/debugpoint_action.groovy.")
         }
         return debugPoint

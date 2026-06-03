@@ -140,6 +140,7 @@ public class StatementContextTest {
         Mockito.when(database.getFullName()).thenReturn("db");
         Mockito.when(database.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(hmsExternalTable.getDlaType()).thenReturn(DLAType.HUDI);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -154,10 +155,11 @@ public class StatementContextTest {
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
-            org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
             Mockito.verify(hmsExternalTable, Mockito.never())
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
-            Mockito.verify(hmsExternalTable, Mockito.times(1)).getBaseSchema();
+            Mockito.verify(hmsExternalTable, Mockito.never()).getBaseSchema();
+            Mockito.verify(hmsExternalTable, Mockito.never()).initSelectedPartitions(Mockito.any());
         } finally {
             statementContext.close();
         }
@@ -306,6 +308,49 @@ public class StatementContextTest {
             Mockito.verify(icebergExternalTable, Mockito.times(1))
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
             Mockito.verify(icebergExternalTable, Mockito.times(1)).getBaseSchema();
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testSkipIcebergPreloadWhenOnlyNonLatestRelationExists() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Skip schema and partition warmup when Iceberg is referenced only by non-latest relations.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(icebergExternalTable.getId()).thenReturn(18L);
+        Mockito.when(icebergExternalTable.getName()).thenReturn("iceberg_tbl");
+        Mockito.when(icebergExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(icebergExternalTable.supportInternalPartitionPruned()).thenReturn(true);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(icebergExternalTable,
+                    Optional.of(new TableSnapshot("2024-01-01 00:00:00", TableSnapshot.VersionType.TIME)),
+                    Optional.empty());
+
+            StatementContext.ExternalMetadataPreloadResult result =
+                    statementContext.preloadExternalTablesBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
+            Mockito.verify(icebergExternalTable, Mockito.never())
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(icebergExternalTable, Mockito.never()).getBaseSchema();
+            Mockito.verify(icebergExternalTable, Mockito.never()).initSelectedPartitions(Mockito.any());
         } finally {
             statementContext.close();
         }
