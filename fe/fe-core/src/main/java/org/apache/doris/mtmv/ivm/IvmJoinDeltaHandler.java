@@ -71,7 +71,7 @@ import java.util.Set;
  * symmetric. Those repair rows are modeled with a branch-local retained side and null side instead of a global
  * retained/null-side assumption.
  */
-class IvmOuterJoinDeltaHandler {
+class IvmJoinDeltaHandler {
 
     private static final String NULL_SIDE_INSERT_DELTA_ALIAS = "__DORIS_IVM_NULL_SIDE_INSERT_DELTA__";
     private static final String NULL_SIDE_DELETE_DELTA_ALIAS = "__DORIS_IVM_NULL_SIDE_DELETE_DELTA__";
@@ -86,14 +86,22 @@ class IvmOuterJoinDeltaHandler {
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
 
     /**
-     * Dispatch a normalized LEFT/RIGHT/FULL OUTER JOIN by checking which side carries the base-table delta.
+     * Dispatch join delta rewrite by join type.
      */
     IvmDeltaRewriteResult rewriteJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
-        if (!join.getJoinType().isOuterJoin()) {
-            throw new AnalysisException("IVM outer join handler received unsupported join type: " + join.getJoinType());
+        if (join.getJoinType().isOuterJoin()) {
+            return rewriteOuterJoin(join, visitor, context);
+        } else {
+            return rewriteInnerOrCrossJoin(join, visitor, context);
         }
+    }
 
+    /**
+     * Dispatch a normalized LEFT/RIGHT/FULL OUTER JOIN by checking which side carries the base-table delta.
+     */
+    private IvmDeltaRewriteResult rewriteOuterJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
         IvmDeltaRewriteResult leftResult = join.left().accept(visitor, context);
         IvmDeltaRewriteResult rightResult = join.right().accept(visitor, context);
         if (leftResult.dmlFactorSlot != null && rightResult.dmlFactorSlot != null) {
@@ -113,6 +121,26 @@ class IvmOuterJoinDeltaHandler {
                     join, leftResult, rightResult, deltaOnLeft);
             return rewriteNullSideDelta(deltaContext, context);
         }
+    }
+
+    /**
+     * INNER/CROSS JOIN delta rewrite only needs to propagate one delta side through the join.
+     */
+    private IvmDeltaRewriteResult rewriteInnerOrCrossJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
+        IvmDeltaRewriteResult leftResult = join.left().accept(visitor, context);
+        IvmDeltaRewriteResult rightResult = join.right().accept(visitor, context);
+
+        if (leftResult.dmlFactorSlot != null && rightResult.dmlFactorSlot != null) {
+            throw new AnalysisException(
+                    "IVM: both sides of join have dml_factor — expected at most one delta side");
+        }
+
+        LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(leftResult.plan, rightResult.plan));
+        if (leftResult.dmlFactorSlot == null && rightResult.dmlFactorSlot == null) {
+            return new IvmDeltaRewriteResult(newJoin, null);
+        }
+        return helper.addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult, context);
     }
 
     /**

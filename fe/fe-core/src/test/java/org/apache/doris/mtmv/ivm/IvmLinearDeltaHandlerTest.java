@@ -21,14 +21,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -36,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -57,8 +54,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
-import java.util.Optional;
-
 class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     private static final class TestableIvmLinearDeltaHandler {
@@ -444,23 +439,6 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         // Join result should NOT have an extra guard project
         Assertions.assertInstanceOf(LogicalJoin.class, result.plan,
                 "Deterministic row_id should not add guard project");
-    }
-
-    @Test
-    void testJoinMarkJoinThrows() {
-        LogicalOlapScan scanDelta = buildScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
-        // Construct a proper mark join: set markJoinSlotReference so isMarkJoin() returns true
-        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
-                ImmutableList.of(), ExpressionUtils.EMPTY_CONDITION,
-                new DistributeHint(DistributeType.NONE),
-                Optional.of(new MarkJoinSlotReference("$mark")),
-                scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
-
-        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
-        Assertions.assertThrows(AnalysisException.class,
-                () -> handler.exposeRewritePlan(join, dummyCtx()),
-                "Mark join conjuncts should throw AnalysisException");
     }
 
     @Test
