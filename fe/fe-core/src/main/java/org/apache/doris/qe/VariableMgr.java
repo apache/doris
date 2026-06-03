@@ -227,17 +227,6 @@ public class VariableMgr {
                 field.set(obj, value);
                 break;
             default:
-                if (field.getType().isEnum()) {
-                    // Parse enum values case-insensitively so SQL/session restore keeps accepting canonical tokens.
-                    Object[] enumConstants = field.getType().getEnumConstants();
-                    for (Object enumConstant : enumConstants) {
-                        if (String.valueOf(enumConstant).equalsIgnoreCase(value)) {
-                            field.set(obj, enumConstant);
-                            return;
-                        }
-                    }
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, name, value);
-                }
                 // Unsupported type variable.
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, name);
         }

@@ -71,10 +71,10 @@ public class SessionVariablesTest extends TestWithFeService {
         vars.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
         sessionVariable.setForwardedSessionVariables(vars);
         Assertions.assertTrue(sessionVariable.enableProfile);
-        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
-                sessionVariable.insertVisibleTimeoutReturnMode);
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 sessionVariable.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                sessionVariable.getInsertVisibleTimeoutReturnModeEnum());
     }
 
     @Test
@@ -96,36 +96,36 @@ public class SessionVariablesTest extends TestWithFeService {
 
         VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
                 SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, new StringLiteral("ERROR")));
-        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
-                sessionVar.insertVisibleTimeoutReturnMode);
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 sessionVar.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                sessionVar.getInsertVisibleTimeoutReturnModeEnum());
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 sessionVar.getForwardVariables().get(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE));
 
         SessionVariable restored = new SessionVariable();
         restored.readFromJson("{\"insert_visible_timeout_return_mode\":\"ERROR\"}");
-        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
-                restored.insertVisibleTimeoutReturnMode);
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 restored.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                restored.getInsertVisibleTimeoutReturnModeEnum());
 
-        // Verify map restore also resolves the enum because it bypasses the dedicated setter.
+        // Verify map restore keeps accepting canonical string tokens without extra normalization hooks.
         Map<String, String> restoredMap = new HashMap<>();
         restoredMap.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
         restored.readFromMap(restoredMap);
-        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
-                restored.insertVisibleTimeoutReturnMode);
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 restored.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                restored.getInsertVisibleTimeoutReturnModeEnum());
 
         Map<String, String> forwardVars = sessionVar.getForwardVariables();
         forwardVars.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
         restored.setForwardedSessionVariables(forwardVars);
-        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
-                restored.insertVisibleTimeoutReturnMode);
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 restored.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                restored.getInsertVisibleTimeoutReturnModeEnum());
 
         Field field = SessionVariable.class.getDeclaredField("insertVisibleTimeoutReturnMode");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
@@ -155,10 +155,10 @@ public class SessionVariablesTest extends TestWithFeService {
 
         // Verify setter normalization is case-insensitive and stores the canonical lowercase value.
         sessionVar.setInsertVisibleTimeoutReturnMode("ErRoR");
-        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
-                sessionVar.insertVisibleTimeoutReturnMode);
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 sessionVar.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                sessionVar.getInsertVisibleTimeoutReturnModeEnum());
         Assertions.assertTrue(sessionVar.isInsertVisibleTimeoutReturnError());
 
         ExceptionChecker.expectThrowsWithMsg(UnsupportedOperationException.class,

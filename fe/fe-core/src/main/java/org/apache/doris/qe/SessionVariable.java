@@ -273,7 +273,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED = "committed";
     public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR = "error";
 
-    // Keep the mode set strongly typed while preserving the existing lowercase SQL values.
+    // Keep the mode enum for business logic while storing the session value as a string.
     public enum InsertVisibleTimeoutReturnMode {
         COMMITTED(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED),
         ERROR(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR);
@@ -1131,7 +1131,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Controls the status returned to the client when a normal internal-table INSERT times out "
                             + "while waiting for publish visibility."},
             options = {INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED, INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR})
-    public InsertVisibleTimeoutReturnMode insertVisibleTimeoutReturnMode = InsertVisibleTimeoutReturnMode.COMMITTED;
+    public String insertVisibleTimeoutReturnMode = INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED;
 
     // max memory used on every backend. Default value to 100G.
     @VarAttrDef.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
@@ -4972,15 +4972,20 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public String getInsertVisibleTimeoutReturnMode() {
-        return insertVisibleTimeoutReturnMode.getOption();
+        return getInsertVisibleTimeoutReturnModeEnum().getOption();
+    }
+
+    public InsertVisibleTimeoutReturnMode getInsertVisibleTimeoutReturnModeEnum() {
+        return parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
     }
 
     public boolean isInsertVisibleTimeoutReturnError() {
-        return insertVisibleTimeoutReturnMode == InsertVisibleTimeoutReturnMode.ERROR;
+        return getInsertVisibleTimeoutReturnModeEnum() == InsertVisibleTimeoutReturnMode.ERROR;
     }
 
     public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
-        this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
+        this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode)
+                .getOption();
     }
 
     public boolean getIsSingleSetVar() {
@@ -5372,11 +5377,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkInsertVisibleTimeoutReturnMode(String mode) {
-        // Reuse the parser so validation stays consistent with assignment and restore paths.
+        // Reuse the parser so validation stays consistent with assignment and enum access.
         parseInsertVisibleTimeoutReturnMode(mode);
     }
 
-    // Parse the SQL string once and keep the stored value as an enum.
+    // Parse the stored string case-insensitively and expose the enum only to business logic.
     private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
         if (StringUtils.isEmpty(mode)) {
             LOG.warn("insertVisibleTimeoutReturnMode value is empty");
@@ -5778,11 +5783,6 @@ public class SessionVariable implements Serializable, Writable {
                         root.put(attr.name(), (String) field.get(this));
                         break;
                     default:
-                        if (field.getType().isEnum()) {
-                            // Persist enum variables with the same lowercase tokens accepted by SQL.
-                            root.put(attr.name(), String.valueOf(field.get(this)));
-                            break;
-                        }
                         // Unsupported type variable.
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
@@ -5838,11 +5838,6 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     default:
-                        if (field.getType().isEnum()) {
-                            // Route enum restore through VariableMgr so all enum parsing stays in one place.
-                            VariableMgr.setValue(this, String.valueOf(root.get(attr.name())), field, attr.name());
-                            break;
-                        }
                         // Unsupported type variable.
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
@@ -5896,11 +5891,6 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, sessionVarMap.get(attr.name()));
                         break;
                     default:
-                        if (field.getType().isEnum()) {
-                            // Route enum restore through VariableMgr so all enum parsing stays in one place.
-                            VariableMgr.setValue(this, sessionVarMap.get(attr.name()), field, attr.name());
-                            break;
-                        }
                         // Unsupported type variable.
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
