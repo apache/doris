@@ -299,12 +299,6 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
             batch->value_indices[level_idx] = value_idx++;
         }
     }
-    if (!dense_value_slots && value_idx != batch->values_written) {
-        return Status::Corruption(
-                "Nested parquet reader returned extra values for column {}: consumed={}, values={}",
-                context.column_name(), value_idx, batch->values_written);
-    }
-
     const auto value_type = remove_nullable(context.data_type());
     batch->values_column = value_type->create_column();
     if (batch->values_written > 0) {
