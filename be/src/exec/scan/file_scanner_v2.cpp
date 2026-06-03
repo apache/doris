@@ -433,7 +433,9 @@ Status FileScannerV2::_build_projected_columns() {
         }
         auto column = _build_table_column(it->second);
         RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
-        static_cast<void>(build_nested_children_from_access_paths(&column, it->second));
+        if (!build_nested_children_from_access_paths(&column, it->second)) {
+            column.children.clear();
+        }
         if (is_partition_slot(slot_info)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(column.name, it->second);
