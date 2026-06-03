@@ -18,6 +18,10 @@
 package org.apache.doris.regression.suite
 
 import com.google.common.collect.Maps
+import com.mysql.cj.NativeSession
+import com.mysql.cj.jdbc.JdbcConnection
+import com.mysql.cj.protocol.a.NativeConstants
+import com.mysql.cj.protocol.a.NativePacketPayload
 import groovy.transform.CompileStatic
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
@@ -431,6 +435,18 @@ class SuiteContext implements Closeable {
             return
         }
         connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+    }
+
+    public void resetConnection() {
+        ConnectionInfo connInfo = threadLocalConn.get()
+        if (connInfo == null) {
+            return
+        }
+        NativeSession session = (NativeSession) connInfo.conn.unwrap(JdbcConnection.class).getSession()
+        // COM_RESET_CONNECTION has no payload besides the command byte.
+        NativePacketPayload packet = new NativePacketPayload(1)
+        packet.writeInteger(NativeConstants.IntegerDataType.INT1, 0x1f)
+        session.sendCommand(packet, false, 0)
     }
 
     public void connectTo(String url, String username, String password) {
