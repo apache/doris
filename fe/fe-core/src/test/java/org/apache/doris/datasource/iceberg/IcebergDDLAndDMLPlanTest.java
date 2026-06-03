@@ -322,6 +322,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             String formatV2Table = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
             String formatV2Sql = "create table " + formatV2Table
                     + " (_row_id bigint) properties('format-version'='2')";
+            catalog.getCatalog().dropTable(TableIdentifier.of(dbName, formatV2Table), true);
             LogicalPlan formatV2Plan = parseStmt(formatV2Sql);
             Assertions.assertTrue(formatV2Plan instanceof CreateTableCommand);
             try {
