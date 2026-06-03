@@ -695,7 +695,7 @@ public class DateTimeExtractAndTransform {
     // While BE/MySQL consider year 0 common, so:
     // TO_DAYS('0000-02-28') == 59 and TO_DAYS('0000-02-29') == NULL. After
     // 0000-03-01 the two implementations naturally align again.
-    private static long calcDayNumber(long year, long month, long day) {
+    static long calcDayNumber(long year, long month, long day) {
         if (year == 0 && month == 0) {
             return 0;
         }

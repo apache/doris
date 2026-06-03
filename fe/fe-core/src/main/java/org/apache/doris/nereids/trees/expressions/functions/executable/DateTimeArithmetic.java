@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -30,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 
 /**
@@ -879,26 +879,27 @@ public class DateTimeArithmetic {
      */
     @ExecFunction(name = "datediff")
     public static Expression dateDiff(DateV2Literal date1, DateV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+        return new IntegerLiteral(dateDiffByDayNumber(date1, date2));
     }
 
     @ExecFunction(name = "datediff")
     public static Expression dateDiff(DateV2Literal date1, DateTimeV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+        return new IntegerLiteral(dateDiffByDayNumber(date1, date2));
     }
 
     @ExecFunction(name = "datediff")
     public static Expression dateDiff(DateTimeV2Literal date1, DateV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+        return new IntegerLiteral(dateDiffByDayNumber(date1, date2));
     }
 
     @ExecFunction(name = "datediff")
     public static Expression dateDiff(DateTimeV2Literal date1, DateTimeV2Literal date2) {
-        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
+        return new IntegerLiteral(dateDiffByDayNumber(date1, date2));
     }
 
-    private static int dateDiff(LocalDateTime date1, LocalDateTime date2) {
-        return ((int) ChronoUnit.DAYS.between(date2.toLocalDate(), date1.toLocalDate()));
+    private static int dateDiffByDayNumber(DateLiteral date1, DateLiteral date2) {
+        return (int) (DateTimeExtractAndTransform.calcDayNumber(date1.getYear(), date1.getMonth(), date1.getDay())
+                - DateTimeExtractAndTransform.calcDayNumber(date2.getYear(), date2.getMonth(), date2.getDay()));
     }
 
     @ExecFunction(name = "to_days")
