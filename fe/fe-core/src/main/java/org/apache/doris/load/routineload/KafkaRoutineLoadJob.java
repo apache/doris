@@ -180,9 +180,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public void prepare() throws UserException {
-        // should reset converted properties each time the job being prepared.
-        // because the file info can be changed anytime.
-        convertCustomProperties(true);
+        writeLock();
+        try {
+            // should reset converted properties each time the job being prepared.
+            // because the file info can be changed anytime.
+            convertCustomProperties(true);
+        } finally {
+            writeUnlock();
+        }
     }
 
     private void convertCustomProperties(boolean rebuild) throws DdlException {
@@ -331,13 +336,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
         ((KafkaProgress) attachment.getProgress()).getOffsetByPartition().entrySet().stream()
-                .forEach(entity -> {
-                    if (cachedPartitionWithLatestOffsets.containsKey(entity.getKey())
-                            && cachedPartitionWithLatestOffsets.get(entity.getKey()) < entity.getValue() + 1) {
-                        cachedPartitionWithLatestOffsets.put(entity.getKey(), entity.getValue() + 1);
-                    }
-                });
+                .forEach(entity -> cachedPartitionWithLatestOffsets.computeIfPresent(entity.getKey(),
+                        (partitionId, cachedOffset) -> Math.max(cachedOffset, entity.getValue() + 1)));
         this.progress.update(attachment);
+    }
+
+    private void updateLatestOffsetsCache(List<Pair<Integer, Long>> latestOffsets, UUID taskId) {
+        for (Pair<Integer, Long> pair : latestOffsets) {
+            Long updatedOffset = cachedPartitionWithLatestOffsets.merge(pair.first, pair.second, Math::max);
+            if (updatedOffset > pair.second) {
+                LOG.warn("Kafka offset fallback. partition: {}, cache offset: {}"
+                            + " get latest offset: {}, task {}, job {}",
+                            pair.first, updatedOffset, pair.second, taskId, id);
+            }
+        }
     }
 
     @Override
@@ -612,14 +624,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super.setOptional(info);
         KafkaDataSourceProperties kafkaDataSourceProperties
                 = (KafkaDataSourceProperties) info.getDataSourceProperties();
-        if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
-            setCustomKafkaPartitions(kafkaDataSourceProperties);
-        }
         if (MapUtils.isNotEmpty(kafkaDataSourceProperties.getCustomKafkaProperties())) {
             setCustomKafkaProperties(kafkaDataSourceProperties.getCustomKafkaProperties());
         }
         // set group id if not specified
         this.customProperties.putIfAbsent(PROP_GROUP_ID, name + "_" + UUID.randomUUID());
+        convertCustomProperties(true);
+        if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
+            setCustomKafkaPartitions(kafkaDataSourceProperties);
+        }
     }
 
     // this is an unprotected method which is called in the initialization function
@@ -859,18 +872,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         try {
             // all offsets to be consumed are newer than offsets in cachedPartitionWithLatestOffsets,
             // maybe the cached offset is out-of-date, fetch from kafka server again
-            List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
-                    getTopic(), getConvertedCustomProperties(), Lists.newArrayList(partitionIdToOffset.keySet()));
-            for (Pair<Integer, Long> pair : tmp) {
-                if (pair.second >= cachedPartitionWithLatestOffsets.getOrDefault(pair.first, Long.MIN_VALUE)) {
-                    cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
-                } else {
-                    LOG.warn("Kafka offset fallback. partition: {}, cache offset: {}"
-                                + " get latest offset: {}, task {}, job {}",
-                                pair.first, cachedPartitionWithLatestOffsets.getOrDefault(pair.first, Long.MIN_VALUE),
-                                pair.second, taskId, id);
-                }
+            String brokerListSnapshot;
+            String topicSnapshot;
+            Map<String, String> customPropertiesSnapshot;
+            writeLock();
+            try {
+                convertCustomProperties(false);
+                brokerListSnapshot = brokerList;
+                topicSnapshot = topic;
+                customPropertiesSnapshot = Maps.newHashMap(convertedCustomProperties);
+            } finally {
+                writeUnlock();
             }
+            List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
+                    topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()));
+            updateLatestOffsetsCache(tmp, taskId);
         } catch (Exception e) {
             // It needs to pause job when can not get partition meta.
             // To ensure the stability of the routine load,
@@ -910,6 +926,31 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
         }
         return false;
+    }
+
+    @Override
+    public void updateLag() throws UserException {
+        List<Integer> partitionIds;
+        String brokerListSnapshot;
+        String topicSnapshot;
+        Map<String, String> customPropertiesSnapshot;
+        writeLock();
+        try {
+            convertCustomProperties(false);
+            partitionIds = Lists.newArrayList(((KafkaProgress) progress).getOffsetByPartition().keySet());
+            if (partitionIds.isEmpty()) {
+                return;
+            }
+            brokerListSnapshot = brokerList;
+            topicSnapshot = topic;
+            customPropertiesSnapshot = Maps.newHashMap(convertedCustomProperties);
+        } finally {
+            writeUnlock();
+        }
+        UUID taskId = UUID.randomUUID();
+        List<Pair<Integer, Long>> latestOffsets = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
+                topicSnapshot, customPropertiesSnapshot, partitionIds);
+        updateLatestOffsetsCache(latestOffsets, taskId);
     }
 
     @Override

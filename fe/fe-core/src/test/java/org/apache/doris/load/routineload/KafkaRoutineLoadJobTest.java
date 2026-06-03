@@ -204,6 +204,78 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testUpdateLagRefreshesLatestOffsetCache() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 10L);
+        partitionIdToOffset.put(2, 20L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
+                                                              Map<String, String> convertedCustomProperties,
+                                                              List<Integer> partitionIds) {
+                Assert.assertEquals(1L, jobId);
+                Assert.assertEquals("127.0.0.1:9020", brokerList);
+                Assert.assertEquals("topic1", topic);
+                Assert.assertTrue(partitionIds.contains(1));
+                Assert.assertTrue(partitionIds.contains(2));
+                return Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L));
+            }
+        };
+
+        routineLoadJob.updateLag();
+
+        Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+    }
+
+    @Test
+    public void testUpdateLagRebuildsConvertedPropertiesAfterReplay(@Mocked Env env) throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", Lists.newArrayList(1));
+
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.mechanism", "PLAIN");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", Maps.newHashMap());
+
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 10L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+
+        new Expectations(Env.class) {
+            {
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+                env.getSmallFileMgr();
+                minTimes = 0;
+                result = null;
+            }
+        };
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
+                                                              Map<String, String> convertedCustomProperties,
+                                                              List<Integer> partitionIds) {
+                Assert.assertEquals("SASL_PLAINTEXT", convertedCustomProperties.get("security.protocol"));
+                Assert.assertEquals("PLAIN", convertedCustomProperties.get("sasl.mechanism"));
+                Assert.assertEquals(1, partitionIds.size());
+                Assert.assertTrue(partitionIds.contains(1));
+                return Lists.newArrayList(Pair.of(1, 15L));
+            }
+        };
+
+        routineLoadJob.updateLag();
+
+        Assert.assertEquals(5L, routineLoadJob.totalLag().longValue());
+    }
+
+    @Test
     public void testProcessTimeOutTasks(@Injectable GlobalTransactionMgr globalTransactionMgr,
                                         @Injectable RoutineLoadManager routineLoadManager,
                                         @Mocked RoutineLoadDesc routineLoadDesc)
