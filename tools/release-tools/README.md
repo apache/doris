@@ -53,22 +53,27 @@ Everything below is reference detail.
 ## Files
 - `release.env` — all configuration (version, paths, signing key, SVN URLs, email). **Edit this first.**
 - `01-check-env.sh` — check / prepare the GPG signing environment and ASF credentials.
-- `02-package-sign-upload.sh` — `git archive` the tag, GPG-sign, sha512, upload to the dev SVN.
+- `02-package-sign-upload.sh` — `git archive` the tag, GPG-sign, sha512, sign any prebuilt binaries
+  locally, then upload the source artifacts to the dev SVN.
 - `03-vote-mail.sh` — generate the `[VOTE]` email draft.
 
 ## Configuration
 The scripts are reusable across releases — they hold no version; edit `release.env` each time.
 Set at least:
-- `REPO_DIR` — path to your local `apache/doris` git checkout.
 - `VERSION` / `RC` — e.g. `4.0.6` and `rc02`; `TAG` is derived as `${VERSION}-${RC}`.
 - `GIT_REMOTE` — the git remote pointing at `github.com/apache/doris`.
 - `APACHE_ID` / `APACHE_EMAIL` — your committer id and `@apache.org` email.
 - `SIGNING_KEY` — fingerprint of the key to sign with (leave empty to auto-detect a single local secret key).
+- `BIN_FILES` — optional absolute paths to prebuilt binary tarballs to sign locally (see below). Leave
+  the list empty to skip binary signing.
+
+`REPO_DIR` defaults to the enclosing checkout (`${ROOT}/../../`) since these scripts live inside
+`apache/doris`; override it only if you run them against a different clone.
 
 The SVN URLs, dev mailing list and verify-guide link rarely change; the defaults target the official
-Doris dist repos. Artifacts are **source-only**: `apache-doris-<tag>-src.tar.gz` + `.asc` + `.sha512`.
-All output (tarball, signatures, SVN checkouts, email draft) goes to `WORK_DIR`
-(`~/doris-release/<tag>` by default), outside the git repo.
+Doris dist repos. The **vote SVN artifacts are source-only**: `apache-doris-<tag>-src.tar.gz` + `.asc`
++ `.sha512`. All script output (source tarball, signatures, SVN checkouts, email draft) goes to
+`WORK_DIR` (`<this-dir>/<tag>`, i.e. `tools/release-tools/<tag>`, by default).
 
 ## What each step does
 - **01** verifies the required tools, your `GPG_TTY` / `gpg.conf`, resolves (or helps you create) a
@@ -76,14 +81,17 @@ All output (tarball, signatures, SVN checkouts, email draft) goes to `WORK_DIR`
   confirms your ASF credentials. It is read-mostly: every state-changing action (edit `gpg.conf`,
   import / generate a key, publish `KEYS`) prompts before acting.
 - **02** checks the local tag matches `GIT_REMOTE`, builds the source tarball from the tag with
-  `git archive`, signs it and writes the `.sha512`, then uploads the three files to
-  `dev/doris/<tag>/` on the Apache dist SVN. **Eyeball the target URL** at the confirm prompt before
-  committing — nothing public happens until the final confirm.
+  `git archive`, signs it and writes the `.sha512`. If `BIN_FILES` is non-empty it then GPG-signs and
+  sha512s each prebuilt binary tarball, writing the `.asc` / `.sha512` sidecars **next to** each binary
+  (these are NOT uploaded — you upload the binaries and their sidecars yourself). Finally it uploads
+  the three **source** files to `dev/doris/<tag>/` on the Apache dist SVN. **Eyeball the target URL**
+  at the confirm prompt before committing — nothing public happens until the final confirm.
 - **03** writes `vote-email.txt` and `vote-email.eml` into `WORK_DIR` and prints the draft. Review it
   and send it yourself from your `@apache.org` address.
 
 ## Not automated (on purpose)
 - Sending the vote email — it goes to a public ASF list, so you review and send it manually.
-- Binary packages — not part of the ASF source vote.
+- Uploading binary packages — step 02 can *sign* the tarballs listed in `BIN_FILES`, but binaries are
+  not part of the ASF source vote, so you upload them (with their `.asc`/`.sha512`) manually.
 - Post-vote steps — tallying the result, the result email, and moving the artifacts from `dev/` to
   `release/` once the vote passes.
