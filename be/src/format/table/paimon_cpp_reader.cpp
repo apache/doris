@@ -75,10 +75,12 @@ Status PaimonCppReader::on_before_init_reader(ReaderInitContext* ctx) {
     }
 
     DORIS_CHECK(ctx->range->__isset.columns_from_path);
-    DORIS_CHECK(ctx->range->__isset.columns_from_path_is_null);
     DORIS_CHECK(ctx->range->columns_from_path.size() == ctx->range->columns_from_path_keys.size());
-    DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
-                ctx->range->columns_from_path_keys.size());
+    const bool has_null_flags = ctx->range->__isset.columns_from_path_is_null;
+    if (has_null_flags) {
+        DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
+                    ctx->range->columns_from_path_keys.size());
+    }
 
     std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
     for (auto* slot : ctx->tuple_descriptor->slots()) {
@@ -92,7 +94,8 @@ Status PaimonCppReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
         _partition_values.emplace(
                 key, std::make_tuple(ctx->range->columns_from_path[i], slot_it->second));
-        _partition_value_is_null.emplace(key, ctx->range->columns_from_path_is_null[i]);
+        _partition_value_is_null.emplace(
+                key, has_null_flags ? ctx->range->columns_from_path_is_null[i] : false);
     }
     return Status::OK();
 }

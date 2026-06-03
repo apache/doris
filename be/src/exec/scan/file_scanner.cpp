@@ -1665,9 +1665,11 @@ Status FileScanner::_generate_partition_columns() {
         return Status::OK();
     }
     DORIS_CHECK(range.__isset.columns_from_path);
-    DORIS_CHECK(range.__isset.columns_from_path_is_null);
     DORIS_CHECK(range.columns_from_path.size() == range.columns_from_path_keys.size());
-    DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path_keys.size());
+    const bool has_null_flags = range.__isset.columns_from_path_is_null;
+    if (has_null_flags) {
+        DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path_keys.size());
+    }
 
     std::unordered_map<std::string, int> partition_name_to_key_index;
     int index = 0;
@@ -1687,7 +1689,9 @@ Status FileScanner::_generate_partition_columns() {
                     col_desc.name,
                     std::make_tuple(range.columns_from_path[values_index], col_desc.slot_desc));
             _partition_value_is_null.emplace(col_desc.name,
-                                             range.columns_from_path_is_null[values_index]);
+                                             has_null_flags
+                                                     ? range.columns_from_path_is_null[values_index]
+                                                     : false);
         }
     }
     return Status::OK();

@@ -37,9 +37,12 @@ Status TableFormatReader::_extract_partition_values(
     }
     if (range.__isset.columns_from_path_keys && tuple_descriptor != nullptr) {
         DORIS_CHECK(range.__isset.columns_from_path);
-        DORIS_CHECK(range.__isset.columns_from_path_is_null);
         DORIS_CHECK(range.columns_from_path.size() == range.columns_from_path_keys.size());
-        DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path_keys.size());
+        const bool has_null_flags = range.__isset.columns_from_path_is_null;
+        if (has_null_flags) {
+            DORIS_CHECK(range.columns_from_path_is_null.size() ==
+                        range.columns_from_path_keys.size());
+        }
         std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
         for (auto* slot : tuple_descriptor->slots()) {
             name_to_slot[slot->col_name()] = slot;
@@ -51,7 +54,8 @@ Status TableFormatReader::_extract_partition_values(
             if (slot_it != name_to_slot.end()) {
                 partition_values.emplace(key, std::make_tuple(value, slot_it->second));
                 if (partition_value_is_null != nullptr) {
-                    partition_value_is_null->emplace(key, range.columns_from_path_is_null[i]);
+                    partition_value_is_null->emplace(
+                            key, has_null_flags ? range.columns_from_path_is_null[i] : false);
                 }
             }
         }
