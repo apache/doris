@@ -40,7 +40,7 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                  const NestedScalarBatch& batch, int64_t level_idx,
                                  MutableColumnPtr& column) {
-    const int64_t value_idx = batch.value_indices[level_idx];
+    const int64_t value_idx = nested_scalar_value_index(batch, level_idx);
     if (value_idx < 0) {
         return Status::Corruption("Nested parquet value is absent for column {}",
                                   column_reader.name());

@@ -127,6 +127,13 @@ private:
     const Batch& _batch;
 };
 
+inline int64_t nested_scalar_value_index(const NestedScalarBatch& batch, int64_t level_idx) {
+    if (batch.value_indices.empty()) {
+        return level_idx;
+    }
+    return batch.value_indices[level_idx];
+}
+
 inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_level,
                                     NestedScalarOverflow* overflow) {
     DORIS_CHECK(overflow != nullptr);
@@ -140,12 +147,20 @@ inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_
     dst.levels_written = src.levels_written - start_level;
     dst.def_levels.assign(src.def_levels.begin() + start_level, src.def_levels.end());
     dst.rep_levels.assign(src.rep_levels.begin() + start_level, src.rep_levels.end());
-    dst.value_indices.resize(static_cast<size_t>(dst.levels_written), -1);
     dst.values_column = src.values_column->clone_empty();
 
+    if (src.value_indices.empty()) {
+        for (int64_t level_idx = start_level; level_idx < src.levels_written; ++level_idx) {
+            dst.values_column->insert_from(*src.values_column, static_cast<size_t>(level_idx));
+        }
+        overflow->batch = std::move(dst);
+        return;
+    }
+
+    dst.value_indices.resize(static_cast<size_t>(dst.levels_written), -1);
     int64_t values_written = 0;
     for (int64_t level_idx = start_level; level_idx < src.levels_written; ++level_idx) {
-        const int64_t value_idx = src.value_indices[level_idx];
+        const int64_t value_idx = nested_scalar_value_index(src, level_idx);
         if (value_idx < 0) {
             continue;
         }

@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -273,17 +274,17 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
         std::copy(rep_levels, rep_levels + batch->levels_written, batch->rep_levels.begin());
     }
 
-    batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
-    int64_t value_idx = 0;
     const bool dense_value_slots = values_written == batch->levels_written;
-    for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-        if (batch->def_levels[level_idx] < value_slot_definition_level ||
-            batch->rep_levels[level_idx] > value_slot_repetition_level) {
-            continue;
-        }
-        if (dense_value_slots) {
-            batch->value_indices[level_idx] = level_idx;
-        } else {
+    const bool no_repetition_filter =
+            value_slot_repetition_level == std::numeric_limits<int16_t>::max();
+    if (!dense_value_slots || !no_repetition_filter) {
+        batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
+        int64_t value_idx = 0;
+        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
+            if (batch->def_levels[level_idx] < value_slot_definition_level ||
+                batch->rep_levels[level_idx] > value_slot_repetition_level) {
+                continue;
+            }
             if (value_idx >= values_written) {
                 return Status::Corruption(
                         "Nested parquet reader returned fewer values than definition levels for "

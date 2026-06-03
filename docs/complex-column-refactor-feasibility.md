@@ -235,12 +235,13 @@ Phase 3 推进后，`NestedScalarBatch` 的用途已经更清晰：
 
 - 删除 `NestedScalarBatch::values_written`，value 数量只在 `read_nested_leaf_batch()` / overflow compact 的局部变量中存在
 - 删除公共 repeated assembler 后，`NestedScalarBatch` 不再作为跨 reader 泛型模板参数对外暴露
+- 对 dense value slots（`values_written == levels_written` 且没有 repetition filter）不再 materialize `value_indices`，通过统一 helper 将 level index 直接解释为 value index；overflow tail 会保持这种 dense 表示
 
 暂时保留的字段及原因：
 
 - `records_read`：MAP key/value stream 对齐、STRUCT child batch 对齐仍需要 parent-record 计数
 - `levels_written`：shape traversal、overflow tail 和多 stream alignment 仍需要 level 数
-- `value_indices`：values 是按 defined slot compact 后写入 Doris column，上层按 level slot append 时仍需要 level→value 映射
+- `value_indices`：非 dense 或带 repetition filter 的 nested values 仍是按 defined slot compact 后写入 Doris column，上层按 level slot append 时仍需要 level→value 映射
 
 因此，`value_indices`、`records_read`、`levels_written` 不是当前阶段可直接删除的冗余字段。后续若要继续简化，需要引入“level cursor + value cursor”设计，让遍历 def/rep 的同时同步消费 value，而不是先 materialize `value_indices`。
 
@@ -248,6 +249,7 @@ Phase 3 推进后，`NestedScalarBatch` 的用途已经更清晰：
 
 - 扁平标量路径已是最优，无需改动
 - 嵌套路径已经删除 `values_written` 状态
+- dense nested leaf batch 已经避免构建 `value_indices`
 - `value_indices` 的删除需要更深层 cursor 化，涉及 LIST/MAP/STRUCT 的 value append 和 overflow compact，不适合和本轮内联同时完成
 - 当前结构已经为下一步 cursor 化留下清晰边界：`read_nested_leaf_batch()` 负责 leaf batch，LIST/MAP reader 自己负责 Dremel traversal
 
@@ -271,7 +273,8 @@ Phase 2: Change 1 — 收敛 MAP entry shape/value stream
 
 Phase 3: Change 3+4 — 内联 Dremel + 简化叶子集成
          状态: 进行中，LIST 内联已完成，公共 repeated assembler 已删除；
-               NestedScalarBatch::values_written 已删除，value_indices cursor 化待后续评估
+               NestedScalarBatch::values_written 已删除，dense value_indices 已省略，
+               非 dense value_indices cursor 化待后续评估
          影响: 大，重写 ListColumnReader 核心路径，收窄 nested_column_reader.h
          文件: list_column_reader.cpp, map_column_reader.cpp, nested_column_reader.h/.cpp,
                arrow_leaf_reader_adapter.cpp
@@ -304,11 +307,11 @@ Phase 3+4 (内联+简化) ──→ 依赖 Phase 2
 |---|---|---|---|
 | Phase 1 | ~190 行 (ShapeOnlyColumnReader) | ~90 行 (RowPosition split) | **~-100** |
 | Phase 2 | ~120 行 (MAP read/skip 重复分支) | ~80 行 (MAP context/helper) | **~-40** |
-| Phase 3+4 | 已删除公共泛型模板和 LIST sink，删除 `values_written` | LIST 内联循环、MAP 局部 helper | 当前为结构收敛，净行数随局部化变化 |
+| Phase 3+4 | 已删除公共泛型模板和 LIST sink，删除 `values_written`，dense 场景省略 `value_indices` | LIST 内联循环、MAP 局部 helper、统一 value index helper | 当前为结构收敛，净行数随局部化变化 |
 | **合计** | **~1290** | **~250** | **~-1040** |
 
 整体复杂度：Phase 2 不再以“消除 MAP 概念”为目标，而是保留 Doris `ColumnMap` 边界，降低 MAP entry/value stream 重复。Phase 3 已完成 LIST 内联和公共模板收窄，后续收益主要来自 leaf batch cursor 化，而不是继续扩大共享模板。
 
 ### 5.5 整体可行性：可行
 
-三个 Phase 相互解耦，可逐步推进。Phase 1 已完成。Phase 2 已完成，保留 Doris `DataTypeMap` / `ColumnMap` 输出语义，并收敛 MAP entry shape、overflow 和 value stream helper，避免 `ColumnArray(ColumnStruct)` 中间主路径。Phase 3 已完成 LIST 内联和公共 assembler 删除；Phase 4 已删除 `values_written`，剩余 batch 字段需要后续 cursor 化方案支撑后再继续简化。
+三个 Phase 相互解耦，可逐步推进。Phase 1 已完成。Phase 2 已完成，保留 Doris `DataTypeMap` / `ColumnMap` 输出语义，并收敛 MAP entry shape、overflow 和 value stream helper，避免 `ColumnArray(ColumnStruct)` 中间主路径。Phase 3 已完成 LIST 内联和公共 assembler 删除；Phase 4 已删除 `values_written`，并在 dense nested leaf batch 中省略 `value_indices`，剩余 batch 字段需要后续 cursor 化方案支撑后再继续简化。
