@@ -748,7 +748,6 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     if (_constant_col != nullptr && column_wrapper == nullptr) {
-        DCHECK(_open_finished);
         return Status::OK();
     } else if (_constant_col != nullptr) {
         *column_wrapper = _constant_col;
