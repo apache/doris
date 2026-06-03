@@ -164,7 +164,19 @@ public:
     // preferring stale compaction rowsets over individual SC output rowsets.
     // MUST hold EXCLUSIVE `_meta_lock`.
     void delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
-                                          std::unique_lock<std::shared_mutex>& meta_lock);
+                                          std::unique_lock<std::shared_mutex>& meta_lock,
+                                          bool recycle_deleted_rowsets = true);
+
+    // Replace local rowsets in [2, alter_version] with schema change output rowsets.
+    // Existing SC output rowsets are kept; other local/double-write/compaction rowsets
+    // in this version range are removed from both _rs_version_map and version graph.
+    // recycle_deleted_rowsets should only be true for the real tablet; temporary
+    // schema-change delete-bitmap tablets only need to normalize their local graph.
+    // MUST hold EXCLUSIVE `_meta_lock`.
+    void replace_rowsets_with_schema_change_output(
+            const std::vector<RowsetSharedPtr>& output_rowsets, int64_t alter_version,
+            std::unique_lock<std::shared_mutex>& meta_lock, const char* stage,
+            bool recycle_deleted_rowsets);
 
     // When the tablet is dropped, we need to recycle cached data:
     // 1. The data in file cache
