@@ -591,6 +591,10 @@ struct JsonParser<'7'> {
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         rapidjson::Document document;
         JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
+        if (json_val == nullptr) {
+            value.SetNull();
+            return;
+        }
         convert_jsonb_to_rapidjson(*json_val, document, allocator);
         value.CopyFrom(document, allocator);
     }
@@ -1480,17 +1484,14 @@ public:
         rapidjson::Value value;
         for (auto row = 0; row < objects.size(); row++) {
             std::vector<JsonPath>* parsed_paths = &paths_column[row];
+            const auto value_row = index_check_const(row, column_is_const);
 
-            if (nullmap != nullptr && nullmap->get_data()[row]) {
-                JsonParser<'0'>::update_value(
-                        result, value,
-                        value_column->get_data_at(index_check_const(row, column_is_const)),
-                        objects[row].GetAllocator());
+            if (nullmap != nullptr && nullmap->get_data()[value_row]) {
+                JsonParser<'0'>::update_value(result, value, value_column->get_data_at(value_row),
+                                              objects[row].GetAllocator());
             } else {
-                TypeImpl::update_value(
-                        result, value,
-                        value_column->get_data_at(index_check_const(row, column_is_const)),
-                        objects[row].GetAllocator());
+                TypeImpl::update_value(result, value, value_column->get_data_at(value_row),
+                                       objects[row].GetAllocator());
             }
 
             switch (Kind::modify_type) {
