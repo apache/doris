@@ -276,6 +276,27 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
         std::copy(rep_levels, rep_levels + batch->levels_written, batch->rep_levels.begin());
     }
 
+    batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
+    int64_t value_idx = 0;
+    const bool dense_value_slots = values_written == batch->levels_written;
+    for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
+        if (batch->def_levels[level_idx] < value_slot_definition_level ||
+            batch->rep_levels[level_idx] > value_slot_repetition_level) {
+            continue;
+        }
+        if (dense_value_slots) {
+            batch->value_indices[static_cast<size_t>(level_idx)] = level_idx;
+        } else {
+            if (value_idx >= values_written) {
+                return Status::Corruption(
+                        "Nested parquet reader returned fewer values than definition levels for "
+                        "column {}",
+                        context.column_name());
+            }
+            batch->value_indices[static_cast<size_t>(level_idx)] = value_idx++;
+        }
+    }
+
     const auto value_type = remove_nullable(context.data_type());
     batch->values_column = value_type->create_column();
     if (values_written > 0) {

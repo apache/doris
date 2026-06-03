@@ -29,6 +29,8 @@
 #include "common/status.h"
 #include "core/data_type/convert_field_to_type.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/vin_predicate.h"
 #include "format/reader/expr/cast.h"
 #include "format/reader/expr/literal.h"
 #include "format/reader/expr/slot_ref.h"
@@ -482,6 +484,46 @@ static std::shared_ptr<ColumnPredicate> build_nested_comparison_predicate(
     }
 }
 
+static std::shared_ptr<ColumnPredicate> build_nested_in_list_predicate(
+        const VExprSPtrs& literal_exprs, const NestedPredicateTargetInfo& target) {
+    if (literal_exprs.empty() || target.file_leaf_type == nullptr) {
+        return nullptr;
+    }
+
+    auto value_column = target.file_leaf_type->create_column();
+    for (const auto& literal_expr : literal_exprs) {
+        if (literal_expr == nullptr || !literal_expr->is_literal()) {
+            return nullptr;
+        }
+        const auto original_literal = original_table_literal(literal_expr);
+        const Field original_field = literal_field(original_literal);
+        Field file_field;
+        try {
+            convert_field_to_type(original_field, *target.file_leaf_type, &file_field,
+                                  original_literal->data_type().get());
+        } catch (const Exception&) {
+            return nullptr;
+        }
+        if (file_field.is_null()) {
+            return nullptr;
+        }
+        value_column->insert(file_field);
+    }
+
+    std::shared_ptr<HybridSetBase> values;
+    try {
+        values.reset(create_set(target.file_leaf_type->get_primitive_type(), literal_exprs.size(),
+                                false));
+        ColumnPtr value_column_ptr = std::move(value_column);
+        values->insert_range_from(value_column_ptr, 0, value_column_ptr->size());
+        return create_in_list_predicate<PredicateType::IN_LIST>(
+                cast_set<uint32_t>(target.root_file_column_id), target.leaf_name,
+                target.file_leaf_type, values, false);
+    } catch (const Exception&) {
+        return nullptr;
+    }
+}
+
 static bool extract_nested_binary_comparison_filter(const VExprSPtr& expr,
                                                     const std::vector<ColumnMapping>& mappings,
                                                     FileColumnPredicateFilter* column_filter) {
@@ -508,6 +550,47 @@ static bool extract_nested_binary_comparison_filter(const VExprSPtr& expr,
         return false;
     }
     auto predicate = build_nested_comparison_predicate(literal_expr, opcode, target);
+    if (predicate == nullptr) {
+        return false;
+    }
+    column_filter->file_column_id = target.root_file_column_id;
+    column_filter->file_child_id_path = std::move(target.file_child_id_path);
+    column_filter->predicates.push_back(std::move(predicate));
+    return true;
+}
+
+static bool extract_nested_in_list_filter(const VExprSPtr& expr,
+                                          const std::vector<ColumnMapping>& mappings,
+                                          FileColumnPredicateFilter* column_filter) {
+    DORIS_CHECK(column_filter != nullptr);
+    if (expr == nullptr || expr->node_type() != TExprNodeType::IN_PRED ||
+        expr->get_num_children() < 2) {
+        return false;
+    }
+    if (const auto* in_predicate = dynamic_cast<const VInPredicate*>(expr.get());
+        in_predicate != nullptr && in_predicate->is_not_in()) {
+        return false;
+    }
+
+    NestedStructPath path;
+    if (!extract_nested_struct_path(expr->children()[0], &path)) {
+        return false;
+    }
+
+    VExprSPtrs literal_exprs;
+    literal_exprs.reserve(expr->get_num_children() - 1);
+    for (size_t child_idx = 1; child_idx < expr->children().size(); ++child_idx) {
+        if (!expr->children()[child_idx]->is_literal()) {
+            return false;
+        }
+        literal_exprs.push_back(expr->children()[child_idx]);
+    }
+
+    NestedPredicateTargetInfo target;
+    if (!resolve_nested_predicate_target(path, mappings, &target)) {
+        return false;
+    }
+    auto predicate = build_nested_in_list_predicate(literal_exprs, target);
     if (predicate == nullptr) {
         return false;
     }
@@ -548,7 +631,8 @@ static void collect_nested_column_predicate_filters(
         return;
     }
     FileColumnPredicateFilter column_filter;
-    if (extract_nested_binary_comparison_filter(expr, mappings, &column_filter)) {
+    if (extract_nested_binary_comparison_filter(expr, mappings, &column_filter) ||
+        extract_nested_in_list_filter(expr, mappings, &column_filter)) {
         merge_column_predicate_filter(std::move(column_filter), filters);
     }
 }

@@ -141,6 +141,17 @@ VExprSPtr struct_element_expr(const VExprSPtr& parent, const DataTypePtr& child_
     return expr;
 }
 
+VExprSPtr in_predicate_expr(const VExprSPtr& probe_expr, const DataTypePtr& literal_type,
+                            const std::vector<Field>& values) {
+    auto expr = std::make_shared<TestFunctionExpr>("in", std::make_shared<DataTypeUInt8>(),
+                                                   TExprNodeType::IN_PRED);
+    expr->add_child(probe_expr);
+    for (const auto& value : values) {
+        expr->add_child(TableLiteral::create_shared(literal_type, value));
+    }
+    return expr;
+}
+
 class Int32SumGreaterThanExpr final : public VExpr {
 public:
     Int32SumGreaterThanExpr(int left_column_id, int right_column_id, int32_t value)
@@ -670,6 +681,298 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     ASSERT_EQ(read_type->get_elements().size(), 2);
     EXPECT_EQ(read_type->get_element_name(0), "b");
     EXPECT_EQ(read_type->get_element_name(1), "a");
+}
+
+TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
+    auto a_type = std::make_shared<DataTypeInt32>();
+    auto b_type = std::make_shared<DataTypeString>();
+    reader::SchemaField a_field;
+    a_field.id = 0;
+    a_field.name = "a";
+    a_field.type = a_type;
+    reader::SchemaField b_field;
+    b_field.id = 1;
+    b_field.name = "b";
+    b_field.type = b_type;
+    reader::SchemaField struct_field;
+    struct_field.id = 0;
+    struct_field.name = "s";
+    struct_field.type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    struct_field.children = {a_field, b_field};
+
+    reader::TableColumn table_child;
+    table_child.id = 101;
+    table_child.name = "b";
+    table_child.type = b_type;
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "s";
+    table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
+    table_column.children = {table_child};
+
+    const auto full_table_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    auto filter_expr = in_predicate_expr(
+            struct_element_expr(
+                    TableSlotRef::create_shared(100, 100, -1, full_table_struct_type, "s"), a_type,
+                    "a"),
+            a_type, {Field::create_field<TYPE_INT>(5), Field::create_field<TYPE_INT>(7)});
+    reader::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .slot_ids = {100},
+    };
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_NAME;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
+
+    reader::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    ASSERT_EQ(request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
+    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
+}
+
+TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseComparison) {
+    auto a_type = std::make_shared<DataTypeInt32>();
+    auto b_type = std::make_shared<DataTypeString>();
+    reader::SchemaField a_field;
+    a_field.id = 0;
+    a_field.name = "a";
+    a_field.type = a_type;
+    reader::SchemaField b_field;
+    b_field.id = 1;
+    b_field.name = "b";
+    b_field.type = b_type;
+    reader::SchemaField struct_field;
+    struct_field.id = 0;
+    struct_field.name = "s";
+    struct_field.type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    struct_field.children = {a_field, b_field};
+
+    reader::TableColumn table_child;
+    table_child.id = 101;
+    table_child.name = "b";
+    table_child.type = b_type;
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "s";
+    table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
+    table_column.children = {table_child};
+
+    const auto full_table_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    auto filter_expr = std::make_shared<TestFunctionExpr>(
+            "lt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::LT);
+    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    filter_expr->add_child(struct_element_expr(
+            TableSlotRef::create_shared(100, 100, -1, full_table_struct_type, "s"), a_type, "a"));
+    reader::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .slot_ids = {100},
+    };
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_NAME;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
+
+    reader::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    ASSERT_EQ(request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
+    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
+}
+
+TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) {
+    auto id_type = std::make_shared<DataTypeInt32>();
+    auto name_type = std::make_shared<DataTypeString>();
+    auto b_type = std::make_shared<DataTypeString>();
+    auto inner_type =
+            std::make_shared<DataTypeStruct>(DataTypes {id_type, name_type}, Strings {"id", "n"});
+    auto full_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {inner_type, b_type}, Strings {"a", "b"});
+
+    reader::SchemaField id_field;
+    id_field.id = 0;
+    id_field.name = "id";
+    id_field.type = id_type;
+    reader::SchemaField name_field;
+    name_field.id = 1;
+    name_field.name = "n";
+    name_field.type = name_type;
+    reader::SchemaField a_field;
+    a_field.id = 0;
+    a_field.name = "a";
+    a_field.type = inner_type;
+    a_field.children = {id_field, name_field};
+    reader::SchemaField b_field;
+    b_field.id = 1;
+    b_field.name = "b";
+    b_field.type = b_type;
+    reader::SchemaField struct_field;
+    struct_field.id = 0;
+    struct_field.name = "s";
+    struct_field.type = full_struct_type;
+    struct_field.children = {a_field, b_field};
+
+    reader::TableColumn table_child;
+    table_child.id = 101;
+    table_child.name = "b";
+    table_child.type = b_type;
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "s";
+    table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
+    table_column.children = {table_child};
+
+    auto nested_id_expr = struct_element_expr(
+            struct_element_expr(TableSlotRef::create_shared(100, 100, -1, full_struct_type, "s"),
+                                inner_type, "a"),
+            id_type, "id");
+    auto filter_expr =
+            in_predicate_expr(nested_id_expr, id_type,
+                              {Field::create_field<TYPE_INT>(5), Field::create_field<TYPE_INT>(7)});
+    reader::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .slot_ids = {100},
+    };
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_NAME;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
+
+    reader::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    ASSERT_EQ(request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0, 0}));
+    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
+}
+
+TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
+    auto a_type = std::make_shared<DataTypeInt32>();
+    auto b_type = std::make_shared<DataTypeString>();
+    reader::SchemaField a_field;
+    a_field.id = 0;
+    a_field.name = "a";
+    a_field.type = a_type;
+    reader::SchemaField b_field;
+    b_field.id = 1;
+    b_field.name = "b";
+    b_field.type = b_type;
+    reader::SchemaField struct_field;
+    struct_field.id = 0;
+    struct_field.name = "s";
+    struct_field.type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    struct_field.children = {a_field, b_field};
+
+    reader::TableColumn table_child;
+    table_child.id = 101;
+    table_child.name = "b";
+    table_child.type = b_type;
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "s";
+    table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
+    table_column.children = {table_child};
+
+    const auto full_table_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    auto filter_expr = std::make_shared<TestFunctionExpr>(
+            "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    filter_expr->add_child(struct_element_expr(
+            TableSlotRef::create_shared(100, 100, -1, full_table_struct_type, "s"), a_type,
+            "missing"));
+    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    reader::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .slot_ids = {100},
+    };
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_NAME;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
+
+    reader::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterFromOr) {
+    auto a_type = std::make_shared<DataTypeInt32>();
+    auto b_type = std::make_shared<DataTypeString>();
+    reader::SchemaField a_field;
+    a_field.id = 0;
+    a_field.name = "a";
+    a_field.type = a_type;
+    reader::SchemaField b_field;
+    b_field.id = 1;
+    b_field.name = "b";
+    b_field.type = b_type;
+    reader::SchemaField struct_field;
+    struct_field.id = 0;
+    struct_field.name = "s";
+    struct_field.type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    struct_field.children = {a_field, b_field};
+
+    reader::TableColumn table_child;
+    table_child.id = 101;
+    table_child.name = "b";
+    table_child.type = b_type;
+    reader::TableColumn table_column;
+    table_column.id = 100;
+    table_column.name = "s";
+    table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
+    table_column.children = {table_child};
+
+    const auto full_table_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+    auto left = std::make_shared<TestFunctionExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                   TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    left->add_child(struct_element_expr(
+            TableSlotRef::create_shared(100, 100, -1, full_table_struct_type, "s"), a_type, "a"));
+    left->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    auto right = in_predicate_expr(
+            struct_element_expr(
+                    TableSlotRef::create_shared(100, 100, -1, full_table_struct_type, "s"), a_type,
+                    "a"),
+            a_type, {Field::create_field<TYPE_INT>(7)});
+    auto filter_expr = std::make_shared<TestFunctionExpr>("or", std::make_shared<DataTypeUInt8>(),
+                                                          TExprNodeType::COMPOUND_PRED,
+                                                          TExprOpcode::COMPOUND_OR);
+    filter_expr->add_child(left);
+    filter_expr->add_child(right);
+    reader::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .slot_ids = {100},
+    };
+
+    reader::TableColumnMapperOptions options;
+    options.mode = reader::TableColumnMappingMode::BY_NAME;
+    reader::TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
+
+    reader::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
