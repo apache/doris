@@ -91,8 +91,8 @@ bool parse_non_negative_int(std::string_view value, int32_t* result) {
     return true;
 }
 
-reader::TableColumn* find_or_add_child(reader::TableColumn* parent, ColumnId id, std::string name,
-                                       DataTypePtr type) {
+reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::ColumnId id,
+                                       std::string name, DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
     for (auto& child : parent->children) {
         if (child.id == id || child.name == name) {
@@ -103,6 +103,7 @@ reader::TableColumn* find_or_add_child(reader::TableColumn* parent, ColumnId id,
             .id = id,
             .name = std::move(name),
             .type = std::move(type),
+            .children = {},
     });
     return &parent->children.back();
 }
