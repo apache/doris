@@ -46,14 +46,19 @@ Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                   column_reader.name());
     }
     const auto* src_column = batch.values_column.get();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
     if (const auto* nullable_src = check_and_get_column<ColumnNullable>(*src_column)) {
         if (nullable_src->is_null_at(static_cast<size_t>(value_idx))) {
-            return Status::Corruption("Nested parquet value is null for present column {}",
-                                      column_reader.name());
+            if (nullable_column == nullptr) {
+                return Status::Corruption("Nested parquet value is null for present column {}",
+                                          column_reader.name());
+            }
+            nullable_column->insert_default();
+            return Status::OK();
         }
         src_column = &nullable_src->get_nested_column();
     }
-    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+    if (nullable_column != nullptr) {
         nullable_column->get_nested_column().insert_from(*src_column,
                                                          static_cast<size_t>(value_idx));
         nullable_column->get_null_map_data().push_back(0);
