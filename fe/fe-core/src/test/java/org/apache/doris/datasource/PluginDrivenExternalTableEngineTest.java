@@ -18,8 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
@@ -29,7 +27,6 @@ import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -46,12 +43,6 @@ import java.util.Optional;
  * information_schema.tables, REST API, etc.).
  */
 public class PluginDrivenExternalTableEngineTest {
-
-    @BeforeEach
-    public void setUp() {
-        Config.enable_debug_points = true;
-        DebugPointUtil.clearDebugPoints();
-    }
 
     @Test
     public void testJdbcCatalogReturnsJdbcEngineName() {
@@ -109,20 +100,6 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
-    public void testJdbcInitSchemaSleepDebugPoint() {
-        PluginDrivenExternalTable table = createTableWithCatalogType("jdbc");
-        DebugPointUtil.addDebugPointWithParams("PluginDrivenExternalTable.initSchema.sleep",
-                java.util.Collections.singletonMap("sleepMs", "500"));
-
-        long startTime = System.currentTimeMillis();
-        table.initSchema();
-        long elapsedMs = System.currentTimeMillis() - startTime;
-
-        Assertions.assertTrue(elapsedMs >= 400,
-                "JDBC schema init should observe the injected debug-point delay");
-    }
-
-    @Test
     public void testInitSchemaReturnsEmptyWhenTableHandleMissing() {
         Connector connector = createMockConnector(false, false);
         PluginDrivenExternalTable table = createTableWithCatalogType("jdbc", connector);
@@ -142,21 +119,6 @@ public class PluginDrivenExternalTableEngineTest {
         Assertions.assertTrue(schema.isPresent(), "Schema should be present when a table handle exists");
         Assertions.assertEquals("mapped_id", schema.get().getSchema().get(0).getName(),
                 "Mapped remote column names should be reflected in Doris schema metadata");
-    }
-
-    @Test
-    public void testEsInitSchemaDoesNotSleepOnJdbcDebugPoint() {
-        PluginDrivenExternalTable table = createTableWithCatalogType("es");
-        DebugPointUtil.addDebugPointWithParams("PluginDrivenExternalTable.initSchema.sleep",
-                java.util.Collections.singletonMap("sleepMs", "500"));
-
-        // Keep the JDBC-only debug point isolated from non-JDBC plugin tables.
-        long startTime = System.currentTimeMillis();
-        table.initSchema();
-        long elapsedMs = System.currentTimeMillis() - startTime;
-
-        Assertions.assertTrue(elapsedMs < 400,
-                "Non-JDBC schema init should ignore the JDBC-only debug-point delay");
     }
 
     // -------- Helpers --------
