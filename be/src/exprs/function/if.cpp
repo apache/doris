@@ -240,7 +240,7 @@ public:
             return Status::OK();
         }
 
-        const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+        const auto* cond_col = check_and_get_column<ColumnUInt8>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
                 check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 

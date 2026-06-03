@@ -60,7 +60,7 @@ public class MaxComputeExternalMetaCache extends AbstractExternalMetaCache {
                 CacheSpec.of(
                         true,
                         Config.external_cache_refresh_time_minutes * 60L,
-                        Config.max_hive_partition_cache_num),
+                        Config.max_hive_partition_table_cache_num),
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
         schemaEntry = registerEntry(MetaCacheEntryDef.of(
                 ENTRY_SCHEMA,

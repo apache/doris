@@ -474,22 +474,6 @@ doris::Field get_jsonb_field(std::string_view type) {
     return field_map[type];
 }
 
-// std::string convert_jsonb_field_to_string(doris::Field jsonb) {
-//     const auto& val = jsonb.get<JsonbField>();
-//     const JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
-
-//     rapidjson::Document doc;
-//     doc.SetObject();
-//     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-//     rapidjson::Value json_value;
-//     convert_jsonb_to_rapidjson(*json_val, json_value, allocator);
-//     doc.AddMember("value", json_value, allocator);
-//     rapidjson::StringBuffer buffer;
-//     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
-//     doc.Accept(writer);
-//     return std::string(buffer.GetString());
-// }
-
 std::string convert_field_to_string(doris::Field array) {
     rapidjson::Document doc;
     doc.SetObject();

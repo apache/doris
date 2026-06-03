@@ -162,6 +162,13 @@ public final class MetaCacheEntryStats {
         return evictionCount;
     }
 
+    public double getEvictionRate() {
+        if (requestCount == 0) {
+            return 0D;
+        }
+        return (double) evictionCount / requestCount;
+    }
+
     public long getInvalidateCount() {
         return invalidateCount;
     }

@@ -5451,82 +5451,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             MetaContext metaContext = new MetaContext();
             metaContext.setMetaVersion(FeConstants.meta_version);
             metaContext.setThreadLocalInfo();
-            table.readLock();
             try (ByteArrayOutputStream bOutputStream = new ByteArrayOutputStream(8192)) {
-                OlapTable copyTable = table.copyTableMeta();
-                try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
-                    copyTable.write(out);
-                    out.flush();
-                    result.setTableMeta(bOutputStream.toByteArray());
-                }
-                Set<Long> updatedPartitionIds = Sets.newHashSet(table.getPartitionIds());
-                List<TPartitionMeta> partitionMetas = request.getPartitionsSize() == 0 ? Lists.newArrayList()
-                        : request.getPartitions();
-                for (TPartitionMeta partitionMeta : partitionMetas) {
-                    if (request.getTableId() != table.getId()) {
-                        result.addToRemovedPartitions(partitionMeta.getId());
-                        continue;
-                    }
-                    Partition partition = table.getPartition(partitionMeta.getId());
-                    if (partition == null) {
-                        result.addToRemovedPartitions(partitionMeta.getId());
-                        continue;
-                    }
-                    if (partition.getVisibleVersion() == partitionMeta.getVisibleVersion()
-                            && partition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime()) {
-                        updatedPartitionIds.remove(partitionMeta.getId());
-                    }
-                }
-
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("receive getOlapTableMeta  db: {} table:{} update partitions: {} removed partition:{}",
-                            request.getDb(), request.getTable(), updatedPartitionIds.size(),
-                            result.getRemovedPartitionsSize());
-                }
-                for (Long partitionId : updatedPartitionIds) {
-                    bOutputStream.reset();
-                    Partition partition = table.getPartition(partitionId);
+                Set<Long> updatedPartitionIds;
+                Set<Long> updatedTempPartitionIds;
+                Map<Long, String> partitionChecksums = Maps.newHashMap();
+                Map<Long, String> tempPartitionChecksums = Maps.newHashMap();
+                table.readLock();
+                try {
+                    OlapTable copyTable = table.copyTableMeta();
                     try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
-                        Text.writeString(out, GsonUtils.GSON.toJson(partition));
+                        copyTable.write(out);
                         out.flush();
-                        result.addToUpdatedPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                        result.setTableMeta(bOutputStream.toByteArray());
                     }
-                }
-                // temp partitions
-                updatedPartitionIds = Sets.newHashSet(table.getTempPartitions().getPartitionIds());
-                partitionMetas = request.getTempPartitionsSize() == 0 ? Lists.newArrayList()
-                        : request.getTempPartitions();
-                for (TPartitionMeta partitionMeta : partitionMetas) {
-                    if (request.getTableId() != table.getId()) {
-                        result.addToRemovedTempPartitions(partitionMeta.getId());
-                        continue;
+                    updatedPartitionIds = Sets.newHashSet(table.getPartitionIds());
+                    collectPartitionChanges(table, request.getTableId(), request.getPartitions(), false,
+                            updatedPartitionIds, partitionChecksums, result);
+                    updatedTempPartitionIds = Sets.newHashSet(table.getTempPartitions().getPartitionIds());
+                    collectPartitionChanges(table, request.getTableId(), request.getTempPartitions(), true,
+                            updatedTempPartitionIds, tempPartitionChecksums, result);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("receive getOlapTableMeta db: {} table:{} update partitions: {} "
+                                        + "removed partition:{} update temp partitions: {} removed temp partition:{}",
+                                request.getDb(), request.getTable(), updatedPartitionIds.size(),
+                                result.getRemovedPartitionsSize(), updatedTempPartitionIds.size(),
+                                result.getRemovedTempPartitionsSize());
                     }
-                    Partition tempPartition = table.getTempPartitions().getPartition(partitionMeta.getId());
-                    if (tempPartition == null) {
-                        result.addToRemovedTempPartitions(partitionMeta.getId());
-                        continue;
-                    }
-                    if (tempPartition.getVisibleVersion() == partitionMeta.getVisibleVersion()
-                            && tempPartition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime()) {
-                        updatedPartitionIds.remove(partitionMeta.getId());
-                    }
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("update temp partitions: {},  removed temp partition:{}",
-                            updatedPartitionIds.size(), result.getRemovedPartitionsSize());
-                }
-                for (Long partitionId : updatedPartitionIds) {
-                    bOutputStream.reset();
-                    Partition partition = table.getTempPartitions().getPartition(partitionId);
-                    try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
-                        Text.writeString(out, GsonUtils.GSON.toJson(partition));
-                        out.flush();
-                        result.addToUpdatedTempPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
-                    }
+                    addUpdatedPartitions(table, updatedPartitionIds, false, partitionChecksums, bOutputStream, result);
+                    addUpdatedPartitions(table, updatedTempPartitionIds, true, tempPartitionChecksums,
+                            bOutputStream, result);
+                } finally {
+                    table.readUnlock();
                 }
                 return result;
             } finally {
-                table.readUnlock();
                 MetaContext.remove();
             }
         } catch (AuthenticationException e) {
@@ -5547,6 +5505,79 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
             return result;
         }
+    }
+
+    private void collectPartitionChanges(OlapTable table, long requestTableId,
+            List<TPartitionMeta> partitionMetas, boolean tempPartition, Set<Long> updatedPartitionIds,
+            Map<Long, String> partitionChecksums, TGetOlapTableMetaResult result) {
+        if (partitionMetas == null) {
+            return;
+        }
+        for (TPartitionMeta partitionMeta : partitionMetas) {
+            long partitionId = partitionMeta.getId();
+            if (requestTableId != table.getId()) {
+                addRemovedPartition(result, partitionId, tempPartition);
+                continue;
+            }
+            Partition partition = getPartition(table, partitionId, tempPartition);
+            if (partition == null) {
+                addRemovedPartition(result, partitionId, tempPartition);
+                continue;
+            }
+            if (isPartitionVersionMatched(partition, partitionMeta)) {
+                if (!partitionMeta.isSetMetaChecksum()) {
+                    updatedPartitionIds.remove(partitionId);
+                    continue;
+                }
+                String metaChecksum = getPartitionMetaChecksum(partition, partitionChecksums);
+                if (metaChecksum.equals(partitionMeta.getMetaChecksum())) {
+                    updatedPartitionIds.remove(partitionId);
+                }
+            }
+        }
+    }
+
+    private void addUpdatedPartitions(OlapTable table, Set<Long> updatedPartitionIds, boolean tempPartition,
+            Map<Long, String> partitionChecksums, ByteArrayOutputStream bOutputStream,
+            TGetOlapTableMetaResult result) throws IOException {
+        for (Long partitionId : updatedPartitionIds) {
+            Partition partition = getPartition(table, partitionId, tempPartition);
+            Preconditions.checkState(partition != null);
+            String metaChecksum = getPartitionMetaChecksum(partition, partitionChecksums);
+            bOutputStream.reset();
+            try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
+                Text.writeString(out, GsonUtils.GSON.toJson(partition));
+                out.flush();
+                if (tempPartition) {
+                    result.addToUpdatedTempPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                    result.addToUpdatedTempPartitionChecksums(metaChecksum);
+                } else {
+                    result.addToUpdatedPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                    result.addToUpdatedPartitionChecksums(metaChecksum);
+                }
+            }
+        }
+    }
+
+    private String getPartitionMetaChecksum(Partition partition, Map<Long, String> partitionChecksums) {
+        return partitionChecksums.computeIfAbsent(partition.getId(), key -> partition.getMetaChecksum());
+    }
+
+    private Partition getPartition(OlapTable table, long partitionId, boolean tempPartition) {
+        return tempPartition ? table.getTempPartitions().getPartition(partitionId) : table.getPartition(partitionId);
+    }
+
+    private void addRemovedPartition(TGetOlapTableMetaResult result, long partitionId, boolean tempPartition) {
+        if (tempPartition) {
+            result.addToRemovedTempPartitions(partitionId);
+        } else {
+            result.addToRemovedPartitions(partitionId);
+        }
+    }
+
+    private boolean isPartitionVersionMatched(Partition partition, TPartitionMeta partitionMeta) {
+        return partition.getVisibleVersion() == partitionMeta.getVisibleVersion()
+                && partition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime();
     }
 
     @Override

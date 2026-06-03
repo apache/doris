@@ -264,7 +264,7 @@ public:
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (const auto* rhs_concrete = typeid_cast<const ColumnConst*>(&rhs)) {
+        if (const auto* rhs_concrete = check_and_get_column<ColumnConst>(&rhs)) {
             return data->structure_equals(*rhs_concrete->data);
         }
         return false;
