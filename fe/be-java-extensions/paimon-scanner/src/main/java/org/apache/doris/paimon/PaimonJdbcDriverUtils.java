@@ -24,8 +24,10 @@ import java.util.Map;
 final class PaimonJdbcDriverUtils {
     static final String PAIMON_JDBC_DRIVER_URL = "paimon.jdbc.driver_url";
     static final String PAIMON_JDBC_DRIVER_CLASS = "paimon.jdbc.driver_class";
+    static final String PAIMON_JDBC_DRIVER_CHECKSUM = "paimon.jdbc.driver_checksum";
     static final String JDBC_DRIVER_URL = "jdbc.driver_url";
     static final String JDBC_DRIVER_CLASS = "jdbc.driver_class";
+    static final String JDBC_DRIVER_CHECKSUM = "jdbc.driver_checksum";
 
     private PaimonJdbcDriverUtils() {
     }
@@ -40,11 +42,14 @@ final class PaimonJdbcDriverUtils {
             throw new IllegalArgumentException("paimon.jdbc.driver_class or jdbc.driver_class is required when "
                     + "paimon.jdbc.driver_url or jdbc.driver_url is specified");
         }
-        registerDriver(driverUrl, driverClassName, parentClassLoader);
+        String driverChecksum = firstNonBlank(
+                params.get(PAIMON_JDBC_DRIVER_CHECKSUM), params.get(JDBC_DRIVER_CHECKSUM));
+        registerDriver(driverUrl, driverClassName, driverChecksum == null ? "" : driverChecksum, parentClassLoader);
     }
 
-    static void registerDriver(String driverUrl, String driverClassName, ClassLoader parentClassLoader) {
-        JdbcDriverUtils.registerDriver(driverUrl, driverClassName, parentClassLoader);
+    static void registerDriver(String driverUrl, String driverClassName, String driverChecksum,
+            ClassLoader parentClassLoader) {
+        JdbcDriverUtils.registerDriver(driverUrl, driverClassName, driverChecksum, parentClassLoader);
     }
 
     private static String firstNonBlank(String first, String second) {

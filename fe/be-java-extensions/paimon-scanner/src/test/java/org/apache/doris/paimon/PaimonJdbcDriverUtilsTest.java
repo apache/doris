@@ -25,6 +25,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Driver;
@@ -80,6 +81,21 @@ public class PaimonJdbcDriverUtilsTest {
         IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
                 () -> PaimonJdbcDriverUtils.registerDriverIfNeeded(params, getClass().getClassLoader()));
         Assert.assertTrue(exception.getMessage().contains("driver_class"));
+    }
+
+    @Test
+    public void testRegisterDriverIfNeededRejectsChecksumMismatchBeforeClassLoad() throws Exception {
+        Path driverJar = Files.createTempFile("paimon-jdbc-driver", ".jar");
+        tempJars.add(driverJar);
+        Files.write(driverJar, "paimon-jdbc-driver".getBytes(StandardCharsets.UTF_8));
+        Map<String, String> params = new HashMap<>();
+        params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_URL, driverJar.toUri().toString());
+        params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_CLASS, "not.existing.Driver");
+        params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_CHECKSUM, "driver-checksum");
+
+        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                () -> PaimonJdbcDriverUtils.registerDriverIfNeeded(params, getClass().getClassLoader()));
+        Assert.assertTrue(exception.getMessage().contains("Checksum mismatch"));
     }
 
     private Path createDriverJar() throws IOException {

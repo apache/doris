@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcDriverLoader;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -26,7 +28,9 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
+import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -167,6 +171,45 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null),
                 0L, PAIMON_TABLE_CACHE_CAPACITY);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
+    }
+
+    @Override
+    public void checkWhenCreating() throws DdlException {
+        validateJdbcDriverChecksumIfNeeded();
+        super.checkWhenCreating();
+    }
+
+    private void validateJdbcDriverChecksumIfNeeded() throws DdlException {
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (!PAIMON_JDBC.equalsIgnoreCase(properties.get(PAIMON_CATALOG_TYPE))) {
+            return;
+        }
+
+        String driverUrl = firstNonBlank(
+                properties.get(PaimonJdbcMetaStoreProperties.PAIMON_JDBC_DRIVER_URL),
+                properties.get(PaimonJdbcMetaStoreProperties.JDBC_DRIVER_URL));
+        if (driverUrl == null) {
+            return;
+        }
+
+        String providedChecksum = firstNonBlank(
+                properties.get(PaimonJdbcMetaStoreProperties.PAIMON_JDBC_DRIVER_CHECKSUM),
+                properties.get(PaimonJdbcMetaStoreProperties.JDBC_DRIVER_CHECKSUM),
+                properties.get(JdbcResource.CHECK_SUM));
+        String computedChecksum = JdbcDriverLoader.validateDriverChecksum(driverUrl, providedChecksum);
+        if (StringUtils.isBlank(providedChecksum)) {
+            catalogProperty.addProperty(PaimonJdbcMetaStoreProperties.PAIMON_JDBC_DRIVER_CHECKSUM,
+                    computedChecksum);
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.isNotBlank(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     @Override
