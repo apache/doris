@@ -358,9 +358,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 for (List<NamedExpression> list : info.projectToPulledUpExprs.values()) {
                     list.removeIf(e -> e == expr);
                 }
-                info.projectToPulledUpExprs.entrySet().removeIf(e -> e.getValue().isEmpty());
                 info.baseSlotsByExpr.remove(expr.getExprId());
             }
+            info.projectToPulledUpExprs.entrySet().removeIf(e -> e.getValue().isEmpty());
         }
     }
 
@@ -389,7 +389,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         @Override
         public Plan visitLogicalTopN(LogicalTopN topN, CollectorContext context) {
             LogicalTopN rewritten = (LogicalTopN) visit(topN, context);
-            PullUpInfo info = context.getPullUpInfo(rewritten);
+            PullUpInfo info = context.getPullUpInfo(topN);
             if (info == null && rewritten != topN) {
                 info = context.getPullUpInfo(topN);
             }
@@ -438,7 +438,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             LogicalProject<? extends Plan> project,
             List<NamedExpression> pulledUpExprs,
             CollectorContext context) {
-        Set<ExprId> childOutputExprIds = buildOutputExprIds((Plan) project.child(0));
+        Set<ExprId> childOutputExprIds = ((Plan) project.child(0)).getOutputExprIdSet();
         List<Expression> passThroughExprs = collectUnavailablePullUpExprs(project, context, childOutputExprIds);
         if (pulledUpExprs.isEmpty() && passThroughExprs.isEmpty()) {
             return project;
@@ -519,7 +519,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     private static LogicalProject<Plan> addUpperProject(LogicalTopN topN, PullUpInfo info,
             CollectorContext context) {
         Map<ExprId, NamedExpression> pulledUpBySlotExprId = new HashMap<>();
-        Set<ExprId> currentOutputExprIds = buildOutputExprIds(topN);
+        Set<ExprId> currentOutputExprIds = topN.getOutputExprIdSet();
         for (NamedExpression e : info.allPulledUpExprs) {
             pulledUpBySlotExprId.put(e.toSlot().getExprId(), resolvePulledUpExpr(e, context, currentOutputExprIds));
         }
@@ -618,14 +618,6 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             }
         }
         return ExpressionUtils.replace(expression, replaceMap);
-    }
-
-    private static Set<ExprId> buildOutputExprIds(Plan plan) {
-        Set<ExprId> outputExprIds = new HashSet<>();
-        for (Slot slot : plan.getOutput()) {
-            outputExprIds.add(slot.getExprId());
-        }
-        return outputExprIds;
     }
 
     private static void addPassThroughSlots(
