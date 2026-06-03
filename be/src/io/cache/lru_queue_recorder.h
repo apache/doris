@@ -19,7 +19,13 @@
 
 #include <concurrentqueue.h>
 
+#include <array>
+#include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
 
 #include "io/cache/file_cache_common.h"
 
@@ -49,7 +55,8 @@ using CacheLRULogQueue = moodycamel::ConcurrentQueue<std::unique_ptr<CacheLRULog
 
 class LRUQueueRecorder {
 public:
-    LRUQueueRecorder(BlockFileCache* mgr) : _mgr(mgr) {
+    LRUQueueRecorder(BlockFileCache* mgr, size_t hard_cap = std::numeric_limits<size_t>::max())
+            : _hard_cap(hard_cap), _mgr(mgr) {
         _lru_queue_update_cnt_from_last_dump[FileCacheType::DISPOSABLE] = 0;
         _lru_queue_update_cnt_from_last_dump[FileCacheType::NORMAL] = 0;
         _lru_queue_update_cnt_from_last_dump[FileCacheType::INDEX] = 0;
@@ -72,6 +79,10 @@ public:
             FileCacheType type, size_t count, std::lock_guard<std::mutex>& lru_log_lock);
     size_t get_lru_log_queue_size(FileCacheType type);
     size_t get_total_lru_log_queue_size();
+    size_t get_dropped_lru_log_count() const {
+        return _dropped_lru_log_count.load(std::memory_order_relaxed);
+    }
+    size_t hard_cap() const { return _hard_cap; }
 
     CacheLRULogQueue& get_lru_log_queue(FileCacheType type);
     LRUQueue& get_shadow_queue(FileCacheType type);
@@ -89,6 +100,10 @@ private:
     CacheLRULogQueue _normal_lru_log_queue;
     CacheLRULogQueue _disposable_lru_log_queue;
 
+    std::array<size_t, 4> _lru_log_queue_size_by_type {};
+    std::atomic<size_t> _dropped_lru_log_count {0};
+    size_t _total_lru_log_queue_size = 0;
+    size_t _hard_cap;
     std::unordered_map<FileCacheType, size_t> _lru_queue_update_cnt_from_last_dump;
 
     BlockFileCache* _mgr;

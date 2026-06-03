@@ -61,25 +61,47 @@ namespace doris::io {
 
 // Insert a block pointer into one shard while swallowing allocation failures.
 bool NeedUpdateLRUBlocks::insert(FileBlockSPtr block) {
+    return insert_with_result(std::move(block)) == InsertResult::INSERTED;
+}
+
+NeedUpdateLRUBlocks::InsertResult NeedUpdateLRUBlocks::insert_with_result(FileBlockSPtr block) {
     if (!block) {
-        return false;
+        return InsertResult::IGNORED;
     }
+    bool reserved = false;
     try {
         auto* raw_ptr = block.get();
         auto idx = shard_index(raw_ptr);
         auto& shard = _shards[idx];
         std::lock_guard lock(shard.mutex);
-        auto [_, inserted] = shard.entries.emplace(raw_ptr, std::move(block));
-        if (inserted) {
-            _size.fetch_add(1, std::memory_order_relaxed);
+        if (shard.entries.contains(raw_ptr)) {
+            return InsertResult::DUPLICATED;
         }
-        return inserted;
+        if (!try_reserve_slot()) {
+            _dropped.fetch_add(1, std::memory_order_relaxed);
+            return InsertResult::DROPPED;
+        }
+        reserved = true;
+        auto [_, inserted] = shard.entries.emplace(raw_ptr, std::move(block));
+        if (!inserted) {
+            _size.fetch_sub(1, std::memory_order_relaxed);
+            reserved = false;
+            return InsertResult::DUPLICATED;
+        }
+        reserved = false;
+        return InsertResult::INSERTED;
     } catch (const std::exception& e) {
+        if (reserved) {
+            _size.fetch_sub(1, std::memory_order_relaxed);
+        }
         LOG(WARNING) << "Failed to enqueue block for LRU update: " << e.what();
     } catch (...) {
+        if (reserved) {
+            _size.fetch_sub(1, std::memory_order_relaxed);
+        }
         LOG(WARNING) << "Failed to enqueue block for LRU update: unknown error";
     }
-    return false;
+    return InsertResult::IGNORED;
 }
 
 // Drain up to `limit` unique blocks to the caller, keeping the structure consistent on failures.
@@ -138,6 +160,17 @@ size_t NeedUpdateLRUBlocks::shard_index(FileBlock* ptr) const {
     return std::hash<FileBlock*> {}(ptr)&kShardMask;
 }
 
+bool NeedUpdateLRUBlocks::try_reserve_slot() {
+    size_t cur_size = _size.load(std::memory_order_relaxed);
+    while (cur_size < _hard_cap) {
+        if (_size.compare_exchange_weak(cur_size, cur_size + 1, std::memory_order_relaxed,
+                                        std::memory_order_relaxed)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 namespace {
 
 struct QueueConsumePlan {
@@ -155,6 +188,8 @@ constexpr size_t kBlockLruUpdateAdaptiveHighWatermark = 50'000;
 constexpr int64_t kBlockLruUpdateAdaptiveMinIntervalMs = 500;
 constexpr size_t kBlockLruUpdateAdaptiveMaxBatch = 10'000;
 constexpr size_t kBlockLruUpdateLockSliceBatch = 500;
+constexpr size_t kNeedUpdateLruBlocksHardCap = 100'000;
+constexpr size_t kLruRecorderLogQueueHardCap = 500'000;
 
 int64_t positive_or_default(int64_t value, int64_t default_value) {
     return value > 0 ? value : default_value;
@@ -218,7 +253,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
           _capacity(cache_settings.capacity),
-          _max_file_block_size(cache_settings.max_file_block_size) {
+          _max_file_block_size(cache_settings.max_file_block_size),
+          _need_update_lru_blocks(kNeedUpdateLruBlocksHardCap) {
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_cache_size", 0);
     _cache_capacity_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -424,8 +460,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_recycle_keys_length", 0);
     _need_update_lru_blocks_length_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_need_update_lru_blocks_length", 0);
+    _need_update_lru_blocks_dropped_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_need_update_lru_blocks_dropped");
     _lru_recorder_log_queue_length_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_lru_recorder_log_queue_length", 0);
+    _lru_recorder_log_queue_dropped_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_lru_recorder_log_queue_dropped");
     _update_lru_blocks_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_update_lru_blocks_latency_us");
     _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
@@ -442,7 +482,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _ttl_queue = LRUQueue(cache_settings.ttl_queue_size, cache_settings.ttl_queue_elements,
                           std::numeric_limits<int>::max());
 
-    _lru_recorder = std::make_unique<LRUQueueRecorder>(this);
+    _lru_recorder = std::make_unique<LRUQueueRecorder>(this, kLruRecorderLogQueueHardCap);
     _lru_dumper = std::make_unique<CacheLRUDumper>(this, _lru_recorder.get());
     if (cache_settings.storage == "memory") {
         _storage = std::make_unique<MemFileCacheStorage>();
@@ -730,8 +770,14 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 }
 
 void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
-    if (_need_update_lru_blocks.insert(std::move(block))) {
+    auto result = _need_update_lru_blocks.insert_with_result(std::move(block));
+    if (result == NeedUpdateLRUBlocks::InsertResult::INSERTED) {
         _need_update_lru_blocks_length_metrics->set_value(_need_update_lru_blocks.size());
+    } else if (result == NeedUpdateLRUBlocks::InsertResult::DROPPED) {
+        *(_need_update_lru_blocks_dropped_metrics) << 1;
+        LOG_EVERY_N(WARNING, 60) << "Drop block LRU update because hard cap is reached, hard_cap="
+                                 << _need_update_lru_blocks.hard_cap()
+                                 << " queue_size=" << _need_update_lru_blocks.size();
     }
 }
 

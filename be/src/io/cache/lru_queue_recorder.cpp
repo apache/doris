@@ -29,9 +29,37 @@ void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType lo
     if (_mgr->is_memory_storage() || config::file_cache_background_lru_dump_tail_record_num <= 0) {
         return;
     }
+    auto record_drop = [&]() {
+        _dropped_lru_log_count.fetch_add(1, std::memory_order_relaxed);
+        if (_mgr->_lru_recorder_log_queue_dropped_metrics) {
+            *(_mgr->_lru_recorder_log_queue_dropped_metrics) << 1;
+        }
+    };
     std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+    if (_total_lru_log_queue_size >= _hard_cap) {
+        record_drop();
+        LOG_EVERY_N(WARNING, 60) << "Drop lru recorder log because hard cap is reached, hard_cap="
+                                 << _hard_cap << " total_queue_size=" << _total_lru_log_queue_size;
+        return;
+    }
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
-    log_queue.enqueue(std::make_unique<CacheLRULog>(log_type, hash, offset, size));
+    try {
+        if (!log_queue.enqueue(std::make_unique<CacheLRULog>(log_type, hash, offset, size))) {
+            record_drop();
+            LOG(WARNING) << "Failed to enqueue lru recorder log";
+            return;
+        }
+    } catch (const std::exception& e) {
+        record_drop();
+        LOG(WARNING) << "Failed to enqueue lru recorder log: " << e.what();
+        return;
+    } catch (...) {
+        record_drop();
+        LOG(WARNING) << "Failed to enqueue lru recorder log: unknown error";
+        return;
+    }
+    ++_lru_log_queue_size_by_type[static_cast<size_t>(type)];
+    ++_total_lru_log_queue_size;
     ++(_lru_queue_update_cnt_from_last_dump[type]);
 }
 
@@ -51,6 +79,8 @@ size_t LRUQueueRecorder::replay_queue_event_locked(FileCacheType type, size_t ma
     size_t replayed = 0;
     while ((max_events == 0 || replayed < max_events) && log_queue.try_dequeue(log)) {
         ++replayed;
+        --_lru_log_queue_size_by_type[static_cast<size_t>(type)];
+        --_total_lru_log_queue_size;
         try {
             switch (log->type) {
             case CacheLRULogType::ADD: {
@@ -170,14 +200,13 @@ void LRUQueueRecorder::subtract_lru_queue_update_cnt_from_last_dump_locked(
 }
 
 size_t LRUQueueRecorder::get_lru_log_queue_size(FileCacheType type) {
-    return get_lru_log_queue(type).size_approx();
+    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+    return _lru_log_queue_size_by_type[static_cast<size_t>(type)];
 }
 
 size_t LRUQueueRecorder::get_total_lru_log_queue_size() {
-    return get_lru_log_queue_size(FileCacheType::TTL) +
-           get_lru_log_queue_size(FileCacheType::INDEX) +
-           get_lru_log_queue_size(FileCacheType::NORMAL) +
-           get_lru_log_queue_size(FileCacheType::DISPOSABLE);
+    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+    return _total_lru_log_queue_size;
 }
 
 } // end of namespace doris::io

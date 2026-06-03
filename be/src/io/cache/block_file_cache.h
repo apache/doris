@@ -25,6 +25,7 @@
 #include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -87,11 +88,20 @@ class FSFileCacheStorage;
 // Note that Blocks are updated in batch, internal order is not important.
 class NeedUpdateLRUBlocks {
 public:
-    NeedUpdateLRUBlocks() = default;
+    enum class InsertResult {
+        INSERTED,
+        DUPLICATED,
+        DROPPED,
+        IGNORED,
+    };
+
+    explicit NeedUpdateLRUBlocks(size_t hard_cap = std::numeric_limits<size_t>::max())
+            : _hard_cap(hard_cap) {}
 
     // Insert a block into the pending set. Returns true only when the block
     // was not already queued. Null inputs are ignored.
     bool insert(FileBlockSPtr block);
+    InsertResult insert_with_result(FileBlockSPtr block);
 
     // Drain up to `limit` unique blocks into `output`. The method returns how
     // many blocks were actually drained and shrinks the internal size
@@ -103,6 +113,8 @@ public:
 
     // Thread-safe approximate size of queued unique blocks.
     size_t size() const { return _size.load(std::memory_order_relaxed); }
+    size_t dropped() const { return _dropped.load(std::memory_order_relaxed); }
+    size_t hard_cap() const { return _hard_cap; }
 
 private:
     static constexpr size_t kShardCount = 64;
@@ -114,9 +126,12 @@ private:
     };
 
     size_t shard_index(FileBlock* ptr) const;
+    bool try_reserve_slot();
 
     std::array<Shard, kShardCount> _shards;
     std::atomic<size_t> _size {0};
+    std::atomic<size_t> _dropped {0};
+    size_t _hard_cap;
 };
 
 // The BlockFileCache is responsible for the management of the blocks
@@ -616,7 +631,9 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _recycle_keys_length_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
     std::shared_ptr<bvar::Status<size_t>> _need_update_lru_blocks_length_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_dropped_metrics;
     std::shared_ptr<bvar::Status<size_t>> _lru_recorder_log_queue_length_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_queue_dropped_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;

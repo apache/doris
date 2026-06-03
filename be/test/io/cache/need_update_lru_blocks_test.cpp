@@ -59,6 +59,31 @@ TEST(NeedUpdateLRUBlocksTest, InsertRejectsNullAndDeduplicates) {
     EXPECT_EQ(1, pending.size());
 }
 
+TEST(NeedUpdateLRUBlocksTest, InsertDropsNewBlocksAfterHardCap) {
+    NeedUpdateLRUBlocks pending(2);
+    auto block0 = create_block(0);
+    auto block1 = create_block(1);
+    auto block2 = create_block(2);
+
+    EXPECT_EQ(NeedUpdateLRUBlocks::InsertResult::INSERTED, pending.insert_with_result(block0));
+    EXPECT_EQ(NeedUpdateLRUBlocks::InsertResult::INSERTED, pending.insert_with_result(block1));
+    EXPECT_EQ(2u, pending.size());
+
+    EXPECT_EQ(NeedUpdateLRUBlocks::InsertResult::DUPLICATED, pending.insert_with_result(block0));
+    EXPECT_EQ(2u, pending.size());
+    EXPECT_EQ(0u, pending.dropped());
+
+    EXPECT_EQ(NeedUpdateLRUBlocks::InsertResult::DROPPED, pending.insert_with_result(block2));
+    EXPECT_EQ(2u, pending.size());
+    EXPECT_EQ(1u, pending.dropped());
+
+    std::vector<FileBlockSPtr> drained;
+    ASSERT_EQ(1u, pending.drain(1, &drained));
+    EXPECT_EQ(1u, pending.size());
+    EXPECT_EQ(NeedUpdateLRUBlocks::InsertResult::INSERTED, pending.insert_with_result(block2));
+    EXPECT_EQ(2u, pending.size());
+}
+
 TEST(NeedUpdateLRUBlocksTest, DrainHandlesZeroLimitAndNullOutput) {
     NeedUpdateLRUBlocks pending;
     insert_blocks(&pending, 3);

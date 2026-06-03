@@ -228,4 +228,32 @@ TEST_F(CacheLRUDumperTest, test_dump_counter_subtract_keeps_new_updates) {
     EXPECT_EQ(recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 1);
 }
 
+TEST_F(CacheLRUDumperTest, test_lru_recorder_drops_logs_after_hard_cap) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer restore_config {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+
+    LRUQueueRecorder capped_recorder(mock_cache.get(), 2);
+    UInt128Wrapper hash(456456456ULL);
+
+    capped_recorder.record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 0, 100);
+    capped_recorder.record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 100, 100);
+    capped_recorder.record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 200, 100);
+
+    EXPECT_EQ(capped_recorder.get_total_lru_log_queue_size(), 2);
+    EXPECT_EQ(capped_recorder.get_lru_log_queue_size(FileCacheType::NORMAL), 2);
+    EXPECT_EQ(capped_recorder.get_dropped_lru_log_count(), 1);
+    EXPECT_EQ(capped_recorder.get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL), 2);
+
+    EXPECT_EQ(capped_recorder.replay_queue_event(FileCacheType::NORMAL, 1), 1);
+    EXPECT_EQ(capped_recorder.get_total_lru_log_queue_size(), 1);
+
+    capped_recorder.record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 300, 100);
+    EXPECT_EQ(capped_recorder.get_total_lru_log_queue_size(), 2);
+    EXPECT_EQ(capped_recorder.get_dropped_lru_log_count(), 1);
+    EXPECT_EQ(capped_recorder.get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL), 3);
+}
+
 } // namespace doris::io
