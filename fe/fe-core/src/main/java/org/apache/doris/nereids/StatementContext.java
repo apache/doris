@@ -30,17 +30,10 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -278,6 +271,7 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
+    private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     private boolean privChecked;
 
@@ -503,7 +497,7 @@ public class StatementContext implements Closeable {
      */
     public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        if (!(table instanceof ExternalTable) || !supportsExternalMetadataPreload(table)) {
+        if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
             return;
         }
         ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
@@ -916,28 +910,6 @@ public class StatementContext implements Closeable {
         }
     }
 
-    /**
-     * Preload external metadata before internal table locks are acquired to reduce lock holding time.
-     */
-    ExternalMetadataPreloadResult preloadExternalTablesBeforeLock() {
-        Optional<String> skipReason = getExternalMetadataPreloadSkipReason();
-        if (skipReason.isPresent()) {
-            // Emit a lightweight debug log so skipped preload decisions can still be diagnosed.
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("{} skip external metadata preload before lock: {}",
-                        getPreloadQueryIdentifier(), skipReason.get());
-            }
-            return ExternalMetadataPreloadResult.skipped(externalTablePreloadInfos.size(), skipReason.get());
-        }
-        int preloadedTableCount = 0;
-        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
-            if (preloadExternalTable(preloadInfo)) {
-                preloadedTableCount++;
-            }
-        }
-        return ExternalMetadataPreloadResult.executed(externalTablePreloadInfos.size(), preloadedTableCount);
-    }
-
     /** releasePlannerResources */
     public synchronized void releasePlannerResources() {
         Throwable throwable = null;
@@ -1045,20 +1017,26 @@ public class StatementContext implements Closeable {
         snapshots.put(mvccTableInfo, snapshot);
     }
 
-    private Optional<String> getExternalMetadataPreloadSkipReason() {
-        if (connectContext == null || connectContext.getSessionVariable() == null
-                || !connectContext.getSessionVariable().isEnablePreloadExternalMetadata()) {
-            return Optional.of("session variable enable_preload_external_metadata is disabled");
-        }
-        if (externalTablePreloadInfos.isEmpty()) {
-            return Optional.of("no external preload candidates were collected");
-        }
-        if (containsPlanReadLockTable(tables.values())
+    public Collection<ExternalTablePreloadInfo> getExternalTablePreloadInfos() {
+        return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
+    }
+
+    public int getExternalTablePreloadCandidateCount() {
+        return externalTablePreloadInfos.size();
+    }
+
+    public boolean hasAnyPlanReadLockTable() {
+        return containsPlanReadLockTable(tables.values())
                 || containsPlanReadLockTable(mtmvRelatedTables.values())
-                || containsPlanReadLockTable(insertTargetTables.values())) {
-            return Optional.empty();
-        }
-        return Optional.of("no internal tables require plan-time read lock");
+                || containsPlanReadLockTable(insertTargetTables.values());
+    }
+
+    public Optional<ExternalMetadataPreloadResult> getExternalMetadataPreloadResult() {
+        return Optional.ofNullable(externalMetadataPreloadResult);
+    }
+
+    public void setExternalMetadataPreloadResult(ExternalMetadataPreloadResult result) {
+        this.externalMetadataPreloadResult = result;
     }
 
     private boolean containsPlanReadLockTable(Collection<TableIf> tableIfs) {
@@ -1068,86 +1046,6 @@ public class StatementContext implements Closeable {
             }
         }
         return false;
-    }
-
-    private boolean supportsExternalMetadataPreload(TableIf table) {
-        return table instanceof HMSExternalTable
-                || table instanceof IcebergExternalTable
-                || table instanceof PaimonExternalTable
-                // Limit plugin-driven preload to JDBC catalogs until other connectors are verified.
-                || isJdbcPluginExternalTable(table);
-    }
-
-    // Preload metadata that is commonly accessed during planning before internal table locks are acquired.
-    private boolean preloadExternalTable(ExternalTablePreloadInfo preloadInfo) {
-        ExternalTable table = preloadInfo.getTable();
-        long preloadStartTime = TimeUtils.getStartTimeMs();
-        // Preload the latest snapshot only when every relation uses the latest view of the table.
-        boolean supportsLatestSnapshot = supportsLatestSnapshotPreload(table);
-        boolean latestOnlyRelation = preloadInfo.shouldPreloadLatestSnapshot();
-        boolean preloadLatestSnapshot = latestOnlyRelation && supportsLatestSnapshot;
-        // Skip schema and partition warmup for snapshot-aware tables when the query targets
-        // only non-latest relations such as time travel, branch, or tag references.
-        boolean preloadSchema = !supportsLatestSnapshot || latestOnlyRelation;
-        boolean preloadPartition = preloadSchema && table.supportInternalPartitionPruned();
-        if (preloadLatestSnapshot) {
-            loadSnapshots(table, Optional.empty(), Optional.empty());
-        }
-        // Preload schema access while no internal table lock is held.
-        if (preloadSchema) {
-            table.getBaseSchema();
-        }
-        // Preload partition metadata only when the warmed schema matches the relation view.
-        if (preloadPartition) {
-            table.initSelectedPartitions(getSnapshot(table));
-        }
-        // Log the actual preload path per table to simplify manual verification in debug mode.
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("{} preloaded external metadata for table {} "
-                            + "[supportsLatestSnapshot={}, preloadLatestSnapshot={}, preloadSchema={}, "
-                            + "preloadPartition={}, hasLatestRelation={}, hasNonLatestRelation={}, elapsedMs={}]",
-                    getPreloadQueryIdentifier(), getExternalTableLogName(table), supportsLatestSnapshot,
-                    preloadLatestSnapshot, preloadSchema, preloadPartition, preloadInfo.hasLatestOnlyRelation(),
-                    preloadInfo.hasNonLatestRelation(), TimeUtils.getElapsedTimeMs(preloadStartTime));
-        }
-        return preloadLatestSnapshot || preloadSchema || preloadPartition;
-    }
-
-    // Use the query identifier in debug logs so preload events can be correlated with a single statement.
-    private String getPreloadQueryIdentifier() {
-        return connectContext == null ? "stmt[unknown]" : connectContext.getQueryIdentifier();
-    }
-
-    // Build a stable table name for preload debug logs.
-    private String getExternalTableLogName(ExternalTable table) {
-        return table.getCatalog().getName() + "." + table.getDbName() + "." + table.getName();
-    }
-
-    // Restrict plugin-driven preload to JDBC because other connector types have not been evaluated yet.
-    private boolean isJdbcPluginExternalTable(TableIf table) {
-        if (!(table instanceof PluginDrivenExternalTable)) {
-            return false;
-        }
-        ExternalTable externalTable = (ExternalTable) table;
-        if (!(externalTable.getCatalog() instanceof PluginDrivenExternalCatalog)) {
-            return false;
-        }
-        return "jdbc".equalsIgnoreCase(((PluginDrivenExternalCatalog) externalTable.getCatalog()).getType());
-    }
-
-    // Keep the latest snapshot preload decision explicit so metadata preload support and
-    // snapshot preload support are not conflated.
-    private boolean supportsLatestSnapshotPreload(ExternalTable table) {
-        // Paimon and Iceberg are not HMSExternalTable even when their catalog metadata comes from HMS.
-        if (table instanceof PaimonExternalTable || table instanceof IcebergExternalTable) {
-            return true;
-        }
-        if (!(table instanceof HMSExternalTable)) {
-            return false;
-        }
-        // Hive and Hudi share HMSExternalTable, but only Hudi has a meaningful latest snapshot to preload.
-        DLAType dlaType = ((HMSExternalTable) table).getDlaType();
-        return dlaType == DLAType.HUDI;
     }
 
     private static class CloseableResource implements Closeable {

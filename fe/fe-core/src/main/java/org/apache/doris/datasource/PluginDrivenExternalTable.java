@@ -76,6 +76,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        // Keep plugin-driven preload limited to JDBC until other connector types are validated.
+        return "jdbc".equalsIgnoreCase(((PluginDrivenExternalCatalog) catalog).getType());
+    }
+
+    @Override
     public Optional<SchemaCacheValue> initSchema() {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();

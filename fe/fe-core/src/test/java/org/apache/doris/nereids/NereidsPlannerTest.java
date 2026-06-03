@@ -32,7 +32,8 @@ public class NereidsPlannerTest {
     @Test
     public void testCollectAndLockTableRecordsPreloadTimeWhenExecuted() {
         SummaryProfile summaryProfile = Mockito.mock(SummaryProfile.class);
-        NereidsPlanner planner = createPlanner(ExternalMetadataPreloadResult.executed(2, 1), summaryProfile);
+        NereidsPlanner planner = createPlanner(
+                ExternalMetadataPreloadResult.executed(2, 1, 123L), summaryProfile);
 
         // Record the dedicated preload counter only when the external preload phase is executed.
         planner.collectAndLockTable(false);
@@ -67,8 +68,11 @@ public class NereidsPlannerTest {
         // Mock the planner entry point so the test only exercises the preload/profile control flow.
         Mockito.when(connectContext.getExecutor()).thenReturn(executor);
         Mockito.when(executor.getSummaryProfile()).thenReturn(summaryProfile);
-        Mockito.when(cascadesContext.newTableCollector(true)).thenReturn(tableCollector);
-        Mockito.doReturn(preloadResult).when(statementContext).preloadExternalTablesBeforeLock();
+        Mockito.when(cascadesContext.newTableCollector(true, true)).thenReturn(tableCollector);
+        Mockito.doAnswer(invocation -> {
+            statementContext.setExternalMetadataPreloadResult(preloadResult);
+            return null;
+        }).when(tableCollector).collect();
         Mockito.doNothing().when(statementContext).lock();
 
         NereidsPlanner planner = new NereidsPlanner(statementContext);

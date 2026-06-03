@@ -20,36 +20,36 @@ package org.apache.doris.nereids;
 import org.apache.doris.datasource.ExternalTable;
 
 /** Tracks how a single external table is referenced before metadata preload happens. */
-class ExternalTablePreloadInfo {
+public class ExternalTablePreloadInfo {
     private final ExternalTable table;
     private boolean hasLatestOnlyRelation;
     private boolean hasNonLatestRelation;
 
-    ExternalTablePreloadInfo(ExternalTable table) {
+    public ExternalTablePreloadInfo(ExternalTable table) {
         this.table = table;
     }
 
-    ExternalTable getTable() {
+    public ExternalTable getTable() {
         return table;
     }
 
-    void markLatestRelation() {
+    public void markLatestRelation() {
         hasLatestOnlyRelation = true;
     }
 
-    void markNonLatestRelation() {
+    public void markNonLatestRelation() {
         hasNonLatestRelation = true;
     }
 
-    boolean hasLatestOnlyRelation() {
+    public boolean hasLatestOnlyRelation() {
         return hasLatestOnlyRelation;
     }
 
-    boolean hasNonLatestRelation() {
+    public boolean hasNonLatestRelation() {
         return hasNonLatestRelation;
     }
 
-    boolean shouldPreloadLatestSnapshot() {
+    public boolean shouldPreloadLatestSnapshot() {
         return hasLatestOnlyRelation && !hasNonLatestRelation;
     }
 }

@@ -441,6 +441,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        // Hive and Hudi share HMSExternalTable, but only Hudi exposes a latest snapshot to preload.
+        return getDlaType() == DLAType.HUDI;
+    }
+
+    @Override
     public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
         if (getDlaType() != DLAType.HIVE) {
             return Optional.empty();

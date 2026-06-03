@@ -18,41 +18,48 @@
 package org.apache.doris.nereids;
 
 /** Summarizes whether external metadata preload ran and what it processed. */
-class ExternalMetadataPreloadResult {
+public class ExternalMetadataPreloadResult {
     private final boolean executed;
     private final int candidateTableCount;
     private final int preloadedTableCount;
     private final String skipReason;
+    private final long elapsedTimeMs;
 
     private ExternalMetadataPreloadResult(boolean executed, int candidateTableCount,
-            int preloadedTableCount, String skipReason) {
+            int preloadedTableCount, String skipReason, long elapsedTimeMs) {
         this.executed = executed;
         this.candidateTableCount = candidateTableCount;
         this.preloadedTableCount = preloadedTableCount;
         this.skipReason = skipReason;
+        this.elapsedTimeMs = elapsedTimeMs;
     }
 
-    static ExternalMetadataPreloadResult executed(int candidateTableCount, int preloadedTableCount) {
-        return new ExternalMetadataPreloadResult(true, candidateTableCount, preloadedTableCount, "");
+    public static ExternalMetadataPreloadResult executed(
+            int candidateTableCount, int preloadedTableCount, long elapsedTimeMs) {
+        return new ExternalMetadataPreloadResult(true, candidateTableCount, preloadedTableCount, "", elapsedTimeMs);
     }
 
-    static ExternalMetadataPreloadResult skipped(int candidateTableCount, String skipReason) {
-        return new ExternalMetadataPreloadResult(false, candidateTableCount, 0, skipReason);
+    public static ExternalMetadataPreloadResult skipped(int candidateTableCount, String skipReason) {
+        return new ExternalMetadataPreloadResult(false, candidateTableCount, 0, skipReason, 0);
     }
 
-    boolean isExecuted() {
+    public boolean isExecuted() {
         return executed;
     }
 
-    int getCandidateTableCount() {
+    public int getCandidateTableCount() {
         return candidateTableCount;
     }
 
-    int getPreloadedTableCount() {
+    public int getPreloadedTableCount() {
         return preloadedTableCount;
     }
 
-    String getSkipReason() {
+    public String getSkipReason() {
         return skipReason;
+    }
+
+    public long getElapsedTimeMs() {
+        return elapsedTimeMs;
     }
 }

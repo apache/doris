@@ -419,15 +419,15 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true).collect());
-        // Preload external metadata before internal table locks are acquired.
-        long preloadStartTime = TimeUtils.getStartTimeMs();
-        ExternalMetadataPreloadResult preloadResult = statementContext.preloadExternalTablesBeforeLock();
-        long preloadElapsedTime = TimeUtils.getElapsedTimeMs(preloadStartTime);
+        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
+        // Read the preload result produced by the collect-phase rule before taking internal table locks.
+        ExternalMetadataPreloadResult preloadResult = statementContext.getExternalMetadataPreloadResult()
+                .orElse(ExternalMetadataPreloadResult.skipped(
+                        statementContext.getExternalTablePreloadCandidateCount(), "preload rule did not run"));
         // Record preload timing in the query profile as a dedicated planner sub-stage.
         if (statementContext.getConnectContext().getExecutor() != null && preloadResult.isExecuted()) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .addNereidsPreloadExternalMetadataTime(preloadElapsedTime);
+                    .addNereidsPreloadExternalMetadataTime(preloadResult.getElapsedTimeMs());
         }
         // Keep a concise debug summary for the entire preload phase.
         if (LOG.isDebugEnabled()) {
@@ -435,7 +435,8 @@ public class NereidsPlanner extends Planner {
                 LOG.debug("{} preloaded external metadata for {} of {} candidate tables in {} ms",
                         statementContext.getConnectContext().getQueryIdentifier(),
                         preloadResult.getPreloadedTableCount(),
-                        preloadResult.getCandidateTableCount(), preloadElapsedTime);
+                        preloadResult.getCandidateTableCount(),
+                        preloadResult.getElapsedTimeMs());
             } else {
                 LOG.debug("{} skip external metadata preload before lock: {} [candidateTableCount={}]",
                         statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getSkipReason(),
