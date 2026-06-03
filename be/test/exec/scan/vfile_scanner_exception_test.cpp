@@ -25,6 +25,8 @@
 #include "cpp/sync_point.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/split_source_connector.h"
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
@@ -334,6 +336,46 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     ASSERT_EQ(scanner->_push_down_conjuncts.size(), 1);
 
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST(FileScannerV2Test, SupportOnlyRefactoredTableReaders) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc range;
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("iceberg");
+    range.__set_table_format_params(table_format);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    table_format.__set_table_format_type("hive");
+    range.__set_table_format_params(table_format);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    table_format.__set_table_format_type("paimon");
+    range.__set_table_format_params(table_format);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    table_format.__set_table_format_type("hudi");
+    range.__set_table_format_params(table_format);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, range));
+
+    range.__set_format_type(TFileFormatType::FORMAT_ORC);
+    table_format.__set_table_format_type("hive");
+    range.__set_table_format_params(table_format);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, range));
+
+    TScanRangeParams scan_range_params;
+    scan_range_params.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
+    LocalSplitSourceConnector split_source({scan_range_params}, 1);
+    EXPECT_FALSE(split_source.all_scan_ranges_match(params, FileScannerV2::is_supported));
+
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_range_params.scan_range.ext_scan_range.file_scan_range.ranges[0] = range;
+    LocalSplitSourceConnector supported_split_source({scan_range_params}, 1);
+    EXPECT_TRUE(supported_split_source.all_scan_ranges_match(params, FileScannerV2::is_supported));
 }
 
 } // namespace doris

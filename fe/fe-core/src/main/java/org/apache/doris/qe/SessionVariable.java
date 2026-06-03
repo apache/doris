@@ -96,6 +96,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
+    public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
     public static final String MIN_FILE_SCANNERS_CONCURRENCY = "min_file_scanners_concurrency";
     public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
@@ -1093,6 +1094,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
     public int maxFileScannersConcurrency = 16;
+
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = {
+            "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认关闭",
+            "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Disabled by default."})
+    public boolean enableFileScannerV2 = false;
 
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
@@ -5440,6 +5446,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);
         tResult.setMaxFileScannersConcurrency(maxFileScannersConcurrency);
+        tResult.setEnableFileScannerV2(enableFileScannerV2);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
         tResult.setMinScannersConcurrency(minScannersConcurrency);

@@ -30,6 +30,7 @@
 
 namespace doris {
 class FileScanner;
+class FileScannerV2;
 } // namespace doris
 
 namespace doris {
@@ -57,6 +58,7 @@ public:
 
 private:
     friend class FileScanner;
+    friend class FileScannerV2;
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::UNACCEPTABLE;
     }
