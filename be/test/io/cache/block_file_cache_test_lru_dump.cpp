@@ -1060,6 +1060,11 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_2qlru_to_1qlr
     ASSERT_EQ(offsets2[8], 300000);
     ASSERT_EQ(offsets2[9], 400000);
 
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_1qlru_to_2qlru) {
     config::enable_evict_file_cache_in_advance = false;
     config::enable_file_cache_normal_queue_2qlru = false;
