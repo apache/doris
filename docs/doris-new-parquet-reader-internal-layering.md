@@ -495,24 +495,40 @@ LIST/MAP 局部组件（各 reader 内部，不对外暴露）：
 - 各 table format（Iceberg/Hive/Paimon）的 scan node 是否正确设置了 `allow_missing_columns` 和 `default_expr`。
 - 所有 schema change 场景的集成测试（add/drop/rename column, type promotion）。
 
-### P4：评估 Page-level Decoder
+### P4：接入 Arrow Page-level Skip
 
-**状态：保留，但前置条件（P1 observability）尚未满足。**
+**状态：需要实现。依赖 Arrow 已有 API，不需要自研 decoder。**
 
-背景：
-- 当前 page-index pruning 已能算出哪些 page 需要读，输出 row ranges。
-- 但 Arrow `RecordReader::SkipRecords()` 仍然解压和解码被跳过的 page（只跳过 value 写入，不跳过 decompression + level decoding）。
-- 自研 page-level decoder 可以直接跳过 page 的 I/O 和解压（如旧 reader 的 `skip_page_data()`——纯文件 offset 前进），page gap 越大收益越明显。
+Arrow 的 `PageReader` 已提供 `set_data_page_filter()`：
 
-当前无 benchmark 数据支撑决策：
-- 新 reader 没有任何性能 test 或 profiling 基础设施。
-- 旧 reader 有详细的 decode 耗时统计（`decompress_time`、`decode_header_time`、`skip_page_header_num` 等），可作为参考。
-- P1（observability）必须先完成，才能判断 `RecordReader + skip/read/select` 的 page 级开销占比。
+```cpp
+// thirdparty/installed/include/parquet/column_reader.h:124-151
+class PageReader {
+  using DataPageFilter = std::function<bool(const DataPageStats&)>;
+  // callback 返回 true 则跳过该 page，不读不解压（纯 offset 前进）
+  void set_data_page_filter(DataPageFilter data_page_filter);
+};
 
-如果 P1 证明 page-level skip 是瓶颈：
-- 编码器已全部存在于 `format/parquet/decoder/`（PLAIN、RLE_DICT、DELTA_*、BYTE_STREAM_SPLIT 共 7 种），不需要从零实现。
-- 主要工作是封装 Arrow `GetColumnPageReader()` + 复用已有 decoder + 集成到 `ScalarColumnReader` skip 路径。
-- 保持 column reader tree 的 row-level API 不变；page-level decoder 是 adapter 内部实现细节。
+struct DataPageStats {
+  const EncodedStatistics* encoded_statistics;  // page header 中的 min/max/null_count
+  int32_t num_values;
+  std::optional<int32_t> num_rows;
+};
+```
+
+当前 gap：
+- `get_record_reader()` 调用 `_row_group->RecordReader(leaf_column_id)`，Arrow 内部创建 `PageReader` 时未设置 filter。
+- `RecordReader::SkipRecords()` 会解压+解码所有 page，只是跳过 value 写入。
+
+方案（复用 Arrow API，不写 decoder）：
+1. 通过 `RowGroupReader::GetColumnPageReader(leaf_column_id)` 获取 `PageReader`。
+2. `page_reader->set_data_page_filter([&](const DataPageStats& stats) { return should_skip_page(stats, predicates); })`——用已有的 page-index pruning 统计判断逻辑作为 callback。
+3. 用 `ColumnReader::Make(descriptor, page_reader, pool)` 替代 `RecordReader`。
+4. 保持 `ScalarColumnReader` 的 read/skip/select API 不变。
+
+DuckDB 参考：
+- `PrepareRead()` 先读 page header（仅 header），再决定是否 `trans.Skip(compressed_page_size)` 跳过数据。
+- Arrow 的 `set_data_page_filter` 机制等价——callback 在 header 解析后、data 读取前执行，返回 true 则 Arrow 内部做 offset skip。
 
 ## 功能归位规则
 
