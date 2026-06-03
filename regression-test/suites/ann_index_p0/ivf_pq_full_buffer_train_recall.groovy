@@ -20,8 +20,8 @@ suite("ivf_pq_full_buffer_train_recall", "nonConcurrent") {
     sql "set enable_ann_index_result_cache=false;"
     sql "set ivf_nprobe=8;"
 
-    setBeConfigTemporary([ann_index_build_chunk_size: 200]) {
-        // pq_nbits=1 needs 200 train rows. Setting the build chunk size to 200
+    setBeConfigTemporary([ann_index_build_add_chunk_size: 200]) {
+        // pq_nbits=1 needs 200 train rows. Setting the add chunk size to 200
         // verifies that add batching does not cap the rows used for training.
         sql "drop table if exists tbl_ivf_pq_full_buffer_train_recall"
         sql """

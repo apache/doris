@@ -170,7 +170,7 @@ TEST_F(AnnIndexWriterTest, TestInitWithDifferentProperties) {
     }
 }
 
-TEST_F(AnnIndexWriterTest, TestInitDoesNotPreallocateBuildChunk) {
+TEST_F(AnnIndexWriterTest, TestInitDoesNotPreallocateAddChunk) {
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
                                                              _tablet_index.get());
 
@@ -480,10 +480,11 @@ TEST_F(AnnIndexWriterTest, TestNoTrainIndexAddsDirectly) {
     EXPECT_TRUE(status.ok());
 }
 
-TEST_F(AnnIndexWriterTest, TestNoTrainIndexRespectsBuildChunkBytes) {
-    const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
-    config::ann_index_build_chunk_bytes = 32;
-    doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
+TEST_F(AnnIndexWriterTest, TestNoTrainIndexRespectsAddChunkBytes) {
+    const int64_t old_add_chunk_bytes = config::ann_index_build_add_chunk_bytes;
+    config::ann_index_build_add_chunk_bytes = 32;
+    doris::Defer restore_config {
+            [&] { config::ann_index_build_add_chunk_bytes = old_add_chunk_bytes; }};
 
     auto mock_index = std::make_shared<MockVectorIndex>();
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
@@ -833,10 +834,11 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsWithAllBufferedRows) {
     EXPECT_TRUE(status.ok());
 }
 
-TEST_F(AnnIndexWriterTest, TestBuildChunkBytesCapsAddRows) {
-    const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
-    config::ann_index_build_chunk_bytes = 32;
-    doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
+TEST_F(AnnIndexWriterTest, TestAddChunkBytesCapsAddRows) {
+    const int64_t old_add_chunk_bytes = config::ann_index_build_add_chunk_bytes;
+    config::ann_index_build_add_chunk_bytes = 32;
+    doris::Defer restore_config {
+            [&] { config::ann_index_build_add_chunk_bytes = old_add_chunk_bytes; }};
 
     auto mock_index = std::make_shared<MockVectorIndex>();
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
@@ -934,10 +936,11 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanMinTrainRows) {
     EXPECT_EQ(writer->buffered_vector_rows(dim), 0);
 }
 
-TEST_F(AnnIndexWriterTest, TestMinTrainRowsCanExceedChunkBytes) {
-    const int64_t old_chunk_bytes = config::ann_index_build_chunk_bytes;
-    config::ann_index_build_chunk_bytes = 32;
-    doris::Defer restore_config {[&] { config::ann_index_build_chunk_bytes = old_chunk_bytes; }};
+TEST_F(AnnIndexWriterTest, TestMinTrainRowsCanExceedAddChunkBytes) {
+    const int64_t old_add_chunk_bytes = config::ann_index_build_add_chunk_bytes;
+    config::ann_index_build_add_chunk_bytes = 32;
+    doris::Defer restore_config {
+            [&] { config::ann_index_build_add_chunk_bytes = old_add_chunk_bytes; }};
 
     auto mock_index = std::make_shared<MockVectorIndex>();
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),

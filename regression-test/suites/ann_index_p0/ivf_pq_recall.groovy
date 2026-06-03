@@ -20,7 +20,7 @@ suite("ivf_pq_recall", "nonConcurrent") {
     sql "set enable_ann_index_result_cache=false;"
     sql "set ivf_nprobe=8;"
 
-    setBeConfigTemporary([ann_index_build_chunk_size: 400]) {
+    setBeConfigTemporary([ann_index_build_add_chunk_size: 400]) {
         sql "drop table if exists ivf_pq_recall"
         sql """
             create table ivf_pq_recall (

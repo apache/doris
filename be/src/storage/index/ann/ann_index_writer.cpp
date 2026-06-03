@@ -91,18 +91,19 @@ void AnnIndexColumnWriter::close_on_error() {
     _skip_build = true;
 }
 
-size_t AnnIndexColumnWriter::_chunk_rows_by_bytes(size_t dim) const {
+size_t AnnIndexColumnWriter::_add_chunk_rows_by_bytes(size_t dim) const {
     DCHECK(dim > 0);
     static constexpr Int64 FLOAT_BYTES = static_cast<Int64>(sizeof(float));
     DORIS_CHECK(dim <= static_cast<size_t>(std::numeric_limits<Int64>::max() / FLOAT_BYTES));
     const Int64 vector_bytes = cast_set<Int64>(dim) * FLOAT_BYTES;
-    return cast_set<size_t>(std::max<Int64>(1, AnnIndexColumnWriter::chunk_bytes() / vector_bytes));
+    return cast_set<size_t>(
+            std::max<Int64>(1, AnnIndexColumnWriter::add_chunk_bytes() / vector_bytes));
 }
 
 size_t AnnIndexColumnWriter::_add_chunk_rows(size_t dim) const {
     return cast_set<size_t>(
-            std::max<Int64>(1, std::min<Int64>(AnnIndexColumnWriter::chunk_size(),
-                                               cast_set<Int64>(_chunk_rows_by_bytes(dim)))));
+            std::max<Int64>(1, std::min<Int64>(AnnIndexColumnWriter::add_chunk_size(),
+                                               cast_set<Int64>(_add_chunk_rows_by_bytes(dim)))));
 }
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,

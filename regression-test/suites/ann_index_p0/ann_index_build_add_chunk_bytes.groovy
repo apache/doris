@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("ann_index_build_chunk_bytes", "nonConcurrent") {
+suite("ann_index_build_add_chunk_bytes", "nonConcurrent") {
     sql "set enable_common_expr_pushdown=true;"
 
     setBeConfigTemporary([
-            ann_index_build_chunk_size: 1000000,
-            ann_index_build_chunk_bytes: 256
+            ann_index_build_add_chunk_size: 1000000,
+            ann_index_build_add_chunk_bytes: 256
     ]) {
-        sql "drop table if exists ann_index_build_chunk_bytes"
+        sql "drop table if exists ann_index_build_add_chunk_bytes"
         sql """
-            create table ann_index_build_chunk_bytes (
+            create table ann_index_build_add_chunk_bytes (
                 id int not null,
                 embedding array<float> not null,
                 index idx_embedding (`embedding`) using ann properties(
@@ -42,13 +42,13 @@ suite("ann_index_build_chunk_bytes", "nonConcurrent") {
         for (int i = 1; i <= 8; i++) {
             rows.add("(${i}, array_with_constant(3072, cast(${i}.0 as float)))")
         }
-        sql "insert into ann_index_build_chunk_bytes values ${rows.join(', ')};"
+        sql "insert into ann_index_build_add_chunk_bytes values ${rows.join(', ')};"
         sql "sync"
 
-        qt_row_count "select count(*) from ann_index_build_chunk_bytes;"
+        qt_row_count "select count(*) from ann_index_build_add_chunk_bytes;"
         qt_nearest """
             select id
-            from ann_index_build_chunk_bytes
+            from ann_index_build_add_chunk_bytes
             order by l2_distance_approximate(embedding, array_with_constant(3072, cast(1.0 as float)))
             limit 3;
         """
