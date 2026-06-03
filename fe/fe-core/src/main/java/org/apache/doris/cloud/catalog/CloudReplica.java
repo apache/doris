@@ -36,8 +36,6 @@ import com.google.common.base.Strings;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,22 +64,15 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private long partitionId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
-    // last time to get tablet stats
-    @Getter
-    @Setter
-    @SerializedName(value = "gst")
-    long lastGetTabletStatsTime = 0;
-    /**
-     * The index of {@link org.apache.doris.catalog.CloudTabletStatMgr#DEFAULT_INTERVAL_LADDER_MS} array.
-     * Used to control the interval of getting tablet stats.
-     * When get tablet stats:
-     * if the stats is unchanged, will update this index to next value to get stats less frequently;
-     * if the stats is changed, will update this index to 0 to get stats more frequently.
-     */
-    @Getter
-    @Setter
-    @SerializedName(value = "sii")
-    int statsIntervalIndex = 0;
+    // Packed: bottom 60 bits = lastGetTabletStatsTime, top 4 bits = statsIntervalIndex.
+    // Transient: stats timing state resets to 0 on restart, which is acceptable because
+    // the next stats cycle treats lastGetTabletStatsTime==0 as needing refresh and may
+    // trigger a full or near-full refresh, self-correcting within a few stat cycles.
+    private static final long TIMESTAMP_MASK = 0x0FFFFFFFFFFFFFFFL;
+    private static final long INTERVAL_MASK = 0xF000000000000000L;
+    private static final int INTERVAL_SHIFT = 60;
+    @SerializedName(value = "pss")
+    private long packedStatsState = 0;
 
     private static final Random rand = new Random();
 
@@ -584,6 +575,30 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     public long getIdx() {
         return idx;
+    }
+
+    public long getLastGetTabletStatsTime() {
+        return packedStatsState & TIMESTAMP_MASK;
+    }
+
+    public void setLastGetTabletStatsTime(long time) {
+        if (time < 0 || time > TIMESTAMP_MASK) {
+            throw new IllegalArgumentException(
+                    "time must be between 0 and " + TIMESTAMP_MASK + ": " + time);
+        }
+        packedStatsState = (packedStatsState & INTERVAL_MASK) | (time & TIMESTAMP_MASK);
+    }
+
+    public int getStatsIntervalIndex() {
+        return (int) (packedStatsState >>> INTERVAL_SHIFT);
+    }
+
+    public void setStatsIntervalIndex(int index) {
+        if (index < 0 || index > 0xF) {
+            throw new IllegalArgumentException(
+                    "index must be between 0 and 15: " + index);
+        }
+        packedStatsState = (((long) index) << INTERVAL_SHIFT) | (packedStatsState & TIMESTAMP_MASK);
     }
 
     public void updateClusterToPrimaryBe(String cluster, long beId) {
