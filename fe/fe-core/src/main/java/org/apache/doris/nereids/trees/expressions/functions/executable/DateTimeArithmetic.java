@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
-import java.time.LocalDateTime;
 import java.util.Arrays;
 
 /**
