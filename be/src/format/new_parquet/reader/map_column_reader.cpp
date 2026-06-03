@@ -20,6 +20,7 @@
 #include <parquet/api/schema.h>
 
 #include <cstdint>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -43,6 +44,57 @@ void remove_nullable_wrapper_if_required(const ParquetColumnReader& reader,
     }
 }
 
+struct MapChildReaders {
+    ScalarColumnReader* key = nullptr;
+    ScalarColumnReader* scalar_value = nullptr;
+    StructColumnReader* struct_value = nullptr;
+    ListColumnReader* list_value = nullptr;
+
+    bool has_supported_value() const {
+        return scalar_value != nullptr || struct_value != nullptr || list_value != nullptr;
+    }
+};
+
+Status resolve_map_child_readers(const std::string& column_name, ParquetColumnReader* key_reader,
+                                 ParquetColumnReader* value_reader, MapChildReaders* readers) {
+    DORIS_CHECK(readers != nullptr);
+    readers->key = dynamic_cast<ScalarColumnReader*>(key_reader);
+    readers->scalar_value = dynamic_cast<ScalarColumnReader*>(value_reader);
+    readers->struct_value = dynamic_cast<StructColumnReader*>(value_reader);
+    readers->list_value = dynamic_cast<ListColumnReader*>(value_reader);
+    if (readers->key == nullptr || !readers->has_supported_value()) {
+        return Status::NotSupported(
+                "Current parquet MAP reader only supports scalar key with scalar, scalar-child "
+                "STRUCT, or scalar LIST value for column {}",
+                column_name);
+    }
+    return Status::OK();
+}
+
+struct MapReadContext {
+    ColumnMap* map_column = nullptr;
+    NullMap* parent_null_map = nullptr;
+    MutableColumnPtr key_column;
+    MutableColumnPtr value_column;
+    std::vector<uint64_t> entry_counts;
+    NullMap parent_nulls;
+
+    explicit MapReadContext(MutableColumnPtr& column)
+            : map_column(map_column_from_output(column)),
+              parent_null_map(null_map_from_nullable_output(column)) {
+        DORIS_CHECK(map_column != nullptr);
+        key_column = map_column->get_keys_ptr()->assert_mutable();
+        value_column = map_column->get_values_ptr()->assert_mutable();
+    }
+
+    void finish() {
+        map_column->get_keys_ptr() = std::move(key_column);
+        map_column->get_values_ptr() = std::move(value_column);
+        append_offsets(map_column->get_offsets(), entry_counts);
+        append_parent_nulls(parent_null_map, parent_nulls);
+    }
+};
+
 } // namespace
 
 Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
@@ -54,31 +106,17 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         return Status::InternalError("Parquet map child reader is not initialized for column {}",
                                      _name);
     }
-    auto* key_reader = dynamic_cast<ScalarColumnReader*>(_key_reader.get());
-    auto* value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get());
-    auto* struct_value_reader = dynamic_cast<StructColumnReader*>(_value_reader.get());
-    auto* list_value_reader = dynamic_cast<ListColumnReader*>(_value_reader.get());
-    if (key_reader == nullptr || (value_reader == nullptr && struct_value_reader == nullptr &&
-                                  list_value_reader == nullptr)) {
-        return Status::NotSupported(
-                "Current parquet MAP reader only supports scalar key with scalar, scalar-child "
-                "STRUCT, or scalar LIST value for column {}",
-                _name);
-    }
+    MapChildReaders readers;
+    RETURN_IF_ERROR(
+            resolve_map_child_readers(_name, _key_reader.get(), _value_reader.get(), &readers));
 
-    auto* map_column = map_column_from_output(column);
-    DORIS_CHECK(map_column != nullptr);
-    auto* parent_null_map = null_map_from_nullable_output(column);
-    auto key_column = map_column->get_keys_ptr()->assert_mutable();
-    auto value_column = map_column->get_values_ptr()->assert_mutable();
-    std::vector<uint64_t> entry_counts;
-    NullMap parent_nulls;
+    MapReadContext context(column);
     const int16_t entry_definition_level = _nullable_definition_level + 1;
-    const int16_t key_max_definition_level = key_reader->descriptor()->max_definition_level();
+    const int16_t key_max_definition_level = readers.key->descriptor()->max_definition_level();
 
-    if (value_reader != nullptr) {
+    if (readers.scalar_value != nullptr) {
         const int16_t value_max_definition_level =
-                value_reader->descriptor()->max_definition_level();
+                readers.scalar_value->descriptor()->max_definition_level();
 
         RepeatedMapValueSink<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader,
                              NestedScalarValueAppender>
@@ -86,29 +124,26 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         sink.column_name = &_name;
         sink.map_type = &_type;
         sink.map_nullable_definition_level = _nullable_definition_level;
-        sink.key_reader = key_reader;
-        sink.key_column = &key_column;
-        sink.value_column = &value_column;
-        sink.parent_state = {&entry_counts, &parent_nulls};
+        sink.key_reader = readers.key;
+        sink.key_column = &context.key_column;
+        sink.value_column = &context.value_column;
+        sink.parent_state = {&context.entry_counts, &context.parent_nulls};
         sink.key_max_definition_level = key_max_definition_level;
-        sink.value_stream = {value_reader, &_value_overflow,
+        sink.value_stream = {readers.scalar_value, &_value_overflow,
                              static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-        sink.value_appender = {value_reader, "MAP", "value", value_max_definition_level};
-        RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
+        sink.value_appender = {readers.scalar_value, "MAP", "value", value_max_definition_level};
+        RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
                                                  entry_definition_level, rows, &_key_overflow, sink,
                                                  rows_read));
         sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
 
-        map_column->get_keys_ptr() = std::move(key_column);
-        map_column->get_values_ptr() = std::move(value_column);
-        append_offsets(map_column->get_offsets(), entry_counts);
-        append_parent_nulls(parent_null_map, parent_nulls);
+        context.finish();
         return Status::OK();
     }
 
-    if (list_value_reader != nullptr) {
+    if (readers.list_value != nullptr) {
         auto* scalar_list_value_reader =
-                dynamic_cast<ScalarColumnReader*>(list_value_reader->element_reader());
+                dynamic_cast<ScalarColumnReader*>(readers.list_value->element_reader());
         if (scalar_list_value_reader == nullptr) {
             return Status::NotSupported(
                     "Current parquet MAP LIST value reader only supports scalar list values for "
@@ -116,32 +151,32 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                     _name);
         }
 
-        auto* list_value_column = array_column_from_output(value_column);
+        auto* list_value_column = array_column_from_output(context.value_column);
         DORIS_CHECK(list_value_column != nullptr);
-        auto* list_value_null_map = null_map_from_nullable_output(value_column);
+        auto* list_value_null_map = null_map_from_nullable_output(context.value_column);
         auto list_nested_column = list_value_column->get_data_ptr()->assert_mutable();
         remove_nullable_wrapper_if_required(*scalar_list_value_reader, &list_nested_column);
         std::vector<uint64_t> list_entry_counts;
         NullMap list_parent_nulls;
         const int16_t list_element_slot_definition_level =
-                list_value_reader->nullable_definition_level() + 1;
+                readers.list_value->nullable_definition_level() + 1;
         const int16_t list_element_max_definition_level =
                 scalar_list_value_reader->descriptor()->max_definition_level();
 
         RepeatedMapListValueSink<NestedScalarValueAppender> sink;
         sink.column_name = &_name;
         sink.map_type = &_type;
-        sink.list_type = &list_value_reader->type();
+        sink.list_type = &readers.list_value->type();
         sink.map_nullable_definition_level = _nullable_definition_level;
-        sink.list_nullable_definition_level = list_value_reader->nullable_definition_level();
-        sink.list_repeated_repetition_level = list_value_reader->repeated_repetition_level();
-        sink.key_reader = key_reader;
-        sink.key_column = &key_column;
+        sink.list_nullable_definition_level = readers.list_value->nullable_definition_level();
+        sink.list_repeated_repetition_level = readers.list_value->repeated_repetition_level();
+        sink.key_reader = readers.key;
+        sink.key_column = &context.key_column;
         sink.list_element_column = &list_nested_column;
-        sink.map_state = {&entry_counts, &parent_nulls};
+        sink.map_state = {&context.entry_counts, &context.parent_nulls};
         sink.list_state = {&list_entry_counts, &list_parent_nulls};
         sink.key_max_definition_level = key_max_definition_level;
-        sink.key_stream = {key_reader, &_key_overflow,
+        sink.key_stream = {readers.key, &_key_overflow,
                            static_cast<int16_t>(_nullable_definition_level + 1), "key"};
         sink.value_appender = {scalar_list_value_reader, "MAP", "LIST value element",
                                list_element_max_definition_level};
@@ -155,10 +190,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         list_value_column->get_data_ptr() = std::move(list_nested_column);
         append_offsets(list_value_column->get_offsets(), list_entry_counts);
         append_parent_nulls(list_value_null_map, list_parent_nulls);
-        map_column->get_keys_ptr() = std::move(key_column);
-        map_column->get_values_ptr() = std::move(value_column);
-        append_offsets(map_column->get_offsets(), entry_counts);
-        append_parent_nulls(parent_null_map, parent_nulls);
+        context.finish();
         return Status::OK();
     }
 
@@ -168,23 +200,20 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
     sink.column_name = &_name;
     sink.map_type = &_type;
     sink.map_nullable_definition_level = _nullable_definition_level;
-    sink.key_reader = key_reader;
-    sink.key_column = &key_column;
-    sink.value_column = &value_column;
-    sink.parent_state = {&entry_counts, &parent_nulls};
+    sink.key_reader = readers.key;
+    sink.key_column = &context.key_column;
+    sink.value_column = &context.value_column;
+    sink.parent_state = {&context.entry_counts, &context.parent_nulls};
     sink.key_max_definition_level = key_max_definition_level;
-    sink.value_stream = {struct_value_reader, &_struct_value_overflow,
+    sink.value_stream = {readers.struct_value, &_struct_value_overflow,
                          static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-    sink.value_appender = {struct_value_reader};
-    RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
+    sink.value_appender = {readers.struct_value};
+    RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
                                              entry_definition_level, rows, &_key_overflow, sink,
                                              rows_read));
     sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
 
-    map_column->get_keys_ptr() = std::move(key_column);
-    map_column->get_values_ptr() = std::move(value_column);
-    append_offsets(map_column->get_offsets(), entry_counts);
-    append_parent_nulls(parent_null_map, parent_nulls);
+    context.finish();
     return Status::OK();
 }
 
@@ -194,42 +223,34 @@ Status MapColumnReader::skip(int64_t rows) {
     }
     DORIS_CHECK(_key_reader != nullptr);
     DORIS_CHECK(_value_reader != nullptr);
-    auto* key_reader = dynamic_cast<ScalarColumnReader*>(_key_reader.get());
-    auto* value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get());
-    auto* struct_value_reader = dynamic_cast<StructColumnReader*>(_value_reader.get());
-    auto* list_value_reader = dynamic_cast<ListColumnReader*>(_value_reader.get());
-    if (key_reader == nullptr || (value_reader == nullptr && struct_value_reader == nullptr &&
-                                  list_value_reader == nullptr)) {
-        return Status::NotSupported(
-                "Current parquet MAP reader only supports scalar key with scalar, scalar-child "
-                "STRUCT, or scalar LIST value for column {}",
-                _name);
-    }
+    MapChildReaders readers;
+    RETURN_IF_ERROR(
+            resolve_map_child_readers(_name, _key_reader.get(), _value_reader.get(), &readers));
 
     int64_t rows_read = 0;
-    if (value_reader != nullptr) {
+    if (readers.scalar_value != nullptr) {
         RepeatedAlignedValueSkipSink<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader>
                 sink;
         sink.column_name = &_name;
-        sink.value_stream = {value_reader, &_value_overflow,
+        sink.value_stream = {readers.scalar_value, &_value_overflow,
                              static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-        RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
+        RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
                                                  _nullable_definition_level + 1, rows,
                                                  &_key_overflow, sink, &rows_read));
         sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
-    } else if (struct_value_reader != nullptr) {
+    } else if (readers.struct_value != nullptr) {
         RepeatedAlignedValueSkipSink<NestedStructBatch, NestedStructOverflow, StructColumnReader>
                 sink;
         sink.column_name = &_name;
-        sink.value_stream = {struct_value_reader, &_struct_value_overflow,
+        sink.value_stream = {readers.struct_value, &_struct_value_overflow,
                              static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-        RETURN_IF_ERROR(assemble_repeated_levels(*key_reader, _repeated_repetition_level,
+        RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
                                                  _nullable_definition_level + 1, rows,
                                                  &_key_overflow, sink, &rows_read));
         sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
     } else {
         auto* scalar_list_value_reader =
-                dynamic_cast<ScalarColumnReader*>(list_value_reader->element_reader());
+                dynamic_cast<ScalarColumnReader*>(readers.list_value->element_reader());
         if (scalar_list_value_reader == nullptr) {
             return Status::NotSupported(
                     "Current parquet MAP LIST value skip only supports scalar list values for "
@@ -265,14 +286,14 @@ Status MapColumnReader::skip(int64_t rows) {
         };
         ListSkipSink sink;
         sink.self = this;
-        sink.key_reader = key_reader;
-        sink.value_reader = list_value_reader;
-        sink.key_stream = {key_reader, &_key_overflow,
+        sink.key_reader = readers.key;
+        sink.value_reader = readers.list_value;
+        sink.key_stream = {readers.key, &_key_overflow,
                            static_cast<int16_t>(_nullable_definition_level + 1), "key"};
-        RETURN_IF_ERROR(assemble_repeated_levels(*scalar_list_value_reader,
-                                                 _repeated_repetition_level,
-                                                 list_value_reader->nullable_definition_level() + 1,
-                                                 rows, &_value_overflow, sink, &rows_read));
+        RETURN_IF_ERROR(
+                assemble_repeated_levels(*scalar_list_value_reader, _repeated_repetition_level,
+                                         readers.list_value->nullable_definition_level() + 1, rows,
+                                         &_value_overflow, sink, &rows_read));
         if (!_value_overflow.empty()) {
             sink.key_stream.move_tail_to_overflow();
         }
