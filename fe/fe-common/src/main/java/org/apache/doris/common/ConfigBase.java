@@ -160,36 +160,34 @@ public class ConfigBase {
         }
         replacedByEnv(props);
         setFields(props, isLdapConfig);
-        warnDeprecatedKeys(confFile, props);
+        warnUnknownConfigKeys(confFile, props);
     }
 
-    // Keys that were previously valid configuration entries but have been removed.
-    // If a user still has any of these in fe.conf after upgrade, we emit a warning
-    // so they know the value is no longer honored, but the FE will continue to start.
-    private static final Set<String> DEPRECATED_CONFIG_KEYS = Sets.newHashSet(
-            "meta_publish_timeout_ms",
-            "backup_plugin_path",
-            "max_unfinished_load_job",
-            "use_new_tablet_scheduler",
-            "enable_concurrent_update",
-            "cbo_max_statistics_job_num",
-            "max_cbo_statistics_task_timeout_sec",
-            "cbo_concurrency_statistics_task_num",
-            "cbo_default_sample_percentage",
-            "finish_job_max_saved_second",
-            "enable_array_type",
-            "period_analyze_simultaneously_running_task_num",
-            "maximum_parallelism_of_export_job");
+    // Keys that start with an uppercase letter and consist only of uppercase letters,
+    // digits and underscores (e.g. JAVA_OPTS, LOG_DIR) are exported as environment
+    // variables by bin/start_fe.sh and are not Doris config fields, so they must not
+    // be reported as unknown.
+    private static final Pattern ENV_STYLE_KEY_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]*");
 
-    private static void warnDeprecatedKeys(String confFile, Properties props) {
+    // Emit a warning for every key present in the config file that does not correspond
+    // to a known config field. Such keys (typos or configs removed in a newer version)
+    // are silently ignored by setFields(), so without this warning operators would have
+    // no feedback that the value is not taking effect. FE startup is not affected.
+    private void warnUnknownConfigKeys(String confFile, Properties props) {
+        Map<String, Field> fieldMap = isLdapConfig ? ldapConfFields : confFields;
+        if (fieldMap == null) {
+            return;
+        }
         for (String key : props.stringPropertyNames()) {
-            if (DEPRECATED_CONFIG_KEYS.contains(key)) {
-                String msg = String.format(
-                        "FE config '%s' in %s is deprecated and no longer takes effect; "
-                                + "please remove it.",
-                        key, confFile);
-                System.err.println("[WARN] " + msg);
+            if (ENV_STYLE_KEY_PATTERN.matcher(key).matches()) {
+                continue;
             }
+            if (fieldMap.containsKey(key)) {
+                continue;
+            }
+            System.err.println(String.format(
+                    "[WARN] Unknown config '%s' in %s is ignored, please check whether it is a typo "
+                            + "or has been removed in this version.", key, confFile));
         }
     }
 

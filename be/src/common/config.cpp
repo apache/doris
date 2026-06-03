@@ -2046,36 +2046,21 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
         continue;                                                                              \
     }
 
-// Keys that were previously valid BE config entries but have been removed.
-// If a user still has any of these in be.conf / be_custom.conf after upgrade,
-// we emit a warning so they know the value is no longer honored, but BE will
-// continue to start.
-static const std::set<std::string> kDeprecatedConfigKeys = {
-        "doris_scanner_max_run_time_ms",
-        "multi_get_max_threads",
-        "num_disks",
-        "read_size",
-        "load_max_wg_active_memtable_percent",
-        "jdbc_connection_pool_cache_clear_time_sec",
-        "big_column_size_buffer",
-        "small_column_size_buffer",
-        "max_fragment_start_wait_time_seconds",
-        "enable_workload_group_for_scan",
-        "workload_group_scan_task_wait_timeout_ms",
-        "variant_use_cloud_schema_dict_cache",
-        "variant_threshold_rows_to_estimate_sparse_column",
-        "variant_nested_group_max_depth",
-        "enable_ttl_cache_evict_using_lru",
-        "file_cache_background_ttl_gc_batch",
-        "kerberos_refresh_interval_second",
-        "enable_debug_log_timeout_secs",
-        "enable_index_compaction",
-        "schema_dict_cache_capacity",
-        "test_s3_resource",
-        "meta_service_use_load_balancer",
-        "meta_service_rpc_timeout_ms",
-        "delete_bitmap_rpc_retry_times",
-};
+// Keys that start with an uppercase letter and consist only of uppercase letters,
+// digits and underscores (e.g. JAVA_OPTS, LOG_DIR) are exported as environment
+// variables by bin/start_be.sh and are not BE config fields, so they must not be
+// reported as unknown.
+static bool is_env_style_key(const std::string& key) {
+    if (key.empty() || key[0] < 'A' || key[0] > 'Z') {
+        return false;
+    }
+    for (char c : key) {
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) {
+            return false;
+        }
+    }
+    return true;
+}
 
 // init conf fields
 bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_to_default) {
@@ -2105,12 +2090,22 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
-    // Warn about any deprecated keys still present in the conf file.
+    // Emit a warning for every key present in the conf file that does not correspond to a
+    // registered BE config field. Such keys (typos or configs removed in a newer version)
+    // are silently ignored above, so without this warning operators would have no feedback
+    // that the value is not taking effect. BE startup is not affected.
     for (const auto& kv : props.conf_map()) {
-        if (kDeprecatedConfigKeys.count(kv.first) > 0) {
-            LOG(WARNING) << "BE config '" << kv.first << "' in " << conf_file
-                         << " is deprecated and no longer takes effect; please remove it.";
+        const std::string& key = kv.first;
+        if (Register::_s_field_map->find(key) != Register::_s_field_map->end()) {
+            continue;
         }
+        if (is_env_style_key(key)) {
+            continue;
+        }
+        LOG(WARNING) << fmt::format(
+                "Unknown config '{}' in {} is ignored, please check whether it is a typo "
+                "or has been removed in this version.",
+                key, conf_file);
     }
 
     if (config::is_cloud_mode()) {
