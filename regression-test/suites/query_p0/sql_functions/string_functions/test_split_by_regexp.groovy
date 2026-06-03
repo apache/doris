@@ -51,15 +51,11 @@ suite("test_split_by_regexp") {
 
     test {
         sql " select split_by_regexp(NULL, 'a12bc23de345f', k1) from test_split_by_regexp"
-        exception "function must be a positive constant"
-    }
-    test {
-        sql " select split_by_regexp(NULL, 'a12bc23de345f', -10) from test_split_by_regexp"
-        exception "function must be a positive constant"
+        exception "function must be an integer constant"
     }
     test {
         sql " select split_by_regexp(NULL, 'a12bc23de345f', 1 + 2) from test_split_by_regexp"
-        exception "function must be a positive constant"
+        exception "function must be an integer constant"
     }
     qt_select5 "select split_by_regexp(v1, ',') from test_split_by_regexp order by k1;"
     qt_select6 "select split_by_regexp('do,ris', v2) from test_split_by_regexp order by k1;"
@@ -72,6 +68,8 @@ suite("test_split_by_regexp") {
     qt_select13 "select split_by_regexp('aa,bbb,cccc', ',', 10000000000000);"
     qt_select14 "select v1,split_by_regexp(v1, '') from test_split_by_regexp order by k1;"
     qt_select15 "select v2,split_by_regexp(v2, '') from test_split_by_regexp order by k1;"
+    qt_select16 "select split_by_regexp('aa,bbb,cccc', ',', -1);"
+    qt_select17 "select split_by_regexp('aa,bbb,cccc', ',', -10);"
 
     qt_select_alias1 "select regexp_split_to_array('abcde','');"
     qt_select_alias2 "select regexp_split_to_array('a12bc23de345f','\\\\d+');"
