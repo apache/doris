@@ -131,6 +131,12 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     static class CollectorContext {
         final Map<LogicalTopN, PullUpInfo> topNToPullUpInfo = new LinkedHashMap<>();
         final Map<Slot, Expression> pullUpExprReplaceMap = new LinkedHashMap<>();
+        /**
+         * When collectFromNode encounters a nested TopN, it saves the current
+         * blockedExprIds (accumulated from outer nodes) so that visitLogicalTopN
+         * for the inner TopN can merge them into its fresh blocked set.
+         */
+        final Map<LogicalTopN, Set<ExprId>> outerBlockedByTopN = new IdentityHashMap<>();
         int cteProducerDepth = 0;
 
         boolean hasPullUpInfo(LogicalTopN topN) {
@@ -184,7 +190,16 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             // Seed blockedExprIds with this TopN's order key ExprIds so that
             // expressions used by order keys are not pulled up past this TopN.
             Set<ExprId> blockedExprIds = buildOrderKeyExprIds(topN);
-            collectFromNode((Plan) topN.child(0), info, blockedExprIds);
+            // If this is a nested TopN, merge in the outer blocked set that was
+            // saved by collectFromNode when it encountered this TopN. This
+            // ensures that slots consumed by outer operators (e.g. join
+            // conditions above this TopN) also block pull-up from projects
+            // under this TopN.
+            Set<ExprId> outerBlocked = context.outerBlockedByTopN.remove(topN);
+            if (outerBlocked != null) {
+                blockedExprIds.addAll(outerBlocked);
+            }
+            collectFromNode((Plan) topN.child(0), info, blockedExprIds, context);
             if (!info.allPulledUpExprs.isEmpty()) {
                 for (NamedExpression expr : info.allPulledUpExprs) {
                     context.addPullUpExprReplace(expr);
@@ -202,7 +217,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
      * along the path from the TopN to the current node. An expression whose output ExprId
      * is in this set cannot be pulled up past the operators that reference it.
      */
-    private static void collectFromNode(Plan node, PullUpInfo info, Set<ExprId> blockedExprIds) {
+    private static void collectFromNode(Plan node, PullUpInfo info, Set<ExprId> blockedExprIds,
+            CollectorContext context) {
         if (node instanceof LogicalProject) {
             LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) node;
             for (NamedExpression ne : project.getProjects()) {
@@ -211,19 +227,25 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 }
             }
             // Continue into the project's child. Chained projects are all visited.
-            collectFromNode((Plan) project.child(0), info, blockedExprIds);
+            collectFromNode((Plan) project.child(0), info, blockedExprIds, context);
             return;
         }
 
         if (node instanceof LogicalTopN) {
             LogicalTopN inner = (LogicalTopN) node;
+            // Save the current blockedExprIds (accumulated from outer nodes
+            // such as outer TopN + intermediate Joins) so that the inner
+            // TopN's own visitLogicalTopN can merge them into its fresh
+            // blocked set. Without this, outer join condition slots would
+            // not block pull-up from projects under the inner TopN.
+            context.outerBlockedByTopN.put(inner, new HashSet<>(blockedExprIds));
             // TopN preserves all input columns, so it doesn't block by itself.
             // However, its order keys consume slots, so add them to blocked set.
             // Do NOT reset blockedExprIds — intermediate operators between the
             // outer and inner TopN must still block expressions.
             Set<ExprId> newBlocked = new HashSet<>(blockedExprIds);
             newBlocked.addAll(buildOrderKeyExprIds(inner));
-            collectFromNode((Plan) inner.child(0), info, newBlocked);
+            collectFromNode((Plan) inner.child(0), info, newBlocked, context);
             return;
         }
 
@@ -255,7 +277,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         }
 
         for (Plan child : node.children()) {
-            collectFromNode(child, info, newBlocked);
+            collectFromNode(child, info, newBlocked, context);
         }
     }
 
@@ -528,11 +550,18 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                     }
                 } else {
                     NamedExpression passThroughExpr = info.passThroughExprByDeduplicatedExpr.get(origSlot.getExprId());
-                    Preconditions.checkState(passThroughExpr != null,
-                            "Original slot %s should be restored or passed through", origSlot);
-                    List<Slot> passThroughSlots = resolveInputSlots(passThroughExpr, context, currentOutputExprIds);
-                    addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
-                            currentOutputByExprId, passThroughSlots);
+                    if (passThroughExpr != null) {
+                        List<Slot> passThroughSlots = resolveInputSlots(passThroughExpr, context, currentOutputExprIds);
+                        addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
+                                currentOutputByExprId, passThroughSlots);
+                    } else {
+                        // Slot was lost during simplifyProject — pass through directly.
+                        // TopN is a pass-through node; the computation for this slot
+                        // exists below the TopN even if the intermediate project lost it.
+                        if (upperOutputExprIds.add(origSlot.getExprId())) {
+                            upperOutput.add(origSlot);
+                        }
+                    }
                 }
             }
         }

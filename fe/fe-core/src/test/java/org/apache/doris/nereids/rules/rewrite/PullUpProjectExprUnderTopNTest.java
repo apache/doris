@@ -1042,4 +1042,58 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                 .anyMatch(e -> "y".equals(e.getName())))
                 );
     }
+
+    /**
+     * Regression test for correlated scalar subquery + LEFT OUTER JOIN + nested TopN.
+     * When a LIMIT is pushed down to the left side of a LEFT JOIN, a nested TopN is
+     * created. The inner TopN's collector must inherit the outer blocked slots
+     * (from join conditions) so that pass-through aggregate slots like AVG are not
+     * incorrectly removed during project simplification.
+     */
+    @Test
+    void testCorrelatedSubqueryWithNestedTopN() {
+        // Simulate: OuterTopN → Project[C1] → LeftOuterJoin → [
+        //            InnerTopN → Project[AVG, elem_at, C1] → Join → [Project[elem_at] → Scan1, Scan3],
+        //            Scan2]
+        // (Simplified: use Scan3 instead of Aggregate to avoid memo duplication)
+        Slot id1 = scan1.getOutput().get(0);
+        Slot col1 = scan1.getOutput().get(1);
+        // x = pull-up eligible expression (simulates element_at(var, 'col'))
+        Alias x = new Alias(new Add(col1, new IntegerLiteral((byte) 1)), "x");
+
+        LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+        Slot avgSlot = scan3.getOutput().get(0);  // simulates AVG result from correlated subquery
+
+        // Inner left: Project[elem_at=x, C1=id1] → Scan1
+        LogicalPlan innerLeft = new LogicalPlanBuilder(scan1)
+                .projectExprs(ImmutableList.of(x, id1))
+                .build();
+
+        // Inner Join (simulates Apply decomposition): [Project] JOIN Scan3
+        LogicalPlan innerJoin = new LogicalPlanBuilder(innerLeft)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 0))
+                .build();
+
+        // Project[AVG=avgSlot, elem_at=x, C1=id1] above inner join, then InnerTopN
+        LogicalPlan innerTopN = new LogicalPlanBuilder(innerJoin)
+                .projectExprs(ImmutableList.of(avgSlot, x, id1))
+                .topN(1, 0, ImmutableList.of(2))
+                .build();
+
+        // Outer: LeftOuterJoin between [InnerTopN side] and [Scan2]
+        LogicalPlan outerJoin = new LogicalPlanBuilder(innerTopN)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(2, 0))
+                .build();
+
+        // OuterTopN → Project[C1]
+        LogicalPlan plan = new LogicalPlanBuilder(outerJoin)
+                .projectExprs(ImmutableList.of(id1.alias("C1")))
+                .topN(1, 0, ImmutableList.of(0))
+                .build();
+
+        // Must not crash with "Original slot ... should be restored or passed through"
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+    }
 }
