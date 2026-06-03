@@ -575,7 +575,7 @@ protected:
         MutableColumns mutable_child_columns;
         mutable_child_columns.reserve(child_columns.size());
         for (auto& child_column : child_columns) {
-            mutable_child_columns.push_back(child_column->assert_mutable());
+            mutable_child_columns.push_back(IColumn::mutate(std::move(child_column)));
         }
         auto result = ColumnStruct::create(std::move(mutable_child_columns));
         if (mapping.table_type->is_nullable()) {
@@ -609,8 +609,8 @@ protected:
                     element_mapping, nested_column, nested_column->size(), &nested_column));
         }
         auto offsets_column = file_array->get_offsets_ptr()->convert_to_full_column_if_const();
-        auto result = ColumnArray::create(nested_column->assert_mutable(),
-                                          offsets_column->assert_mutable());
+        auto result = ColumnArray::create(IColumn::mutate(std::move(nested_column)),
+                                          IColumn::mutate(std::move(offsets_column)));
         if (mapping.table_type->is_nullable()) {
             auto null_map = ColumnUInt8::create();
             auto& null_map_data = null_map->get_data();
@@ -649,8 +649,9 @@ protected:
         }
         auto offsets_column = file_map->get_offsets_ptr()->convert_to_full_column_if_const();
         auto result =
-                ColumnMap::create(key_column->assert_mutable(), value_column->assert_mutable(),
-                                  offsets_column->assert_mutable());
+                ColumnMap::create(IColumn::mutate(std::move(key_column)),
+                                  IColumn::mutate(std::move(value_column)),
+                                  IColumn::mutate(std::move(offsets_column)));
         if (mapping.table_type->is_nullable()) {
             auto null_map = ColumnUInt8::create();
             auto& null_map_data = null_map->get_data();

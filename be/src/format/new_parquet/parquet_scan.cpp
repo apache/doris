@@ -389,7 +389,8 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
                 request.column_positions.find(request.non_predicate_columns[output_idx].field_id);
         DORIS_CHECK(position_it != request.column_positions.end());
         const auto block_position = position_it->second;
-        auto col = file_block->get_columns()[block_position]->assert_mutable();
+        auto column_guard = file_block->mutate_column_scoped(block_position);
+        auto& col = column_guard.mutable_column();
         DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
                   column_reader->type()->get_primitive_type());
         if (need_filter_output) {
