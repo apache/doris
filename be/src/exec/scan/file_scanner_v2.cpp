@@ -91,7 +91,7 @@ bool parse_non_negative_int(std::string_view value, int32_t* result) {
     return true;
 }
 
-reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::ColumnId id,
+reader::TableColumn* find_or_add_child(reader::TableColumn* parent, ColumnId id,
                                        std::string name, DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
     for (auto& child : parent->children) {
@@ -186,12 +186,10 @@ bool build_nested_children_from_access_paths(reader::TableColumn* column,
 
     for (const auto& access_path : slot_desc->all_access_paths()) {
         if (access_path.type != TAccessPathType::DATA || !access_path.__isset.data_access_path) {
-            column->children.clear();
             return false;
         }
         const auto& path = access_path.data_access_path.path;
         if (path.empty()) {
-            column->children.clear();
             return false;
         }
         int32_t top_level_id = -1;
@@ -210,6 +208,7 @@ bool build_nested_children_from_access_paths(reader::TableColumn* column,
 
 } // namespace
 
+// TODO: Only support parquet format now
 bool FileScannerV2::is_supported(const TFileScanRangeParams& params,
                                  const TFileRangeDesc& range) {
     return get_range_format_type(params, range) == TFileFormatType::FORMAT_PARQUET &&
@@ -330,9 +329,9 @@ Status FileScannerV2::_create_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state->scanner_profile(),
-            .allow_missing_columns = true,
+            .allow_missing_columns = true, // TODO
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
-            .profile = nullptr,
+            .profile = nullptr, // TODO
     }));
     return Status::OK();
 }
