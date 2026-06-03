@@ -315,20 +315,20 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     @Override
     public void cancel(boolean needWaitCancelComplete) {
-        // No manual cancellation is required; the task ID will be checked for consistency in the beforeCommit function.
-        releaseRemoteReader();
+        // No release here: DROP/STOP/PAUSE clean up via /api/close; releasing would orphan the engine.
         super.cancel(needWaitCancelComplete);
     }
 
     @Override
     public void closeOrReleaseResources() {
-        // No-op: reader is shared across tasks; release on failure/cancel is done in onFail()/cancel().
+        // No-op: reader is shared across tasks; release on reschedule is done in onFail().
     }
 
     /**
-     * Best-effort: stop this job's reader on {@link #runningBackendId} so a reschedule to another
-     * backend never leaves two readers competing for the same source (e.g. one PG replication slot,
-     * which is kept, not dropped). Failures are swallowed and must not block rescheduling.
+     * Best-effort, onFail reschedule only: stop this job's reader on {@link #runningBackendId} so a
+     * reschedule to another backend never leaves two readers competing for the same source (e.g. one
+     * PG replication slot, which is kept, not dropped). Failures are swallowed and must not block
+     * rescheduling.
      */
     public void releaseRemoteReader() {
         if (runningBackendId <= 0) {
