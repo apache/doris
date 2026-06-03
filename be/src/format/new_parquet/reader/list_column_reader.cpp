@@ -43,6 +43,63 @@ void remove_nullable_wrapper_if_required(const ParquetColumnReader& reader,
     }
 }
 
+// LIST keeps its Dremel traversal local because it materializes Doris ColumnArray directly.
+// This helper only owns the common stream mechanics: read-ahead, overflow, parent row
+// boundaries, and the rule that a repeated child must stay in the current parent row.
+// The caller still owns LIST semantics such as null parent, empty parent, and child append.
+template <typename Batch, typename Overflow, typename ReadBatchFn, typename MoveTailFn,
+          typename StartParentFn, typename AppendRepeatedFn>
+Status consume_list_level_stream(const std::string& column_name, int16_t repeated_level,
+                                 int64_t rows, Overflow* overflow, ReadBatchFn&& read_batch,
+                                 MoveTailFn&& move_tail, StartParentFn&& start_parent,
+                                 AppendRepeatedFn&& append_repeated, int64_t* rows_read) {
+    DORIS_CHECK(overflow != nullptr);
+    DORIS_CHECK(rows_read != nullptr);
+    *rows_read = 0;
+
+    while (*rows_read < rows) {
+        Batch batch_from_reader;
+        Batch* batch = nullptr;
+        bool from_overflow = false;
+        if (!overflow->empty()) {
+            batch = &overflow->batch;
+            from_overflow = true;
+        } else {
+            const int64_t batch_rows = std::max<int64_t>(rows - *rows_read, NESTED_READ_BATCH_ROWS);
+            RETURN_IF_ERROR(read_batch(batch_rows, &batch_from_reader));
+            if (batch_from_reader.empty()) {
+                break;
+            }
+            batch = &batch_from_reader;
+        }
+
+        NestedShapeCursor<Batch> cursor(*batch);
+        for (int64_t level_idx = 0; level_idx < cursor.levels_written(); ++level_idx) {
+            const bool starts_parent = cursor.starts_parent(level_idx, repeated_level);
+            if (starts_parent && *rows_read >= rows) {
+                move_tail(*batch, level_idx, overflow);
+                return Status::OK();
+            }
+            if (starts_parent) {
+                RETURN_IF_ERROR(start_parent(*batch, level_idx));
+                ++*rows_read;
+                continue;
+            }
+            if (*rows_read == 0) {
+                return Status::Corruption(
+                        "Repeated parquet stream starts with repeated level for column {}",
+                        column_name);
+            }
+            RETURN_IF_ERROR(append_repeated(*batch, level_idx));
+        }
+
+        if (from_overflow) {
+            overflow->clear();
+        }
+    }
+    return Status::OK();
+}
+
 Status read_scalar_list_values(const std::string& column_name, const DataTypePtr& list_type,
                                int16_t list_nullable_definition_level, int16_t repeated_level,
                                ScalarColumnReader& element_reader,
@@ -61,65 +118,32 @@ Status read_scalar_list_values(const std::string& column_name, const DataTypePtr
             static_cast<int16_t>(element_reader.descriptor()->max_definition_level())};
     const int16_t element_slot_definition_level = list_nullable_definition_level + 1;
 
-    while (*rows_read < rows) {
-        NestedScalarBatch batch_from_reader;
-        NestedScalarBatch* batch = nullptr;
-        bool from_overflow = false;
-        if (!element_overflow->empty()) {
-            batch = &element_overflow->batch;
-            from_overflow = true;
-        } else {
-            const int64_t batch_rows = std::max<int64_t>(rows - *rows_read, NESTED_READ_BATCH_ROWS);
-            RETURN_IF_ERROR(read_nested_scalar_batch(
-                    element_reader, batch_rows, element_slot_definition_level, &batch_from_reader));
-            if (batch_from_reader.empty()) {
-                break;
-            }
-            batch = &batch_from_reader;
+    auto read_batch = [&](int64_t batch_rows, NestedScalarBatch* batch) {
+        return read_nested_scalar_batch(element_reader, batch_rows, element_slot_definition_level,
+                                        batch);
+    };
+    auto start_parent = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        const int16_t def_level = batch.def_levels[level_idx];
+        if (def_level < list_nullable_definition_level) {
+            RETURN_IF_ERROR(parent_state.append_null_parent(column_name, "LIST", list_type));
+            return value_appender.skip_shape_only_slot();
         }
-
-        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-            const bool starts_parent = batch->rep_levels[level_idx] < repeated_level;
-            if (starts_parent && *rows_read >= rows) {
-                move_nested_scalar_tail(*batch, level_idx, element_overflow);
-                return Status::OK();
-            }
-            if (starts_parent) {
-                const int16_t def_level = batch->def_levels[level_idx];
-                if (def_level < list_nullable_definition_level) {
-                    RETURN_IF_ERROR(
-                            parent_state.append_null_parent(column_name, "LIST", list_type));
-                    RETURN_IF_ERROR(value_appender.skip_shape_only_slot());
-                } else {
-                    parent_state.append_present_parent();
-                    if (def_level == list_nullable_definition_level) {
-                        RETURN_IF_ERROR(value_appender.skip_shape_only_slot());
-                    } else {
-                        RETURN_IF_ERROR(parent_state.require_parent(column_name));
-                        RETURN_IF_ERROR(value_appender.append(column_name, *batch, level_idx,
-                                                              element_column));
-                        RETURN_IF_ERROR(parent_state.add_entry(column_name));
-                    }
-                }
-                ++*rows_read;
-            } else {
-                if (*rows_read == 0) {
-                    return Status::Corruption(
-                            "Repeated parquet stream starts with repeated level for column {}",
-                            column_name);
-                }
-                RETURN_IF_ERROR(parent_state.require_parent(column_name));
-                RETURN_IF_ERROR(
-                        value_appender.append(column_name, *batch, level_idx, element_column));
-                RETURN_IF_ERROR(parent_state.add_entry(column_name));
-            }
+        parent_state.append_present_parent();
+        if (def_level == list_nullable_definition_level) {
+            return value_appender.skip_shape_only_slot();
         }
-
-        if (from_overflow) {
-            element_overflow->clear();
-        }
-    }
-    return Status::OK();
+        RETURN_IF_ERROR(parent_state.require_parent(column_name));
+        RETURN_IF_ERROR(value_appender.append(column_name, batch, level_idx, element_column));
+        return parent_state.add_entry(column_name);
+    };
+    auto append_repeated = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        RETURN_IF_ERROR(parent_state.require_parent(column_name));
+        RETURN_IF_ERROR(value_appender.append(column_name, batch, level_idx, element_column));
+        return parent_state.add_entry(column_name);
+    };
+    return consume_list_level_stream<NestedScalarBatch>(
+            column_name, repeated_level, rows, element_overflow, read_batch,
+            move_nested_scalar_tail, start_parent, append_repeated, rows_read);
 }
 
 Status read_struct_list_values(const std::string& column_name, const DataTypePtr& list_type,
@@ -138,66 +162,32 @@ Status read_struct_list_values(const std::string& column_name, const DataTypePtr
     NestedStructValueAppender value_appender {&element_reader};
     const int16_t element_slot_definition_level = list_nullable_definition_level + 1;
 
-    while (*rows_read < rows) {
-        NestedStructBatch batch_from_reader;
-        NestedStructBatch* batch = nullptr;
-        bool from_overflow = false;
-        if (!element_overflow->empty()) {
-            batch = &element_overflow->batch;
-            from_overflow = true;
-        } else {
-            const int64_t batch_rows = std::max<int64_t>(rows - *rows_read, NESTED_READ_BATCH_ROWS);
-            RETURN_IF_ERROR(read_nested_struct_batch(
-                    element_reader, batch_rows, element_slot_definition_level, &batch_from_reader));
-            if (batch_from_reader.empty()) {
-                break;
-            }
-            batch = &batch_from_reader;
+    auto read_batch = [&](int64_t batch_rows, NestedStructBatch* batch) {
+        return read_nested_struct_batch(element_reader, batch_rows, element_slot_definition_level,
+                                        batch);
+    };
+    auto start_parent = [&](const NestedStructBatch& batch, int64_t level_idx) -> Status {
+        const int16_t def_level = nested_shape_definition_level(batch, level_idx);
+        if (def_level < list_nullable_definition_level) {
+            RETURN_IF_ERROR(parent_state.append_null_parent(column_name, "LIST", list_type));
+            return value_appender.skip_shape_only_slot();
         }
-
-        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-            const int16_t rep_level = nested_shape_repetition_level(*batch, level_idx);
-            const bool starts_parent = rep_level < repeated_level;
-            if (starts_parent && *rows_read >= rows) {
-                move_nested_struct_tail(*batch, level_idx, element_overflow);
-                return Status::OK();
-            }
-            if (starts_parent) {
-                const int16_t def_level = nested_shape_definition_level(*batch, level_idx);
-                if (def_level < list_nullable_definition_level) {
-                    RETURN_IF_ERROR(
-                            parent_state.append_null_parent(column_name, "LIST", list_type));
-                    RETURN_IF_ERROR(value_appender.skip_shape_only_slot());
-                } else {
-                    parent_state.append_present_parent();
-                    if (def_level == list_nullable_definition_level) {
-                        RETURN_IF_ERROR(value_appender.skip_shape_only_slot());
-                    } else {
-                        RETURN_IF_ERROR(parent_state.require_parent(column_name));
-                        RETURN_IF_ERROR(value_appender.append(column_name, *batch, level_idx,
-                                                              element_column));
-                        RETURN_IF_ERROR(parent_state.add_entry(column_name));
-                    }
-                }
-                ++*rows_read;
-            } else {
-                if (*rows_read == 0) {
-                    return Status::Corruption(
-                            "Repeated parquet stream starts with repeated level for column {}",
-                            column_name);
-                }
-                RETURN_IF_ERROR(parent_state.require_parent(column_name));
-                RETURN_IF_ERROR(
-                        value_appender.append(column_name, *batch, level_idx, element_column));
-                RETURN_IF_ERROR(parent_state.add_entry(column_name));
-            }
+        parent_state.append_present_parent();
+        if (def_level == list_nullable_definition_level) {
+            return value_appender.skip_shape_only_slot();
         }
-
-        if (from_overflow) {
-            element_overflow->clear();
-        }
-    }
-    return Status::OK();
+        RETURN_IF_ERROR(parent_state.require_parent(column_name));
+        RETURN_IF_ERROR(value_appender.append(column_name, batch, level_idx, element_column));
+        return parent_state.add_entry(column_name);
+    };
+    auto append_repeated = [&](const NestedStructBatch& batch, int64_t level_idx) -> Status {
+        RETURN_IF_ERROR(parent_state.require_parent(column_name));
+        RETURN_IF_ERROR(value_appender.append(column_name, batch, level_idx, element_column));
+        return parent_state.add_entry(column_name);
+    };
+    return consume_list_level_stream<NestedStructBatch>(
+            column_name, repeated_level, rows, element_overflow, read_batch,
+            move_nested_struct_tail, start_parent, append_repeated, rows_read);
 }
 
 Status read_nested_list_values(const std::string& column_name, const DataTypePtr& outer_list_type,
@@ -244,61 +234,30 @@ Status read_nested_list_values(const std::string& column_name, const DataTypePtr
         return append_element(batch, level_idx);
     };
 
-    while (*rows_read < rows) {
-        NestedScalarBatch batch_from_reader;
-        NestedScalarBatch* batch = nullptr;
-        bool from_overflow = false;
-        if (!element_overflow->empty()) {
-            batch = &element_overflow->batch;
-            from_overflow = true;
-        } else {
-            const int64_t batch_rows = std::max<int64_t>(rows - *rows_read, NESTED_READ_BATCH_ROWS);
-            RETURN_IF_ERROR(read_nested_scalar_batch(nested_element_reader, batch_rows,
-                                                     inner_element_slot_definition_level,
-                                                     &batch_from_reader));
-            if (batch_from_reader.empty()) {
-                break;
-            }
-            batch = &batch_from_reader;
+    auto read_batch = [&](int64_t batch_rows, NestedScalarBatch* batch) {
+        return read_nested_scalar_batch(nested_element_reader, batch_rows,
+                                        inner_element_slot_definition_level, batch);
+    };
+    auto start_parent = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        const int16_t def_level = batch.def_levels[level_idx];
+        if (def_level < outer_nullable_definition_level) {
+            return outer_state.append_null_parent(column_name, "LIST", outer_list_type);
         }
-
-        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-            const bool starts_parent = batch->rep_levels[level_idx] < outer_repeated_level;
-            if (starts_parent && *rows_read >= rows) {
-                move_nested_scalar_tail(*batch, level_idx, element_overflow);
-                return Status::OK();
-            }
-            if (starts_parent) {
-                const int16_t def_level = batch->def_levels[level_idx];
-                if (def_level < outer_nullable_definition_level) {
-                    RETURN_IF_ERROR(
-                            outer_state.append_null_parent(column_name, "LIST", outer_list_type));
-                } else {
-                    outer_state.append_present_parent();
-                    if (def_level > outer_nullable_definition_level) {
-                        RETURN_IF_ERROR(append_inner_list(*batch, level_idx));
-                    }
-                }
-                ++*rows_read;
-            } else {
-                if (*rows_read == 0) {
-                    return Status::Corruption(
-                            "Repeated parquet stream starts with repeated level for column {}",
-                            column_name);
-                }
-                if (batch->rep_levels[level_idx] < inner_list_reader.repeated_repetition_level()) {
-                    RETURN_IF_ERROR(append_inner_list(*batch, level_idx));
-                } else {
-                    RETURN_IF_ERROR(append_element(*batch, level_idx));
-                }
-            }
+        outer_state.append_present_parent();
+        if (def_level > outer_nullable_definition_level) {
+            RETURN_IF_ERROR(append_inner_list(batch, level_idx));
         }
-
-        if (from_overflow) {
-            element_overflow->clear();
+        return Status::OK();
+    };
+    auto append_repeated = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        if (batch.rep_levels[level_idx] < inner_list_reader.repeated_repetition_level()) {
+            return append_inner_list(batch, level_idx);
         }
-    }
-    return Status::OK();
+        return append_element(batch, level_idx);
+    };
+    return consume_list_level_stream<NestedScalarBatch>(
+            column_name, outer_repeated_level, rows, element_overflow, read_batch,
+            move_nested_scalar_tail, start_parent, append_repeated, rows_read);
 }
 
 Status skip_scalar_list_values(const std::string& column_name, int16_t repeated_level,
@@ -308,43 +267,15 @@ Status skip_scalar_list_values(const std::string& column_name, int16_t repeated_
                                int64_t* rows_read) {
     DORIS_CHECK(element_overflow != nullptr);
     DORIS_CHECK(rows_read != nullptr);
-    *rows_read = 0;
-    while (*rows_read < rows) {
-        NestedScalarBatch batch_from_reader;
-        NestedScalarBatch* batch = nullptr;
-        bool from_overflow = false;
-        if (!element_overflow->empty()) {
-            batch = &element_overflow->batch;
-            from_overflow = true;
-        } else {
-            const int64_t batch_rows = std::max<int64_t>(rows - *rows_read, NESTED_READ_BATCH_ROWS);
-            RETURN_IF_ERROR(read_nested_scalar_batch(
-                    element_reader, batch_rows, value_slot_definition_level, &batch_from_reader));
-            if (batch_from_reader.empty()) {
-                break;
-            }
-            batch = &batch_from_reader;
-        }
-
-        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-            if (batch->rep_levels[level_idx] < repeated_level) {
-                if (*rows_read >= rows) {
-                    move_nested_scalar_tail(*batch, level_idx, element_overflow);
-                    return Status::OK();
-                }
-                ++*rows_read;
-            } else if (*rows_read == 0) {
-                return Status::Corruption(
-                        "Repeated parquet stream starts with repeated level for column {}",
-                        column_name);
-            }
-        }
-
-        if (from_overflow) {
-            element_overflow->clear();
-        }
-    }
-    return Status::OK();
+    auto read_batch = [&](int64_t batch_rows, NestedScalarBatch* batch) {
+        return read_nested_scalar_batch(element_reader, batch_rows, value_slot_definition_level,
+                                        batch);
+    };
+    auto start_parent = [](const NestedScalarBatch&, int64_t) { return Status::OK(); };
+    auto append_repeated = [](const NestedScalarBatch&, int64_t) { return Status::OK(); };
+    return consume_list_level_stream<NestedScalarBatch>(
+            column_name, repeated_level, rows, element_overflow, read_batch,
+            move_nested_scalar_tail, start_parent, append_repeated, rows_read);
 }
 
 Status skip_struct_list_values(const std::string& column_name, int16_t repeated_level,
@@ -354,43 +285,15 @@ Status skip_struct_list_values(const std::string& column_name, int16_t repeated_
                                int64_t* rows_read) {
     DORIS_CHECK(element_overflow != nullptr);
     DORIS_CHECK(rows_read != nullptr);
-    *rows_read = 0;
-    while (*rows_read < rows) {
-        NestedStructBatch batch_from_reader;
-        NestedStructBatch* batch = nullptr;
-        bool from_overflow = false;
-        if (!element_overflow->empty()) {
-            batch = &element_overflow->batch;
-            from_overflow = true;
-        } else {
-            const int64_t batch_rows = std::max<int64_t>(rows - *rows_read, NESTED_READ_BATCH_ROWS);
-            RETURN_IF_ERROR(read_nested_struct_batch(
-                    element_reader, batch_rows, value_slot_definition_level, &batch_from_reader));
-            if (batch_from_reader.empty()) {
-                break;
-            }
-            batch = &batch_from_reader;
-        }
-
-        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-            if (nested_shape_repetition_level(*batch, level_idx) < repeated_level) {
-                if (*rows_read >= rows) {
-                    move_nested_struct_tail(*batch, level_idx, element_overflow);
-                    return Status::OK();
-                }
-                ++*rows_read;
-            } else if (*rows_read == 0) {
-                return Status::Corruption(
-                        "Repeated parquet stream starts with repeated level for column {}",
-                        column_name);
-            }
-        }
-
-        if (from_overflow) {
-            element_overflow->clear();
-        }
-    }
-    return Status::OK();
+    auto read_batch = [&](int64_t batch_rows, NestedStructBatch* batch) {
+        return read_nested_struct_batch(element_reader, batch_rows, value_slot_definition_level,
+                                        batch);
+    };
+    auto start_parent = [](const NestedStructBatch&, int64_t) { return Status::OK(); };
+    auto append_repeated = [](const NestedStructBatch&, int64_t) { return Status::OK(); };
+    return consume_list_level_stream<NestedStructBatch>(
+            column_name, repeated_level, rows, element_overflow, read_batch,
+            move_nested_struct_tail, start_parent, append_repeated, rows_read);
 }
 
 } // namespace

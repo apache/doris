@@ -125,6 +125,10 @@ template <typename Batch, typename Overflow, typename ReadBatchFn, typename Move
 Status assemble_map_repeated_levels(const std::string& column_name, int16_t repeated_level,
                                     int64_t rows, Overflow* overflow, ReadBatchFn&& read_batch,
                                     MoveTailFn&& move_tail, Sink& sink, int64_t* rows_read) {
+    // MAP keeps a reader-local repeated assembler because Doris materializes MAP as
+    // ColumnMap, not as LIST<STRUCT<key,value>>. The stream mechanics are similar
+    // to LIST, but the sink must align key/value streams and write keys, values,
+    // and map offsets independently.
     DORIS_CHECK(overflow != nullptr);
     DORIS_CHECK(rows_read != nullptr);
     *rows_read = 0;

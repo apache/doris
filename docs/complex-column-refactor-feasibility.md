@@ -4,136 +4,225 @@
 
 ### 1.1 背景
 
-`value_indices` 是一个 `vector<int64_t>`，在 `arrow_leaf_reader_adapter.cpp:280-296` 中预计算：为每个 level 映射到 `values_column` 中的 value 位置。映射需要的原因是：对于 REPEATED 字段，并非每个 level 都对应一个值（空列表/结构边界不产生值）。
+`NestedScalarBatch::value_indices` 是一个 `vector<int64_t>`，在
+`arrow_leaf_reader_adapter.cpp` 中预计算 level slot 到 `values_column` 中 value
+位置的映射。它存在的根本原因是 Parquet Dremel level stream 和 Doris-owned
+compact values column 不是一一对应：
 
-内联 Dremel 后，LIST/MAP 的内联循环已经显式检查 `def_level` 来决定当前 level 是否有值。但 `append_scalar_batch_value()` 仍然通过 `nested_scalar_value_index(batch, level_idx)` 间接查找 value 位置——而这个查找完全可以被调用方已经知道的 value_idx 替代。
+- null parent、empty parent 不产生 value。
+- nullable scalar child 的 null slot 不产生 value。
+- repeated/nested 场景中，某些 level slot 只表达 shape，不表达当前 value stream 的值。
 
-### 1.2 当前 value_indices 的数据流
+LIST/MAP Dremel 组装已经内联后，reader 循环可以在遍历 def/rep levels 的同时推进
+value cursor。因此 `value_indices` 可以被删除，但不能简单把 `level_idx` 替换成
+`value_idx`。必须先把“当前 scalar stream 的 value 消费位置”显式建模，否则
+nullable child、STRUCT child batch、MAP key/value 多 stream 和 overflow tail 都容易错位。
+
+### 1.2 当前数据流
 
 ```
-arrow_leaf_reader_adapter.cpp:277-296
-  当 values_written != levels_written 时，预计算 value_indices[level_idx] → value_idx
-  当 values_written == levels_written 时，value_indices 为空（dense 情况）
+read_nested_leaf_batch()
+  -> copy def_levels / rep_levels
+  -> materialize compact values_column
+  -> build value_indices[level_idx] -> value_idx
 
-nested_scalar_value_index(batch, level_idx) → batch.value_indices[level_idx] 或 level_idx
+append_scalar_batch_value()
+  -> nested_scalar_value_index(batch, level_idx)
+  -> values_column[value_idx]
 
-消费者：
-  append_scalar_batch_value()       → nested_scalar_value_index(batch, level_idx)
-  move_nested_scalar_tail()         → nested_scalar_value_index(src, level_idx)
-  MAP value stream read_aligned     → move_nested_scalar_tail()
+move_nested_scalar_tail()
+  -> nested_scalar_value_index(src, level_idx)
+  -> compact tail values_column + tail value_indices
 ```
 
-### 1.3 改动
+当前 `value_indices` 已有一个小优化：当 `values_written == levels_written` 且没有
+repetition filter 时，`value_indices` 为空，`nested_scalar_value_index()` 直接把
+`level_idx` 当作 `value_idx`。后续目标是把 sparse 场景也改成 cursor 消费，从而彻底删除
+`value_indices`。
 
-**Step 1: 改 `append_scalar_batch_value()` 接口，接收显式 `value_idx`**
+### 1.3 设计原则
+
+删除 `value_indices` 前必须满足以下约束：
+
+1. **value presence 使用 leaf max definition level 判断**
+   对 nullable scalar child，`def >= element_slot_definition_level` 只代表 child slot 存在，
+   不代表有实际 value。只有 `def == leaf_max_definition_level` 才消费 scalar value。
+
+2. **repetition filter 必须保留**
+   STRUCT 混合 child、MAP list value 等场景会使用 `value_slot_repetition_level` 限定当前
+   stream 应消费哪些 level slot。cursor 判断 actual value 时必须同时满足：
+
+   ```cpp
+   def_level == leaf_max_definition_level &&
+   rep_level <= value_slot_repetition_level
+   ```
+
+3. **每个 scalar stream 独立维护 cursor**
+   MAP 至少有 key stream 和 value stream；`Map<K, List<V>>` 有 key stream 和 list element
+   stream；STRUCT 每个 scalar child 都是独立 value stream。不能用一个全局 `value_idx`。
+
+4. **overflow tail 必须保持 compact 后的 cursor 语义**
+   overflow batch 的 `values_column` 是 tail compact 后的 Doris-owned column。下一次消费
+   overflow 时，cursor 应从 value index 0 开始，而不是沿用原 batch 的全局 value index。
+
+### 1.4 新增 NestedScalarValueCursor
+
+先新增 cursor，不立即删除 `value_indices`，让新旧路径可以分阶段切换。
 
 ```cpp
-// 之前
-Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
-                                 const NestedScalarBatch& batch, int64_t level_idx,
+class NestedScalarValueCursor {
+public:
+    NestedScalarValueCursor(const NestedScalarBatch* batch,
+                            int16_t value_definition_level,
+                            int16_t value_repetition_level);
+
+    bool level_has_value(int64_t level_idx) const;
+
+    Status append_value(const ScalarColumnReader& reader,
+                        int64_t level_idx,
+                        MutableColumnPtr& column);
+
+    Status append_nullable_value(const std::string& column_name,
+                                 std::string_view parent_kind,
+                                 std::string_view child_kind,
+                                 const ScalarColumnReader& reader,
+                                 int64_t level_idx,
                                  MutableColumnPtr& column);
 
-// 之后
-Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
-                                 const NestedScalarBatch& batch, int64_t value_idx,
-                                 MutableColumnPtr& column);
+    void skip_level(int64_t level_idx);
+    void reset();
+
+private:
+    const NestedScalarBatch* _batch = nullptr;
+    int16_t _value_definition_level = 0;
+    int16_t _value_repetition_level = 0;
+    int64_t _next_value_idx = 0;
+};
 ```
 
-实现中删除 `nested_scalar_value_index(batch, level_idx)` 调用，直接用传入的 `value_idx`：
+语义：
+
+- `level_has_value()` 只判断当前 level 是否实际消费 scalar value。
+- `append_value()` 只允许在 `level_has_value(level_idx)` 为 true 时调用，并消费一个 value。
+- `append_nullable_value()` 在有 value 时 append value，否则对 nullable child append default；required child 出现 null 返回 `Corruption`。
+- `skip_level()` 用于 shape-only 或未投影 child，只有当前 level 有实际 value 时推进 cursor。
+
+### 1.5 分阶段改动
+
+#### Step 1: 引入 cursor，保留 value_indices fallback
+
+新增 `NestedScalarValueCursor`，内部暂时仍可通过 `nested_scalar_value_index()` 校验或 fallback。
+这一步只改变调用方式，不删除字段。
+
+目标：
+
+- 明确 value cursor 的生命周期。
+- 把 `append_scalar_batch_value()` 的调用方逐步改成 cursor append。
+- dense/sparse 行为先保持等价。
+
+#### Step 2: LIST scalar / nested LIST scalar 切换到 cursor
+
+修改：
+
+- `read_scalar_list_values()`
+- `read_nested_list_values()`
+- scalar LIST skip 路径
+
+注意：
+
+- null list、empty list 不消费 value。
+- nullable element 的 null slot 不消费 value，但需要 append null child。
+- repeated element 继续属于当前 parent row，不能因为 output rows 满而拆到 overflow。
+
+#### Step 3: MAP scalar value / key stream 切换到 cursor
+
+修改：
+
+- `MapValueSink` 中 key stream cursor 和 value stream cursor 分离。
+- `MapListValueSink` 中 key cursor 与 list element cursor 分离。
+- MAP skip sink 同样走 cursor skip，不能依赖 child value-level skip。
+
+注意：
+
+- key 必须 defined；key cursor 只在 entry slot 消费。
+- value nullable 时，null value 不消费 value cursor。
+- `Map<K, List<V>>` 中 map entry shape 和 list value element shape 是两层 cursor，不能混用。
+
+#### Step 4: STRUCT scalar child batch 切换到 per-child cursor
+
+修改：
+
+- `append_struct_batch_value()` 内为每个 scalar child batch 使用独立 cursor。
+- `StructColumnReader` all-scalar path 也使用 child cursor。
+- 未投影 scalar child 仍需要推进对应 cursor，保持 child stream 对齐。
+
+注意：
+
+- `List<Struct<nullable child>>` 和 `Map<K, Struct<nullable child>>` 是必须覆盖的场景。
+- 不能通过从头扫描 def/rep 计算 value_idx，否则会把 append 变成 O(n^2)。
+
+#### Step 5: cursor 化 overflow tail compact
+
+`move_nested_scalar_tail()` 不再查询 `value_indices`，而是接收 value presence 参数：
+
 ```cpp
-// 之前
-const int64_t value_idx = nested_scalar_value_index(batch, level_idx);
-if (value_idx < 0) { ... }
-column->insert_from(*batch.values_column, static_cast<size_t>(value_idx));
-
-// 之后
-column->insert_from(*batch.values_column, static_cast<size_t>(value_idx));
+void move_nested_scalar_tail(const NestedScalarBatch& src,
+                             int64_t start_level,
+                             int16_t value_definition_level,
+                             int16_t value_repetition_level,
+                             NestedScalarOverflow* overflow);
 ```
 
-value_idx 的合法性（>=0）由调用方保证——调用方只在 `def_level >= element_slot_definition_level` 时才调用 append，此时必然有对应的 value。
-
-**Step 2: LIST/MAP 内联函数中跟踪 value_idx**
-
-以 `read_scalar_list_values()` 为例，当前每个 level 的处理：
+tail compact 规则：
 
 ```cpp
-// 当前：通过 value_appender.append(batch, level_idx, ...) 内部 lookup
-value_appender.append(column_name, *batch, level_idx, element_column);
+for each level before start_level:
+    if has_value(level): ++src_value_idx
 
-// 之后：调用方跟踪 value_idx，直接传入
-value_appender.append(column_name, *batch, value_idx, element_column);
-++value_idx;
+for each level from start_level:
+    if has_value(level):
+        dst.values_column->insert_from(*src.values_column, src_value_idx++)
 ```
 
-需要修改的函数（共 ~8 处）：
-- `read_scalar_list_values()` — `list_column_reader.cpp:99,113`
-- `read_struct_list_values()` — 结构体元素的 append 不经过 value_indices（走 `append_struct_batch_value`），不受影响
-- `read_nested_list_values()` — `list_column_reader.cpp:222` 的 `NestedScalarValueAppender`
-- MAP 中所有通过 `append_scalar_batch_value()` 的路径 — `map_column_reader.cpp:322,380`
+compact 后的 overflow batch 不需要继承原 batch 的 value index；下一次 cursor 从 0 开始。
 
-**Step 3: 删除 `value_indices` 构建和查询**
+#### Step 6: 删除 value_indices
 
-- `NestedScalarBatch::value_indices` 字段删除
-- `arrow_leaf_reader_adapter.cpp:277-296` 删除（value_indices 预计算循环）
-- `nested_scalar_value_index()` 删除
-- `nested_column_reader.h:130-135` 删除
+所有 LIST/MAP/STRUCT read/skip/select 和 overflow 路径都切换到 cursor 后，删除：
 
-**Step 4: 简化 `move_nested_scalar_tail()`**
+- `NestedScalarBatch::value_indices`
+- `nested_scalar_value_index()`
+- `arrow_leaf_reader_adapter.cpp` 中 value_indices 构建逻辑
 
-当前分两条路径：dense（value_indices 为空，level_idx 即 value_idx）和 non-dense（需要查 value_indices）。删除 value_indices 后，tail move 需要知道哪些 level 有值。
-
-方案：`move_nested_scalar_tail` 增加参数 `int16_t value_slot_definition_level`，内部通过检查 `def_level >= value_slot_definition_level` 来判断：
-
-```cpp
-inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_level,
-                                    int16_t value_slot_definition_level,
-                                    NestedScalarOverflow* overflow) {
-    NestedScalarBatch dst;
-    dst.levels_written = src.levels_written - start_level;
-    dst.def_levels.assign(src.def_levels.begin() + start_level, src.def_levels.end());
-    dst.rep_levels.assign(src.rep_levels.begin() + start_level, src.rep_levels.end());
-    dst.values_column = src.values_column->clone_empty();
-    int64_t value_idx = 0;  // count values before start_level
-    for (int64_t i = 0; i < start_level; ++i) {
-        if (src.def_levels[i] >= value_slot_definition_level) ++value_idx;
-    }
-    for (int64_t i = start_level; i < src.levels_written; ++i) {
-        if (src.def_levels[i] >= value_slot_definition_level) {
-            dst.values_column->insert_from(*src.values_column, value_idx++);
-        }
-    }
-    overflow->batch = std::move(dst);
-}
-```
-
-或者更简单：因为 `move_nested_scalar_tail` 的所有调用方（LIST skip 路径）都已知道 `value_slot_definition_level`，直接传递即可。
-
-**Step 5: 更新 MAP value stream 中的 tail move**
-
-`map_column_reader.cpp` 中 MAP value stream 的 `move_tail_from_driver_overflow` 调用了通用的 `move_nested_tail` → `move_nested_scalar_tail`。需要传入 `value_slot_definition_level`。
-
-### 1.4 影响范围
+### 1.6 影响范围
 
 | 文件 | 改动 |
 |---|---|
-| `nested_column_reader.h` | 删除 `value_indices` 字段、`nested_scalar_value_index()`；`move_nested_scalar_tail` 增加参数、简化实现 |
-| `arrow_leaf_reader_adapter.cpp` | 删除 value_indices 构建循环（~20 行） |
-| `list_column_reader.cpp` | `read_scalar_list_values` / `read_nested_list_values` 增加 value_idx 跟踪（~10 行） |
-| `map_column_reader.cpp` | 所有 `append_scalar_batch_value` 调用点传入显式 value_idx（~6 处） |
-| `nested_column_reader.cpp` | `append_scalar_batch_value`、`append_nullable_scalar_child` 接口改为接收 value_idx |
+| `nested_column_reader.h/.cpp` | 新增 `NestedScalarValueCursor`；后续删除 `value_indices` 和 `nested_scalar_value_index()` |
+| `arrow_leaf_reader_adapter.cpp` | 最后阶段删除 value_indices 构建；保留 def/rep copy 和 values materialization |
+| `list_column_reader.cpp` | scalar LIST、nested LIST read/skip 使用 cursor |
+| `map_column_reader.cpp` | key/value/list-element 多 stream 使用独立 cursor；overflow tail move 传 value presence 参数 |
+| `struct_column_reader.cpp` / `nested_column_reader.cpp` | STRUCT scalar child 使用 per-child cursor |
 
-### 1.5 验证
+### 1.7 验证
 
-1. `grep -rn "value_indices" be/src/format/new_parquet/reader/` 结果为空
-2. `grep -rn "nested_scalar_value_index" be/src/format/new_parquet/` 结果为空
-3. 已有测试回归通过（`parquet_column_reader_test` 中的嵌套类型 read/skip 测试、`list_column_reader` 的 scalar/struct/nested 路径、`map_column_reader` 的 scalar/struct/list value 路径）
+实现完成后必须满足：
 
----
+1. `rg -n "value_indices|nested_scalar_value_index" be/src/format/new_parquet/reader` 结果为空。
+2. `git diff --check` 通过。
+3. Fedora `BUILD_TYPE=DEBUG ./build.sh --be` 通过。
+4. `./run-be-ut.sh --run '--filter=ParquetColumnReaderTest.*'` 通过。
 
 ## 2. 测试补充
 
 | 场景 | 优先级 |
 |---|---|
+| nullable list element：`[null, 1]`、`[1, null]`、empty list、null list | P0 |
+| nullable map value：`{k:null}`、`{k:v}`、empty map、null map | P0 |
+| `List<Struct<nullable child>>` read/skip/select | P0 |
+| `Map<K, Struct<nullable child>>` read/skip/select | P0 |
+| `Map<K, List<nullable V>>` small batch read + overflow | P0 |
+| `skip()` / `select()` 跨 long list/map/struct，验证 cursor 与 overflow 一致 | P0 |
 | Struct 子字段上的 conjunct 过滤：`SELECT * FROM t WHERE s.id > 5` | P1 |
 | 复杂列的 `select()` 路径：非谓词复杂列在过滤后通过 select 读取 | P1 |
 | 投影 + 过滤交互：`SELECT s.b FROM t WHERE s.a > 0` | P1 |
