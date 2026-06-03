@@ -652,7 +652,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const VExprSPtrs& chi
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
-    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
+    if (!_parent->cast<typename Derived::Parent>().can_push_down_column_predicate(*slot_desc)) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -1307,11 +1307,10 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
-            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
-                continue;
+            if (can_push_down_column_predicate(s)) {
+                auto col_name = s->col_name();
+                cid = get_column_id(col_name);
             }
-            auto col_name = s->col_name();
-            cid = get_column_id(col_name);
         }
         RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(
                 node_id(), _slot_id_to_slot_desc, cid));

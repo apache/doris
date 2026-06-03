@@ -2160,7 +2160,7 @@ public class Config extends ConfigBase {
      * Decrease this value if FE's memory is small
      */
     @ConfField(description = {"Maximum cache number of partitions at table level in Hive Metastore."})
-    public static long max_hive_partition_cache_num = 10000;
+    public static long max_hive_partition_cache_num = 100000;
 
     @ConfField(description = {"Maximum cache number of Hudi/Iceberg tables."})
     public static long max_external_table_cache_num = 1000;
@@ -2169,7 +2169,7 @@ public class Config extends ConfigBase {
     public static long max_meta_object_cache_num = 1000;
 
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
-    public static long max_hive_partition_table_cache_num = 1000;
+    public static long max_hive_partition_table_cache_num = 10000;
 
     @ConfField(mutable = false, masterOnly = false, description = {
             "Max number of hive partition values to return while list partitions, -1 means no limitation."})

@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContainsAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCrossProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
@@ -675,6 +676,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayCount(ArrayCount arrayCount, C context) {
         return visitScalarFunction(arrayCount, context);
+    }
+
+    default R visitArrayCrossProduct(ArrayCrossProduct arrayCrossProduct, C context) {
+        return visitScalarFunction(arrayCrossProduct, context);
     }
 
     default R visitArrayCumSum(ArrayCumSum arrayCumSum, C context) {

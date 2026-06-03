@@ -312,7 +312,7 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
         // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
         const FieldType op_col_type = _tablet_schema->column(binlog_cids[1]).type();
         IColumn* op_col_ptr = binlog_prefix_columns[1].get();
-        auto* op_nullable_column = typeid_cast<ColumnNullable*>(op_col_ptr);
+        auto* op_nullable_column = check_and_get_column<ColumnNullable>(op_col_ptr);
         IColumn* op_nested_column = op_nullable_column != nullptr
                                             ? &op_nullable_column->get_nested_column()
                                             : op_col_ptr;
@@ -329,7 +329,7 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
         // we can't get correct timestamp when commit
         IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
         auto timestamp = UnixMillis();
-        auto* ts_nullable_column = typeid_cast<ColumnNullable*>(ts_col_ptr);
+        auto* ts_nullable_column = check_and_get_column<ColumnNullable>(ts_col_ptr);
         if (ts_nullable_column != nullptr) {
             assert_cast<ColumnInt64*>(&ts_nullable_column->get_nested_column())
                     ->insert_many_vals(timestamp, num_rows);
