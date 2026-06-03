@@ -194,6 +194,9 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
                                                const SlotDescriptor* slot_desc) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
+    if (!is_complex_type(slot_desc->type()->get_primitive_type())) {
+        return Status::OK();
+    }
     if (slot_desc->all_access_paths().empty()) {
         return Status::OK();
     }

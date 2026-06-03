@@ -137,8 +137,8 @@ Status NativeReader::init_reader() {
                                                   _scan_params.broker_addresses.end());
     }
 
-    io::FileReaderOptions reader_options =
-            FileFactory::get_reader_options(_state->query_options(), file_description);
+    io::FileReaderOptions reader_options = FileFactory::get_reader_options(
+            _state ? _state->query_options() : _default_query_options, file_description);
     auto reader_res =
             _io_ctx_holder ? io::DelegateReader::create_file_reader(
                                      _profile, system_properties, file_description, reader_options,
