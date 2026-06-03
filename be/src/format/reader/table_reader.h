@@ -271,7 +271,8 @@ protected:
         _data_reader.block_template.clear();
         _data_reader.file_block_layout.resize(file_request->column_positions.size());
 
-        // 4. Build block schema based on file schema and column mapping. The scan schema describes the column layout of the block returned by file reader, which is determined by the column mapping and file schema.
+        // 4. Build file block layout from file schema and column mapping. The layout describes
+        // the block returned by file reader before table-column materialization.
         for (const auto& [file_column_id, block_position] : file_request->column_positions) {
             DORIS_CHECK(block_position < _data_reader.file_block_layout.size());
             const auto* field = _find_schema_field(_data_reader.file_schema, file_column_id);
@@ -304,7 +305,8 @@ protected:
             DORIS_CHECK(_data_reader.file_block_layout[block_position].type != nullptr);
         }
 
-        // 5. Prepare block template based on block schema. The block template is used to store the block returned by file reader before finalize; it has the same column layout as the file reader output block, which is determined by the column mapping and file schema.
+        // 5. Prepare block template from file block layout. The block template stores the block
+        // returned by file reader before table-column materialization.
         _data_reader.block_template.reserve(_data_reader.file_block_layout.size());
         for (const auto& column : _data_reader.file_block_layout) {
             _data_reader.block_template.insert(
@@ -780,10 +782,11 @@ protected:
     struct DataReader {
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
-        std::vector<SchemaField>
-                file_schema; // Schema of the data file, also including virtual column (row position).
-        std::vector<FileBlockColumn>
-                file_block_layout; // Schema of the block returned by file reader, determined by column mapping and file schema. It is used for file reader to materialize columns into correct type and position.
+        // Schema of the data file, also including virtual column (row position).
+        std::vector<SchemaField> file_schema;
+        // Layout of the block returned by file reader, determined by column mapping and file
+        // schema. It is used for file reader to materialize columns into correct type and position.
+        std::vector<FileBlockColumn> file_block_layout;
         Block block_template;
     };
     DataReader _data_reader;
