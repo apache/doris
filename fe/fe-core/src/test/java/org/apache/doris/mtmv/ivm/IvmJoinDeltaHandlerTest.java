@@ -20,6 +20,7 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -52,18 +53,188 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
+class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
-    private static final class TestableIvmOuterJoinDeltaHandler {
+    private static final class TestableIvmJoinDeltaHandler {
         private final IvmDeltaRewriteVisitor visitor;
 
-        private TestableIvmOuterJoinDeltaHandler() {
+        private TestableIvmJoinDeltaHandler() {
             visitor = new IvmDeltaRewriteVisitor();
         }
 
         private IvmDeltaRewriteResult exposeRewritePlan(Plan plan, IvmRefreshContext ctx) {
             return visitor.rewritePlan(plan, ctx);
         }
+    }
+
+    private IvmRefreshContext newRefreshContext(Plan plan) {
+        return new IvmRefreshContext(buildMtmvFromPlan(plan.getOutput()), new ConnectContext(), null);
+    }
+
+    private IvmRefreshContext newRefreshContext(Plan plan, IvmNormalizeResult normalizeResult) {
+        return new IvmRefreshContext(buildMtmvFromPlan(plan.getOutput()), new ConnectContext(), normalizeResult);
+    }
+
+    @Test
+    void testInnerJoinDmlFactorPropagationLeft() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
+
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, newRefreshContext(join));
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+    }
+
+    @Test
+    void testInnerJoinDmlFactorPropagationRight() {
+        LogicalOlapScan scanSnapshot = buildScanForTable(1, "t1");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanSnapshot, scanDelta, JoinReorderContext.EMPTY);
+
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, newRefreshContext(join));
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+    }
+
+    @Test
+    void testCrossJoinDmlFactorPropagation() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.CROSS_JOIN,
+                scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
+
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, newRefreshContext(join));
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan);
+    }
+
+    @Test
+    void testInnerJoinBothDeltaThrows() {
+        LogicalOlapScan scanA = buildScan();
+        LogicalOlapScan scanB = buildScan();
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        Assertions.assertThrows(AnalysisException.class, () -> handler.exposeRewritePlan(join, newRefreshContext(join)));
+    }
+
+    @Test
+    void testInnerJoinWithoutDeltaReturnsNullDmlFactor() {
+        LogicalOlapScan scanA = buildScanForTable(1, "t1");
+        LogicalOlapScan scanB = buildScanForTable(2, "t2");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, newRefreshContext(join));
+
+        Assertions.assertNull(result.dmlFactorSlot);
+    }
+
+    @Test
+    void testInnerJoinNonDetGuardAdded() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+
+        Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
+        ImmutableList.Builder<NamedExpression> snapshotOutputs = ImmutableList.builder();
+        snapshotOutputs.add(rowIdAlias);
+        scanSnapshot.getOutput().forEach(s -> snapshotOutputs.add((NamedExpression) s));
+        LogicalProject<?> normalizedSnapshot = new LogicalProject<>(snapshotOutputs.build(), scanSnapshot);
+        Slot rowIdSlot = normalizedSnapshot.getOutput().get(0);
+
+        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+        normalizeResult.addRowId(rowIdSlot, false);
+
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
+
+        IvmRefreshContext rewriteCtx = newRefreshContext(join, normalizeResult);
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan);
+        String planString = result.plan.toString();
+        Assertions.assertTrue(planString.contains("assert_true") || planString.contains("AssertTrue"),
+                "Non-deterministic row_id should add assert_true guard, plan: " + planString);
+    }
+
+    @Test
+    void testInnerJoinDeterministicRowIdSkipsGuard() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+
+        Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
+        ImmutableList.Builder<NamedExpression> snapshotOutputs = ImmutableList.builder();
+        snapshotOutputs.add(rowIdAlias);
+        scanSnapshot.getOutput().forEach(s -> snapshotOutputs.add((NamedExpression) s));
+        LogicalProject<?> normalizedSnapshot = new LogicalProject<>(snapshotOutputs.build(), scanSnapshot);
+        Slot rowIdSlot = normalizedSnapshot.getOutput().get(0);
+
+        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+        normalizeResult.addRowId(rowIdSlot, true);
+
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
+
+        IvmRefreshContext rewriteCtx = newRefreshContext(join, normalizeResult);
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertInstanceOf(LogicalJoin.class, result.plan);
+    }
+
+    @Test
+    void testInnerJoinGuardFallbackMessage() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+
+        Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
+        ImmutableList.Builder<NamedExpression> snapshotOutputs = ImmutableList.builder();
+        snapshotOutputs.add(rowIdAlias);
+        scanSnapshot.getOutput().forEach(s -> snapshotOutputs.add((NamedExpression) s));
+        LogicalProject<?> normalizedSnapshot = new LogicalProject<>(snapshotOutputs.build(), scanSnapshot);
+        Slot rowIdSlot = normalizedSnapshot.getOutput().get(0);
+
+        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+        normalizeResult.addRowId(rowIdSlot, false);
+
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
+
+        IvmRefreshContext rewriteCtx = newRefreshContext(join, normalizeResult);
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
+
+        Assertions.assertTrue(result.plan.toString().contains(
+                "IVM fallback: delete on non-deterministic row_id in INNER_JOIN"));
+    }
+
+    @Test
+    void testInnerJoinDmlFactorWithHashConjuncts() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        EqualTo condition = new EqualTo(scanDelta.getOutput().get(0), scanSnapshot.getOutput().get(0));
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(condition), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
+
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, newRefreshContext(join));
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
     }
 
     private static final class NormalizedOuterJoinPlan {
@@ -85,7 +256,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.<TableNameInfo, IvmStreamRef>of());
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
@@ -106,7 +277,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
@@ -147,7 +318,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 rowIdProject(rightSnapshot));
 
         IvmStreamRef leftStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
                 leftStream));
 
@@ -174,7 +345,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan bundle = normalizedFullOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
         IvmStreamRef leftStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
                 leftStream));
 
@@ -198,7 +369,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan bundle = normalizedFullOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
@@ -223,7 +394,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
@@ -245,7 +416,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
@@ -271,7 +442,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
         IvmStreamRef leftStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
                 leftStream));
 
@@ -295,7 +466,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
@@ -334,7 +505,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), nullSide);
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
@@ -353,7 +524,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan firstJoin = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(middleSnapshot));
         NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightSnapshot));
 
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(topJoin, ImmutableMap.<TableNameInfo, IvmStreamRef>of());
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(topJoin.topProject, ctx);
@@ -375,7 +546,7 @@ class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
+        TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
         IvmRefreshContext ctx = context(topJoin, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 

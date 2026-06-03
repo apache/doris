@@ -28,22 +28,22 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 /**
- * Internal visitor that dispatches each plan node to the linear, outer-join, or aggregate handler.
+ * Internal visitor that dispatches each plan node to the linear, join, or aggregate handler.
  */
 class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefreshContext> {
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
     private final IvmLinearDeltaHandler linearHandler;
-    private final IvmOuterJoinDeltaHandler outerJoinHandler;
+    private final IvmJoinDeltaHandler joinHandler;
     private final IvmAggDeltaHandler aggHandler;
 
     IvmDeltaRewriteVisitor() {
-        this(new IvmLinearDeltaHandler(), new IvmOuterJoinDeltaHandler(), new IvmAggDeltaHandler());
+        this(new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler());
     }
 
     IvmDeltaRewriteVisitor(IvmLinearDeltaHandler linearHandler,
-            IvmOuterJoinDeltaHandler outerJoinHandler, IvmAggDeltaHandler aggHandler) {
+            IvmJoinDeltaHandler joinHandler, IvmAggDeltaHandler aggHandler) {
         this.linearHandler = linearHandler;
-        this.outerJoinHandler = outerJoinHandler;
+        this.joinHandler = joinHandler;
         this.aggHandler = aggHandler;
     }
 
@@ -76,18 +76,14 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmRefreshContext ctx) {
-        if (join.getJoinType().isOuterJoin()) {
-            return outerJoinHandler.rewriteJoin(join, this, ctx);
-        } else {
-            return linearHandler.rewriteJoin(join, this, ctx);
-        }
+    public IvmDeltaRewriteResult visitLogicalUnion(LogicalUnion union, IvmRefreshContext ctx) {
+        return linearHandler.rewriteUnion(union, this, ctx);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalUnion(LogicalUnion union, IvmRefreshContext ctx) {
-        return linearHandler.rewriteUnion(union, this, ctx);
+    public IvmDeltaRewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmRefreshContext ctx) {
+        return joinHandler.rewriteJoin(join, this, ctx);
     }
 
     @Override
