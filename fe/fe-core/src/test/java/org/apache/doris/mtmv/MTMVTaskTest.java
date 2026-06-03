@@ -18,7 +18,9 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -26,17 +28,27 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
+import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
+import org.apache.doris.mtmv.ivm.IvmPlanSignature;
+import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRefreshResult;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -354,6 +366,126 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testTryIvmFastPathFallsBackForPlanSignatureMismatchInAutoMode() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName, ptwoName));
+        IvmPlanSignature currentSignature = new IvmPlanSignature("canonical", "new");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
+                (mock, context) -> Mockito.when(mock.doRefresh(mtmv)).thenReturn(
+                        IvmRefreshResult.fallback(IvmFailureReason.PLAN_SIGNATURE_MISMATCH,
+                                "layout drift", currentSignature)))) {
+            Assert.assertFalse(Deencapsulation.invoke(task, "tryIvmFastPath"));
+        }
+
+        Assert.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+        Assert.assertEquals("new", Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
+        List<String> needRefreshPartitions = Deencapsulation.getField(task, "needRefreshPartitions");
+        Assert.assertEquals(mtmv.getPartitionNames(), Sets.newHashSet(needRefreshPartitions));
+        Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.COMPLETE,
+                Deencapsulation.getField(task, "refreshMode"));
+    }
+
+    @Test
+    public void testTryIvmFastPathKeepsRefreshScopeForNonSignatureFallbackInAutoMode() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "needRefreshPartitions", Lists.newArrayList(poneName));
+        Deencapsulation.setField(task, "refreshMode", MTMVTask.MTMVTaskRefreshMode.PARTIAL);
+
+        try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
+                (mock, context) -> Mockito.when(mock.doRefresh(mtmv)).thenReturn(
+                        IvmRefreshResult.fallback(IvmFailureReason.BINLOG_NOT_ENABLED, "no_binlog")))) {
+            Assert.assertFalse(Deencapsulation.invoke(task, "tryIvmFastPath"));
+        }
+
+        Assert.assertEquals(Lists.newArrayList(poneName),
+                Deencapsulation.getField(task, "needRefreshPartitions"));
+        Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL,
+                Deencapsulation.getField(task, "refreshMode"));
+        Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
+    }
+
+    @Test
+    public void testDebugPlanSignatureDriftFallsBackToFullRefresh() throws Exception {
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            DebugPointUtil.clearDebugPoints();
+            IvmPlanSignature storedSignature = signatureForDebugDriftTest();
+            DebugPointUtil.addDebugPointWithValue(IvmPlanSignatureGenerator.DEBUG_POINT_SIGNATURE_SALT,
+                    "plan_changed");
+            IvmPlanSignature currentSignature = signatureForDebugDriftTest();
+            Assert.assertNotEquals(storedSignature.getSha256(), currentSignature.getSha256());
+
+            IvmInfo ivmInfo = new IvmInfo();
+            ivmInfo.setPlanSignature(storedSignature.getSha256());
+            Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+            Mockito.when(mtmv.isIvm()).thenReturn(true);
+            Mockito.when(mtmv.getName()).thenReturn("test_mv");
+            Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName, ptwoName));
+
+            IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+            normalizeResult.setPlanSignature(currentSignature);
+            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(
+                    Collections.emptyList(), null, null, Collections.emptyMap());
+            queryInfo.setIvmNormalizeResult(normalizeResult);
+            ConnectContext connectContext = new ConnectContext();
+            MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+            Deencapsulation.setField(task, "needRefreshPartitions", Lists.newArrayList(poneName));
+            Deencapsulation.setField(task, "refreshMode", MTMVTask.MTMVTaskRefreshMode.PARTIAL);
+
+            try (MockedStatic<MTMVPlanUtil> mtmvPlanUtilStatic = Mockito.mockStatic(MTMVPlanUtil.class)) {
+                mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(
+                        Mockito.eq(mtmv), Mockito.anyList())).thenReturn(connectContext);
+                mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.analyzeQueryWithSql(
+                        Mockito.eq(mtmv), Mockito.eq(connectContext), Mockito.eq(true))).thenReturn(queryInfo);
+
+                Assert.assertFalse(Deencapsulation.invoke(task, "tryIvmFastPath"));
+            }
+
+            Assert.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
+                    Deencapsulation.getField(task, "ivmFallbackReason"));
+            Assert.assertEquals(currentSignature.getSha256(),
+                    Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
+            Assert.assertEquals(currentSignature.getCanonicalString(),
+                    Deencapsulation.getField(task, "ivmFallbackPlanCanonicalString"));
+            List<String> needRefreshPartitions = Deencapsulation.getField(task, "needRefreshPartitions");
+            Assert.assertEquals(mtmv.getPartitionNames(), Sets.newHashSet(needRefreshPartitions));
+            Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.COMPLETE,
+                    Deencapsulation.getField(task, "refreshMode"));
+        } finally {
+            DebugPointUtil.clearDebugPoints();
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
+    }
+
+    @Test
+    public void testFullRefreshUpdatesIvmPlanSignatureFromFallbackResult() throws Exception {
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setPlanSignature("old");
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "ivmFallbackPlanSignature", "new");
+        Deencapsulation.setField(task, "ivmFallbackPlanCanonicalString", "canonical");
+
+        try (MockedStatic<IvmRefreshManager> managerStatic = Mockito.mockStatic(IvmRefreshManager.class)) {
+            Deencapsulation.invoke(task, "updateIvmPlanSignatureAfterFullRefreshIfNeeded");
+
+            managerStatic.verify(() -> IvmRefreshManager.updatePlanSignatureAfterFullRefresh(
+                    mtmv, "new", "canonical"));
+        }
+        Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
+        Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanCanonicalString"));
+    }
+
+    @Test
     public void testOldTaskJsonWithoutIvmFallbackReasonDeserializes() {
         String oldJson = "{\"di\":1,\"mi\":2,\"taskContext\":{\"triggerMode\":\"MANUAL\"}}";
 
@@ -361,5 +493,22 @@ public class MTMVTaskTest {
 
         Assert.assertNotNull(task);
         Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    private IvmPlanSignature signatureForDebugDriftTest() {
+        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+        normalizeResult.setNormalizedPlan(buildSignaturePlan());
+        return new IvmPlanSignatureGenerator().generate(normalizeResult);
+    }
+
+    private LogicalResultSink<?> buildSignaturePlan() {
+        OlapTable table = PlanConstructor.newOlapTable(100L, "signature_t", 0, KeysType.UNIQUE_KEYS);
+        table.setQualifiedDbName("test_db");
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                Lists.newArrayList("test_db"));
+        List<NamedExpression> outputs = Lists.newArrayList();
+        outputs.addAll(scan.getOutput());
+        LogicalProject<?> project = new LogicalProject<>(outputs, scan);
+        return new LogicalResultSink<>(outputs, project);
     }
 }

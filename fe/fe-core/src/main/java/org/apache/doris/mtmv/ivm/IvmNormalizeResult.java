@@ -40,6 +40,7 @@ public class IvmNormalizeResult {
     private final Map<Slot, Boolean> rowIdDeterminism = new LinkedHashMap<>();
     private Plan normalizedPlan;
     private IvmAggMeta aggMeta;
+    private IvmPlanSignature planSignature;
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -76,5 +77,13 @@ public class IvmNormalizeResult {
 
     public void setAggMeta(IvmAggMeta aggMeta) {
         this.aggMeta = aggMeta;
+    }
+
+    public IvmPlanSignature getPlanSignature() {
+        return planSignature;
+    }
+
+    public void setPlanSignature(IvmPlanSignature planSignature) {
+        this.planSignature = planSignature;
     }
 }

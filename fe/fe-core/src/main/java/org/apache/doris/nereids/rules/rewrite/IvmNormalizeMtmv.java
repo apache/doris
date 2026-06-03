@@ -28,6 +28,7 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
+import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
@@ -201,6 +202,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         jobContext.getCascadesContext().setIvmNormalizeResult(normalizeResult);
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         normalizeResult.setNormalizedPlan(result);
+        normalizeResult.setPlanSignature(new IvmPlanSignatureGenerator().generate(normalizeResult));
         return result;
     }
 
@@ -233,6 +235,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     // whitelisted: project — recurse into child, then propagate row-id if not already present
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, NormalizeContext context) {
+        if (project.isDistinct()) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "IVM does not support DISTINCT project.");
+        }
         Plan newChild = project.child().accept(this, context);
         List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects());
         if (newChild == project.child() && newOutputs.equals(project.getProjects())) {

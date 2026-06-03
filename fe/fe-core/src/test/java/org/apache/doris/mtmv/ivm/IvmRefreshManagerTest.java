@@ -20,6 +20,7 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.qe.ConnectContext;
@@ -143,6 +144,80 @@ public class IvmRefreshManagerTest {
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.AGG_UNSUPPORTED, result.getFailureReason());
         Assertions.assertTrue(result.getDetailMessage().contains("unsupported aggregate"));
+        Assertions.assertFalse(executor.executeCalled);
+    }
+
+    @Test
+    public void testValidatePlanSignaturePassesWhenMatched() {
+        MTMV mtmv = mockMtmv();
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setPlanSignature("abc");
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        MTMVAnalyzeQueryInfo queryInfo = newQueryInfo(new IvmPlanSignature("canonical", "abc"));
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(
+                new TestDeltaExecutor(), newContext(mtmv), Collections.emptyList());
+
+        manager.validatePlanSignature(mtmv, queryInfo);
+    }
+
+    @Test
+    public void testValidatePlanSignatureFailsWhenMissing() {
+        MTMV mtmv = mockMtmv();
+        IvmInfo ivmInfo = new IvmInfo();
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        IvmPlanSignature currentSignature = new IvmPlanSignature("canonical", "abc");
+        MTMVAnalyzeQueryInfo queryInfo = newQueryInfo(currentSignature);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(
+                new TestDeltaExecutor(), newContext(mtmv), Collections.emptyList());
+
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> manager.validatePlanSignature(mtmv, queryInfo));
+
+        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("storedSignature=null"));
+    }
+
+    @Test
+    public void testValidatePlanSignatureFailsWhenMismatched() {
+        MTMV mtmv = mockMtmv();
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setPlanSignature("old");
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        IvmPlanSignature currentSignature = new IvmPlanSignature("canonical", "new");
+        MTMVAnalyzeQueryInfo queryInfo = newQueryInfo(currentSignature);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(
+                new TestDeltaExecutor(), newContext(mtmv), Collections.emptyList());
+
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> manager.validatePlanSignature(mtmv, queryInfo));
+
+        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("storedSignature=old"));
+        Assertions.assertTrue(exception.getMessage().contains("currentSignature=new"));
+    }
+
+    @Test
+    public void testPlanSignatureMismatchFallbackCarriesCurrentSignature() {
+        MTMV mtmv = mockMtmv();
+        IvmPlanSignature currentSignature = new IvmPlanSignature("canonical", "new");
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setPlanSignature("old");
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), Collections.emptyList()) {
+            @Override
+            List<Command> analyzeDeltaCommands(IvmRefreshContext ctx) {
+                validatePlanSignature(mtmv, newQueryInfo(currentSignature));
+                return Collections.emptyList();
+            }
+        };
+
+        IvmRefreshResult result = manager.doRefresh(mtmv);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, result.getFailureReason());
+        Assertions.assertSame(currentSignature, result.getCurrentPlanSignature());
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -427,8 +502,18 @@ public class IvmRefreshManagerTest {
     private static MTMV mockMtmv() {
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.getName()).thenReturn("mv");
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("db");
         Mockito.when(mtmv.getIvmInfo()).thenReturn(new IvmInfo());
         return mtmv;
+    }
+
+    private static MTMVAnalyzeQueryInfo newQueryInfo(IvmPlanSignature signature) {
+        MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(
+                Collections.emptyList(), null, null, Collections.emptyMap());
+        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+        normalizeResult.setPlanSignature(signature);
+        queryInfo.setIvmNormalizeResult(normalizeResult);
+        return queryInfo;
     }
 
     private static List<Command> makeCommands(Command deltaWriteCommand, MTMV mtmv) {

@@ -50,6 +50,7 @@ import java.util.Set;
 public class IvmRefreshManager {
     private static final Logger LOG = LogManager.getLogger(IvmRefreshManager.class);
     private final IvmDeltaExecutor deltaExecutor;
+    private IvmPlanSignature currentPlanSignatureForFallback;
 
     public IvmRefreshManager() {
         this(new IvmDeltaExecutor());
@@ -62,6 +63,7 @@ public class IvmRefreshManager {
 
     public IvmRefreshResult doRefresh(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
+        currentPlanSignatureForFallback = null;
         IvmRefreshResult precheckResult = precheck(mtmv);
         if (!precheckResult.isSuccess()) {
             LOG.warn("IVM precheck failed for mv={}, result={}", mtmv.getName(), precheckResult);
@@ -106,6 +108,7 @@ public class IvmRefreshManager {
         MTMV mtmv = context.getMtmv();
         MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQueryWithSql(
                 mtmv, context.getConnectContext(), true);
+        validatePlanSignature(mtmv, queryInfo);
         IvmNormalizeResult normalizeResult = queryInfo.getIvmNormalizeResult();
         Plan normalizedPlan = queryInfo.getIvmNormalizedPlan();
         if (normalizedPlan == null) {
@@ -135,6 +138,7 @@ public class IvmRefreshManager {
         IvmRefreshContext context = buildRefreshContext(mtmv);
         MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQueryWithSql(
                 mtmv, context.getConnectContext(), true);
+        validatePlanSignature(mtmv, queryInfo);
         IvmNormalizeResult normalizeResult = queryInfo.getIvmNormalizeResult();
         Plan normalizedPlan = queryInfo.getIvmNormalizedPlan();
         if (normalizedPlan == null) {
@@ -174,6 +178,30 @@ public class IvmRefreshManager {
             explainStreams.put(tableInfo, new IvmStreamRef());
         }
         return explainStreams;
+    }
+
+    @VisibleForTesting
+    void validatePlanSignature(MTMV mtmv, MTMVAnalyzeQueryInfo queryInfo) {
+        IvmNormalizeResult normalizeResult = queryInfo.getIvmNormalizeResult();
+        IvmPlanSignature currentSignature = normalizeResult == null ? null : normalizeResult.getPlanSignature();
+        currentPlanSignatureForFallback = currentSignature;
+        IvmInfo ivmInfo = mtmv.getIvmInfo();
+        String storedSignature = ivmInfo.getPlanSignature();
+        boolean signatureMatched = currentSignature != null
+                && Objects.equals(storedSignature, currentSignature.getSha256());
+        if (signatureMatched) {
+            return;
+        }
+        LOG.info("IVM layout signature mismatch for mv={}, storedSignature={}, currentSignature={}, "
+                        + "currentCanonicalLayout={}",
+                mtmv.getName(), storedSignature,
+                currentSignature == null ? "null" : currentSignature.getSha256(),
+                currentSignature == null ? "null" : currentSignature.getCanonicalString());
+        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
+                + ", storedSignature=" + storedSignature
+                + ", currentSignature=" + (currentSignature == null ? "null" : currentSignature.getSha256())
+                + ". Run a full refresh to rebuild IVM layout baseline.";
+        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
 
     /**
@@ -249,7 +277,12 @@ public class IvmRefreshManager {
         try {
             commands = analyzeDeltaCommands(context);
         } catch (IvmException e) {
-            IvmRefreshResult result = IvmRefreshResult.fallback(e.getFailureReason(), e.getMessage());
+            // Preserve the typed failure reason across the refresh boundary so MTMVTask can decide
+            // whether ordinary partition fallback is enough or a full layout-baseline rebuild is required.
+            IvmPlanSignature currentSignature = e.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH
+                    ? currentPlanSignatureForFallback : null;
+            IvmRefreshResult result = IvmRefreshResult.fallback(
+                    e.getFailureReason(), e.getMessage(), currentSignature);
             LOG.warn("IVM plan analysis failed for mv={}, result={}", mtmv.getName(), result, e);
             return result;
         } catch (Exception e) {
@@ -368,6 +401,17 @@ public class IvmRefreshManager {
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
         Env.getCurrentEnv().alterMTMVIvmInfo(tableName, ivmInfo);
         LOG.info("IVM running refresh flag cleared after full refresh for mv={}", mtmv.getName());
+    }
+
+    public static void updatePlanSignatureAfterFullRefresh(MTMV mtmv, String planSignature,
+            String canonicalString) {
+        IvmInfo ivmInfo = mtmv.getIvmInfo();
+        ivmInfo.setPlanSignature(planSignature);
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
+        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, ivmInfo);
+        LOG.info("IVM layout signature baseline updated after full refresh for mv={}, signature={}, "
+                        + "canonicalLayout={}",
+                mtmv.getName(), planSignature, canonicalString == null ? "null" : canonicalString);
     }
 
     @VisibleForTesting
