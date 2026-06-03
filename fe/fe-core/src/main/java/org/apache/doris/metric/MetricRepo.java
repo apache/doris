@@ -121,7 +121,7 @@ public final class MetricRepo {
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
-    public static AutoMappedMetric<Histogram> USER_HISTO_QUERY_LATENCY;
+    public static AutoMappedMetric<HistogramMetric> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
     public static AutoMappedMetric<GaugeMetricImpl<Integer>> USER_GAUGE_CONNECTIONS;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
@@ -511,9 +511,10 @@ public final class MetricRepo {
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("query", "latency", "ms"));
         USER_HISTO_QUERY_LATENCY = new AutoMappedMetric<>(name -> {
-            String metricName = MetricRegistry.name("query", "latency", "ms", "user=" + name);
-            return METRIC_REGISTER.histogram(metricName);
+            List<MetricLabel> labels = Collections.singletonList(new MetricLabel("user", name));
+            return new HistogramMetric(MetricRegistry.name("query", "latency", "ms"), labels);
         });
+        DORIS_METRIC_REGISTER.addHistogramMetrics("user_query_latency", USER_HISTO_QUERY_LATENCY);
         USER_COUNTER_QUERY_INSTANCE_BEGIN = addLabeledMetrics("user", () ->
                 new LongCounterMetric("query_instance_begin", MetricUnit.NOUNIT,
                         "number of query instance begin"));
@@ -1566,10 +1567,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.accept(visitor);
 
         // histogram
-        SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
-        }
+        visitHistograms(visitor);
 
         visitor.visitNodeInfo();
 
@@ -1587,6 +1585,15 @@ public final class MetricRepo {
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(m);
             return m;
         });
+    }
+
+    public static void visitHistograms(MetricVisitor visitor) {
+        SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+
+        DORIS_METRIC_REGISTER.acceptHistograms(visitor);
     }
 
     // update some metrics to make a ready to be visited
@@ -1957,9 +1964,9 @@ public final class MetricRepo {
             CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.remove(clusterId);
             DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(queryErrRateGauge.getName(), labels);
 
-            METRIC_REGISTER.getHistograms().keySet().stream()
-                    .filter(k -> k.contains(clusterId))
-                    .forEach(METRIC_REGISTER::remove);
+            CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.remove(clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER
+                    + clusterName);
+            // Meta-service RPC latency is keyed by method name only, so it is not removed by cluster.
 
             for (Backend backend : backends) {
                 List<MetricLabel> backendLabels = new ArrayList<>();
