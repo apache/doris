@@ -747,7 +747,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             } else if constexpr (primitive_type == TYPE_INT) {
                 return std::make_tuple(true, orc::Literal(int64_t(*((int32_t*)value))));
             } else if constexpr (primitive_type == TYPE_BIGINT) {
-                return std::make_tuple(true, orc::Literal(int64_t(*((int64_t*)value))));
+                return std::make_tuple(true, orc::Literal(*((int64_t*)value)));
             }
             return std::make_tuple(false, orc::Literal(false));
         }
@@ -755,7 +755,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             if constexpr (primitive_type == TYPE_FLOAT) {
                 return std::make_tuple(true, orc::Literal(double(*((float*)value))));
             } else if constexpr (primitive_type == TYPE_DOUBLE) {
-                return std::make_tuple(true, orc::Literal(double(*((double*)value))));
+                return std::make_tuple(true, orc::Literal(*((double*)value)));
             }
             return std::make_tuple(false, orc::Literal(false));
         }

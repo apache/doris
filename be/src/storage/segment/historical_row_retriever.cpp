@@ -281,7 +281,7 @@ void PrimaryKeyModelRowRetriever::_maybe_invalid_row_cache(const std::string& ke
         _context.tablet_schema->has_row_store_for_all_columns() &&
         _context.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
-        RowCache::instance()->erase({static_cast<int64_t>(_context.tablet->tablet_id()), key});
+        RowCache::instance()->erase({_context.tablet->tablet_id(), key});
     }
 }
 

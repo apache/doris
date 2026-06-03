@@ -2299,7 +2299,7 @@ void ColumnVariant::finalize(FinalizeMode mode) {
 }
 
 void ColumnVariant::finalize() {
-    static_cast<void>(finalize(FinalizeMode::READ_MODE));
+    finalize(FinalizeMode::READ_MODE);
 }
 
 void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) const {

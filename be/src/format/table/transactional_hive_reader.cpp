@@ -283,8 +283,7 @@ Status TransactionalHiveReader::on_before_read_block(Block* block) {
         DataTypePtr data_type = get_data_type_with_default_argument(
                 DataTypeFactory::instance().create_data_type(i.type, false));
         MutableColumnPtr data_column = data_type->create_column();
-        (*col_name_to_block_idx_ref())[i.column_lower_case] =
-                static_cast<uint32_t>(block->columns());
+        (*col_name_to_block_idx_ref())[i.column_lower_case] = block->columns();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, i.column_lower_case));
     }
