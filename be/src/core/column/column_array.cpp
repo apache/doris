@@ -50,7 +50,8 @@ namespace doris {
 namespace {
 
 const ColumnArray::ColumnOffsets& check_array_offsets_column(const IColumn& offsets_column) {
-    const auto* offsets_concrete = typeid_cast<const ColumnArray::ColumnOffsets*>(&offsets_column);
+    const auto* offsets_concrete =
+            check_and_get_column<ColumnArray::ColumnOffsets>(&offsets_column);
     if (!offsets_concrete) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
         __builtin_unreachable();
@@ -851,37 +852,37 @@ size_t filter_generic_inplace(const Filter& filter, IColumn& src_data, ColumnOff
 ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t result_size_hint,
                                                   const ColumnPtr& data,
                                                   const ColumnOffsets* offsets) {
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
+    if (check_and_get_column<ColumnUInt8>(data.get()))
         return filter_number_return_new<TYPE_BOOLEAN>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
+    if (check_and_get_column<ColumnInt8>(data.get()))
         return filter_number_return_new<TYPE_TINYINT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
+    if (check_and_get_column<ColumnInt16>(data.get()))
         return filter_number_return_new<TYPE_SMALLINT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
+    if (check_and_get_column<ColumnInt32>(data.get()))
         return filter_number_return_new<TYPE_INT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
+    if (check_and_get_column<ColumnInt64>(data.get()))
         return filter_number_return_new<TYPE_BIGINT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
+    if (check_and_get_column<ColumnFloat32>(data.get()))
         return filter_number_return_new<TYPE_FLOAT>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
+    if (check_and_get_column<ColumnFloat64>(data.get()))
         return filter_number_return_new<TYPE_DOUBLE>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDate*>(data.get()))
+    if (check_and_get_column<ColumnDate>(data.get()))
         return filter_number_return_new<TYPE_DATE>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDateV2*>(data.get()))
+    if (check_and_get_column<ColumnDateV2>(data.get()))
         return filter_number_return_new<TYPE_DATEV2>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDateTime*>(data.get()))
+    if (check_and_get_column<ColumnDateTime>(data.get()))
         return filter_number_return_new<TYPE_DATETIME>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
+    if (check_and_get_column<ColumnDateTimeV2>(data.get()))
         return filter_number_return_new<TYPE_DATETIMEV2>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnTimeStampTz*>(data.get()))
+    if (check_and_get_column<ColumnTimeStampTz>(data.get()))
         return filter_number_return_new<TYPE_TIMESTAMPTZ>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnTimeV2*>(data.get()))
+    if (check_and_get_column<ColumnTimeV2>(data.get()))
         return filter_number_return_new<TYPE_TIMEV2>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnTime*>(data.get()))
+    if (check_and_get_column<ColumnTime>(data.get()))
         return filter_number_return_new<TYPE_TIME>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnIPv4*>(data.get()))
+    if (check_and_get_column<ColumnIPv4>(data.get()))
         return filter_number_return_new<TYPE_IPV4>(filt, result_size_hint, data, offsets);
-    if (typeid_cast<const ColumnString*>(data.get()))
+    if (check_and_get_column<ColumnString>(data.get()))
         return filter_string_return_new(filt, result_size_hint, data, offsets);
     return filter_generic_return_new(filt, result_size_hint, data, offsets);
 }
@@ -919,35 +920,35 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
 // In order not to destroy the original logic, the original logic is still retained here.
 size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
                                ColumnOffsets& src_offsets) {
-    if (typeid_cast<ColumnUInt8*>(&src_data))
+    if (check_and_get_column<ColumnUInt8>(&src_data))
         return filter_number_inplace<TYPE_BOOLEAN>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt8*>(&src_data))
+    if (check_and_get_column<ColumnInt8>(&src_data))
         return filter_number_inplace<TYPE_TINYINT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt16*>(&src_data))
+    if (check_and_get_column<ColumnInt16>(&src_data))
         return filter_number_inplace<TYPE_SMALLINT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt32*>(&src_data))
+    if (check_and_get_column<ColumnInt32>(&src_data))
         return filter_number_inplace<TYPE_INT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnInt64*>(&src_data))
+    if (check_and_get_column<ColumnInt64>(&src_data))
         return filter_number_inplace<TYPE_BIGINT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnFloat32*>(&src_data))
+    if (check_and_get_column<ColumnFloat32>(&src_data))
         return filter_number_inplace<TYPE_FLOAT>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnFloat64*>(&src_data))
+    if (check_and_get_column<ColumnFloat64>(&src_data))
         return filter_number_inplace<TYPE_DOUBLE>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDate*>(&src_data))
+    if (check_and_get_column<ColumnDate>(&src_data))
         return filter_number_inplace<TYPE_DATE>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDateV2*>(&src_data))
+    if (check_and_get_column<ColumnDateV2>(&src_data))
         return filter_number_inplace<TYPE_DATEV2>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDateTime*>(&src_data))
+    if (check_and_get_column<ColumnDateTime>(&src_data))
         return filter_number_inplace<TYPE_DATETIME>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnDateTimeV2*>(&src_data))
+    if (check_and_get_column<ColumnDateTimeV2>(&src_data))
         return filter_number_inplace<TYPE_DATETIMEV2>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnTimeStampTz*>(&src_data))
+    if (check_and_get_column<ColumnTimeStampTz>(&src_data))
         return filter_number_inplace<TYPE_TIMESTAMPTZ>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnTimeV2*>(&src_data))
+    if (check_and_get_column<ColumnTimeV2>(&src_data))
         return filter_number_inplace<TYPE_TIMEV2>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnTime*>(&src_data))
+    if (check_and_get_column<ColumnTime>(&src_data))
         return filter_number_inplace<TYPE_TIME>(filter, src_data, src_offsets);
-    if (typeid_cast<ColumnIPv4*>(&src_data))
+    if (check_and_get_column<ColumnIPv4>(&src_data))
         return filter_number_inplace<TYPE_IPV4>(filter, src_data, src_offsets);
     return filter_generic_inplace(filter, src_data, src_offsets);
 }
@@ -957,7 +958,7 @@ size_t ColumnArray::filter(const Filter& filter) {
         return 0;
     }
 
-    if (auto* nullable_data_column = typeid_cast<ColumnNullable*>(data.get())) {
+    if (auto* nullable_data_column = check_and_get_column<ColumnNullable>(data.get())) {
         const auto result_size = filter_arrays_impl_only_data(
                 nullable_data_column->get_null_map_data(), get_offsets(), filter);
 
