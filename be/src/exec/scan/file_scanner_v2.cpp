@@ -38,6 +38,7 @@
 #include "exec/common/util.hpp"
 #include "exec/operator/scan_operator.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/format_common.h"
 #include "format/reader/table/hive_reader.h"
@@ -295,11 +296,28 @@ Status FileScannerV2::_build_projected_columns() {
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
         if (is_partition_slot(slot_info)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(column.name, it->second);
         }
         _projected_columns.push_back(std::move(column));
+    }
+    return Status::OK();
+}
+
+Status FileScannerV2::_build_default_expr(const TFileScanSlotInfo& slot_info,
+                                          VExprContextSPtr* ctx) const {
+    DORIS_CHECK(ctx != nullptr);
+    if (slot_info.__isset.default_value_expr && !slot_info.default_value_expr.nodes.empty()) {
+        return VExpr::create_expr_tree(slot_info.default_value_expr, *ctx);
+    }
+
+    if (_params->__isset.default_value_of_src_slot) {
+        const auto it = _params->default_value_of_src_slot.find(slot_info.slot_id);
+        if (it != _params->default_value_of_src_slot.end() && !it->second.nodes.empty()) {
+            return VExpr::create_expr_tree(it->second, *ctx);
+        }
     }
     return Status::OK();
 }

@@ -81,6 +81,7 @@ private:
     Status _parse_partition_value(const SlotDescriptor* slot_desc, const std::string& value,
                                   bool is_null, Field* field) const;
     Status _build_projected_columns();
+    Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static reader::TableColumn _build_table_column(const SlotDescriptor* slot_desc);
     Status _build_table_column_predicates(reader::TableColumnPredicates* predicates) const;
     VExprSPtr _build_conjunct_root() const;
