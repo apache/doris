@@ -57,12 +57,12 @@
 - [ ] `GsonUtils.java:402 / 457 / 476` 三个 class-token subtype 注册同步删除（与目录一起清，用户决议 Q2）
 - [ ] `TableIf.TableType.TRINO_CONNECTOR_EXTERNAL_TABLE` **保留**（image compat，master plan §3.3 task 2.4 明示）
 - [ ] fe-connector-trino 单元测试：schema 解析 / predicate 转换 / type mapping / json ser-deser（最少 4 个 test class）
-- [ ] regression-test `trino_connector_migration_compat`：模拟旧 FE image 反序列化通过
-- [ ] 现有 trino-connector regression-test 全套通过
-- [ ] `docs-next/` 加 trino-connector 插件安装步骤
-- [ ] 看板 + PROGRESS 同步：trino-connector 进度 30% → 100%
-- [ ] fe-core 全编译 + checkstyle 0；`mvn -pl fe-connector validate` 通过 import-gate
-- [ ] PR CI 全绿
+- [~] regression-test `trino_connector_migration_compat`：**推迟**（本环境无集群/plugin/docker；转 CI follow-up，见 DV-003）
+- [ ] 现有 trino-connector regression-test 全套通过（需集群环境）
+- [~] ~~`docs-next/` 加 trino-connector 插件安装步骤~~：本代码仓无 docs-next，转 doris-website 仓（见 DV-004）
+- [x] 看板 + PROGRESS 同步：trino-connector 进度 → 100%
+- [x] fe-core 全编译 + checkstyle 0；`mvn -pl fe-connector validate` 通过 import-gate
+- [ ] PR CI 全绿（**PR 待开**——`catalog-spi-03` 与 branch-catalog-spi 基线错位，分支对齐由用户处理）
 
 ---
 
@@ -78,19 +78,30 @@
 | P2-T04 | `PluginDrivenExternalCatalog.gsonPostProcess` 加 `trinoconnector → plugin` logType 迁移 | **批 B** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | 新增 `legacyLogTypeToCatalogType()` helper；`Type.TRINO_CONNECTOR.name().toLowerCase()` = `"trino_connector"` 不匹配 CatalogFactory 的 `"trino-connector"`，需要显式 case 映射。+15 LOC |
 | P2-T05 | ~~`ExternalCatalog.registerCompatibleSubtype` 注册~~（**duplicate of T03**） | **批 B** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | recon 发现 `registerCompatibleSubtype` 只在 `GsonUtils` 上存在（`RuntimeTypeAdapterFactory` 方法），没有 `ExternalCatalog.registerCompatibleSubtype` 这种 API。原任务描述误解；T03 完成时本任务自动满足 |
 | P2-T06 | `PluginDrivenExternalTable.getEngine()` + `getEngineTableTypeName()` 加 `case "trino-connector":` 分支 | **批 B** | @me | ✅ | — | 2026-05-25 | 2026-05-25 | **caveat**：`TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName()` 因 switch 没有 case 返回 null（legacy 也是 null）；保留此 legacy 行为。`getEngineTableTypeName` 返回 `.name()` 正常。+6 LOC |
-| P2-T07 | `CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"` | **批 C** | @me | ⏳ | — | — | — | `CatalogFactory.java:53`，把 `ImmutableSet.of("jdbc", "es")` 改 `("jdbc", "es", "trino-connector")`。**翻闸点**——必须在批 A/B 全部完成且本地 smoke pass 之后操作 |
-| P2-T08 | `PhysicalPlanTranslator.visitPhysicalFileScan` 删 `instanceof TrinoConnectorExternalTable` 分支 | **批 D** | @me | ⏳ | — | — | — | 文件 `nereids/glue/translator/PhysicalPlanTranslator.java:779`；P1 批 A 已加 `PluginDrivenExternalTable` 前置分支，trino 翻闸后这里成死代码 |
-| P2-T09 | `CatalogFactory` 删 `case "trino-connector":` + 删 `TrinoConnectorExternalCatalogFactory.java` 整文件 | **批 D** | @me | ⏳ | — | — | — | `CatalogFactory.java:147-150`；factory 文件 30 LOC，整删 |
-| P2-T10 | 删 `datasource/trinoconnector/` 全目录（10 文件）+ 删 `GsonUtils:402/457/476` 三个 class-token 注册 | **批 D** | @me | ⏳ | — | — | — | 用户决议 Q2（2026-05-25）：class-token 注册随类删除一起清；image compat 全靠 T03 的 string-name redirect 承接。**保留** `TableIf.TableType.TRINO_CONNECTOR_EXTERNAL_TABLE` 枚举值 |
-| P2-T11 | `fe-connector-trino/src/test/` 单元测试（schema / predicate / type-map / json） | **批 E** | @me | ⏳ | — | — | — | 0 → 最少 4 个 test class；mock Trino plugin。**这一项与批 A 可并行起步**（批 A 完成 ≥ T01-T02 后可开测试） |
-| P2-T12 | regression-test `trino_connector_migration_compat`（旧 FE image 反序列化） | **批 E** | @me | ⏳ | — | — | — | 类似 P0 的 ES/JDBC migration compat；放入 `regression-test/suites/external_catalog/` |
-| P2-T13 | `docs-next/` 加 trino-connector 插件安装步骤 + 同步 `connectors/trino-connector.md` + `PROGRESS.md` | **批 E** | @me | ⏳ | — | — | — | 文档放 docs-next 对应 connector 章节；看板把进度从 30% 翻 100%，SPI_READY ✅，删旧代码 ✅，反向 instanceof ✅ |
+| P2-T07 | `CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"` | **批 C** | @me | ✅ | — | 2026-06-04 | 2026-06-04 | commit `0fe4b8a93d6`。`CatalogFactory.java:53` 加 `"trino-connector"`；顺手删上方注释里过时的 trino-connector 列举。翻闸点 |
+| P2-T08 | `PhysicalPlanTranslator.visitPhysicalFileScan` 删 `instanceof TrinoConnectorExternalTable` 分支 | **批 D** | @me | ✅ | — | 2026-06-04 | 2026-06-04 | commit `ed81a063fe8`。删 else-if 分支 + 2 个 import；`PluginDrivenExternalTable` SPI 前置分支接管 |
+| P2-T09 | `CatalogFactory` 删 `case "trino-connector":` + import | **批 D** | @me | ✅ | — | 2026-06-04 | 2026-06-04 | commit `ed81a063fe8`。factory 文件在 `trinoconnector/` 目录内，随 T10 删 |
+| P2-T10 | 删 `datasource/trinoconnector/` 全目录（10 文件）+ 删 legacy test | **批 D** | @me | ✅ | — | 2026-06-04 | 2026-06-04 | commit `ed81a063fe8`。**GsonUtils 不再碰**（批 B/T03 已 atomic-replace）；额外删 `TrinoConnectorPredicateTest`（测的是被删的 converter）。**保留** `TableType.TRINO_CONNECTOR_EXTERNAL_TABLE` + `InitCatalogLog.Type.TRINO_CONNECTOR` 枚举。详见 DV-001 |
+| P2-T11 | `fe-connector-trino/src/test/` 单元测试 | **批 E** | @me | ✅ | — | 2026-06-04 | 2026-06-04 | commit `9bba12a44b2`。3 个 JUnit5 类 / 29 测试全绿：PredicateConverter(14) / TypeMapping(11) / Provider.validateProperties(4)。**无 mock**；json/schema 砍掉（JsonSerializer 非纯单元，需 plugin）；plugin 依赖路径由 regression 套件覆盖。详见 DV-002 |
+| P2-T12 | regression-test `trino_connector_migration_compat`（旧 FE image 反序列化） | **批 E** | @me | 🟡 | — | — | — | **推迟**：本环境无集群/plugin/docker 跑不了；task 引用的 P0 ES/JDBC 先例与 `external_catalog/` 目录均不存在。转 CI/集群 follow-up。详见 DV-003 |
+| P2-T13 | 同步跟踪文档（PROGRESS / connectors / HANDOFF / deviations）+ 开 PR | **批 E** | @me | ✅ | — | 2026-06-04 | 2026-06-04 | 跟踪文档已同步。docs-next 安装文档不在本代码仓（在 doris-website 仓），另行处理，详见 DV-004。**PR 待开**——`catalog-spi-03` 现基于 master、与 branch-catalog-spi 基线错位（191-commit diff），分支对齐由用户处理 |
 
 **状态图例**：⏳ pending / 🚧 in_progress / ✅ done / ❌ blocked / 🚫 deleted
 
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-04 — 批 C+D+E 完成（T07–T11, T13；T12 推迟；PR 待开）
+
+> rebase 后续作：用户把 `catalog-spi-03` rebase 到新 master。**构建坑（非代码问题）**：rebase 后 fe-core 编译报 `DorisParser cannot find symbol`——上游 #63823 把 nereids 语法拆到新模块 `fe-sql-parser`，但 `fe-core/target` 里残留旧生成的 `DorisParser.java`（FQCN 撞名，盖过依赖里的新版）。`clean` fe-core（删 stale 生成物，fe-core 已无 grammar 不会再生成）即解。
+
+- **批 C / T07**（`0fe4b8a93d6`）：`CatalogFactory.SPI_READY_TYPES` 加 `"trino-connector"`（翻闸）。compile + checkstyle 绿。
+- **批 D / T08-T10**（`ed81a063fe8`，14 文件 / +1/−2508）：删 `PhysicalPlanTranslator` trino 分支、`CatalogFactory` case、`trinoconnector/` 目录（10 文件）+ legacy 测试。**recon 补回 HANDOFF 漏项（DV-001）**：`ExternalCatalog.java:948` `case TRINO_CONNECTOR` 改返 `PluginDrivenExternalDatabase`（照搬已迁移的 JDBC case）。**保留**：`MetastoreProperties` trino 条目（属性子系统，非 legacy 目录，SPI 仍可能需要）、两个 image-compat 枚举、GsonUtils redirect。守门：clean test-compile（main+test）+ checkstyle + import-gate 全绿。
+- **批 E / T11**（`9bba12a44b2`）：3 个 JUnit5 纯转换器测试 / 29 测试全绿（**DV-002**：fe-connector-trino 无 Mockito、`TrinoJsonSerializer` 非纯单元需 plugin → 砍 json/schema、改测 `validateProperties`）。
+- **T12 推迟**（**DV-003**：无集群/plugin/docker；task 引用的 P0 先例与 `external_catalog/` 目录不存在）。
+- **T13**：跟踪文档同步（本条 + PROGRESS / connectors / HANDOFF / deviations）。docs-next 不在本仓（**DV-004**）。
+- **PR 待开**：`catalog-spi-03` 现基于 master、与远端 `branch-catalog-spi`（仍停在 P1 `778c5dd610f`，两者分叉于 `#63552 68d4eb308e5`）错位，`branch-catalog-spi..HEAD` = 191 commit（仅顶部 7 个是 P2）。**不开错误巨型 PR**；用户处理分支对齐后再开（推荐：从远端 branch-catalog-spi 拉新分支，cherry-pick 7 个 P2 commit）。
 
 ### 2026-05-25（晚 ④）— 批 B 完成（T03 + T04 + T05 + T06 fe-core 桥接）
 

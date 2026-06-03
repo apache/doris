@@ -11,8 +11,8 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/trinoconnector/` |
 | **共享依赖** | 无 |
 | **计划迁移阶段** | **P2**（首个完整 playbook 实施） |
-| **当前状态** | 🚧 P2 进行中（批 A + 批 B ✅；批 C 翻闸点待操作） |
-| **完成度** | 65% → 目标 100%（P2 收尾时翻闸） |
+| **当前状态** | ✅ P2 代码完成（legacy 已从 fe-core 移除，查询走 SPI）；PR 待开（分支基线对齐） |
+| **完成度** | **100%**（代码；PR 待开，T12 回归测试推迟到有集群/plugin 环境） |
 | **主 owner** | @me |
 
 ---
@@ -29,13 +29,13 @@
 | 4 | 🟢 | ConnectorMetadata 方法 ~95% IMPL/DEFAULT；DDL 类（createTable/dropTable）DEFAULT throws 是合理的（Trino 此路径 read-only）|
 | 5 | ✅ | validateProperties / preCreateValidation done（P2-T01；commit `31fb91c5bd3`）|
 | 6 | ✅ | META-INF/services 已注册 `TrinoConnectorProvider` |
-| 7 | ⏳ | `SPI_READY_TYPES` 未加（P2-T07 翻闸；**下一步**）|
+| 7 | ✅ | `SPI_READY_TYPES` 加 `"trino-connector"`（P2-T07；commit `0fe4b8a93d6`）|
 | 8 | ✅ | gsonPostProcess 加 trinoconnector → plugin 迁移 + helper `legacyLogTypeToCatalogType`（P2-T04；commit `dfd48725c76`）|
 | 9 | ✅ | registerCompatibleSubtype 已 atomic-replace Trino 三处旧 class-token（P2-T03；commit `dfd48725c76`；T10 不再碰 GsonUtils）|
-| 10 | ⏳ | 替换 1 处反向 instanceof（P2-T08）|
-| 11 | ⏳ | PhysicalPlanTranslator 删 `TrinoConnectorExternalTable` 分支（P2-T08）|
-| 12 | ⏳ | 0 个测试 → 需要补（P2-T11/T12）|
-| 13 | ⏳ | 删 `datasource/trinoconnector/`（P2-T10；scope 校正后仅删目录 + CatalogFactory case）|
+| 10 | ✅ | 反向 instanceof 已删（P2-T08；commit `ed81a063fe8`）|
+| 11 | ✅ | PhysicalPlanTranslator 删 `TrinoConnectorExternalTable` 分支（P2-T08；`ed81a063fe8`）|
+| 12 | 🟡 | 单测 ✅（P2-T11；3 类/29 测试 `9bba12a44b2`）；回归 `migration_compat` 推迟（P2-T12，DV-003）|
+| 13 | ✅ | 删 `datasource/trinoconnector/`（10 文件）+ legacy test（P2-T10；`ed81a063fe8`）。GsonUtils 由批 B 处理 |
 
 ---
 
