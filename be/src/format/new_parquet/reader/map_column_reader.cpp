@@ -95,6 +95,51 @@ struct MapReadContext {
     }
 };
 
+template <typename ValueBatch, typename ValueOverflow, typename ValueReader, typename ValueAppender>
+Status read_aligned_map_entries(const std::string& column_name, const DataTypePtr& map_type,
+                                int16_t map_nullable_definition_level, int16_t repeated_level,
+                                ScalarColumnReader& key_reader, int16_t key_max_definition_level,
+                                ValueReader& value_reader, ValueOverflow* value_overflow,
+                                NestedScalarOverflow* key_overflow, ValueAppender value_appender,
+                                int64_t rows, MapReadContext* context, int64_t* rows_read) {
+    DORIS_CHECK(context != nullptr);
+    RepeatedMapValueSink<ValueBatch, ValueOverflow, ValueReader, ValueAppender> sink;
+    sink.column_name = &column_name;
+    sink.map_type = &map_type;
+    sink.map_nullable_definition_level = map_nullable_definition_level;
+    sink.key_reader = &key_reader;
+    sink.key_column = &context->key_column;
+    sink.value_column = &context->value_column;
+    sink.parent_state = {&context->entry_counts, &context->parent_nulls};
+    sink.key_max_definition_level = key_max_definition_level;
+    sink.value_stream = {&value_reader, value_overflow,
+                         static_cast<int16_t>(map_nullable_definition_level + 1), "value"};
+    sink.value_appender = value_appender;
+    RETURN_IF_ERROR(assemble_repeated_levels(
+            key_reader, repeated_level, static_cast<int16_t>(map_nullable_definition_level + 1),
+            rows, key_overflow, sink, rows_read));
+    sink.value_stream.move_tail_from_driver_overflow(*key_overflow);
+    context->finish();
+    return Status::OK();
+}
+
+template <typename ValueBatch, typename ValueOverflow, typename ValueReader>
+Status skip_aligned_map_entries(const std::string& column_name,
+                                int16_t map_nullable_definition_level, int16_t repeated_level,
+                                ScalarColumnReader& key_reader, ValueReader& value_reader,
+                                ValueOverflow* value_overflow, NestedScalarOverflow* key_overflow,
+                                int64_t rows, int64_t* rows_read) {
+    RepeatedAlignedValueSkipSink<ValueBatch, ValueOverflow, ValueReader> sink;
+    sink.column_name = &column_name;
+    sink.value_stream = {&value_reader, value_overflow,
+                         static_cast<int16_t>(map_nullable_definition_level + 1), "value"};
+    RETURN_IF_ERROR(assemble_repeated_levels(
+            key_reader, repeated_level, static_cast<int16_t>(map_nullable_definition_level + 1),
+            rows, key_overflow, sink, rows_read));
+    sink.value_stream.move_tail_from_driver_overflow(*key_overflow);
+    return Status::OK();
+}
+
 } // namespace
 
 Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
@@ -111,34 +156,17 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             resolve_map_child_readers(_name, _key_reader.get(), _value_reader.get(), &readers));
 
     MapReadContext context(column);
-    const int16_t entry_definition_level = _nullable_definition_level + 1;
     const int16_t key_max_definition_level = readers.key->descriptor()->max_definition_level();
 
     if (readers.scalar_value != nullptr) {
         const int16_t value_max_definition_level =
                 readers.scalar_value->descriptor()->max_definition_level();
-
-        RepeatedMapValueSink<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader,
-                             NestedScalarValueAppender>
-                sink;
-        sink.column_name = &_name;
-        sink.map_type = &_type;
-        sink.map_nullable_definition_level = _nullable_definition_level;
-        sink.key_reader = readers.key;
-        sink.key_column = &context.key_column;
-        sink.value_column = &context.value_column;
-        sink.parent_state = {&context.entry_counts, &context.parent_nulls};
-        sink.key_max_definition_level = key_max_definition_level;
-        sink.value_stream = {readers.scalar_value, &_value_overflow,
-                             static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-        sink.value_appender = {readers.scalar_value, "MAP", "value", value_max_definition_level};
-        RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
-                                                 entry_definition_level, rows, &_key_overflow, sink,
-                                                 rows_read));
-        sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
-
-        context.finish();
-        return Status::OK();
+        return read_aligned_map_entries<NestedScalarBatch>(
+                _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
+                key_max_definition_level, *readers.scalar_value, &_value_overflow, &_key_overflow,
+                NestedScalarValueAppender {readers.scalar_value, "MAP", "value",
+                                           value_max_definition_level},
+                rows, &context, rows_read);
     }
 
     if (readers.list_value != nullptr) {
@@ -194,27 +222,11 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         return Status::OK();
     }
 
-    RepeatedMapValueSink<NestedStructBatch, NestedStructOverflow, StructColumnReader,
-                         NestedStructValueAppender>
-            sink;
-    sink.column_name = &_name;
-    sink.map_type = &_type;
-    sink.map_nullable_definition_level = _nullable_definition_level;
-    sink.key_reader = readers.key;
-    sink.key_column = &context.key_column;
-    sink.value_column = &context.value_column;
-    sink.parent_state = {&context.entry_counts, &context.parent_nulls};
-    sink.key_max_definition_level = key_max_definition_level;
-    sink.value_stream = {readers.struct_value, &_struct_value_overflow,
-                         static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-    sink.value_appender = {readers.struct_value};
-    RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
-                                             entry_definition_level, rows, &_key_overflow, sink,
-                                             rows_read));
-    sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
-
-    context.finish();
-    return Status::OK();
+    return read_aligned_map_entries<NestedStructBatch>(
+            _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
+            key_max_definition_level, *readers.struct_value, &_struct_value_overflow,
+            &_key_overflow, NestedStructValueAppender {readers.struct_value}, rows, &context,
+            rows_read);
 }
 
 Status MapColumnReader::skip(int64_t rows) {
@@ -229,25 +241,13 @@ Status MapColumnReader::skip(int64_t rows) {
 
     int64_t rows_read = 0;
     if (readers.scalar_value != nullptr) {
-        RepeatedAlignedValueSkipSink<NestedScalarBatch, NestedScalarOverflow, ScalarColumnReader>
-                sink;
-        sink.column_name = &_name;
-        sink.value_stream = {readers.scalar_value, &_value_overflow,
-                             static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-        RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
-                                                 _nullable_definition_level + 1, rows,
-                                                 &_key_overflow, sink, &rows_read));
-        sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
+        RETURN_IF_ERROR(skip_aligned_map_entries<NestedScalarBatch>(
+                _name, _nullable_definition_level, _repeated_repetition_level, *readers.key,
+                *readers.scalar_value, &_value_overflow, &_key_overflow, rows, &rows_read));
     } else if (readers.struct_value != nullptr) {
-        RepeatedAlignedValueSkipSink<NestedStructBatch, NestedStructOverflow, StructColumnReader>
-                sink;
-        sink.column_name = &_name;
-        sink.value_stream = {readers.struct_value, &_struct_value_overflow,
-                             static_cast<int16_t>(_nullable_definition_level + 1), "value"};
-        RETURN_IF_ERROR(assemble_repeated_levels(*readers.key, _repeated_repetition_level,
-                                                 _nullable_definition_level + 1, rows,
-                                                 &_key_overflow, sink, &rows_read));
-        sink.value_stream.move_tail_from_driver_overflow(_key_overflow);
+        RETURN_IF_ERROR(skip_aligned_map_entries<NestedStructBatch>(
+                _name, _nullable_definition_level, _repeated_repetition_level, *readers.key,
+                *readers.struct_value, &_struct_value_overflow, &_key_overflow, rows, &rows_read));
     } else {
         auto* scalar_list_value_reader =
                 dynamic_cast<ScalarColumnReader*>(readers.list_value->element_reader());

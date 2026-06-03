@@ -67,7 +67,7 @@ assemble_repeated_levels() 处理 def/rep 边界
 ### 1.4 可行性结论：可行，但保留 MapColumnReader
 
 - 保留 `MapColumnReader`，不要为了对齐 DuckDB 而把 Doris 主路径改成 `ColumnArray(ColumnStruct)`
-- 第一阶段只抽公共 MAP read context / finish output / scalar+struct value stream helper
+- 第一阶段只抽公共 MAP read context / finish output / scalar+struct value stream helper（已完成）
 - 第二阶段再评估 `Map<K, List<V>>` 是否能拆出独立 list-value entry helper
 - 不建议把 `ColumnArray(ColumnStruct)` 作为中间主路径；如果后续确实需要方案 B，必须实现显式 materialization helper，不能依赖 reinterpret cast 或现有 ColumnMapping projection
 
