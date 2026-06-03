@@ -41,9 +41,10 @@ constexpr int64_t NESTED_READ_BATCH_ROWS = 4096;
 struct NestedScalarBatch {
     int64_t records_read = 0;
     int64_t levels_written = 0;
+    int16_t value_slot_definition_level = 0;
+    int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max();
     std::vector<int16_t> def_levels;
     std::vector<int16_t> rep_levels;
-    std::vector<int64_t> value_indices;
     MutableColumnPtr values_column;
 
     bool empty() const { return levels_written == 0; }
@@ -127,12 +128,57 @@ private:
     const Batch& _batch;
 };
 
-inline int64_t nested_scalar_value_index(const NestedScalarBatch& batch, int64_t level_idx) {
-    if (batch.value_indices.empty()) {
-        return level_idx;
+class NestedScalarValueCursor {
+public:
+    NestedScalarValueCursor() = default;
+
+    explicit NestedScalarValueCursor(const NestedScalarBatch* batch) { reset(batch); }
+
+    void reset(const NestedScalarBatch* batch) {
+        DORIS_CHECK(batch != nullptr);
+        _batch = batch;
+        _next_level_idx = 0;
+        _next_value_idx = 0;
     }
-    return batch.value_indices[level_idx];
-}
+
+    Status value_index(const std::string& column_name, int64_t level_idx, int64_t* value_idx) {
+        DORIS_CHECK(_batch != nullptr);
+        DORIS_CHECK(value_idx != nullptr);
+        DORIS_CHECK(level_idx >= _next_level_idx);
+        DORIS_CHECK(level_idx < _batch->levels_written);
+        int64_t computed_value_idx = -1;
+        while (_next_level_idx <= level_idx) {
+            if (has_value_slot(_next_level_idx)) {
+                if (_next_level_idx == level_idx) {
+                    computed_value_idx = _next_value_idx;
+                }
+                ++_next_value_idx;
+            }
+            ++_next_level_idx;
+        }
+        if (computed_value_idx < 0) {
+            return Status::Corruption("Nested parquet value is absent for column {}", column_name);
+        }
+        DORIS_CHECK(_batch->values_column != nullptr);
+        if (computed_value_idx >= _batch->values_column->size()) {
+            return Status::Corruption("Nested parquet value index is out of range for column {}",
+                                      column_name);
+        }
+        *value_idx = computed_value_idx;
+        return Status::OK();
+    }
+
+    bool has_value_slot(int64_t level_idx) const {
+        DORIS_CHECK(_batch != nullptr);
+        return _batch->def_levels[level_idx] >= _batch->value_slot_definition_level &&
+               _batch->rep_levels[level_idx] <= _batch->value_slot_repetition_level;
+    }
+
+private:
+    const NestedScalarBatch* _batch = nullptr;
+    int64_t _next_level_idx = 0;
+    int64_t _next_value_idx = 0;
+};
 
 inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_level,
                                     NestedScalarOverflow* overflow) {
@@ -147,26 +193,19 @@ inline void move_nested_scalar_tail(const NestedScalarBatch& src, int64_t start_
     dst.levels_written = src.levels_written - start_level;
     dst.def_levels.assign(src.def_levels.begin() + start_level, src.def_levels.end());
     dst.rep_levels.assign(src.rep_levels.begin() + start_level, src.rep_levels.end());
+    dst.value_slot_definition_level = src.value_slot_definition_level;
+    dst.value_slot_repetition_level = src.value_slot_repetition_level;
     dst.values_column = src.values_column->clone_empty();
 
-    if (src.value_indices.empty()) {
-        for (int64_t level_idx = start_level; level_idx < src.levels_written; ++level_idx) {
-            dst.values_column->insert_from(*src.values_column, static_cast<size_t>(level_idx));
-        }
-        overflow->batch = std::move(dst);
-        return;
-    }
-
-    dst.value_indices.resize(static_cast<size_t>(dst.levels_written), -1);
-    int64_t values_written = 0;
+    NestedScalarValueCursor value_cursor(&src);
     for (int64_t level_idx = start_level; level_idx < src.levels_written; ++level_idx) {
-        const int64_t value_idx = nested_scalar_value_index(src, level_idx);
-        if (value_idx < 0) {
+        if (!value_cursor.has_value_slot(level_idx)) {
             continue;
         }
-        dst.value_indices[static_cast<size_t>(level_idx - start_level)] = values_written;
+        int64_t value_idx = -1;
+        auto status = value_cursor.value_index("overflow", level_idx, &value_idx);
+        DORIS_CHECK(status.ok());
         dst.values_column->insert_from(*src.values_column, static_cast<size_t>(value_idx));
-        values_written++;
     }
     overflow->batch = std::move(dst);
 }
@@ -248,7 +287,7 @@ Status read_nested_scalar_batch(
 
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                  const NestedScalarBatch& batch, int64_t level_idx,
-                                 MutableColumnPtr& column);
+                                 NestedScalarValueCursor* value_cursor, MutableColumnPtr& column);
 
 Status read_nested_scalar_batch_from_overflow(ScalarColumnReader& reader, int64_t batch_rows,
                                               int16_t value_slot_definition_level,
@@ -321,19 +360,22 @@ Status append_nullable_scalar_child(const std::string& column_name, std::string_
                                     std::string_view child_kind,
                                     const ScalarColumnReader& child_reader,
                                     const NestedScalarBatch& batch, int64_t level_idx,
-                                    int16_t max_definition_level, MutableColumnPtr& column);
+                                    int16_t max_definition_level,
+                                    NestedScalarValueCursor* value_cursor,
+                                    MutableColumnPtr& column);
 
 struct NestedScalarValueAppender {
     ScalarColumnReader* reader = nullptr;
     std::string_view parent_kind;
     std::string_view child_kind;
     int16_t max_definition_level = 0;
+    NestedScalarValueCursor* value_cursor = nullptr;
 
     Status append(const std::string& column_name, const NestedScalarBatch& batch, int64_t level_idx,
                   MutableColumnPtr& column) const {
         DORIS_CHECK(reader != nullptr);
         return append_nullable_scalar_child(column_name, parent_kind, child_kind, *reader, batch,
-                                            level_idx, max_definition_level, column);
+                                            level_idx, max_definition_level, value_cursor, column);
     }
 
     Status skip_shape_only_slot() const { return Status::OK(); }

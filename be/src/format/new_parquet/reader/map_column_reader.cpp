@@ -231,6 +231,7 @@ struct MapScalarSlotStream {
     std::string_view slot_name;
     NestedScalarBatch batch;
     int64_t level_idx = 0;
+    NestedScalarValueCursor value_cursor;
 
     Status read_records(const std::string& column_name, int64_t records, std::string_view action) {
         DORIS_CHECK(reader != nullptr);
@@ -244,6 +245,7 @@ struct MapScalarSlotStream {
                     slot_name, column_name, action, records, batch.records_read);
         }
         level_idx = 0;
+        value_cursor.reset(&batch);
         return Status::OK();
     }
 
@@ -289,10 +291,15 @@ struct MapValueSink {
     int16_t key_max_definition_level = 0;
     MapValueStream<ValueBatch, ValueOverflow, ValueReader> value_stream;
     ValueAppender value_appender;
+    NestedScalarValueCursor key_cursor;
+    NestedScalarValueCursor value_cursor;
 
     Status start_batch(const NestedScalarBatch& key_batch) {
         DORIS_CHECK(column_name != nullptr);
-        return value_stream.read_aligned_to_driver(*column_name, key_batch, "");
+        key_cursor.reset(&key_batch);
+        RETURN_IF_ERROR(value_stream.read_aligned_to_driver(*column_name, key_batch, ""));
+        reset_value_appender_cursor(value_stream.batch);
+        return Status::OK();
     }
 
     Status start_parent(const NestedScalarBatch& key_batch, int64_t level_idx) {
@@ -323,11 +330,19 @@ struct MapValueSink {
         if (key_batch.def_levels[level_idx] != key_max_definition_level) {
             return Status::Corruption("Parquet MAP column {} contains null map key", *column_name);
         }
-        RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_batch, level_idx, *key_column));
+        RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_batch, level_idx, &key_cursor,
+                                                  *key_column));
         RETURN_IF_ERROR(
                 value_appender.append(*column_name, value_stream.batch, level_idx, *value_column));
         return parent_state.add_entry(*column_name);
     }
+
+    void reset_value_appender_cursor(const NestedScalarBatch& batch) {
+        value_cursor.reset(&batch);
+        value_appender.value_cursor = &value_cursor;
+    }
+
+    void reset_value_appender_cursor(const NestedStructBatch&) {}
 };
 
 template <typename ValueAppender>
@@ -346,9 +361,12 @@ struct MapListValueSink {
     int16_t key_max_definition_level = 0;
     MapScalarSlotStream key_stream;
     ValueAppender value_appender;
+    NestedScalarValueCursor value_cursor;
 
     Status start_batch(const NestedScalarBatch& value_batch) {
         DORIS_CHECK(column_name != nullptr);
+        value_cursor.reset(&value_batch);
+        value_appender.value_cursor = &value_cursor;
         return key_stream.read_records(*column_name, value_batch.records_read, "");
     }
 
@@ -382,7 +400,8 @@ struct MapListValueSink {
         DORIS_CHECK(list_type != nullptr);
         RETURN_IF_ERROR(consume_key_slot(value_batch, level_idx, true));
         RETURN_IF_ERROR(append_scalar_batch_value(*key_reader, key_stream.batch,
-                                                  key_stream.level_idx - 1, *key_column));
+                                                  key_stream.level_idx - 1,
+                                                  &key_stream.value_cursor, *key_column));
         RETURN_IF_ERROR(map_state.add_entry(*column_name));
         const int16_t def_level = value_batch.def_levels[level_idx];
         if (def_level < list_nullable_definition_level) {

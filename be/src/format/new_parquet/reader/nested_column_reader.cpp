@@ -39,12 +39,10 @@ Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch
 
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                  const NestedScalarBatch& batch, int64_t level_idx,
-                                 MutableColumnPtr& column) {
-    const int64_t value_idx = nested_scalar_value_index(batch, level_idx);
-    if (value_idx < 0) {
-        return Status::Corruption("Nested parquet value is absent for column {}",
-                                  column_reader.name());
-    }
+                                 NestedScalarValueCursor* value_cursor, MutableColumnPtr& column) {
+    DORIS_CHECK(value_cursor != nullptr);
+    int64_t value_idx = -1;
+    RETURN_IF_ERROR(value_cursor->value_index(column_reader.name(), level_idx, &value_idx));
     auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
     if (nullable_column != nullptr) {
         nullable_column->get_nested_column().insert_from(*batch.values_column,
@@ -272,10 +270,12 @@ Status append_struct_batch_value(StructColumnReader& struct_reader, const Nested
                         "Parquet STRUCT column {} contains null for non-nullable child {}",
                         struct_reader.name(), scalar_child->name());
             }
+            NestedScalarValueCursor value_cursor(&batch.child_batches[scalar_idx]);
             RETURN_IF_ERROR(append_nullable_scalar_child(
                     struct_reader.name(), "STRUCT", scalar_child->name(), *scalar_child,
                     batch.child_batches[scalar_idx], level_idx,
-                    scalar_child->descriptor()->max_definition_level(), child_columns[output_idx]));
+                    scalar_child->descriptor()->max_definition_level(), &value_cursor,
+                    child_columns[output_idx]));
         }
         RETURN_IF_ERROR(
                 advance_non_scalar_struct_children(struct_reader, parent_is_null, child_columns));
@@ -409,10 +409,12 @@ Status append_nullable_scalar_child(const std::string& column_name, std::string_
                                     std::string_view child_kind,
                                     const ScalarColumnReader& child_reader,
                                     const NestedScalarBatch& batch, int64_t level_idx,
-                                    int16_t max_definition_level, MutableColumnPtr& column) {
+                                    int16_t max_definition_level,
+                                    NestedScalarValueCursor* value_cursor,
+                                    MutableColumnPtr& column) {
     const int16_t def_level = batch.def_levels[level_idx];
     if (def_level == max_definition_level) {
-        return append_scalar_batch_value(child_reader, batch, level_idx, column);
+        return append_scalar_batch_value(child_reader, batch, level_idx, value_cursor, column);
     }
     if (!child_reader.type()->is_nullable()) {
         return Status::Corruption("Parquet {} column {} contains null for non-nullable {}",

@@ -116,13 +116,23 @@ Status read_scalar_list_values(const std::string& column_name, const DataTypePtr
     NestedScalarValueAppender value_appender {
             &element_reader, "LIST", "element",
             static_cast<int16_t>(element_reader.descriptor()->max_definition_level())};
+    NestedScalarValueCursor value_cursor;
+    const NestedScalarBatch* value_cursor_batch = nullptr;
+    value_appender.value_cursor = &value_cursor;
     const int16_t element_slot_definition_level = list_nullable_definition_level + 1;
 
+    auto reset_value_cursor = [&](const NestedScalarBatch& batch, int64_t level_idx) {
+        if (level_idx == 0 || value_cursor_batch != &batch) {
+            value_cursor.reset(&batch);
+            value_cursor_batch = &batch;
+        }
+    };
     auto read_batch = [&](int64_t batch_rows, NestedScalarBatch* batch) {
         return read_nested_scalar_batch(element_reader, batch_rows, element_slot_definition_level,
                                         batch);
     };
     auto start_parent = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        reset_value_cursor(batch, level_idx);
         const int16_t def_level = batch.def_levels[level_idx];
         if (def_level < list_nullable_definition_level) {
             RETURN_IF_ERROR(parent_state.append_null_parent(column_name, "LIST", list_type));
@@ -137,6 +147,7 @@ Status read_scalar_list_values(const std::string& column_name, const DataTypePtr
         return parent_state.add_entry(column_name);
     };
     auto append_repeated = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        reset_value_cursor(batch, level_idx);
         RETURN_IF_ERROR(parent_state.require_parent(column_name));
         RETURN_IF_ERROR(value_appender.append(column_name, batch, level_idx, element_column));
         return parent_state.add_entry(column_name);
@@ -212,10 +223,20 @@ Status read_nested_list_values(const std::string& column_name, const DataTypePtr
     NestedScalarValueAppender value_appender {
             &nested_element_reader, "LIST", "nested element",
             static_cast<int16_t>(nested_element_reader.descriptor()->max_definition_level())};
+    NestedScalarValueCursor value_cursor;
+    const NestedScalarBatch* value_cursor_batch = nullptr;
+    value_appender.value_cursor = &value_cursor;
     const int16_t inner_nullable_definition_level = inner_list_reader.nullable_definition_level();
     const int16_t inner_element_slot_definition_level = inner_nullable_definition_level + 1;
 
+    auto reset_value_cursor = [&](const NestedScalarBatch& batch, int64_t level_idx) {
+        if (level_idx == 0 || value_cursor_batch != &batch) {
+            value_cursor.reset(&batch);
+            value_cursor_batch = &batch;
+        }
+    };
     auto append_element = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        reset_value_cursor(batch, level_idx);
         RETURN_IF_ERROR(inner_state.require_child(column_name, "nested LIST"));
         RETURN_IF_ERROR(value_appender.append(column_name, batch, level_idx, inner_element_column));
         return inner_state.add_entry(column_name, "nested LIST");
@@ -239,6 +260,7 @@ Status read_nested_list_values(const std::string& column_name, const DataTypePtr
                                         inner_element_slot_definition_level, batch);
     };
     auto start_parent = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
+        reset_value_cursor(batch, level_idx);
         const int16_t def_level = batch.def_levels[level_idx];
         if (def_level < outer_nullable_definition_level) {
             return outer_state.append_null_parent(column_name, "LIST", outer_list_type);
