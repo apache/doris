@@ -1688,10 +1688,9 @@ Status FileScanner::_generate_partition_columns() {
             _partition_col_descs.emplace(
                     col_desc.name,
                     std::make_tuple(range.columns_from_path[values_index], col_desc.slot_desc));
-            _partition_value_is_null.emplace(col_desc.name,
-                                             has_null_flags
-                                                     ? range.columns_from_path_is_null[values_index]
-                                                     : false);
+            _partition_value_is_null.emplace(
+                    col_desc.name,
+                    has_null_flags ? range.columns_from_path_is_null[values_index] : false);
         }
     }
     return Status::OK();
