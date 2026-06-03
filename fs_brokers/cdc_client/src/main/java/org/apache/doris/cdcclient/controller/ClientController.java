@@ -154,8 +154,8 @@ public class ClientController {
                     taskId);
             return RestResponse.success(true);
         }
+        // Upstream-only: stop engine, keep slot. Loader is job-scoped, cleaned up by /api/close.
         reader.release(jobConfig);
-        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
         return RestResponse.success(true);
     }
 
