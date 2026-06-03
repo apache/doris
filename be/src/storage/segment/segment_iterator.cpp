@@ -2566,8 +2566,8 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
 
     if (_is_pred_column[tso_col_idx]) {
         // Nullable predicate column is represented as ColumnNullable(predicate_col)
-        if (auto* tso_nullable =
-                    typeid_cast<ColumnNullable*>(_current_return_columns[tso_col_idx].get())) {
+        if (auto* tso_nullable = check_and_get_column<ColumnNullable>(
+                    _current_return_columns[tso_col_idx].get())) {
             _current_return_columns[tso_col_idx]->clear();
             auto value = commit_time;
             for (size_t j = 0; j < num_rows; j++) {
@@ -2592,7 +2592,7 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
     auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
     DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
 
-    if (auto* tso_nullable = typeid_cast<ColumnNullable*>(column.get())) {
+    if (auto* tso_nullable = check_and_get_column<ColumnNullable>(column.get())) {
         auto* col_ptr = assert_cast<ColumnInt64*>(&tso_nullable->get_nested_column());
         for (size_t j = 0; j < num_rows; j++) {
             col_ptr->insert_value(commit_time);

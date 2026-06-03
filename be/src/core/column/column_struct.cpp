@@ -386,7 +386,7 @@ void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {
 }
 
 bool ColumnStruct::structure_equals(const IColumn& rhs) const {
-    if (const auto* rhs_tuple = typeid_cast<const ColumnStruct*>(&rhs)) {
+    if (const auto* rhs_tuple = check_and_get_column<ColumnStruct>(&rhs)) {
         const size_t tuple_size = columns.size();
         if (tuple_size != rhs_tuple->columns.size()) {
             return false;

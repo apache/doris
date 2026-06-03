@@ -36,8 +36,7 @@ suite("test_query_sys_rowsets", "query,p0") {
         DISTRIBUTED BY HASH(`a`) BUCKETS 1 
         PROPERTIES (
             "replication_num" = "1",
-            "disable_auto_compaction" = "true",
-            "enable_single_replica_compaction"="true"
+            "disable_auto_compaction" = "true"
         );
     """
 

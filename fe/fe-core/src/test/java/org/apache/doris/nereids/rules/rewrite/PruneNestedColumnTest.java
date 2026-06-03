@@ -549,8 +549,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         + "        \"is_being_synced\" = \"false\",\n"
                         + "        \"storage_format\" = \"V2\",\n"
                         + "        \"light_schema_change\" = \"true\",\n"
-                        + "        \"disable_auto_compaction\" = \"false\",\n"
-                        + "        \"enable_single_replica_compaction\" = \"false\"\n"
+                        + "        \"disable_auto_compaction\" = \"false\"\n"
                         + "        )"
         );
         createView("create view IF NOT EXISTS test_view7_drop_nereids (k1,k2,k3,k4) as\n"
