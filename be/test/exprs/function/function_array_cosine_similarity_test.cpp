@@ -20,9 +20,9 @@
 #include <cmath>
 #include <string>
 
-#include "function_test_util.h"
-#include "core/types.h"
 #include "core/data_type/data_type_number.h"
+#include "core/types.h"
+#include "function_test_util.h"
 
 namespace doris::vectorized {
 
