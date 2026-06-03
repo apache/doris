@@ -27,8 +27,8 @@
 #include <memory>
 #include <vector>
 
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/string_ref.h"
 #include "format/new_parquet/reader/nested_column_reader.h"
 
@@ -277,7 +277,6 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
 
     batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
     int64_t value_idx = 0;
-    const int16_t max_definition_level = context.descriptor->max_definition_level();
     const bool dense_value_slots = batch->values_written == batch->levels_written;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
         if (batch->def_levels[level_idx] < value_slot_definition_level ||
