@@ -28,10 +28,10 @@ import static java.util.concurrent.TimeUnit.SECONDS
 //   timestamptz - normalized to UTC on write per session TimeZone; debezium
 //                 emits ZonedTimestamp ISO string, cdc renders it using
 //                 serverTimeZone.
-//   timetz      - time-of-day with offset; PG retains the session offset
-//                 instead of normalizing to UTC. Debezium emits ZonedTime.
-//                 (Note: cdc currently misses this case in convert(); the
-//                 expected values below assume the upstream-fix behavior.)
+//   timetz      - time-of-day with offset. Debezium emits ZonedTime, a
+//                 UTC-normalized OffsetTime; cdc keeps it as-is (offset
+//                 preserved) rather than rendering into a named zone, since a
+//                 date-less time cannot resolve DST. Mirrors Debezium/PostgreSQL.
 //   date        - no tz; literal day, must not drift across +08 boundary.
 //
 // Coverage:

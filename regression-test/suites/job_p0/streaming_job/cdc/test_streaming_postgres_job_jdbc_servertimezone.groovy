@@ -24,16 +24,17 @@ import static java.util.concurrent.TimeUnit.SECONDS
 //
 // Recommended end-to-end tz configuration for data fidelity: set jdbc_url's
 // timezone to the SOURCE PG session/server tz, so cdc renders the timestamptz
-// / timetz instant back to the exact wall clock the source shows. Doris data
-// then stays identical to PG, independent of Doris's own session tz.
+// instant back to the exact wall clock the source shows. Doris data then stays
+// identical to PG, independent of Doris's own session tz.
 //
 // Source tz is Asia/Tokyo (+09, no DST), deliberately != Doris default +08, so
 // the case proves the rendering follows the SOURCE tz (not Doris). The source
 // session uses the offset '+09:00' while jdbc_url uses the IANA name
-// 'Asia/Tokyo' (cdc resolves it via ZoneId). Tokyo has no DST, so the offset is
-// a constant +09 -- this also matters for timetz: cdc takes its offset at
-// Instant.EPOCH, and with a no-DST zone that EPOCH offset equals the source
-// offset, so timetz round-trips to the source wall clock too.
+// 'Asia/Tokyo' (cdc resolves it via ZoneId).
+//
+// timetz is NOT rendered into the source tz: a time-of-day has no date, so a
+// named zone's DST offset cannot be resolved. Mirroring Debezium/PostgreSQL,
+// cdc keeps timetz UTC-normalized with its offset (e.g. '02:00Z').
 //
 // Setup (source tz = Asia/Tokyo = +09):
 //   source SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE, INSERT '2024-06-15 11:00:00'
@@ -46,7 +47,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // with the source tz, not Doris's; .out has no dependency on Doris tz):
 //   ts   -> '2024-06-15T11:00'  (verbatim, no tz semantics)
 //   tstz -> '2024-06-15T11:00'  (02:00Z rendered with Asia/Tokyo +09 = 11:00, == source)
-//   ttz  -> '11:00'             (02:00Z time rendered with Asia/Tokyo +09 = 11:00, == source)
+//   ttz  -> '02:00Z'            (UTC-normalized time-of-day, kept as-is; not zone-rendered)
 suite("test_streaming_postgres_job_jdbc_servertimezone", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_postgres_job_jdbc_servertimezone_name"
     def currentDb = (sql "select database()")[0][0]
