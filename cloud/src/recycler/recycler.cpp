@@ -111,7 +111,7 @@ void add_file_to_delete_if_not_packed(const doris::RowsetMetaCloudPB& rowset,
         file_paths->push_back(path);
     }
 }
-  
+
 bool filter_out_instance(const std::string& instance_id) {
     if (config::recycle_whitelist.empty()) {
         return std::ranges::find(config::recycle_blacklist, instance_id) !=
