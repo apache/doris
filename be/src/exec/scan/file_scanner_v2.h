@@ -84,7 +84,6 @@ private:
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static reader::TableColumn _build_table_column(const SlotDescriptor* slot_desc);
     Status _build_table_column_predicates(reader::TableColumnPredicates* predicates) const;
-    VExprSPtr _build_conjunct_root() const;
     static Status _to_file_format(TFileFormatType::type format_type, reader::FileFormat* format);
 
     const TFileScanRangeParams* _params = nullptr;

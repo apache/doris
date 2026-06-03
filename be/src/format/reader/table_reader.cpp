@@ -168,7 +168,9 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
-    build_table_filters_from_conjunct(_conjuncts.root(), &_table_filters);
+    for (const auto& conjunct : _conjuncts) {
+        build_table_filters_from_conjunct(conjunct->root(), &_table_filters);
+    }
     return Status::OK();
 }
 

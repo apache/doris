@@ -120,7 +120,7 @@ struct TableReadOptions {
     // Simple predicates for a single column, which is parsed on scan operator.
     const TableColumnPredicates column_predicates;
     // All complex conjuncts from scan operator
-    const VExprContext conjuncts;
+    const VExprContextSPtrs conjuncts;
     // File format of the underlying data files, needed for reader initialization and reader-level
     // filter pushdown.
     const FileFormat format;
@@ -783,7 +783,7 @@ protected:
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
     TableColumnPredicates _table_column_predicates;
-    VExprContext _conjuncts {nullptr};
+    VExprContextSPtrs _conjuncts;
     std::unique_ptr<ReadProfile> _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;

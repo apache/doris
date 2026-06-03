@@ -123,7 +123,7 @@ public:
         RETURN_IF_ERROR(init({
                 .projected_columns = std::move(projected_columns),
                 .column_predicates = {},
-                .conjuncts = VExprContext(nullptr),
+                .conjuncts = {},
                 .format = FileFormat::PARQUET,
                 .scan_params = nullptr,
                 .io_ctx = nullptr,
@@ -748,8 +748,8 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 0)),
+                                    .conjuncts = {VExprContext::create_shared(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 0))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -812,7 +812,7 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -853,7 +853,7 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -900,7 +900,7 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -947,7 +947,7 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -998,7 +998,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1059,7 +1059,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1114,7 +1114,7 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1157,7 +1157,7 @@ TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1197,8 +1197,8 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2)),
+                                    .conjuncts = {VExprContext::create_shared(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1244,7 +1244,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = std::move(column_predicates),
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1287,7 +1287,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1329,8 +1329,8 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2)),
+                                    .conjuncts = {VExprContext::create_shared(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1363,8 +1363,8 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
                         .init({
                                 .projected_columns = projected_columns,
                                 .column_predicates = {},
-                                .conjuncts = VExprContext(
-                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 4)),
+                                .conjuncts = {VExprContext::create_shared(
+                                        std::make_shared<TableInt32GreaterThanExpr>(0, 0, 4))},
                                 .format = FileFormat::PARQUET,
                                 .scan_params = nullptr,
                                 .io_ctx = nullptr,
@@ -1410,7 +1410,7 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = std::move(column_predicates),
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1464,7 +1464,7 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = std::move(column_predicates),
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1603,9 +1603,9 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(
+                                    .conjuncts = {VExprContext::create_shared(
                                             std::make_shared<TableInt32SumGreaterThanExpr>(0, 0, 1,
-                                                                                           1, 8)),
+                                                                                           1, 8))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1658,7 +1658,7 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1702,7 +1702,7 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1751,7 +1751,7 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1800,7 +1800,7 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1853,8 +1853,8 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+                                    .conjuncts = {VExprContext::create_shared(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1908,8 +1908,8 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+                                    .conjuncts = {VExprContext::create_shared(
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1969,7 +1969,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = std::move(column_predicates),
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2062,7 +2062,7 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2111,7 +2111,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2167,7 +2167,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDele
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2223,7 +2223,7 @@ TEST(TableReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2275,7 +2275,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEqualityDele
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2331,7 +2331,7 @@ TEST(TableReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2380,7 +2380,7 @@ TEST(TableReaderTest, IcebergPositionDeleteOnlyMatchesOriginalDataFilePath) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2430,7 +2430,7 @@ TEST(TableReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2489,7 +2489,7 @@ TEST(TableReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2540,7 +2540,7 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
@@ -2610,7 +2610,7 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2659,7 +2659,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2708,7 +2708,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
-                                    .conjuncts = VExprContext(nullptr),
+                                    .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,

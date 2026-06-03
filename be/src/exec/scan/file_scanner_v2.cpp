@@ -43,7 +43,6 @@
 #include "core/string_ref.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/scan_operator.h"
-#include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/format_common.h"
@@ -325,7 +324,7 @@ Status FileScannerV2::_create_table_reader(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
             .column_predicates = std::move(table_column_predicates),
-            .conjuncts = VExprContext(_build_conjunct_root()),
+            .conjuncts = _conjuncts,
             .format = format,
             .scan_params = const_cast<TFileScanRangeParams*>(_params),
             .io_ctx = _io_ctx,
@@ -481,25 +480,6 @@ Status FileScannerV2::_build_table_column_predicates(
         (*predicates)[it->second->col_unique_id()] = slot_predicate_list;
     }
     return Status::OK();
-}
-
-VExprSPtr FileScannerV2::_build_conjunct_root() const {
-    if (_conjuncts.empty()) {
-        return nullptr;
-    }
-    if (_conjuncts.size() == 1) {
-        return _conjuncts.front()->root();
-    }
-    TExprNode node;
-    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-    node.__set_node_type(TExprNodeType::COMPOUND_PRED);
-    node.__set_opcode(TExprOpcode::COMPOUND_AND);
-    node.__set_num_children(cast_set<int>(_conjuncts.size()));
-    auto compound = VCompoundPred::create_shared(node);
-    for (const auto& conjunct : _conjuncts) {
-        compound->add_child(conjunct->root());
-    }
-    return compound;
 }
 
 TFileFormatType::type FileScannerV2::_get_current_format_type() const {
