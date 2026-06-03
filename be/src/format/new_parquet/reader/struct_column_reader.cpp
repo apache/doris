@@ -125,9 +125,11 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                                 "Parquet STRUCT column {} contains null for non-nullable child {}",
                                 _name, scalar_children[child_idx]->name());
                     }
-                    RETURN_IF_ERROR(append_scalar_batch_value(*scalar_children[child_idx],
-                                                              child_batches[child_idx], row_idx,
-                                                              child_columns[output_idx]));
+                    RETURN_IF_ERROR(append_nullable_scalar_child(
+                            _name, "STRUCT", scalar_children[child_idx]->name(),
+                            *scalar_children[child_idx], child_batches[child_idx], row_idx,
+                            scalar_children[child_idx]->descriptor()->max_definition_level(),
+                            child_columns[output_idx]));
                 }
             }
         }
@@ -229,9 +231,12 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                             "Parquet STRUCT column {} contains null for non-nullable child {}",
                             _name, scalar_children[scalar_idx]->name());
                 }
-                RETURN_IF_ERROR(append_scalar_batch_value(
+                RETURN_IF_ERROR(append_nullable_scalar_child(
+                        _name, "STRUCT", scalar_children[scalar_idx]->name(),
                         *scalar_children[scalar_idx], child_batches[scalar_idx],
-                        level_indices[scalar_idx], child_columns[output_idx]));
+                        level_indices[scalar_idx],
+                        scalar_children[scalar_idx]->descriptor()->max_definition_level(),
+                        child_columns[output_idx]));
             }
             RETURN_IF_ERROR(
                     advance_non_scalar_struct_children(*this, parent_is_null, child_columns));

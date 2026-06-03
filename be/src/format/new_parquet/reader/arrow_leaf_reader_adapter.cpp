@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/string_ref.h"
 #include "format/new_parquet/reader/nested_column_reader.h"
 
@@ -277,14 +278,13 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
     batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
     int64_t value_idx = 0;
     const int16_t max_definition_level = context.descriptor->max_definition_level();
-    NullMap value_null_map;
     const bool dense_value_slots = batch->values_written == batch->levels_written;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-        if (dense_value_slots && context.data_type()->is_nullable()) {
-            value_null_map.push_back(batch->def_levels[level_idx] != max_definition_level);
-        }
         if (batch->def_levels[level_idx] < value_slot_definition_level ||
             batch->rep_levels[level_idx] > value_slot_repetition_level) {
+            continue;
+        }
+        if (batch->def_levels[level_idx] != max_definition_level) {
             continue;
         }
         if (dense_value_slots) {
@@ -297,9 +297,6 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
                         context.column_name());
             }
             batch->value_indices[level_idx] = value_idx++;
-            if (context.data_type()->is_nullable()) {
-                value_null_map.push_back(batch->def_levels[level_idx] != max_definition_level);
-            }
         }
     }
     if (!dense_value_slots && value_idx != batch->values_written) {
@@ -307,17 +304,14 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
                 "Nested parquet reader returned extra values for column {}: consumed={}, values={}",
                 context.column_name(), value_idx, batch->values_written);
     }
-    if (context.data_type()->is_nullable() &&
-        value_null_map.size() != static_cast<size_t>(batch->values_written)) {
-        return Status::Corruption("Invalid nested parquet null map for column {}",
-                                  context.column_name());
-    }
 
-    batch->values_column = context.data_type()->create_column();
+    const auto value_type = remove_nullable(context.data_type());
+    batch->values_column = value_type->create_column();
     if (batch->values_written > 0) {
-        const NullMap* null_map = value_null_map.empty() ? nullptr : &value_null_map;
-        RETURN_IF_ERROR(append_leaf_values(context, *record_reader, batch->values_written, null_map,
-                                           batch->values_column));
+        ArrowLeafReaderContext value_context = context;
+        value_context.type = &value_type;
+        RETURN_IF_ERROR(append_leaf_values(value_context, *record_reader, batch->values_written,
+                                           nullptr, batch->values_column));
     }
     return Status::OK();
 }
