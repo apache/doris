@@ -71,7 +71,7 @@ suite('test_group_commit_stream_load_multi_follower', 'docker') {
     options.cloudMode = true
     options.useFollowersMode = true
     options.beConfigs.add('enable_java_support=false')
-    options.feConfigs.add('enable_forward_group_commit_stream_load=true')
+    options.feConfigs.add('enable_forward_group_commit_stream_load_to_follower=true')
     options.feConfigs.add('cloud_cluster_check_interval_second=1')
     options.feConfigs.add('heartbeat_interval_second=1')
     docker(options) {

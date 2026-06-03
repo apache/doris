@@ -2870,7 +2870,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         String groupCommitMode = request.getGroupCommitMode();
         if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
-                && Config.enable_forward_group_commit_stream_load) {
+                && Config.enable_forward_group_commit_stream_load_to_follower) {
             TStreamLoadPutResult result = forwardGroupCommitStreamLoad(request);
             if (result != null) {
                 return result;
