@@ -37,8 +37,8 @@
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/reader/list_column_reader.h"
 #include "format/new_parquet/reader/map_column_reader.h"
+#include "format/new_parquet/reader/row_position_column_reader.h"
 #include "format/new_parquet/reader/scalar_column_reader.h"
-#include "format/new_parquet/reader/shape_only_column_reader.h"
 #include "format/new_parquet/reader/struct_column_reader.h"
 #include "format/reader/file_reader.h"
 
@@ -271,9 +271,6 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
             projected_child_types.push_back(child_reader->type());
             projected_child_names.push_back(child_reader->name());
         } else {
-            if (child_schema->kind != ParquetColumnSchemaKind::PRIMITIVE) {
-                child_reader = std::make_unique<ShapeOnlyColumnReader>(std::move(child_reader));
-            }
             child_output_indices.push_back(-1);
         }
         child_readers.push_back(std::move(child_reader));

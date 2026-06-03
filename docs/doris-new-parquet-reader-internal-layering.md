@@ -25,7 +25,7 @@ be/src/format/new_parquet/
     reader/
         column_reader.*
         scalar_column_reader.*
-        shape_only_column_reader.*
+        row_position_column_reader.*
         struct_column_reader.*
         list_column_reader.*
         map_column_reader.*
@@ -37,6 +37,7 @@ be/src/format/new_parquet/
 
 - `column_reader/` 目录已重命名为 `reader/`，对齐 DuckDB `extension/parquet/reader/` 的 reader 归属方式。
 - `complex_column_reader_helpers.*` 和 `nested_level_assembler.h` 已合并到 `reader/nested_column_reader.*`。
+- `shape_only_column_reader.*` 已删除；未投影 child 通过保留原始 reader 并设置 `child_output_indices=-1` 走 `skip()` 推进，`RowPositionColumnReader` 拆到 `row_position_column_reader.*`。
 - `parquet_scan_planner.*`、`parquet_scan_scheduler.*`、`parquet_batch_filter.*` 已合并到 `parquet_scan.*`。
 - `parquet_pruning.h`、`parquet_page_index.*` 已合并到 `parquet_statistics.*`。
 
@@ -80,7 +81,7 @@ ParquetReader facade
 | Pruning / row range planning | `parquet_statistics.*`, `parquet_scan.*` | statistics、dictionary、bloom filter、page index 已接入 |
 | Scan scheduler / batch selection | `parquet_scan.*`, `selection_vector.h` | 已按 selected row ranges 扫描，predicate columns 先读，non-predicate columns lazy materialize |
 | Column reader factory | `reader/column_reader.*` | 已集中创建 reader tree 和 Arrow `RecordReader` cache |
-| Column reader tree | `reader/scalar_column_reader.*`, `reader/shape_only_column_reader.*`, `reader/struct_column_reader.*`, `reader/list_column_reader.*`, `reader/map_column_reader.*` | scalar、shape-only、row-position、struct、list、map reader 已拆分 |
+| Column reader tree | `reader/scalar_column_reader.*`, `reader/row_position_column_reader.*`, `reader/struct_column_reader.*`, `reader/list_column_reader.*`, `reader/map_column_reader.*` | scalar、row-position、struct、list、map reader 已拆分；未投影 child 不再包 shape-only reader |
 | Nested shape/value assembler | `reader/nested_column_reader.*`, complex reader sinks | 已有 repeated assembler、overflow、parent/child sink state；shape/value stream 还未完全统一 |
 | Arrow leaf decode adapter | `reader/arrow_leaf_reader_adapter.*` | 已封装 Arrow `RecordReader` read/skip/value materialization |
 | Doris column materialization | `reader/*`, Doris `DataTypeSerDe` | scalar 主要走 SerDe；complex offsets/null map/child append 仍分布在 reader sink 中 |
@@ -232,7 +233,7 @@ ParquetReader facade
 
 - 根据 `ParquetColumnSchema` 和 `FieldProjection` 创建 reader tree。
 - 创建并缓存 Arrow internal `RecordReader`。
-- 决定 scalar、struct、list、map、shape-only、row-position reader。
+- 决定 scalar、struct、list、map、row-position reader。
 - 保证 Arrow internal `RecordReader` 不泄露到 scan scheduler。
 
 设计约束：
@@ -247,7 +248,6 @@ ParquetReader facade
 
 - `ParquetColumnReader`
 - `ScalarColumnReader`
-- `ShapeOnlyColumnReader`
 - `RowPositionColumnReader`
 - `StructColumnReader`
 - `ListColumnReader`
@@ -272,7 +272,7 @@ Status select(const SelectionVector& sel, uint16_t selected_rows,
 当前状态：
 
 - scalar flat read/skip/select 已实现。
-- shape-only reader 用于未投影 child 的 shape 推进。
+- shape-only reader 已删除；struct 未投影 child 保留原始 reader，输出 slot 为 `-1`，由 struct reader 调用 `skip()` 推进 shape/cursor。
 - row-position reader 支持 file-local row position 输出。
 - struct 支持 nullable parent、nullable child、projection 和部分 complex child。
 - list/map 支持 null parent、empty parent、nullable scalar child/value、overflow、skip/select，并支持部分 nested complex child。
