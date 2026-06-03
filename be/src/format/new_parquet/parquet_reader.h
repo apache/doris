@@ -123,12 +123,6 @@ private:
     };
     void _fill_schema_field(const ParquetColumnSchema& column_schema,
                             reader::SchemaField* field) const;
-    Status _fill_projected_schema_field(const ParquetColumnSchema& column_schema,
-                                        const reader::FieldProjection* projection,
-                                        reader::SchemaField* field) const;
-    Status _get_projected_schema_field(reader::ColumnId file_column_id,
-                                       const reader::FieldProjection* projection,
-                                       reader::SchemaField* field) const;
 
     std::unique_ptr<ParquetReaderScanState> _state;
     ParquetProfile _parquet_profile;

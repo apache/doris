@@ -50,6 +50,7 @@
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
+#include "format/reader/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 
@@ -212,7 +213,7 @@ public:
                 }
                 continue;
             }
-            DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.block_schema.size());
+            DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.file_block_layout.size());
             DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
             RETURN_IF_ERROR(finalize_chunk(block, current_rows));
             if (current_eof) {
@@ -266,24 +267,24 @@ protected:
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
-        _data_reader.block_schema.clear();
+        _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
-        _data_reader.block_schema.resize(file_request->column_positions.size());
+        _data_reader.file_block_layout.resize(file_request->column_positions.size());
 
         // 4. Build block schema based on file schema and column mapping. The scan schema describes the column layout of the block returned by file reader, which is determined by the column mapping and file schema.
         for (const auto& [file_column_id, block_position] : file_request->column_positions) {
-            DORIS_CHECK(block_position < _data_reader.block_schema.size());
+            DORIS_CHECK(block_position < _data_reader.file_block_layout.size());
             const auto* field = _find_schema_field(_data_reader.file_schema, file_column_id);
             DORIS_CHECK(field != nullptr);
 
+            SchemaField projected_field;
             {
                 auto it = std::find_if(
                         file_request->non_predicate_columns.begin(),
                         file_request->non_predicate_columns.end(),
                         [&](const FieldProjection& p) { return p.field_id == file_column_id; });
                 if (it != file_request->non_predicate_columns.end()) {
-                    RETURN_IF_ERROR(_project_schema_field(
-                            *field, *it, &_data_reader.block_schema[block_position]));
+                    RETURN_IF_ERROR(_project_schema_field(*field, *it, &projected_field));
                 }
             }
             {
@@ -292,17 +293,22 @@ protected:
                         file_request->predicate_columns.end(),
                         [&](const FieldProjection& p) { return p.field_id == file_column_id; });
                 if (it != file_request->predicate_columns.end()) {
-                    RETURN_IF_ERROR(_project_schema_field(
-                            *field, *it, &_data_reader.block_schema[block_position]));
+                    RETURN_IF_ERROR(_project_schema_field(*field, *it, &projected_field));
                 }
             }
+            _data_reader.file_block_layout[block_position] = {
+                    .file_column_id = file_column_id,
+                    .name = projected_field.name,
+                    .type = projected_field.type,
+            };
+            DORIS_CHECK(_data_reader.file_block_layout[block_position].type != nullptr);
         }
 
         // 5. Prepare block template based on block schema. The block template is used to store the block returned by file reader before finalize; it has the same column layout as the file reader output block, which is determined by the column mapping and file schema.
-        _data_reader.block_template.reserve(_data_reader.block_schema.size());
-        for (const auto& field : _data_reader.block_schema) {
+        _data_reader.block_template.reserve(_data_reader.file_block_layout.size());
+        for (const auto& column : _data_reader.file_block_layout) {
             _data_reader.block_template.insert(
-                    {field.type->create_column(), field.type, field.name});
+                    {column.type->create_column(), column.type, column.name});
         }
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_open_mapping_exprs());
@@ -387,7 +393,7 @@ protected:
         _data_reader.column_mapper.clear();
         _table_filters.clear();
         _data_reader.file_schema.clear();
-        _data_reader.block_schema.clear();
+        _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
         _current_task.reset();
         return Status::OK();
@@ -723,9 +729,9 @@ protected:
         DORIS_CHECK(file_result.columns.size() == _data_reader.column_mapper.mappings().size());
         DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
         Block file_block;
-        file_block.reserve(_data_reader.block_schema.size());
-        for (const auto& field : _data_reader.block_schema) {
-            file_block.insert({field.type->create_column(), field.type, field.name});
+        file_block.reserve(_data_reader.file_block_layout.size());
+        for (const auto& column : _data_reader.file_block_layout) {
+            file_block.insert({column.type->create_column(), column.type, column.name});
         }
         for (size_t column_idx = 0; column_idx < file_result.columns.size(); ++column_idx) {
             const auto& result_column = file_result.columns[column_idx];
@@ -734,9 +740,9 @@ protected:
                                             _projected_columns[column_idx].name);
             }
             bool found_file_column = false;
-            for (size_t block_position = 0; block_position < _data_reader.block_schema.size();
+            for (size_t block_position = 0; block_position < _data_reader.file_block_layout.size();
                  ++block_position) {
-                if (_data_reader.block_schema[block_position].id ==
+                if (_data_reader.file_block_layout[block_position].file_column_id ==
                     file_result.columns[column_idx].projection.field_id) {
                     found_file_column = true;
                     auto column = file_block.get_by_position(block_position)
@@ -765,13 +771,19 @@ protected:
         return Status::OK();
     }
 
+    struct FileBlockColumn {
+        ColumnId file_column_id = -1;
+        std::string name;
+        DataTypePtr type;
+    };
+
     struct DataReader {
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
         std::vector<SchemaField>
                 file_schema; // Schema of the data file, also including virtual column (row position).
-        std::vector<SchemaField>
-                block_schema; // Schema of the block returned by file reader, determined by column mapping and file schema. It is used for file reader to materialize columns into correct type and position.
+        std::vector<FileBlockColumn>
+                file_block_layout; // Schema of the block returned by file reader, determined by column mapping and file schema. It is used for file reader to materialize columns into correct type and position.
         Block block_template;
     };
     DataReader _data_reader;
@@ -922,39 +934,8 @@ private:
             child_names.push_back(child.name);
         }
 
-        const auto primitive_type = remove_nullable(original_type)->get_primitive_type();
-        DataTypePtr projected_type;
-        switch (primitive_type) {
-        case TYPE_STRUCT:
-            projected_type = std::make_shared<DataTypeStruct>(child_types, child_names);
-            break;
-        case TYPE_ARRAY:
-            DORIS_CHECK(child_types.size() == 1);
-            projected_type = std::make_shared<DataTypeArray>(child_types[0]);
-            break;
-        case TYPE_MAP:
-            DORIS_CHECK(child_types.size() == 1);
-            DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
-            DORIS_CHECK(remove_nullable(original_type)->get_primitive_type() == TYPE_MAP);
-            {
-                const auto* entry_type =
-                        assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
-                DORIS_CHECK(entry_type->get_elements().size() == 1 ||
-                            entry_type->get_elements().size() == 2);
-                const auto value_idx = entry_type->get_elements().size() == 1 ? 0 : 1;
-                projected_type = std::make_shared<DataTypeMap>(
-                        assert_cast<const DataTypeMap*>(remove_nullable(original_type).get())
-                                ->get_key_type(),
-                        entry_type->get_element(value_idx));
-            }
-            break;
-        default:
-            return Status::InvalidArgument("Cannot project children from non-complex field {}",
-                                           projected_field->name);
-        }
-        projected_field->type =
-                original_type->is_nullable() ? make_nullable(projected_type) : projected_type;
-        return Status::OK();
+        return rebuild_projected_type(original_type, child_types, child_names,
+                                      &projected_field->type);
     }
 
     // Parse row-position deletes from table format specific parameters, and fill in _delete_rows.
