@@ -76,34 +76,41 @@ class DebeziumJsonDeserializerTest {
     }
 
     // ─── convertZoneTime ──────────────────────────────────────────────────────
-    // timetz arrives as a UTC-normalized ISO string; the method renders it to
-    // serverTimeZone (mirrors timestamptz) and emits an offset-less wall clock.
+    // timetz arrives as a UTC-normalized ISO string (Debezium ZonedTime). cdc keeps it
+    // verbatim with the offset preserved, independent of serverTimeZone, since a
+    // date-less time cannot resolve a named zone's DST. Mirrors Debezium/PostgreSQL.
 
     @Test
-    void zoneTime_utc_keepsUtcWallClock() {
+    void zoneTime_utc_preservesOffset() {
         deserializer.setServerTimeZone(ZoneId.of("UTC"));
-        assertEquals("12:00:00.123456", invokeConvertZoneTime("12:00:00.123456Z"));
+        assertEquals("12:00:00.123456Z", invokeConvertZoneTime("12:00:00.123456Z"));
     }
 
     @Test
-    void zoneTime_plus08_shiftsForward() {
+    void zoneTime_plus08_serverTimeZoneIgnored() {
         deserializer.setServerTimeZone(ZoneId.of("+08:00"));
-        // 12:00 UTC rendered at +08 -> 20:00
-        assertEquals("20:00:00.123456", invokeConvertZoneTime("12:00:00.123456Z"));
+        // serverTimeZone must not shift timetz; the offset-bearing string is kept as-is
+        assertEquals("12:00:00.123456Z", invokeConvertZoneTime("12:00:00.123456Z"));
     }
 
     @Test
-    void zoneTime_minus05_wrapsAcrossMidnight() {
+    void zoneTime_minus05_serverTimeZoneIgnored() {
         deserializer.setServerTimeZone(ZoneId.of("-05:00"));
-        // 01:00 UTC rendered at -05 -> 20:00 (time-of-day wraps; date dropped)
-        assertEquals("20:00:00.123456", invokeConvertZoneTime("01:00:00.123456Z"));
+        assertEquals("01:00:00.123456Z", invokeConvertZoneTime("01:00:00.123456Z"));
     }
 
     @Test
-    void zoneTime_wholeSecond_omitsFraction() {
+    void zoneTime_dstZone_notShifted() {
+        // a DST zone's offset is date-dependent; timetz has no date, so it must not be
+        // shifted -- the input is returned unchanged regardless of New York DST.
+        deserializer.setServerTimeZone(ZoneId.of("America/New_York"));
+        assertEquals("12:00:00.123456Z", invokeConvertZoneTime("12:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_wholeSecond_keepsSeconds() {
         deserializer.setServerTimeZone(ZoneId.of("UTC"));
-        // LocalTime.toString drops seconds when both second and nano are zero
-        assertEquals("00:00", invokeConvertZoneTime("00:00:00Z"));
+        assertEquals("00:00:00Z", invokeConvertZoneTime("00:00:00Z"));
     }
 
     private Object invokeConvertZoneTime(Object dbzObj) {
