@@ -34,6 +34,7 @@
 #include "core/column/subcolumn_tree.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/string_ref.h"
@@ -1059,6 +1060,33 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_EQ(result1_map.at(PathInData("b")).field.get<TYPE_STRING>(), "hello");
         EXPECT_EQ(result2_map.at(PathInData("a")).field.get<TYPE_INT>(), 123);
     }
+}
+
+TEST_F(ColumnVariantTest, insert_range_from_materializes_pending_default_suffix) {
+    auto nested = ColumnInt64::create();
+    nested->insert_value(7);
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+
+    auto root_type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto root_column = ColumnNullable::create(std::move(nested), std::move(null_map));
+    ColumnVariant::Subcolumn root(std::move(root_column), root_type, true, true);
+    root.increment_default_counter();
+
+    ColumnVariant::Subcolumns subcolumns;
+    subcolumns.create_root(std::move(root));
+    auto src = ColumnVariant::create(0, false, std::move(subcolumns));
+    EXPECT_EQ(src->size(), 2);
+
+    auto dst = ColumnVariant::create(0, false);
+    dst->insert_range_from(*src, 0, 2);
+    dst->finalize();
+
+    const auto& copied_root =
+            assert_cast<const ColumnNullable&>(*static_cast<const ColumnVariant&>(*dst).get_root());
+    EXPECT_EQ(copied_root.size(), 2);
+    EXPECT_EQ(copied_root.get_null_map_data()[0], 0);
+    EXPECT_EQ(copied_root.get_null_map_data()[1], 1);
 }
 
 TEST_F(ColumnVariantTest, is_variable_length) {
