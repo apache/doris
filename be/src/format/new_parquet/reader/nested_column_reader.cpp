@@ -45,6 +45,13 @@ Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
         return Status::Corruption("Nested parquet value is absent for column {}",
                                   column_reader.name());
     }
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    if (nullable_column != nullptr) {
+        nullable_column->get_nested_column().insert_from(*batch.values_column,
+                                                         static_cast<size_t>(value_idx));
+        nullable_column->get_null_map_data().push_back(0);
+        return Status::OK();
+    }
     column->insert_from(*batch.values_column, static_cast<size_t>(value_idx));
     return Status::OK();
 }
@@ -265,9 +272,10 @@ Status append_struct_batch_value(StructColumnReader& struct_reader, const Nested
                         "Parquet STRUCT column {} contains null for non-nullable child {}",
                         struct_reader.name(), scalar_child->name());
             }
-            RETURN_IF_ERROR(append_scalar_batch_value(*scalar_child,
-                                                      batch.child_batches[scalar_idx], level_idx,
-                                                      child_columns[output_idx]));
+            RETURN_IF_ERROR(append_nullable_scalar_child(
+                    struct_reader.name(), "STRUCT", scalar_child->name(), *scalar_child,
+                    batch.child_batches[scalar_idx], level_idx,
+                    scalar_child->descriptor()->max_definition_level(), child_columns[output_idx]));
         }
         RETURN_IF_ERROR(
                 advance_non_scalar_struct_children(struct_reader, parent_is_null, child_columns));

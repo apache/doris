@@ -23,12 +23,27 @@
 #include <utility>
 #include <vector>
 
+#include "core/column/column_nullable.h"
 #include "format/new_parquet/reader/list_column_reader.h"
 #include "format/new_parquet/reader/nested_column_reader.h"
 #include "format/new_parquet/reader/scalar_column_reader.h"
 #include "format/new_parquet/reader/struct_column_reader.h"
 
 namespace doris::parquet {
+namespace {
+
+void remove_nullable_wrapper_if_required(const ParquetColumnReader& reader,
+                                         MutableColumnPtr* column) {
+    DORIS_CHECK(column != nullptr);
+    if (reader.type()->is_nullable()) {
+        return;
+    }
+    if (auto* nullable_column = check_and_get_column<ColumnNullable>(**column)) {
+        *column = nullable_column->get_nested_column_ptr();
+    }
+}
+
+} // namespace
 
 Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     if (column.get() == nullptr || rows_read == nullptr) {
@@ -105,6 +120,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         DORIS_CHECK(list_value_column != nullptr);
         auto* list_value_null_map = null_map_from_nullable_output(value_column);
         auto list_nested_column = list_value_column->get_data_ptr()->assert_mutable();
+        remove_nullable_wrapper_if_required(*scalar_list_value_reader, &list_nested_column);
         std::vector<uint64_t> list_entry_counts;
         NullMap list_parent_nulls;
         const int16_t list_element_slot_definition_level =
