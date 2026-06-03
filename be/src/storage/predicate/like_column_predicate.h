@@ -155,7 +155,7 @@ private:
 
         std::vector<bool> tmp_res(column.dict_size(), false);
         for (int i = 0; i < column.dict_size(); i++) {
-            StringRef cell_value = column.get_shrink_value(i);
+            StringRef cell_value = column.get_value(i);
             unsigned char flag = 0;
             THROW_IF_ERROR((_state->scalar_function)(
                     &_like_state, StringRef(cell_value.data, cell_value.size), pattern, &flag));

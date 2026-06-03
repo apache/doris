@@ -165,8 +165,10 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(int sequence, bool is_reverse)
-                : _sequence(sequence), _is_reverse(is_reverse) {}
+        LevelIteratorComparator(int sequence, bool is_reverse, bool use_insert_order_when_same)
+                : _sequence(sequence),
+                  _is_reverse(is_reverse),
+                  _use_insert_order_when_same(use_insert_order_when_same) {}
 
         bool operator()(LevelIterator* lhs, LevelIterator* rhs);
 
@@ -174,6 +176,8 @@ private:
         int _sequence;
         // reverse the compare order
         bool _is_reverse = false;
+        // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+        bool _use_insert_order_when_same = false;
     };
 
 #ifdef USE_LIBCPP

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("salt_join") {
+    sql "set parallel_pipeline_task_num=2"
 //    sql "set disable_nereids_rules=JOIN_SKEW_ADD_SALT"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set disable_nereids_rules='prune_empty_partition'"

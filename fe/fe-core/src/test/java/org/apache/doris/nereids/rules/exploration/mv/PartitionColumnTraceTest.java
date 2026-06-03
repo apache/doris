@@ -42,6 +42,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("partition_column_trace_test");
         useDatabase("partition_column_trace_test");
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
 
         createTable("CREATE TABLE IF NOT EXISTS lineitem (\n"
                 + "  L_ORDERKEY    INTEGER NOT NULL,\n"

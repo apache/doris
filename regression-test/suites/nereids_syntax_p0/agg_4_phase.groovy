@@ -18,6 +18,7 @@
 suite("agg_4_phase") {
     sql "SET enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
+    sql "set parallel_pipeline_task_num=4"
     sql "drop table if exists agg_4_phase_tbl"
     sql """
         CREATE TABLE agg_4_phase_tbl (

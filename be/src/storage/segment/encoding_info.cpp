@@ -33,6 +33,7 @@
 #include "storage/segment/binary_dict_page.h"
 #include "storage/segment/binary_dict_page_pre_decoder.h"
 #include "storage/segment/binary_plain_page.h"
+#include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
 #include "storage/segment/binary_prefix_page.h"
@@ -433,15 +434,29 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     if (_encoding == BIT_SHUFFLE) {
         _data_page_pre_decoder = std::make_unique<BitShufflePagePreDecoder>();
     } else if (_encoding == DICT_ENCODING) {
-        _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder>();
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder<true>>();
+        } else {
+            _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder<false>>();
+        }
+    } else if (_encoding == PLAIN_ENCODING) {
+        // CHAR plain pages may contain trailing '\0' padding written by older
+        // BEs; strip it once at page load so the cached page is unpadded.
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageCharStripPreDecoder>();
+        }
     } else if (_encoding == PLAIN_ENCODING_V2) {
         // Only binary types (Slice) need the predecoder for PLAIN_ENCODING_V2 — it converts
         // varint-encoded lengths to an offset-array format that downstream Slice decoders expect.
-        // All current (type, PLAIN_ENCODING_V2) registrations are Slice (CHAR/VARCHAR/STRING/
-        // JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/AGG_STATE per storage/types.h). The else throws
-        // at construction time to fail loudly if a future non-Slice registration is added.
-        if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {
-            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder>();
+        // CHAR pages additionally strip trailing '\0' padding written by the convertor; other
+        // Slice types use the non-CHAR specialization. All current (type, PLAIN_ENCODING_V2)
+        // registrations are Slice (CHAR/VARCHAR/STRING/JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/
+        // AGG_STATE per storage/types.h). The else throws at construction time to fail loudly
+        // if a future non-Slice registration is added.
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder<true>>();
+        } else if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder<false>>();
         } else {
             throw Exception(Status::FatalError(
                     "PLAIN_ENCODING_V2 is only supported for Slice (binary) types, but got "

@@ -257,6 +257,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
+    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     stop();
 }
 
@@ -743,6 +744,7 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
+    THREAD_JOIN(_binlog_compaction_tasks_producer_thread);
     THREAD_JOIN(_update_replica_infos_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
@@ -770,6 +772,9 @@ void StorageEngine::stop() {
     }
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_binlog_compaction_thread_pool) {
+        _binlog_compaction_thread_pool->shutdown();
     }
     if (_single_replica_compaction_thread_pool) {
         _single_replica_compaction_thread_pool->shutdown();

@@ -102,6 +102,7 @@
 #include "storage/utils.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
+#include "util/unaligned.h"
 
 namespace doris {
 class RuntimeState;
@@ -781,7 +782,8 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
             if constexpr (primitive_type == TYPE_DECIMALV2) {
-                decimal_value = *reinterpret_cast<const int128_t*>(value);
+                // value may not be 16-byte aligned; use unaligned_load to avoid UB.
+                decimal_value = unaligned_load<int128_t>(value);
                 precision = DecimalV2Value::PRECISION;
                 scale = DecimalV2Value::SCALE;
             } else if constexpr (primitive_type == TYPE_DECIMAL32) {
@@ -789,7 +791,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             } else if constexpr (primitive_type == TYPE_DECIMAL64) {
                 decimal_value = *((int64_t*)value);
             } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
-                decimal_value = *((int128_t*)value);
+                decimal_value = unaligned_load<int128_t>(value);
             } else {
                 return std::make_tuple(false, orc::Literal(false));
             }

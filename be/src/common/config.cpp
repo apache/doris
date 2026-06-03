@@ -471,6 +471,18 @@ DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "-1");
 DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
+// Binlog Compaction
+DEFINE_mInt64(binlog_compaction_wait_timesec_after_visible, "600");
+DEFINE_mInt64(binlog_compaction_goal_size_mbytes, "128");
+DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
+DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
+DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
+DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
+DEFINE_mInt32(binlog_compaction_permits_percent, "30");
+DEFINE_Validator(binlog_compaction_permits_percent,
+                 [](const int config) -> bool { return config >= 1 && config <= 80; });
+DEFINE_mInt32(max_binlog_compaction_threads, "-1");
+
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
 DEFINE_mInt64(base_compaction_max_compaction_score, "20");
@@ -1205,7 +1217,7 @@ DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
 DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
 
-DEFINE_mBool(enable_read_cache_file_directly, "false");
+DEFINE_mBool(enable_read_cache_file_directly, "true");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
@@ -1235,6 +1247,7 @@ DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
+DEFINE_mBool(enable_file_cache_async_touch_on_get_or_set, "false");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");

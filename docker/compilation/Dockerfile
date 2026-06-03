@@ -41,9 +41,9 @@ RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/o
     && cp -r jdk-17.0.2/ /usr/lib/jvm/ \
     && rm /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz && rm -rf /tmp/jdk-17.0.2/
 
-# install maven 3.6.3
+# install maven 3.9.9
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
-    && wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/apache-maven-3.6.3-bin.tar.gz \
+    && wget -q -O /tmp/apache-maven.tar.gz https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz \
     && tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 \
     && rm -f /tmp/apache-maven.tar.gz \
     && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
