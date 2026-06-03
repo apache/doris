@@ -1389,7 +1389,7 @@ TEST_F(ParquetColumnReaderTest, SkipThenRead) {
 
     MutableColumnPtr column = reader->type()->create_column();
     int64_t rows_read = 0;
-    st = reader->read(2, column, &rows_read);
+    auto st = reader->read(2, column, &rows_read);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(rows_read, 2);
 
