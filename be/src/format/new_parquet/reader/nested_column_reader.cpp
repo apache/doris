@@ -45,13 +45,21 @@ Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
         return Status::Corruption("Nested parquet value is absent for column {}",
                                   column_reader.name());
     }
+    const auto* src_column = batch.values_column.get();
+    if (const auto* nullable_src = check_and_get_column<ColumnNullable>(*src_column)) {
+        if (nullable_src->is_null_at(static_cast<size_t>(value_idx))) {
+            return Status::Corruption("Nested parquet value is null for present column {}",
+                                      column_reader.name());
+        }
+        src_column = &nullable_src->get_nested_column();
+    }
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
-        nullable_column->get_nested_column().insert_from(*batch.values_column,
+        nullable_column->get_nested_column().insert_from(*src_column,
                                                          static_cast<size_t>(value_idx));
         nullable_column->get_null_map_data().push_back(0);
         return Status::OK();
     }
-    column->insert_from(*batch.values_column, static_cast<size_t>(value_idx));
+    column->insert_from(*src_column, static_cast<size_t>(value_idx));
     return Status::OK();
 }
 
