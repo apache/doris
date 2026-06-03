@@ -68,7 +68,8 @@ assemble_repeated_levels() 处理 def/rep 边界
 
 - 保留 `MapColumnReader`，不要为了对齐 DuckDB 而把 Doris 主路径改成 `ColumnArray(ColumnStruct)`
 - 第一阶段只抽公共 MAP read context / finish output / scalar+struct value stream helper（已完成）
-- 第二阶段再评估 `Map<K, List<V>>` 是否能拆出独立 list-value entry helper
+- 第二阶段抽出 `Map<K, List<V>>` 专用 list-value entry helper（本阶段执行）。这条路径仍以 list value leaf 作为 driver，因为 value list 内部有自己的 repeated shape；helper 只收敛 Doris 需要的 key slot 对齐、list offsets/nulls materialization 和 overflow 维护，不把主路径改成 `ColumnArray(ColumnStruct)`
+- 第二阶段完成后，`MapColumnReader::read/skip` 主流程应只负责 resolve child reader、选择 value 形态、调用对应 helper；具体 entry 组装留在 helper 内部
 - 不建议把 `ColumnArray(ColumnStruct)` 作为中间主路径；如果后续确实需要方案 B，必须实现显式 materialization helper，不能依赖 reinterpret cast 或现有 ColumnMapping projection
 
 ---
@@ -248,8 +249,10 @@ Phase 1: Change 2 — 删除 ShapeOnlyColumnReader 包装层
          文件: column_reader.cpp, row_position_column_reader.h/.cpp
 
 Phase 2: Change 1 — 收敛 MAP entry shape/value stream
+         状态: 进行中，scalar/struct helper 已完成；下一步收敛 Map<K,List<V>>
          影响: 中，保留 MapColumnReader 和 ColumnMap 输出，抽公共 MAP read context、
-               finish output、entry value stream helper；不引入 ColumnArray(ColumnStruct) 主路径
+               finish output、entry value stream helper、list-value entry helper；
+               不引入 ColumnArray(ColumnStruct) 主路径
          文件: map_column_reader.h/.cpp, nested_column_reader.h
 
 Phase 3: Change 3+4 — 内联 Dremel + 简化叶子集成
