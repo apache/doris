@@ -18,6 +18,9 @@
 package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -47,6 +50,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
+import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.UUID;
 
@@ -54,6 +58,8 @@ import java.util.UUID;
 public class BaseController {
 
     private static final Logger LOG = LogManager.getLogger(BaseController.class);
+    private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
+            CertificateRuntimeAuthFactory.getInstance();
 
     public static final String PALO_SESSION_ID = "PALO_SESSION_ID";
     private static final int PALO_SESSION_EXPIRED_TIME = 3600 * 24; // one day
@@ -69,7 +75,7 @@ public class BaseController {
         if (encodedAuthString != null) {
             // If has Authorization header, check auth info
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            UserIdentity currentUser = checkPassword(authInfo);
+            UserIdentity currentUser = checkPassword(authInfo, request);
 
             if (Config.isCloudMode() && checkAuth) {
                 checkInstanceOverdue(currentUser);
@@ -251,12 +257,22 @@ public class BaseController {
     }
 
     // return currentUserIdentity from Doris auth
-    protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo)
+    protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo, HttpServletRequest request)
             throws UnauthorizedException {
+        CertificateAuthDecision certDecision = tryCertificateAuth(authInfo, request);
+        if (certDecision.shouldSkipPasswordVerification()) {
+            return certDecision.getUserIdentity();
+        }
+
         List<UserIdentity> currentUser = Lists.newArrayList();
         try {
-            Env.getCurrentEnv().getAuth().checkPlainPassword(authInfo.fullUserName,
-                    authInfo.remoteIp, authInfo.password, currentUser);
+            if (certDecision.isVerified()) {
+                Env.getCurrentEnv().getAuth().checkPlainPasswordForUserIdentity(
+                        certDecision.getUserIdentity(), authInfo.password, currentUser);
+            } else {
+                Env.getCurrentEnv().getAuth().checkPlainPassword(authInfo.fullUserName,
+                        authInfo.remoteIp, authInfo.password, currentUser);
+            }
         } catch (AuthenticationException e) {
             throw new UnauthorizedException(e.formatErrMsg());
         }
@@ -321,6 +337,30 @@ public class BaseController {
             }
         }
         return true;
+    }
+
+    protected CertificateAuthDecision tryCertificateAuth(ActionAuthorizationInfo authInfo, HttpServletRequest request)
+            throws UnauthorizedException {
+        CertificateAuthDecision decision = CERT_RUNTIME_AUTH_SERVICE.authenticateLive(
+                authInfo.fullUserName, authInfo.remoteIp, getClientCertificate(request));
+        if (decision.isReject()) {
+            throw new UnauthorizedException(
+                    decision.getErrorMessage() == null ? "TLS certificate verification failed"
+                            : decision.getErrorMessage());
+        }
+        return decision;
+    }
+
+    protected X509Certificate getClientCertificate(HttpServletRequest request) {
+        Object value = request.getAttribute("jakarta.servlet.request.X509Certificate");
+        if (!(value instanceof X509Certificate[])) {
+            value = request.getAttribute("javax.servlet.request.X509Certificate");
+        }
+        if (!(value instanceof X509Certificate[])) {
+            return null;
+        }
+        X509Certificate[] certs = (X509Certificate[]) value;
+        return certs.length == 0 ? null : certs[0];
     }
 
     protected int checkIntParam(String strParam) {

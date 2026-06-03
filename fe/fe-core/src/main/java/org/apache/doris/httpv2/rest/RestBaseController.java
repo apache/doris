@@ -75,7 +75,7 @@ public class RestBaseController extends BaseController {
                                                         HttpServletResponse response) throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
-        UserIdentity currentUser = checkPassword(authInfo);
+        UserIdentity currentUser = checkPassword(authInfo, request);
 
         // Store UserIdentity in authInfo for convenient parameter passing
         authInfo.userIdentity = currentUser;

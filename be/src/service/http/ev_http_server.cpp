@@ -268,6 +268,7 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     if (res < 0) {
         return -1;
     }
+
     auto handler = _find_handler(request.get());
     if (handler == nullptr) {
         evhttp_remove_header(evhttp_request_get_input_headers(ev_req), HttpHeaders::EXPECT);

@@ -19,6 +19,7 @@
 
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
+#include <thrift/transport/TSSLSocket.h>
 #include <thrift/transport/TSocket.h>
 
 #include <memory>
@@ -71,10 +72,7 @@ public:
     void set_send_timeout(int ms) { _socket->setSendTimeout(ms); }
 
 protected:
-    ThriftClientImpl(const std::string& ipaddress, int port)
-            : _ipaddress(ipaddress),
-              _port(port),
-              _socket(new apache::thrift::transport::TSocket(ipaddress, port)) {}
+    ThriftClientImpl(const std::string& ipaddress, int port);
 
     std::string _ipaddress;
     int _port;
