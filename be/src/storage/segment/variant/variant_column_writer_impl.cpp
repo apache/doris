@@ -203,9 +203,13 @@ struct SubcolumnWritePlan {
 };
 
 enum class DocValueMaterializationMode {
+    // Materialize every doc-value path into a full column.
     DenseAllPaths,
-    SparseAllPaths,
-    SparseSelectedPaths,
+    // Materialize every doc-value path as values plus row ids; gaps are filled during write.
+    RowIdAllPaths,
+    // Materialize only selected doc-value paths as values plus row ids. Unselected paths stay in
+    // the doc/sparse payload handled by the caller.
+    RowIdSelectedPaths,
 };
 
 struct DocValueMaterializationOptions {
@@ -279,6 +283,8 @@ void build_sparse_subcolumns(const ColumnVariant& variant, const DocValuePathSta
 
 void set_doc_value_stats(const ColumnVariant& variant, const DocValuePathStats* precomputed_stats,
                          DocValuePathStats* stats) {
+    // Plain non-doc staging computes stats before choosing top-N materialized paths and reuses them
+    // here. Persistent doc mode has no preselected paths, so stats are built on demand.
     if (precomputed_stats != nullptr) {
         *stats = *precomputed_stats;
     } else {
@@ -288,11 +294,13 @@ void set_doc_value_stats(const ColumnVariant& variant, const DocValuePathStats* 
 
 DocValueMaterializationMode choose_doc_value_materialization_mode(
         const DocValueMaterializationOptions& options) {
+    // "RowId" means the materialized subcolumn is built from only present values plus row ids. It is
+    // different from the final sparse payload column that stores unmaterialized variant paths.
     if (options.selected_paths != nullptr) {
-        return DocValueMaterializationMode::SparseSelectedPaths;
+        return DocValueMaterializationMode::RowIdSelectedPaths;
     }
     if (config::enable_variant_doc_sparse_write_subcolumns) {
-        return DocValueMaterializationMode::SparseAllPaths;
+        return DocValueMaterializationMode::RowIdAllPaths;
     }
     return DocValueMaterializationMode::DenseAllPaths;
 }
@@ -332,13 +340,13 @@ SubcolumnWritePlan build_subcolumn_write_plan(const ColumnVariant& variant, size
 
     set_doc_value_stats(variant, options.precomputed_stats, &plan.stats);
     switch (choose_doc_value_materialization_mode(options)) {
-    case DocValueMaterializationMode::SparseSelectedPaths:
+    case DocValueMaterializationMode::RowIdSelectedPaths:
         DCHECK(options.selected_paths != nullptr);
         build_sparse_subcolumns(variant, plan.stats, options.selected_paths,
                                 &plan.sparse_subcolumns);
         append_sparse_write_entries(&plan.sparse_subcolumns, &plan.entries);
         break;
-    case DocValueMaterializationMode::SparseAllPaths:
+    case DocValueMaterializationMode::RowIdAllPaths:
         build_sparse_subcolumns(variant, plan.stats, nullptr, &plan.sparse_subcolumns);
         append_sparse_write_entries(&plan.sparse_subcolumns, &plan.entries);
         break;
@@ -633,15 +641,24 @@ bool has_doc_value_data(const ColumnVariant& variant) {
 }
 
 enum class VariantPayloadWritePath {
+    // Extracted columns own the payload; the root writer only writes root metadata.
     None,
+    // Subcolumns were already expanded during parse. This covers nested group, legacy flatten
+    // nested, and ordinary non-staging VARIANT writes.
     ParseTimeSubcolumns,
+    // Plain non-doc VARIANT arrived as temporary doc-value KV staging. The writer materializes
+    // selected paths and emits the remainder to sparse payload columns.
     RegularDocValueStaging,
+    // Persistent doc mode writes doc-value bucket columns.
     PersistentDocValueMode,
 };
 
 struct VariantFinalizeContext {
+    // True only for plain non-doc VARIANT using temporary doc-value KV staging.
     bool use_regular_doc_value_staging = false;
+    // True when typed/dynamic subcolumns should be prepared from parse-time subcolumns.
     bool prepare_parse_time_subcolumns = true;
+    // True when the sparse payload is generated from the parse tree instead of staging data.
     bool prepare_sparse_payload_from_parse_tree = false;
     VariantPayloadWritePath payload_write_path = VariantPayloadWritePath::ParseTimeSubcolumns;
 };
@@ -1696,6 +1713,8 @@ Status VariantColumnWriterImpl::finalize() {
             build_variant_finalize_context(*_tablet_column, *ptr, has_extracted_columns);
 
     if (finalize_context.prepare_parse_time_subcolumns) {
+        // Temporary doc-value staging has no parse-time subcolumns, so it skips this block.
+        // Parse-time paths still need typed-path storage conversion before their writers are created.
         RETURN_IF_ERROR(collect_typed_subcolumn_info_from_parse_tree(
                 *ptr, *_tablet_column, *_opts.rowset_ctx->tablet_schema, &_subcolumns_info));
         RETURN_IF_ERROR(ptr->convert_typed_path_to_storage_type(_subcolumns_info));
