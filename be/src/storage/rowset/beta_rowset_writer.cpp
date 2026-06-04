@@ -29,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -82,27 +83,41 @@ bool is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key
     return false;
 }
 
-bool truncate_key_bounds(KeyBoundsPB* key_bounds) {
-    DCHECK(key_bounds != nullptr);
+bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
+    DCHECK(dst != nullptr);
     if (config::random_segments_key_bounds_truncation) {
+        dst->CopyFrom(src);
         return false;
     }
     const int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
     if (truncation_threshold <= 0) {
+        dst->CopyFrom(src);
         return false;
     }
     const size_t truncation_size = cast_set<size_t>(truncation_threshold);
 
     bool truncated = false;
-    if (key_bounds->min_key().size() > truncation_size) {
-        key_bounds->mutable_min_key()->resize(truncation_size);
-        truncated = true;
-    }
-    if (key_bounds->max_key().size() > truncation_size) {
-        key_bounds->mutable_max_key()->resize(truncation_size);
-        truncated = true;
-    }
+    auto copy_key = [&](const std::string& key, std::string* stored_key) {
+        if (key.size() > truncation_size) {
+            stored_key->assign(key.data(), truncation_size);
+            truncated = true;
+            return;
+        }
+        stored_key->assign(key.data(), key.size());
+    };
+    copy_key(src.min_key(), dst->mutable_min_key());
+    copy_key(src.max_key(), dst->mutable_max_key());
     return truncated;
+}
+
+SegmentStatistics copy_segment_statistics_with_truncated_key_bounds(const SegmentStatistics& src,
+                                                                    bool& key_bounds_truncated) {
+    SegmentStatistics dst;
+    dst.row_num = src.row_num;
+    dst.data_size = src.data_size;
+    dst.index_size = src.index_size;
+    key_bounds_truncated = copy_key_bounds_with_truncation(src.key_bounds, &dst.key_bounds);
+    return dst;
 }
 
 void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
@@ -1227,8 +1242,9 @@ Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
 
 Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     uint32_t segid_offset = segment_id - _segment_start_id;
-    SegmentStatistics stored_segstat = segstat;
-    const bool key_bounds_truncated = truncate_key_bounds(&stored_segstat.key_bounds);
+    bool key_bounds_truncated = false;
+    SegmentStatistics stored_segstat =
+            copy_segment_statistics_with_truncated_key_bounds(segstat, key_bounds_truncated);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);
@@ -1283,8 +1299,7 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     segstat.row_num = row_num;
     segstat.data_size = segment_size;
     segstat.index_size = inverted_index_file_size;
-    segstat.key_bounds = key_bounds;
-    const bool key_bounds_truncated = truncate_key_bounds(&segstat.key_bounds);
+    bool key_bounds_truncated = copy_key_bounds_with_truncation(key_bounds, &segstat.key_bounds);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);

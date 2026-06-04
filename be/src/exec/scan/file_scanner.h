@@ -273,6 +273,7 @@ private:
     Status _generate_partition_columns();
 
     bool _check_partition_prune_expr(const VExprSPtr& expr);
+    bool _contains_runtime_filter(const VExprContextSPtrs& conjuncts) const;
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);

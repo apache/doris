@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
 
 #include <cstddef>
 
@@ -38,10 +39,10 @@ struct PageBuilderOptions {
 
     bool is_dict_page = false; // page used for saving dictionary
 
-    // BinaryPlain variant used by BinaryDictPageBuilder for its dict word page and
-    // dict-overflow fallback. Consumed only by BinaryDictPageBuilder.
-    BinaryPlainEncodingTypePB dict_binary_plain_encoding =
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+    // On-disk binary plain encoding used by BinaryDictPageBuilder for its dict word page and
+    // dict-overflow fallback page (PLAIN_ENCODING / PLAIN_ENCODING_V2 / PLAIN_ENCODING_V3).
+    // Consumed only by BinaryDictPageBuilder.
+    EncodingTypePB dict_binary_plain_encoding = PLAIN_ENCODING;
 };
 
 struct PageDecoderOptions {

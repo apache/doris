@@ -34,6 +34,16 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_string.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/thread_context.h"
+
+// benchmark_binary_plain_page_v2.hpp must be included LAST: it transitively pulls AWS SDK
+// headers (via storage/cache/page_cache.h) whose symbols shadow types used by the benchmark
+// headers above (notably binary_cast_benchmark.hpp). Keeping it last avoids the clash without
+// disabling any benchmark. (Do not let clang-format reorder it above the others.)
+#include "benchmark_binary_plain_page_v2.hpp"
 
 namespace doris { // change if need
 
@@ -59,4 +69,23 @@ static void Example1(benchmark::State& state) {
 BENCHMARK(Example1);
 } // namespace doris
 
-BENCHMARK_MAIN();
+// Custom main: benchmarks that touch DataPage allocation require a Doris
+// ThreadContext + mem tracker, otherwise the allocator throws E-7412. Mirrors
+// the minimal subset of be/test/testutil/run_all_tests.cpp::main.
+int main(int argc, char** argv) {
+    SCOPED_INIT_THREAD_CONTEXT();
+    doris::ExecEnv::GetInstance()->init_mem_tracker();
+    doris::thread_context()->thread_mem_tracker_mgr->init();
+    auto bench_tracker = doris::MemTrackerLimiter::create_shared(
+            doris::MemTrackerLimiter::Type::GLOBAL, "BE-BENCH");
+    doris::thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(bench_tracker);
+    doris::ExecEnv::set_tracking_memory(false);
+
+    ::benchmark::Initialize(&argc, argv);
+    if (::benchmark::ReportUnrecognizedArguments(argc, argv)) {
+        return 1;
+    }
+    ::benchmark::RunSpecifiedBenchmarks();
+    ::benchmark::Shutdown();
+    return 0;
+}
