@@ -209,6 +209,8 @@ Status AnnIndexColumnWriter::_train_and_add(Int64 min_train_rows) {
 }
 
 void AnnIndexColumnWriter::_release_buffered_vectors() {
+    // PODArray::clear() keeps the allocated capacity. Swap with an empty array so the
+    // full-segment training buffer is released before saving the index.
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
 }
