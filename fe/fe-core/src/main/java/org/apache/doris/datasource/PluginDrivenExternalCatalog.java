@@ -325,7 +325,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // createConnectorFromProperties() and getType() can resolve the catalog type.
         if (logType != null && logType != InitCatalogLog.Type.PLUGIN
                 && logType != InitCatalogLog.Type.UNKNOWN) {
-            String oldType = logType.name().toLowerCase(Locale.ROOT);
+            String oldType = legacyLogTypeToCatalogType(logType);
             if (catalogProperty.getOrDefault(CatalogMgr.CATALOG_TYPE_PROP, "").isEmpty()) {
                 LOG.info("Backfilling missing 'type' property for catalog '{}' from logType: {}",
                         name, oldType);
@@ -337,6 +337,19 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         if (logType != InitCatalogLog.Type.PLUGIN) {
             LOG.info("Migrating catalog '{}' logType from {} to PLUGIN", name, logType);
             logType = InitCatalogLog.Type.PLUGIN;
+        }
+    }
+
+    // CatalogFactory type strings don't all match Type.name().toLowerCase():
+    // TRINO_CONNECTOR → "trino-connector" (hyphen), not "trino_connector".
+    // Add cases here whenever a connector's CatalogFactory key diverges from
+    // the lowercase enum name.
+    private static String legacyLogTypeToCatalogType(InitCatalogLog.Type logType) {
+        switch (logType) {
+            case TRINO_CONNECTOR:
+                return "trino-connector";
+            default:
+                return logType.name().toLowerCase(Locale.ROOT);
         }
     }
 
