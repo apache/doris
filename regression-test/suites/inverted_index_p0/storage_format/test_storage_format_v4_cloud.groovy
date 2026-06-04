@@ -135,10 +135,15 @@ suite("test_storage_format_v4_cloud", "p0,cloud") {
         (10, 'cloud storage vault test'),
         (11, 'quick red fox jumps')
         """
-    order_qt_cloud_v4_multi_segment_fox """
+    // NOTE: use plain qt_ (not order_qt_) here. The query already imposes a
+    // deterministic `ORDER BY id`, and these rows reach ids >= 10. order_qt_
+    // re-sorts result rows lexicographically as strings ("11" < "5"), which
+    // contradicts the numeric SQL order and the committed .out, producing a
+    // spurious mismatch. qt_ compares in the SQL-returned (numeric) order.
+    qt_cloud_v4_multi_segment_fox """
         SELECT id FROM ${testTable} WHERE body MATCH_ANY 'fox' ORDER BY id;
         """
-    order_qt_cloud_v4_multi_segment_apache """
+    qt_cloud_v4_multi_segment_apache """
         SELECT id FROM ${testTable} WHERE body MATCH_ANY 'apache' ORDER BY id;
         """
 
