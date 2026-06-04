@@ -24,6 +24,7 @@ import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -310,6 +311,157 @@ public class LocalShuffleNodeCoverageTest {
         Assertions.assertEquals(LocalExchangeType.NOOP, serialBuildOutput.second);
         Assertions.assertSame(nonSerialProbe, serialBuildBroadcast.getChild(0));
         assertChildLocalExchangeType(serialBuildBroadcast, 1, LocalExchangeType.PASS_TO_ONE);
+    }
+
+    private static List<List<Expr>> mockDistributeExprLists() {
+        return Lists.newArrayList(
+                Collections.singletonList(Mockito.mock(SlotRef.class)),
+                Collections.singletonList(Mockito.mock(SlotRef.class)));
+    }
+
+    @Test
+    public void testHashJoinBucketUpgradeToLocalHash() {
+        List<Expr> eqConjuncts = Collections.singletonList(Mockito.mock(BinaryPredicate.class));
+
+        // 1. Eligible fragment + parent doesn't need bucket → both sides re-distributed
+        //    with LOCAL_EXECUTION_HASH_SHUFFLE, output reports LOCAL hash.
+        PlanTranslatorContext upgradeCtx = new PlanTranslatorContext();
+        upgradeCtx.setCurrentFragmentBucketUpgradeEligible(true);
+        TrackingPlanNode probeBucket = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        TrackingPlanNode buildNoop = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode upgradedJoin = new HashJoinNode(nextPlanNodeId(), probeBucket, buildNoop,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        upgradedJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+        upgradedJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        Pair<PlanNode, LocalExchangeType> upgradedOutput = upgradedJoin.enforceAndDeriveLocalExchange(
+                upgradeCtx, null, LocalExchangeTypeRequire.requireHash());
+        // BUCKET claim must NOT satisfy the upgrade's requireSpecific(LOCAL_EXECUTION_HASH):
+        // an LE is inserted on both sides.
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, upgradedOutput.second);
+        assertChildLocalExchangeType(upgradedJoin, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        assertChildLocalExchangeType(upgradedJoin, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+
+        // 2. Child already providing LOCAL hash satisfies the upgraded require — no extra LE.
+        PlanTranslatorContext satisfiedCtx = new PlanTranslatorContext();
+        satisfiedCtx.setCurrentFragmentBucketUpgradeEligible(true);
+        TrackingPlanNode probeLocal = new TrackingPlanNode(nextPlanNodeId(),
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        TrackingPlanNode buildLocal = new TrackingPlanNode(nextPlanNodeId(),
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        HashJoinNode satisfiedJoin = new HashJoinNode(nextPlanNodeId(), probeLocal, buildLocal,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        satisfiedJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+        satisfiedJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        Pair<PlanNode, LocalExchangeType> satisfiedUpgrade = satisfiedJoin.enforceAndDeriveLocalExchange(
+                satisfiedCtx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, satisfiedUpgrade.second);
+        Assertions.assertSame(probeLocal, satisfiedJoin.getChild(0));
+        Assertions.assertSame(buildLocal, satisfiedJoin.getChild(1));
+
+        // 3. Parent requires bucket distribution (upper bucket join) → no upgrade even when
+        //    the fragment is eligible: children keep BUCKET_HASH_SHUFFLE.
+        PlanTranslatorContext parentBucketCtx = new PlanTranslatorContext();
+        parentBucketCtx.setCurrentFragmentBucketUpgradeEligible(true);
+        TrackingPlanNode probeForBucketParent = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode buildForBucketParent = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode bucketParentJoin = new HashJoinNode(nextPlanNodeId(), probeForBucketParent,
+                buildForBucketParent, JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(),
+                null, null, false);
+        bucketParentJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+        bucketParentJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        Pair<PlanNode, LocalExchangeType> bucketParentOutput = bucketParentJoin.enforceAndDeriveLocalExchange(
+                parentBucketCtx, null, LocalExchangeTypeRequire.requireBucketHash());
+        Assertions.assertEquals(LocalExchangeType.BUCKET_HASH_SHUFFLE, bucketParentOutput.second);
+        assertChildLocalExchangeType(bucketParentJoin, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        assertChildLocalExchangeType(bucketParentJoin, 1, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+
+        // 4. Fragment not eligible (ratio gate failed / not a pooled bucket fragment) →
+        //    existing behavior untouched.
+        PlanTranslatorContext ineligibleCtx = new PlanTranslatorContext();
+        TrackingPlanNode probeIneligible = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode buildIneligible = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode ineligibleJoin = new HashJoinNode(nextPlanNodeId(), probeIneligible, buildIneligible,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        ineligibleJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+        ineligibleJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        Pair<PlanNode, LocalExchangeType> ineligibleOutput = ineligibleJoin.enforceAndDeriveLocalExchange(
+                ineligibleCtx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.BUCKET_HASH_SHUFFLE, ineligibleOutput.second);
+        assertChildLocalExchangeType(ineligibleJoin, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        assertChildLocalExchangeType(ineligibleJoin, 1, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+
+        // 5. Stacked bucket joins: only the topmost upgrades. The inner join (direct probe
+        //    child of the upgraded one) is marked via hasBucketUpgradedAncestor and keeps
+        //    BUCKET requires; the outer join re-aligns the inner's BUCKET output to its own
+        //    keys with a LOCAL hash LE.
+        PlanTranslatorContext stackedCtx = new PlanTranslatorContext();
+        stackedCtx.setCurrentFragmentBucketUpgradeEligible(true);
+        TrackingPlanNode innerProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode innerBuild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode innerJoin = new HashJoinNode(nextPlanNodeId(), innerProbe, innerBuild,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        innerJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+        innerJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        TrackingPlanNode outerBuild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode outerJoin = new HashJoinNode(nextPlanNodeId(), innerJoin, outerBuild,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        outerJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+        outerJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        Pair<PlanNode, LocalExchangeType> stackedOutput = outerJoin.enforceAndDeriveLocalExchange(
+                stackedCtx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, stackedOutput.second);
+        // outer upgraded: probe side wrapped with LOCAL hash LE (re-aligning inner's output)
+        assertChildLocalExchangeType(outerJoin, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        assertChildLocalExchangeType(outerJoin, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        // inner stayed bucket: its own children keep BUCKET_HASH_SHUFFLE LEs
+        assertChildLocalExchangeType(innerJoin, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        assertChildLocalExchangeType(innerJoin, 1, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+
+        // 6. Colocate join takes the same upgrade path.
+        PlanTranslatorContext colocateCtx = new PlanTranslatorContext();
+        colocateCtx.setCurrentFragmentBucketUpgradeEligible(true);
+        TrackingPlanNode colocateProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode colocateBuild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode colocateJoin = new HashJoinNode(nextPlanNodeId(), colocateProbe, colocateBuild,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        colocateJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+        colocateJoin.setColocate(true, "test");
+        Pair<PlanNode, LocalExchangeType> colocateOutput = colocateJoin.enforceAndDeriveLocalExchange(
+                colocateCtx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, colocateOutput.second);
+        assertChildLocalExchangeType(colocateJoin, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        assertChildLocalExchangeType(colocateJoin, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+
+        // 7. Missing distribute exprs → no upgrade (the LOCAL hash LE would have no keys).
+        PlanTranslatorContext noExprCtx = new PlanTranslatorContext();
+        noExprCtx.setCurrentFragmentBucketUpgradeEligible(true);
+        TrackingPlanNode probeNoExpr = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode buildNoExpr = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashJoinNode noExprJoin = new HashJoinNode(nextPlanNodeId(), probeNoExpr, buildNoExpr,
+                JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+        noExprJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        Pair<PlanNode, LocalExchangeType> noExprOutput = noExprJoin.enforceAndDeriveLocalExchange(
+                noExprCtx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeType.BUCKET_HASH_SHUFFLE, noExprOutput.second);
+        assertChildLocalExchangeType(noExprJoin, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        assertChildLocalExchangeType(noExprJoin, 1, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+    }
+
+
+    @Test
+    public void testShouldUpgradeBucketParallelismGate() {
+        // ratio <= 1 (including 0 and negatives) always disables — the knob doubles as the
+        // off switch: requiring at most 1x parallelism gain means no gain.
+        Assertions.assertFalse(AddLocalExchange.shouldUpgradeBucketParallelism(0, 16, 8));
+        Assertions.assertFalse(AddLocalExchange.shouldUpgradeBucketParallelism(-1, 16, 8));
+        Assertions.assertFalse(AddLocalExchange.shouldUpgradeBucketParallelism(1.0, 16, 8));
+        // active threshold: instances must exceed buckets-with-data × ratio
+        Assertions.assertTrue(AddLocalExchange.shouldUpgradeBucketParallelism(1.5, 16, 8));
+        Assertions.assertFalse(AddLocalExchange.shouldUpgradeBucketParallelism(1.5, 12, 8));
+        Assertions.assertFalse(AddLocalExchange.shouldUpgradeBucketParallelism(2.0, 16, 8));
+        Assertions.assertTrue(AddLocalExchange.shouldUpgradeBucketParallelism(1.5, 256, 8));
+        // no buckets with data → nothing to upgrade
+        Assertions.assertFalse(AddLocalExchange.shouldUpgradeBucketParallelism(1.5, 16, 0));
     }
 
     @Test

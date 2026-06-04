@@ -127,6 +127,21 @@ public class PlanTranslatorContext {
     // needs shuffle for correctness, not just for performance like StreamingAgg pre-agg).
     private final Map<PlanNodeId, Boolean> shuffledAncestorMap = Maps.newHashMap();
 
+    // Whether the fragment currently being processed by AddLocalExchange is eligible for the
+    // bucket → local-hash parallelism upgrade: a pooled bucket-join fragment whose per-BE
+    // instance count exceeds (buckets-with-data per BE) × local_shuffle_bucket_upgrade_ratio.
+    // Computed once per fragment in AddLocalExchange.addLocalExchange from the distributed
+    // plan's LocalShuffleBucketJoinAssignedJob assignments; read by
+    // HashJoinNode.enforceAndDeriveLocalExchange.
+    private boolean currentFragmentBucketUpgradeEligible = false;
+
+    // Per-node "a bucket join above me in this fragment already upgraded to local hash" flag.
+    // An upgraded join marks its direct children so a stacked bucket join below keeps its
+    // BUCKET_HASH_SHUFFLE requires: if it also upgraded, its LOCAL hash output (keyed by ITS
+    // join keys) would type-satisfy the upper join's requireSpecific(LOCAL_EXECUTION_HASH)
+    // and suppress the LE that re-aligns data to the upper join's keys → wrong results.
+    private final Map<PlanNodeId, Boolean> bucketUpgradedAncestorMap = Maps.newHashMap();
+
     // Whether the current fragment uses LocalShuffleAssignedJob (pooling scan with
     // ignoreDataDistribution → _parallel_instances=1 in BE). When true, serial operators
     // indicate real pipeline bottlenecks needing PASSTHROUGH fan-out (heavy_ops).
@@ -274,6 +289,22 @@ public class PlanTranslatorContext {
 
     public boolean hasShuffleForCorrectnessAncestor(PlanNode node) {
         return shuffledAncestorMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setCurrentFragmentBucketUpgradeEligible(boolean eligible) {
+        this.currentFragmentBucketUpgradeEligible = eligible;
+    }
+
+    public boolean isCurrentFragmentBucketUpgradeEligible() {
+        return currentFragmentBucketUpgradeEligible;
+    }
+
+    public void setHasBucketUpgradedAncestor(PlanNode node, boolean value) {
+        bucketUpgradedAncestorMap.put(node.getId(), value);
+    }
+
+    public boolean hasBucketUpgradedAncestor(PlanNode node) {
+        return bucketUpgradedAncestorMap.getOrDefault(node.getId(), false);
     }
 
     public SlotDescriptor addSlotDesc(TupleDescriptor t) {
