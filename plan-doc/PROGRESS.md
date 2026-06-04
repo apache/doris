@@ -53,7 +53,7 @@
 | HMS-over-SPI recon（#1 元数据 + #2 scan/split）| ✅ | code-grounded + 对抗验证；verdict `hmsMetadataOverSpiReady=false`（DV-005）|
 | catalog 模型决策（a/b/c）| ✅ hybrid（D-019）| 现做 (b)，推迟 (a)；真阻塞=独立 `"hudi"` type vs 寄生 `"hms"` 的 `DLAType.HUDI`、fe-core 不消费 `tableFormatType` |
 | SPI scan/split 路径 recon | ✅ | **混合 COW-native/MOR-JNI 不是问题**（per-range format，与 legacy 结构等价，BE 每 range 建 reader；2 路对抗验证）；plumbing 正确但 verdict 仍 false（gate/模型未解）|
-| scan 侧 parity 修复（HIGH，多数 SPI 内可修）| 🚧 | **②✅ column_types 双 bug（T02 `95f23e9`）**：发完整 Hive 类型串 + 弃逗号 join/split。余 ①schema_id/history（T03）③time-travel 静默返最新（T04）④增量读 fail-loud（T04）；详见 [HANDOFF](./HANDOFF.md) 1b |
+| scan 侧 parity 修复（HIGH）| 🚧 | **②✅ column_types 双 bug（T02 `95f23e9`）**。**①schema_id/history 推迟批 E（[DV-006]）**——非 model-agnostic SPI 修复（连接器缺 field-id/InternalSchema/type→thrift；裸基线净回归）。余 ③time-travel 静默返最新（T04）④增量读 fail-loud（T04）；详见 [HANDOFF](./HANDOFF.md) 1b |
 | 增量读 SPI hook / MVCC | ⏳ | P1-T04 incrementalRelation gap；4 个 `*IncrementalRelation` 仍在 fe-core |
 | listPartitions override + 真实裁剪 | ⏳ | Hudi applyFilter 现列全部分区不裁剪 |
 | 三连接器模块测试 | ⏳ | fe-connector-hms/hive/hudi 当前零测试 |
@@ -127,6 +127,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-06-05** 🟡 **P3-T03 推迟批 E**（[DV-006]，用户签字）：code-grounded recon（4-reader workflow + 主线核读 BE `table_schema_change_helper.h`）揭示 schema_id/history_schema_info **不是** 批 A 可做的 model-agnostic SPI-surface 修复——连接器缺 field-id（`HudiColumnHandle` 无）/ Hudi `InternalSchema` 版本 / type→`TColumnType` thrift；「Paimon/ES 已 override hook（设 schema）」前提失真（其 override 为 predicate/docvalue）；裸 `current==file==-1`→BE `ConstNode`(identity,大小写敏感) **弱于**当前 `by_parquet_name` 名匹配 = 净回归。faithful field-id evolution parity 与 hive/HMS migration 一并入批 E。批 A 保持现状名匹配（零回归），直进 T04
 - **2026-06-04** ✅ **P3-T02（批 A 启动）column_types 双 bug 修复**（commit `95f23e9`）：硬化 dormant SPI hudi 连接器（gate 关，零 live caller）。(a) `HudiScanPlanProvider` 改发完整 **Hive 类型串**（新 `HudiTypeMapping.toHiveTypeString` 复刻 legacy `HudiUtils.convertAvroToHiveType`），不再用 `getTypeName()` 发 Doris 裸类型名（丢精度/scale/子类型）；(b) `HudiScanRange` 改 typed `List<String>` 直接设 thrift `list<string>`，弃逗号 join/split（曾打碎 `decimal(10,2)`/`struct<...>`），BE 自做 join（types `#` / names,delta `,`），与 Java `HadoopHudiJniScanner` split 契约一致（两点对抗确认）。建模块**首批**测试 11 个全绿；checkstyle 0 + import-gate 通过；3 路对抗 review 零确认缺陷。设计见 `tasks/designs/P3-T02-column-types-design.md`
 - **2026-06-04** ✅ **P3 scan/split recon + 定 hybrid（D-019）+ 建 tasks/P3**：第二轮 recon（scan/split 路径，verified）——单 `PluginDrivenScanNode` 混合 COW-native/MOR-JNI **不是问题**（per-range format，与 legacy 结构等价，BE 每 range 建 reader）；plumbing 正确，剩 model-agnostic 正确性 gap（schema_id/history 缺、column_types 双 bug、time-travel 静默返最新、增量无表示、partition 裁剪缺、三模块零测试）。用户定 **hybrid**（[D-019](./decisions-log.md)）：现做 (b) 连接器硬化+测试（behind gate，零 live 风险），推迟 (a) 模型落地+cutover 到 hive/HMS migration。已建 [tasks/P3](./tasks/P3-hudi-migration.md)，批 A 待启动
 - **2026-06-04** ✅ **P2 已合入 `branch-catalog-spi`**（#64096，squash `0793f032662`，叠在 P1 `2b1a3bb2197` / P0 `72d6d0109b9` 上）。旧「PR base 错位（191-commit）」阻塞消失——`branch-catalog-spi` 已重建到新 master（P0/P1 hash 随之更新）。P2 除 T12（回归，DV-003）外全部完成
@@ -174,7 +175,7 @@
 | 类型 | 总数 | 最新条目 | 文档 |
 |---|---|---|---|
 | **决策**（D-NNN） | 19 | D-019（P3 hudi hybrid 推进策略）| [decisions-log.md](./decisions-log.md) |
-| **偏差**（DV-NNN） | 5 | DV-005（P3 HMS-over-SPI 依赖与代码不符；真阻塞=catalog 模型错配）| [deviations-log.md](./deviations-log.md) |
+| **偏差**（DV-NNN） | 6 | DV-006（P3-T03 schema_id 非批 A 可修，推迟批 E）| [deviations-log.md](./deviations-log.md) |
 | **风险**（R-NNN） | 14 | R-014（thrift sink 选择灵活性） | [risks.md](./risks.md) |
 
 ---

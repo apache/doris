@@ -78,6 +78,9 @@
 
 ## 进度日志
 
+### 2026-06-05
+- **P3-T03 🟡 推迟批 E**（[DV-006](../deviations-log.md)，用户签字）：schema_id/history_schema_info 非批 A 可做的 SPI-surface 修复——`HudiColumnHandle` 无 field id、SPI 无 Hudi `InternalSchema` 版本、连接器无 type→`TColumnType` thrift；裸 `current==file==-1`→BE `ConstNode`(大小写敏感) 弱于现状 `by_parquet_name` 名匹配（净回归）。批 A 保持现状名匹配（零回归，common 无 evolution 可用；改名/evolution 退化非崩溃），faithful parity 入批 E。
+
 ### 2026-06-04
 - **P3-T02 ✅**（批 A，commit `95f23e9`）：修 JNI scanner `column_types` 双 bug——(a) 发完整 Hive 类型串（新 `HudiTypeMapping.toHiveTypeString` 复刻 legacy `HudiUtils.convertAvroToHiveType`），不再用 `getTypeName()` 丢精度/子类型；(b) `HudiScanRange` typed list 端到端，弃逗号 join/split（曾打碎 `decimal(10,2)`/`struct<...>`），BE 自做 join（types `#`）。建模块首批测试 11 个全绿；gate 保持关闭。设计见 [`../tasks/designs/P3-T02-column-types-design.md`](../tasks/designs/P3-T02-column-types-design.md)。
 - P3 启动 recon（8-agent code-grounded workflow + 对抗验证）。结论（[DV-005](../deviations-log.md)）：HMS-over-SPI 读码已存在但 **dormant**（gate 未开、零 live caller）；**真阻塞=catalog 模型错配**（独立 `"hudi"` type vs 寄生 `"hms"` 的 `DLAType.HUDI`，fe-core 不消费 `tableFormatType`）+ 增量读无 SPI 表示（P1-T04 gap）+ 三模块零测试。P3 待 catalog 模型决策（a/b；c 否决）签字后开工。关键文件锚点见 HANDOFF。

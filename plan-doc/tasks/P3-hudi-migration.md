@@ -9,7 +9,7 @@
 
 ## 元信息
 
-- **状态**：🚧 进行中（批 0 ✅；批 A 进行中：T02 ✅，T03/T04 待启动）
+- **状态**：🚧 进行中（批 0 ✅；批 A：T02 ✅，T03 推迟批 E（[DV-006]），T04 待启动）
 - **启动日期**：2026-06-04
 - **目标完成**：—（hybrid 范围，估时按批 A–C 约 1–1.5 周；批 D 设计 0.5 周；批 E deferred 不计入 P3）
 - **实际完成**：—
@@ -39,7 +39,9 @@
 
 ## 验收标准
 
-- [ ] **批 A**：`column_types` 双 bug 修复（发完整 Hive 类型串 + 弃逗号 join/split）；native split 的 `schema_id` + `params.history_schema_info` 填充；time-travel / 增量读 **fail-loud**（不静默返最新 / 不静默全扫）
+- [x] **批 A / T02**：`column_types` 双 bug 修复（发完整 Hive 类型串 + 弃逗号 join/split）✅（`95f23e9`）
+- [ ] **批 A / T04**：time-travel / 增量读 **fail-loud**（不静默返最新 / 不静默全扫）
+- [~] **批 A→E / T03**：native split `schema_id` + `params.history_schema_info` 填充 —— **推迟批 E（[DV-006]）**，非 model-agnostic SPI 修复（连接器缺 field-id/InternalSchema/type→thrift；裸基线净回归）
 - [ ] **批 B**：`listPartitions*` override + 真实 `applyFilter` 约束裁剪；MVCC/snapshot SPI 实现或显式 unsupported
 - [ ] **批 C**：fe-connector-hms/hive/hudi 测试基线（当前零测试）；**parity 测试**——SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `HiveMetaStoreClientHelper.getHudiTableSchema`，COW & MOR 各一
 - [ ] **批 D**：`tableFormatType` 分流消费设计备忘（design-only，**不动 fe-core live 路径**）
@@ -58,7 +60,7 @@
 |---|---|---|---|---|---|---|---|---|
 | P3-T01 | 两轮 code-grounded recon + hybrid 决策（D-019）+ 本 task 文件 | 批 0 | @me | ✅ | — | 2026-06-04 | 2026-06-04 | recon #1（元数据）+ #2（scan/split）均含对抗验证；DV-005 记依赖更正；D-019 定 hybrid。锚点见 HANDOFF「P3 关键文件锚点」 |
 | P3-T02 | `column_types` 双 bug 修复 + 单测 | 批 A | @me | ✅ | `95f23e9` | 2026-06-04 | 2026-06-04 | (a) `HudiScanPlanProvider` 弃 `ConnectorType.getTypeName()`（丢精度/scale/子类型），改发完整 Hive 类型串（对标 legacy `HudiUtils.convertAvroToHiveType`，如 `decimal(10,2)`/`struct<...>`）；(b) `HudiScanRange` 停止 column_names/column_types/delta_logs 的逗号 join/split（含逗号的类型串会被打碎），改 typed list 端到端。**先读 BE `hudi_jni_reader.cpp` 确认 JNI scanner 期望的精确串格式**（names `,` / types `#`），再改。命中含 decimal/复杂列的 MOR-with-logs JNI split |
-| P3-T03 | native split `schema_id` + `history_schema_info` 填充 + 单测 | 批 A | @me | ⏳ | — | — | — | `HudiScanPlanProvider` override `ConnectorScanPlanProvider.populateScanLevelParams` 设 `current_schema_id` + `history_schema_info`（对标 legacy `ExternalUtil.initSchemaInfo` + `putHistorySchemaInfo`）；`HudiScanRange` 在 native COW/MOR-RO split 设 `THudiFileDesc.schema_id`。**无需 fe-core 改动**（Paimon/ES 已用此 hook）。修复 BE 退化为名匹配 → 丢 field-id / schema-evolution / 大小写处理 |
+| P3-T03 | native split `schema_id` + `history_schema_info` 填充 + 单测 | ~~批 A~~→**批 E** | TBD | 🟡 推迟 | — | — | — | **[DV-006] 推迟批 E**：recon 实证非 model-agnostic SPI-surface 修复——连接器缺 field-id（`HudiColumnHandle` 无）/ Hudi `InternalSchema` 版本 / type→`TColumnType` thrift；「Paimon/ES 已 override」前提失真（其 override 为 predicate/docvalue，**不设** schema 元数据）；裸 `current==file==-1`→BE `ConstNode`(identity-by-name,大小写敏感) **弱于**当前 `by_parquet_name` 名匹配 → **净回归**。faithful field-id evolution parity 需批 E 一次性建机制。批 A 保持现状名匹配（零回归） |
 | P3-T04 | time-travel + 增量读 fail-loud 守卫 + 单测 | 批 A | @me | ⏳ | — | — | — | 当前 `HudiScanPlanProvider` 永远用 `timeline.lastInstant`、`HudiTableHandle` 无 snapshot 字段 → `FOR TIME AS OF` 静默返最新；增量读无 SPI 表示。本 task 仅做**显式报错**（不静默），完整实现入批 E。透传 snapshot 的完整 wiring 也可在此起步 |
 | P3-T05 | `listPartitions/listPartitionNames/listPartitionValues` override + 真实 `applyFilter` 裁剪 + 单测 | 批 B | @me | ⏳ | — | — | — | 现 Hudi `applyFilter` 列**全部**分区不做约束裁剪（Hive 已做 EQ/IN）；SPI partition 方法默认空。补真实裁剪 + override 分区方法 |
 | P3-T06 | MVCC/snapshot SPI（实现或显式 unsupported） | 批 B | @me | ⏳ | — | — | — | `HudiConnectorMetadata` 未 override `beginQuerySnapshot/getSnapshotAt/getSnapshotById`（默认 `Optional.empty()`）。与 T04 关联：要么接 `HudiMvccSnapshot` 语义，要么显式 unsupported |
@@ -73,6 +75,13 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-05（批 A 续：T03 推迟决策）
+- **P3-T03 🟡 推迟批 E**（[DV-006]，用户签字 AskUserQuestion「Defer T03 to batch E」）：T03 启动前 4-reader code-grounded recon + 主线核读 BE `table_schema_change_helper.h:219-267` 揭示——schema_id/history **不是** 批 A 可做的 model-agnostic SPI-surface 修复：
+  - **连接器缺料**：`HudiColumnHandle` 无 field id；SPI 无 Hudi `InternalSchema` 版本跟踪；连接器模块无 type→`TColumnType` thrift 转换（legacy 在 fe-core `ExternalUtil`，import-gate 禁复用）。
+  - **「Paimon/ES 已 override hook」前提失真**：二者 override `populateScanLevelParams` 为 predicate/docvalue，**不设** schema 元数据（无 SPI 先例）。
+  - **裸基线净回归**：仅设 `current==file==-1` → BE 走 `ConstNode`（identity-by-name，大小写敏感），**弱于**当前 unset→`by_parquet_name`（鲁棒名匹配，处理大小写/缺列）。faithful field-id evolution parity 需批 E 与 hive/HMS migration 一次性建机制。
+  - **批 A 动作**：不发 schema 元数据，保持现状名匹配（**零回归**），不 ship 裸 ConstNode。→ 直接进 **T04**。
 
 ### 2026-06-04（批 A 启动）
 - **P3-T02 ✅**（commit `95f23e9`，feat）：修 hudi JNI `column_types` 双 bug。

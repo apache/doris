@@ -13,10 +13,11 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **5** 项。
+> 时间倒序；当前共 **6** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-006 | P3-T03 schema_id/history 非批 A 可修（连接器缺 field-id/InternalSchema/type→thrift；裸基线会回归）；推迟批 E | [HANDOFF 1b ①](./HANDOFF.md) / [tasks/P3 T03](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟡 推迟（批 E）|
 | DV-005 | P3 hudi「HMS-over-SPI 前置依赖」与代码不符；真阻塞=catalog 模型错配 | [connectors/hudi.md](./connectors/hudi.md) / [master plan §3.4](./00-connector-migration-master-plan.md) / D-005 | 2026-06-04 | 🟡 待修正（P3 模型决策）|
 | DV-004 | T13 用户向安装文档不在本代码仓（在 doris-website 仓） | [tasks/P2 T13](./tasks/P2-trino-connector-migration.md) | 2026-06-04 | 🟢 已修正 |
 | DV-003 | T12 回归测试引用不存在的先例/目录且本地不可运行 | [tasks/P2 T12](./tasks/P2-trino-connector-migration.md) | 2026-06-04 | 🟡 推迟 |
@@ -26,6 +27,29 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-006 — P3-T03（schema_id / history_schema_info）不是 model-agnostic 的批 A SPI-surface 修复；推迟到批 E
+
+- **发现日期**：2026-06-05
+- **发现 session / agent**：P3 批 A session（T03 启动前 code-grounded recon：4-reader workflow 读 SPI hook + Paimon/ES 参照 + legacy 路径 + thrift/BE 消费端；主线对 BE `table_schema_change_helper.h` 二次核读）
+- **当前状态**：🟡 推迟（批 E，并入 hive/HMS migration）
+- **原计划位置**：[HANDOFF.md 关键认知 1b HIGH ①](./HANDOFF.md) + [DV-005 后续动作 ①](#dv-005--p3-hudi-的hms-over-spi-前置依赖与代码实际状态不符真正阻塞是-catalog-模型错配) + [tasks/P3 §P3-T03](./tasks/P3-hudi-migration.md)：「schema_id/history 缺→退化名匹配；可经现有 SPI hook `populateScanLevelParams`（Paimon/ES 已 override）+ `HudiScanRange` 设 schema_id 修复，**无需 fe-core 改动**」
+- **偏差描述**：原评估认为 ① 是「多在 SPI surface 内可修」的 model-agnostic 修复。recon 实测发现**前提不成立**：
+  1. **BE 语义**（`be/src/format/table/table_schema_change_helper.h:219-267`）：`history_schema_info` **unset** → `by_parquet_name`/`by_orc_name`（**鲁棒名匹配**，处理大小写 / 缺列）——**即当前 SPI hudi 路径行为**；`current_schema_id == file_schema_id` → **`ConstNode`**（`:92-121`）= **纯 identity-by-name**、**大小写敏感**、假设精确匹配（其注释自陈需注意大小写）；id 不同 → `by_table_field_id`（**唯一**做 field-id / 改名 / evolution 的路径）。
+  2. **「Paimon/ES 已 override」前提失真**：二者 override `populateScanLevelParams` 是为 **predicate / docvalue**，**并不设** schema evolution 元数据（recon 实证）——**无任何 SPI 先例**发 schema_id/history。
+  3. **连接器缺料**：`HudiColumnHandle` **无 field id**（仅 `name`/`typeName` 串/`isPartitionKey`）；SPI hudi 连接器**无 Hudi `InternalSchema` 版本跟踪**（legacy 走 `getCommitInstantInternalSchema`）；连接器模块**无 type→`TColumnType` thrift 转换**（legacy 在 fe-core `ExternalUtil.getExternalSchema`，import gate 禁止复用）。
+  4. **裸基线会回归**：若仅设 `current==file==-1`（→ ConstNode）= identity-by-name 大小写敏感，**严格弱于**当前名匹配（丢大小写 / 缺列处理）——**净回归**；而真正的 field-id evolution 路径需上述全部缺料。
+- **触发场景**：T03 启动前 recon + 主线核读 BE `gen_table_info_node_by_field_id` / `ConstNode` / `StructNode`。
+- **新方案**：**T03 推迟到批 E**，与 hive/HMS migration 一次性建齐机制（column-handle field id + Hudi `InternalSchema` 版本 + Avro/ConnectorType→`TColumnType` thrift + `populateScanLevelParams` 设 current+history + 每-split `THudiFileDesc.schema_id`）。批 A 不发任何 schema 元数据（保持现状名匹配，**零回归**），不 ship 裸 ConstNode 基线。用户已签字（2026-06-05，AskUserQuestion「Defer T03 to batch E」）。
+- **替代方案**：(a) 批 A 内建全套 field-id/InternalSchema/type→thrift 机制——否决（大、与批 E 重叠、触碰 live 可读 schema 路径、回归风险）；(b) 裸 ConstNode 基线——否决（净回归大小写/缺列）。
+- **影响范围**：
+  - 文档：本条 + [tasks/P3](./tasks/P3-hudi-migration.md)（T03 移入批 E、备注现状名匹配 + evolution gap）+ [PROGRESS](./PROGRESS.md)（§三 parity 行 / §六计数）+ [connectors/hudi.md](./connectors/hudi.md)。
+  - 代码：无（recon + 决策，零改动）。
+  - 计划：批 A 范围由 {T02,T03,T04} 收为 {T02 ✅, T04}；T03 与 T09–T11 同批 E。
+- **关联**：[DV-005](#dv-005--p3-hudi-的hms-over-spi-前置依赖与代码实际状态不符真正阻塞是-catalog-模型错配)（其后续 ① 本条修正）、P3-T03、P3-T10/T11（批 E）、[D-019](./decisions-log.md)（hybrid）、R-001
+- **后续动作**：
+  - [ ] 批 E：连接器 schema field-id + InternalSchema 版本 + type→thrift + `populateScanLevelParams` + per-split `schema_id`（faithful field-id evolution parity）
+  - [x] 现状行为登记：SPI hudi 走 BE 名匹配（`by_parquet_name`/`by_orc_name`），common 无 evolution 可用；改名 / reorder-with-evolution 退化（非崩溃）
 
 ### DV-005 — P3 hudi 的「HMS-over-SPI 前置依赖」与代码实际状态不符；真正阻塞是 catalog 模型错配
 
