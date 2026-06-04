@@ -217,24 +217,13 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         if (nonSerialScanSource.isEmpty()) {
             List<BucketScanSource> assignedJoinBuckets
                     = (List) serialScanSource.parallelize(scanNodes, instanceNum);
-            // With the FE local shuffle planner's bucket upgrade enabled, give every
-            // bucket-owner instance its own buckets' scan ranges so the scan runs in
-            // parallel across owners, instead of funneling all ranges into instance 0
-            // (the serial-scan constant that dominates pooled bucket fragments). The
-            // planner=false dest path (sortDestinationInstancesByBuckets) depends on the
-            // first instance holding all buckets, so this must stay gated.
-            boolean spreadScanRanges = context.getSessionVariable().isEnableLocalShuffle()
-                    && context.getSessionVariable().isEnableLocalShufflePlanner()
-                    && context.getSessionVariable().getLocalShuffleBucketUpgradeRatio() > 1.0;
             for (int i = 0; i < assignedJoinBuckets.size(); i++) {
                 BucketScanSource assignedJoinBucket = assignedJoinBuckets.get(i);
                 LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
                         instances.size(), shareScanId, context.nextInstanceId(),
                         this, worker,
-                        // spread mode: each instance scans its assigned join buckets;
-                        // legacy mode: only first instance to scan all data
-                        spreadScanRanges ? assignedJoinBucket
-                                : (i == 0 ? serialScanSource : emptyShareScanSource),
+                        // only first instance to scan all data
+                        i == 0 ? serialScanSource : emptyShareScanSource,
                         // but join can assign to multiple instances
                         Utils.fastToImmutableSet(assignedJoinBucket.bucketIndexToScanNodeToTablets.keySet())
                 );
