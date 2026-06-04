@@ -19,12 +19,14 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/ExternalTableSchema_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <algorithm>
 #include <charconv>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -115,6 +117,150 @@ reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::Colu
     return &parent->children.back();
 }
 
+const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
+    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
+        return nullptr;
+    }
+    return field_ptr.field_ptr.get();
+}
+
+DataTypePtr find_struct_child_type_by_name(const DataTypeStruct& struct_type,
+                                           const std::string& field_name) {
+    for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
+        if (to_lower(struct_type.get_element_name(field_idx)) == to_lower(field_name)) {
+            return struct_type.get_element(field_idx);
+        }
+    }
+    return nullptr;
+}
+
+reader::TableColumn build_schema_column_from_external_field(const schema::external::TField& field,
+                                                            DataTypePtr type) {
+    reader::TableColumn column {
+            .id = field.__isset.id ? field.id : -1,
+            .name = field.__isset.name ? field.name : "",
+            .type = std::move(type),
+            .children = {},
+            .default_expr = nullptr,
+            .is_partition_key = false,
+    };
+    if (column.type == nullptr || !field.__isset.nestedField) {
+        return column;
+    }
+
+    const auto nested_type = remove_nullable(column.type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        if (!field.nestedField.__isset.struct_field ||
+            !field.nestedField.struct_field.__isset.fields) {
+            return column;
+        }
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*nested_type);
+        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
+            const auto* child_field = get_field_ptr(child_ptr);
+            if (child_field == nullptr || !child_field->__isset.name) {
+                continue;
+            }
+            auto child_type = find_struct_child_type_by_name(struct_type, child_field->name);
+            if (child_type == nullptr) {
+                continue;
+            }
+            column.children.push_back(
+                    build_schema_column_from_external_field(*child_field, child_type));
+        }
+        break;
+    }
+    case TYPE_ARRAY: {
+        if (!field.nestedField.__isset.array_field ||
+            !field.nestedField.array_field.__isset.item_field) {
+            return column;
+        }
+        const auto* item_field = get_field_ptr(field.nestedField.array_field.item_field);
+        if (item_field == nullptr) {
+            return column;
+        }
+        const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
+        column.children.push_back(
+                build_schema_column_from_external_field(*item_field, array_type.get_nested_type()));
+        break;
+    }
+    case TYPE_MAP: {
+        if (!field.nestedField.__isset.map_field ||
+            !field.nestedField.map_field.__isset.key_field ||
+            !field.nestedField.map_field.__isset.value_field) {
+            return column;
+        }
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        const auto* key_field = get_field_ptr(field.nestedField.map_field.key_field);
+        if (key_field != nullptr) {
+            column.children.push_back(
+                    build_schema_column_from_external_field(*key_field, map_type.get_key_type()));
+        }
+        const auto* value_field = get_field_ptr(field.nestedField.map_field.value_field);
+        if (value_field != nullptr) {
+            column.children.push_back(build_schema_column_from_external_field(
+                    *value_field, map_type.get_value_type()));
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return column;
+}
+
+const reader::TableColumn* find_schema_child_by_path(const reader::TableColumn* schema_column,
+                                                     const std::string& child_path) {
+    if (schema_column == nullptr) {
+        return nullptr;
+    }
+    int32_t parsed_field_id = -1;
+    if (parse_non_negative_int(child_path, &parsed_field_id)) {
+        const auto child_it = std::ranges::find_if(
+                schema_column->children,
+                [&](const reader::TableColumn& child) { return child.id == parsed_field_id; });
+        return child_it == schema_column->children.end() ? nullptr : &*child_it;
+    }
+    const auto child_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
+        return to_lower(child.name) == to_lower(child_path);
+    });
+    return child_it == schema_column->children.end() ? nullptr : &*child_it;
+}
+
+const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
+                                                         const reader::TableColumn& column) {
+    if (params == nullptr || !params->__isset.history_schema_info ||
+        params->history_schema_info.empty()) {
+        return nullptr;
+    }
+    const auto* schema = &params->history_schema_info.front();
+    if (params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == params->current_schema_id) {
+                schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+        return nullptr;
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field == nullptr) {
+            continue;
+        }
+        if (field->__isset.id && field->id == column.id) {
+            return field;
+        }
+        if (field->__isset.name && to_lower(field->name) == to_lower(column.name)) {
+            return field;
+        }
+    }
+    return nullptr;
+}
+
 struct AccessPathNode {
     bool project_all = false;
     std::map<std::string, AccessPathNode> children;
@@ -150,11 +296,13 @@ void insert_access_path(AccessPathNode* root, const std::vector<std::string>& pa
 }
 
 Status build_nested_children_from_access_node(reader::TableColumn* column, const DataTypePtr& type,
-                                              const AccessPathNode& node, const std::string& path);
+                                              const AccessPathNode& node, const std::string& path,
+                                              const reader::TableColumn* schema_column);
 
 Status build_struct_children_from_access_node(reader::TableColumn* column,
                                               const DataTypeStruct& struct_type,
-                                              const AccessPathNode& node, const std::string& path) {
+                                              const AccessPathNode& node, const std::string& path,
+                                              const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     for (const auto& [child_path, child_node] : node.children) {
         if (child_path == "OFFSET" || child_path == "*" || child_path == "KEYS" ||
@@ -163,17 +311,11 @@ Status build_struct_children_from_access_node(reader::TableColumn* column,
                                         path + "." + child_path, column->name);
         }
 
-        int32_t field_id = -1;
-        std::string field_name = child_path;
-        DataTypePtr field_type;
-        int32_t parsed_field_id = -1;
-        if (parse_non_negative_int(field_name, &parsed_field_id)) {
-            field_id = parsed_field_id;
-            if (parsed_field_id < static_cast<int32_t>(struct_type.get_elements().size())) {
-                field_name = struct_type.get_element_name(parsed_field_id);
-                field_type = struct_type.get_element(parsed_field_id);
-            }
-        } else {
+        const auto* schema_child = find_schema_child_by_path(schema_column, child_path);
+        int32_t field_id = schema_child == nullptr ? -1 : schema_child->id;
+        std::string field_name = schema_child == nullptr ? child_path : schema_child->name;
+        DataTypePtr field_type = schema_child == nullptr ? nullptr : schema_child->type;
+        if (schema_child == nullptr) {
             for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
                 if (to_lower(struct_type.get_element_name(field_idx)) == to_lower(field_name)) {
                     field_id = cast_set<int32_t>(field_idx);
@@ -189,14 +331,15 @@ Status build_struct_children_from_access_node(reader::TableColumn* column,
                                         path + "." + child_path, column->name);
         }
         auto* child = find_or_add_child(column, field_id, field_name, field_type);
-        RETURN_IF_ERROR(build_nested_children_from_access_node(child, child->type, child_node,
-                                                               path + "." + child_path));
+        RETURN_IF_ERROR(build_nested_children_from_access_node(
+                child, child->type, child_node, path + "." + child_path, schema_child));
     }
     return Status::OK();
 }
 
 Status build_map_children_from_access_node(reader::TableColumn* column, const DataTypeMap& map_type,
-                                           const AccessPathNode& node, const std::string& path) {
+                                           const AccessPathNode& node, const std::string& path,
+                                           const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     AccessPathNode key_node;
     AccessPathNode value_node;
@@ -256,21 +399,28 @@ Status build_map_children_from_access_node(reader::TableColumn* column, const Da
 
     auto entry_type = std::make_shared<DataTypeStruct>(entry_child_types, entry_child_names);
     auto* entry_child = find_or_add_child(column, 0, "entries", entry_type);
+    const auto* key_schema = schema_column != nullptr && !schema_column->children.empty()
+                                     ? &schema_column->children[0]
+                                     : nullptr;
+    const auto* value_schema = schema_column != nullptr && schema_column->children.size() > 1
+                                       ? &schema_column->children[1]
+                                       : nullptr;
     if (need_key) {
         auto* key_child = find_or_add_child(entry_child, 0, "key", map_type.get_key_type());
         RETURN_IF_ERROR(build_nested_children_from_access_node(key_child, key_child->type, key_node,
-                                                               path + ".KEYS"));
+                                                               path + ".KEYS", key_schema));
     }
     if (need_value) {
         auto* value_child = find_or_add_child(entry_child, 1, "value", map_type.get_value_type());
-        RETURN_IF_ERROR(build_nested_children_from_access_node(value_child, value_child->type,
-                                                               value_node, path + ".VALUES"));
+        RETURN_IF_ERROR(build_nested_children_from_access_node(
+                value_child, value_child->type, value_node, path + ".VALUES", value_schema));
     }
     return Status::OK();
 }
 
 Status build_nested_children_from_access_node(reader::TableColumn* column, const DataTypePtr& type,
-                                              const AccessPathNode& node, const std::string& path) {
+                                              const AccessPathNode& node, const std::string& path,
+                                              const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (node.project_all || node.children.empty()) {
         return Status::OK();
@@ -280,7 +430,8 @@ Status build_nested_children_from_access_node(reader::TableColumn* column, const
     switch (nested_type->get_primitive_type()) {
     case TYPE_STRUCT:
         return build_struct_children_from_access_node(
-                column, assert_cast<const DataTypeStruct&>(*nested_type), node, path);
+                column, assert_cast<const DataTypeStruct&>(*nested_type), node, path,
+                schema_column);
     case TYPE_ARRAY: {
         if (node.children.size() != 1 || !node.children.contains("*")) {
             return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
@@ -288,12 +439,15 @@ Status build_nested_children_from_access_node(reader::TableColumn* column, const
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
         auto* child = find_or_add_child(column, 0, "element", array_type.get_nested_type());
+        const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
+                                             ? &schema_column->children[0]
+                                             : nullptr;
         return build_nested_children_from_access_node(child, child->type, node.children.at("*"),
-                                                      path + ".*");
+                                                      path + ".*", element_schema);
     }
     case TYPE_MAP:
         return build_map_children_from_access_node(
-                column, assert_cast<const DataTypeMap&>(*nested_type), node, path);
+                column, assert_cast<const DataTypeMap&>(*nested_type), node, path, schema_column);
     default:
         return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
                                     path, column->name);
@@ -301,7 +455,8 @@ Status build_nested_children_from_access_node(reader::TableColumn* column, const
 }
 
 Status build_nested_children_from_access_paths(reader::TableColumn* column,
-                                               const TColumnAccessPaths& access_paths) {
+                                               const TColumnAccessPaths& access_paths,
+                                               const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (!is_complex_type(remove_nullable(column->type)->get_primitive_type())) {
         DCHECK(access_paths.empty());
@@ -328,14 +483,17 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
         }
         insert_access_path(&root, path, 1);
     }
-    return build_nested_children_from_access_node(column, column->type, root, column->name);
+    return build_nested_children_from_access_node(column, column->type, root, column->name,
+                                                  schema_column);
 }
 
 Status build_nested_children_from_access_paths(reader::TableColumn* column,
-                                               const SlotDescriptor* slot_desc) {
+                                               const SlotDescriptor* slot_desc,
+                                               const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
-    return build_nested_children_from_access_paths(column, slot_desc->all_access_paths());
+    return build_nested_children_from_access_paths(column, slot_desc->all_access_paths(),
+                                                   schema_column);
 }
 
 } // namespace
@@ -343,7 +501,13 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
 #ifdef BE_TEST
 Status FileScannerV2::TEST_build_nested_children_from_access_paths(
         reader::TableColumn* column, const TColumnAccessPaths& access_paths) {
-    return build_nested_children_from_access_paths(column, access_paths);
+    return build_nested_children_from_access_paths(column, access_paths, nullptr);
+}
+
+Status FileScannerV2::TEST_build_nested_children_from_access_paths(
+        reader::TableColumn* column, const TColumnAccessPaths& access_paths,
+        const reader::TableColumn* schema_column) {
+    return build_nested_children_from_access_paths(column, access_paths, schema_column);
 }
 #endif
 
@@ -569,7 +733,13 @@ Status FileScannerV2::_build_projected_columns() {
         }
         auto column = _build_table_column(it->second);
         RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
-        RETURN_IF_ERROR(build_nested_children_from_access_paths(&column, it->second));
+        std::optional<reader::TableColumn> schema_column;
+        if (const auto* schema_field = find_external_root_field(_params, column);
+            schema_field != nullptr) {
+            schema_column = build_schema_column_from_external_field(*schema_field, column.type);
+        }
+        RETURN_IF_ERROR(build_nested_children_from_access_paths(
+                &column, it->second, schema_column.has_value() ? &*schema_column : nullptr));
         if (is_partition_slot(slot_info)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(column.name, it->second);

@@ -451,6 +451,37 @@ TEST(FileScannerV2Test, BuildArrayStructChildrenFromAccessPaths) {
     EXPECT_EQ(element.children[0].name, "a");
 }
 
+TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    reader::TableColumn column {
+            .id = 100,
+            .name = "s",
+            .type = struct_type,
+    };
+    reader::TableColumn schema_column {
+            .id = 100,
+            .name = "s",
+            .type = struct_type,
+            .children =
+                    {
+                            {.id = 101, .name = "a", .type = int_type},
+                            {.id = 205, .name = "b", .type = int_type},
+                    },
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"100", "205"}));
+    auto status = FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths,
+                                                                              &schema_column);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(column.children.size(), 1);
+    EXPECT_EQ(column.children[0].id, 205);
+    EXPECT_EQ(column.children[0].name, "b");
+}
+
 TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     reader::TableColumn column {

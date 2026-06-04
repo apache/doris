@@ -55,6 +55,9 @@ public:
 #ifdef BE_TEST
     static Status TEST_build_nested_children_from_access_paths(
             reader::TableColumn* column, const std::vector<TColumnAccessPath>& access_paths);
+    static Status TEST_build_nested_children_from_access_paths(
+            reader::TableColumn* column, const std::vector<TColumnAccessPath>& access_paths,
+            const reader::TableColumn* schema_column);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
