@@ -27,9 +27,11 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -262,6 +264,46 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         // semantics. The normal visitor will still traverse into the children,
         // so nested TopNs inside set operations are handled independently.
         if (node instanceof LogicalSetOperation) {
+            return;
+        }
+
+        // For null-generating outer joins, block all output slots from the
+        // nullable side(s). Expressions inside a nullable side are protected
+        // by join null-extension: when there is no match, the entire nullable
+        // tuple is set to NULL. Pulling such an expression above the join
+        // would break this, e.g. ifnull(r.b, 0) inside the right side of a
+        // LEFT JOIN would see individual column NULLs and convert them to 0,
+        // changing the NULL that null-extension produced.
+        // Example: SELECT l.id, sub.x FROM l LEFT JOIN (
+        //            SELECT id, ifnull(b, 0) AS x FROM r) sub ON l.id = sub.id
+        //          ORDER BY l.id LIMIT 3;
+        // Here x=ifnull(b,0) is in a Project on the nullable (right) side.
+        // Pulling it above the join turns unmatched-row x from NULL to 0.
+        if (node instanceof LogicalJoin) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) node;
+            JoinType joinType = join.getJoinType();
+            Set<ExprId> newBlocked = new HashSet<>(blockedExprIds);
+            // add join expression slots (same as default branch)
+            for (Expression expr : node.getExpressions()) {
+                newBlocked.addAll(expr.getInputSlotExprIds());
+                if (expr instanceof NamedExpression) {
+                    newBlocked.add(((NamedExpression) expr).getExprId());
+                }
+            }
+            // block all output slots from the nullable side(s)
+            if (joinType.isLeftOuterJoin() || joinType.isFullOuterJoin()) {
+                for (Slot s : join.right().getOutput()) {
+                    newBlocked.add(s.getExprId());
+                }
+            }
+            if (joinType.isRightOuterJoin() || joinType.isFullOuterJoin()) {
+                for (Slot s : join.left().getOutput()) {
+                    newBlocked.add(s.getExprId());
+                }
+            }
+            for (Plan child : node.children()) {
+                collectFromNode(child, info, newBlocked, context);
+            }
             return;
         }
 

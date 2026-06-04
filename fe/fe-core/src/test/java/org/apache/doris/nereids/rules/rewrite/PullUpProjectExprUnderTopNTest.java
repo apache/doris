@@ -1096,4 +1096,56 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .applyCustom(new PullUpProjectExprUnderTopN())
                 .getPlan();
     }
+
+    /**
+     * Expressions on the nullable side of an outer join should NOT be pulled up.
+     * The nullable side is protected by join null-extension: unmatched rows get
+     * NULL for all nullable-side columns. Pulling an expression above the join
+     * would break this — e.g. ifnull(r.b, 0) would turn NULLs into 0s.
+     *
+     * Plan: TopN → Project[l.id, x] → LEFT JOIN → [Scan(l), Project[x = r.b+1] → Scan(r)]
+     * x is on the nullable (right) side → must stay below TopN.
+     */
+    @Test
+    void testBlockedByNullableSideOfOuterJoin() {
+        LogicalOlapScan scanL = PlanConstructor.newLogicalOlapScan(0, "l", 0);
+        LogicalOlapScan scanR = PlanConstructor.newLogicalOlapScan(1, "r", 0);
+        Slot lId = scanL.getOutput().get(0);
+        Slot rId = scanR.getOutput().get(0);
+        Slot rB = scanR.getOutput().get(1);
+        Alias x = new Alias(new Add(rB, new IntegerLiteral((byte) 1)), "x");
+
+        // Right side Project [x = r.b+1, r.id] → Scan(r)
+        LogicalPlan rightSide = new LogicalPlanBuilder(scanR)
+                .projectExprs(ImmutableList.of(x, rId))
+                .build();
+
+        // LEFT JOIN between Scan(l) and the right-side Project
+        LogicalPlan join = new LogicalPlanBuilder(scanL)
+                .join(rightSide, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 1))
+                .build();
+
+        // Project [l.id, x] above the join, then TopN
+        LogicalPlan plan = new LogicalPlanBuilder(join)
+                .projectExprs(ImmutableList.of(lId, x.toSlot()))
+                .topN(3, 0, ImmutableList.of(0))
+                .build();
+
+        // x is on the nullable side — must NOT be pulled up above TopN
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .matches(
+                        logicalTopN(
+                                logicalProject(
+                                        logicalJoin()
+                                )
+                        )
+                )
+                .nonMatch(
+                        logicalProject(
+                                logicalTopN()
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "x".equals(e.getName())))
+                );
+    }
 }
