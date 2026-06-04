@@ -20,5 +20,6 @@ package org.apache.doris.mtmv.ivm.agg;
 /** Persisted hidden state kind used by aggregate IVM. */
 public enum IvmAggStateKey {
     COUNT,
-    SUM
+    SUM,
+    BITMAP_UNION
 }
