@@ -19,6 +19,9 @@
 
 #include <stdint.h>
 
+#include <map>
+#include <set>
+
 #include "exec/operator/operator.h"
 #include "exprs/vexpr_fwd.h"
 
@@ -110,6 +113,23 @@ public:
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
 
+    // Instances that bucket-routed senders can address: values of the fragment's
+    // bucket_seq_to_instance_idx map. Senders open one channel per destination entry
+    // (one per bucket), so an instance owning no bucket never gets a channel — and
+    // never gets EOS. Such orphan instances must start their receiver with zero
+    // senders or they block forever (DORIS-24902 K-of-N destination spread).
+    void set_bucket_dest_instances(const std::map<int, int>& bucket_seq_to_instance_idx) {
+        for (const auto& [bucket_seq, instance_idx] : bucket_seq_to_instance_idx) {
+            _bucket_dest_instances.insert(instance_idx);
+        }
+        _has_bucket_dest_instances = true;
+    }
+
+    [[nodiscard]] bool is_bucket_shuffle_orphan_instance(int instance_idx) const {
+        return _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED &&
+               _has_bucket_dest_instances && !_bucket_dest_instances.contains(instance_idx);
+    }
+
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<ExchangeLocalState>::is_serial_operator()) {
             return {TLocalPartitionType::NOOP};
@@ -126,6 +146,8 @@ private:
     const int _num_senders;
     const bool _is_merging;
     const TPartitionType::type _partition_type;
+    std::set<int> _bucket_dest_instances;
+    bool _has_bucket_dest_instances = false;
 
     // use in merge sort
     size_t _offset;

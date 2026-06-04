@@ -1574,8 +1574,15 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                   ? _params.per_exch_num_senders.find(tnode.node_id)->second
                                   : 0;
         DCHECK_GT(num_senders, 0);
-        op = std::make_shared<ExchangeSourceOperatorX>(pool, tnode, next_operator_id(), descs,
-                                                       num_senders);
+        auto exchange_op = std::make_shared<ExchangeSourceOperatorX>(pool, tnode,
+                                                                     next_operator_id(), descs,
+                                                                     num_senders);
+        if (!_params.bucket_seq_to_instance_idx.empty()) {
+            // Lets bucket-routed exchanges detect orphan instances (owning no bucket) that
+            // no sender channel will ever address — their receivers must start at EOS.
+            exchange_op->set_bucket_dest_instances(_params.bucket_seq_to_instance_idx);
+        }
+        op = exchange_op;
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;

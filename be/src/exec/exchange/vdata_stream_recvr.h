@@ -198,7 +198,17 @@ public:
 
     void close();
 
-    void set_dependency(std::shared_ptr<Dependency> dependency) { _source_dependency = dependency; }
+    void set_dependency(std::shared_ptr<Dependency> dependency) {
+        _source_dependency = dependency;
+        // A queue created with zero senders (bucket-shuffle orphan instance, see
+        // ExchangeLocalState::create_stream_recvr) never goes through decrement_senders,
+        // so the usual reached-zero set_ready never fires — mark it ready at wiring time
+        // or its task blocks forever on SHUFFLE_DATA_DEPENDENCY.
+        std::lock_guard<std::mutex> l(_lock);
+        if (_num_remaining_senders == 0) {
+            set_source_ready(l);
+        }
+    }
 
 protected:
     struct BlockItem;
