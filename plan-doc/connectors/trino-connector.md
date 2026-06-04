@@ -11,29 +11,31 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/trinoconnector/` |
 | **共享依赖** | 无 |
 | **计划迁移阶段** | **P2**（首个完整 playbook 实施） |
-| **当前状态** | ⏸ 未启动（P0/P1 完成后启动） |
-| **完成度** | 30% |
-| **主 owner** | TBD（P2 启动前指派） |
+| **当前状态** | ✅ P2 代码完成（legacy 已从 fe-core 移除，查询走 SPI）；PR 待开（分支基线对齐） |
+| **完成度** | **100%**（代码；PR 待开，T12 回归测试推迟到有集群/plugin 环境） |
+| **主 owner** | @me |
 
 ---
 
 ## 迁移 Playbook 进度
 
+> Recon 后实测（2026-05-25）：fe-core 旧目录 10 个 .java；反向 instanceof 实际 1 处（dashboard "2" 为过时数字）。
+
 | 步骤 | 状态 | 备注 |
 |---|---|---|
-| 1 | 🟡 | fe-core 旧路径下 6 个顶层类 + `source/`（4 个） |
-| 2 | 🟡 | fe-connector 已有 13 个类：Provider/Metadata/ScanPlanProvider/Predicate/PluginManager/...|
-| 3 | ⏳ | 反向 instanceof：2 处（仅 `PhysicalPlanTranslator` 与 `LakeSoulScanNode` 附近）|
-| 4 | 🟡 | 大部分 ConnectorMetadata 方法已实现，需要核对边界 |
-| 5 | ⏳ | validateProperties / preCreateValidation 待补 |
-| 6 | ✅ | META-INF/services 已注册 |
-| 7 | ⏳ | `SPI_READY_TYPES` 未加 |
-| 8 | ⏳ | gsonPostProcess 未加 trinoconnector → plugin 迁移 |
-| 9 | ⏳ | registerCompatibleSubtype 未注册 |
-| 10 | ⏳ | 替换 2 处反向 instanceof |
-| 11 | ⏳ | PhysicalPlanTranslator 删 `TrinoConnectorExternalTable` 分支 |
-| 12 | ⏳ | 0 个测试 → 需要补 |
-| 13 | ⏳ | 删 `datasource/trinoconnector/` |
+| 1 | 🟡 | fe-core 旧路径 10 个 .java / ~1760 LOC（TrinoConnectorExternalCatalog 329 / Scan 342 / PredicateConverter 334）|
+| 2 | 🟡 | fe-connector 已有 13 个类 / 2162 LOC：Provider/Metadata/ScanPlanProvider/Predicate/PluginManager/Bootstrap/TypeMapping/Json/3 个 Handle |
+| 3 | ⏳ | 反向 instanceof：**1 处**（PhysicalPlanTranslator:779 — P1 批 A 已加 SPI fallback 在它之上，待 P2-T08 删除）|
+| 4 | 🟢 | ConnectorMetadata 方法 ~95% IMPL/DEFAULT；DDL 类（createTable/dropTable）DEFAULT throws 是合理的（Trino 此路径 read-only）|
+| 5 | ✅ | validateProperties / preCreateValidation done（P2-T01；commit `31fb91c5bd3`）|
+| 6 | ✅ | META-INF/services 已注册 `TrinoConnectorProvider` |
+| 7 | ✅ | `SPI_READY_TYPES` 加 `"trino-connector"`（P2-T07；commit `0fe4b8a93d6`）|
+| 8 | ✅ | gsonPostProcess 加 trinoconnector → plugin 迁移 + helper `legacyLogTypeToCatalogType`（P2-T04；commit `dfd48725c76`）|
+| 9 | ✅ | registerCompatibleSubtype 已 atomic-replace Trino 三处旧 class-token（P2-T03；commit `dfd48725c76`；T10 不再碰 GsonUtils）|
+| 10 | ✅ | 反向 instanceof 已删（P2-T08；commit `ed81a063fe8`）|
+| 11 | ✅ | PhysicalPlanTranslator 删 `TrinoConnectorExternalTable` 分支（P2-T08；`ed81a063fe8`）|
+| 12 | 🟡 | 单测 ✅（P2-T11；3 类/29 测试 `9bba12a44b2`）；回归 `migration_compat` 推迟（P2-T12，DV-003）|
+| 13 | ✅ | 删 `datasource/trinoconnector/`（10 文件）+ legacy test（P2-T10；`ed81a063fe8`）。GsonUtils 由批 B 处理 |
 
 ---
 
@@ -41,16 +43,17 @@
 
 | 扩展点 | 是否需要 | 实现状态 | 备注 |
 |---|---|---|---|
-| E1 CreateTableRequest | 🟡 | 透传到 Trino connector | Trino 自身 CREATE 透传 |
-| E2 Procedures | 🟡 | Trino 有 Procedure SPI | 可考虑桥接到 ConnectorProcedureOps |
-| E3 MetaInvalidator | ❌ | n/a | Trino 一般无 push notification |
-| E4 Transactions | 🟡 | Trino ConnectorTransactionHandle | 桥接到新 ConnectorTransaction |
-| E5 MvccSnapshot | 🟡 | 部分 Trino connector 有 | 视具体 plugin 而定 |
+| E1 CreateTableRequest | 🟡 | 透传到 Trino connector | Trino 自身 CREATE 透传（Doris 端走 SPI default throw 即可）|
+| E2 Procedures | 🟡 | Trino 有 Procedure SPI | 推迟评估（不在 P2 scope）|
+| E3 MetaInvalidator | ❌ | n/a | Trino 一般无 push notification（DEFAULT NOOP 即合）|
+| E4 Transactions | 🟡 | Trino ConnectorTransactionHandle | 桥接到新 ConnectorTransaction（P2 不做 write 路径，DEFAULT 即合）|
+| E5 MvccSnapshot | 🟡 | 部分 Trino connector 有 | 视具体 plugin；P2 不做 |
 | E6 VendedCredentials | ❌ | n/a | |
 | E7 SysTables | ❌ | n/a | |
-| E8 ColumnStatistics | 🟡 | Trino 有 column stats | |
+| E8 ColumnStatistics | 🟡 | Trino 有 column stats | P2 不做（可推迟）|
 | E9 Delete/Merge sink | ❌ | 用通用 sink | |
-| E10 listPartitions | 🟡 | Trino 有 partition handles | |
+| E10 listPartitions | 🟡 | Trino 有 partition handles | DEFAULT empty 即合（Trino 自己 plan-time 处理 partition pruning）|
+| **pushdown** | ✅ | applyFilter / applyProjection done（commit `31fb91c5bd3`）| `TrinoConnectorDorisMetadata` 复用 `TrinoPredicateConverter`；`remainingFilter` 保守=原表达式 |
 
 ---
 
@@ -73,6 +76,22 @@
 ---
 
 ## 进度日志
+
+### 2026-05-25（晚 ④）— 批 B 完成（fe-core 桥接）
+- commit `dfd48725c76`：GsonUtils 三处 Trino registerSubtype atomic-replace 为 registerCompatibleSubtype；PluginDrivenExternalCatalog 新增 `legacyLogTypeToCatalogType` helper 处理 TRINO_CONNECTOR 下划线/连字符 mismatch；PluginDrivenExternalTable 加 trino-connector engine-name 分支
+- 3 files / +29 LOC fe-core；compile + checkstyle + import gate 全绿
+- HANDOFF 校正：T03 不能"只加不删"（撞 RuntimeTypeAdapterFactory label 唯一性）；T05 是 duplicate of T03；T10 scope 缩窄（不再碰 GsonUtils）
+- **regression window**：batch B → batch C T07 翻闸前，新建 trino 目录无法序列化；批 C 必须紧接批 B 操作
+
+### 2026-05-25（晚 ③）— 批 A 完成（fe-connector-trino SPI 补齐）
+- commit `31fb91c5bd3`：TrinoConnectorProvider.validateProperties（`trino.connector.name` required check）；TrinoDorisConnector.preCreateValidation（调 ensureInitialized 触发 plugin loading）；TrinoConnectorDorisMetadata.applyFilter + applyProjection（复用 TrinoPredicateConverter；`remainingFilter` 保守=原表达式 匹配 legacy）
+- 3 files / +143 LOC 全 fe-connector-trino；未触 fe-core（严守批 A 边界）
+- 单测推 P2-T11 批 E
+
+### 2026-05-25（晚 ②）— P2 启动 + recon 完成
+- 3 路 Explore subagent 并行 recon 输出（详见 [tasks/P2-trino-connector-migration.md §阶段日志](../tasks/P2-trino-connector-migration.md)）
+- 关键修正：dashboard 反向 instanceof "0/2" 为过时数字，实测仅 1 处（PhysicalPlanTranslator:779）；fe-connector-trino 模块 "70%" 在 SPI 表面层面其实更接近 95%，真缺只有 validateProperties / preCreateValidation / pushdown 三处
+- 13 task / 5 批次方案敲定，进入编码阶段
 
 ### 2026-05-24
 - 跟踪文件建立。70% 实现已就位，等 P0/P1 完成后启动 P2 整体推动。

@@ -737,10 +737,6 @@ under the License.
             <artifactId>value</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-main</artifactId>
-        </dependency>
-        <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>concurrent</artifactId>
         </dependency>
