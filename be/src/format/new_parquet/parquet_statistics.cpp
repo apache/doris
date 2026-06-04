@@ -288,11 +288,9 @@ ParquetRowGroupPruneReason BloomFilterPruneReason(
     if (bloom_filter_cache == nullptr || column_filter.predicates.empty()) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    DCHECK_LT(column_filter.file_column_id, schema.size());
-    const auto& column_schema = *schema[column_filter.file_column_id];
-    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
-        column_schema.leaf_column_id < 0 ||
-        !ParquetStatisticsUtils::BloomFilterSupported(column_schema)) {
+    const auto* column_schema =
+            ParquetStatisticsUtils::ResolvePredicateLeafSchema(schema, column_filter);
+    if (column_schema == nullptr || !ParquetStatisticsUtils::BloomFilterSupported(*column_schema)) {
         return ParquetRowGroupPruneReason::NONE;
     }
     for (const auto& column_predicate : column_filter.predicates) {
@@ -301,11 +299,11 @@ ParquetRowGroupPruneReason BloomFilterPruneReason(
         }
     }
     auto* bloom_filter =
-            bloom_filter_cache->get(row_group_idx, column_schema.leaf_column_id, pruning_stats);
+            bloom_filter_cache->get(row_group_idx, column_schema->leaf_column_id, pruning_stats);
     if (bloom_filter == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    return ParquetStatisticsUtils::BloomFilterExcludes(column_schema, column_filter, *bloom_filter)
+    return ParquetStatisticsUtils::BloomFilterExcludes(*column_schema, column_filter, *bloom_filter)
                    ? ParquetRowGroupPruneReason::BLOOM_FILTER
                    : ParquetRowGroupPruneReason::NONE;
 }
@@ -486,7 +484,40 @@ segment_v2::ZoneMap to_column_predicate_statistics(const ParquetColumnStatistics
     return predicate_statistics;
 }
 
+const ParquetColumnSchema* find_child_schema_by_field_id(const ParquetColumnSchema& column_schema,
+                                                         int32_t field_id) {
+    const auto child_it = std::ranges::find_if(
+            column_schema.children, [&](const std::unique_ptr<ParquetColumnSchema>& child) {
+                return child != nullptr && child->field_id == field_id;
+            });
+    return child_it == column_schema.children.end() ? nullptr : child_it->get();
+}
+
 } // namespace
+
+const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const reader::FileColumnPredicateFilter& column_filter) {
+    if (column_filter.file_column_id < 0 ||
+        column_filter.file_column_id >= static_cast<int>(schema.size())) {
+        return nullptr;
+    }
+    const ParquetColumnSchema* column_schema = schema[column_filter.file_column_id].get();
+    if (column_schema == nullptr) {
+        return nullptr;
+    }
+    for (const auto child_field_id : column_filter.file_child_id_path) {
+        column_schema = find_child_schema_by_field_id(*column_schema, child_field_id);
+        if (column_schema == nullptr) {
+            return nullptr;
+        }
+    }
+    if (column_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema->leaf_column_id < 0 || column_schema->max_repetition_level > 0) {
+        return nullptr;
+    }
+    return column_schema;
+}
 
 ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         const ParquetColumnSchema& column_schema,
@@ -561,28 +592,26 @@ ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
     if (column_filter.predicates.empty()) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    DCHECK_LT(column_filter.file_column_id, schema.size());
-    const auto& column_schema = *schema[column_filter.file_column_id];
-    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
-        column_schema.leaf_column_id < 0) {
+    const auto* column_schema = ResolvePredicateLeafSchema(schema, column_filter);
+    if (column_schema == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    DCHECK_LT(column_schema.leaf_column_id, row_group.num_columns());
-    auto column_chunk = row_group.ColumnChunk(column_schema.leaf_column_id);
+    DCHECK_LT(column_schema->leaf_column_id, row_group.num_columns());
+    auto column_chunk = row_group.ColumnChunk(column_schema->leaf_column_id);
     if (column_chunk == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
     if (CheckStatistics(column_filter,
-                        TransformColumnStatistics(column_schema, column_chunk->statistics()))) {
+                        TransformColumnStatistics(*column_schema, column_chunk->statistics()))) {
         return ParquetRowGroupPruneReason::STATISTICS;
     }
-    if (!supports_dictionary_pruning(column_schema, *column_chunk, column_filter) ||
+    if (!supports_dictionary_pruning(*column_schema, *column_chunk, column_filter) ||
         !is_dictionary_encoded_chunk(*column_chunk)) {
         return ParquetRowGroupPruneReason::NONE;
     }
     OwnedDictionaryWords dict_words;
-    if (!read_dictionary_words(file_reader, row_group_idx, column_schema.leaf_column_id,
-                               column_schema, &dict_words)) {
+    if (!read_dictionary_words(file_reader, row_group_idx, column_schema->leaf_column_id,
+                               *column_schema, &dict_words)) {
         return ParquetRowGroupPruneReason::NONE;
     }
     for (const auto& column_predicate : column_filter.predicates) {
@@ -883,19 +912,17 @@ bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndex
     if (column_filter.predicates.empty()) {
         return false;
     }
-    DORIS_CHECK(column_filter.file_column_id >= 0);
-    DORIS_CHECK(column_filter.file_column_id < static_cast<int>(file_schema.size()));
-    const auto& column_schema = *file_schema[column_filter.file_column_id];
-    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
-        column_schema.descriptor == nullptr || column_schema.leaf_column_id < 0) {
+    const auto* column_schema =
+            ParquetStatisticsUtils::ResolvePredicateLeafSchema(file_schema, column_filter);
+    if (column_schema == nullptr || column_schema->descriptor == nullptr) {
         return false;
     }
 
     std::shared_ptr<::parquet::ColumnIndex> column_index;
     std::shared_ptr<::parquet::OffsetIndex> offset_index;
     try {
-        column_index = row_group->GetColumnIndex(column_schema.leaf_column_id);
-        offset_index = row_group->GetOffsetIndex(column_schema.leaf_column_id);
+        column_index = row_group->GetColumnIndex(column_schema->leaf_column_id);
+        offset_index = row_group->GetOffsetIndex(column_schema->leaf_column_id);
     } catch (const ::parquet::ParquetException&) {
         return false;
     } catch (const std::exception&) {
@@ -910,7 +937,7 @@ bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndex
     const auto page_count = offset_index->page_locations().size();
     for (size_t page_idx = 0; page_idx < page_count; ++page_idx) {
         ParquetColumnStatistics page_statistics;
-        if (!build_page_statistics(column_index, column_schema, page_idx, &page_statistics)) {
+        if (!build_page_statistics(column_index, *column_schema, page_idx, &page_statistics)) {
             ranges->clear();
             return false;
         }
