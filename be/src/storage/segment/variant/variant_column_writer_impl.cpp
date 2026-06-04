@@ -23,6 +23,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <variant>
 
 #include "common/cast_set.h"
 #include "common/status.h"
@@ -209,8 +210,8 @@ enum class DocValueMaterializationMode {
     DenseAllPaths,
     // Materialize every doc-value path as values plus row ids; gaps are filled during write.
     RowIdAllPaths,
-    // Materialize only selected doc-value paths as values plus row ids. Unselected paths stay in
-    // the doc/sparse payload handled by the caller.
+    // Materialize only selected doc-value paths as values plus row ids. The caller keeps
+    // unselected paths in doc-value or sparse columns.
     RowIdSelectedPaths,
 };
 
@@ -220,7 +221,7 @@ struct DocValueMaterializationOptions {
     // stats stay scoped to all doc-value paths, never just selected materialized paths.
     const DocValuePathStats* precomputed_stats = nullptr;
     // Optional materialized path filter. Used by plain non-doc staging after choosing which paths
-    // become real subcolumns; the remaining doc-value items are emitted to sparse payload columns.
+    // become real subcolumns; the remaining doc-value items are emitted to sparse columns.
     const DocValuePathSet* selected_paths = nullptr;
 };
 
@@ -297,7 +298,7 @@ void set_doc_value_stats(const ColumnVariant& variant, const DocValuePathStats* 
 DocValueMaterializationMode choose_doc_value_materialization_mode(
         const DocValueMaterializationOptions& options) {
     // "RowId" means the materialized subcolumn is built from only present values plus row ids. It is
-    // different from the final sparse payload column that stores unmaterialized variant paths.
+    // different from the final sparse column that stores unmaterialized variant paths.
     if (options.selected_paths != nullptr) {
         return DocValueMaterializationMode::RowIdSelectedPaths;
     }
@@ -639,55 +640,56 @@ bool has_doc_value_data(const ColumnVariant& variant) {
     return !offsets.empty() && offsets[variant.size() - 1] > 0;
 }
 
-enum class VariantPayloadWritePath {
-    // Extracted columns own the payload; the root writer only writes root metadata.
-    None,
-    // Subcolumns were already expanded during parse. This covers nested group, legacy flatten
-    // nested, and ordinary non-staging VARIANT writes.
-    ParseTimeSubcolumns,
-    // Plain non-doc VARIANT arrived as temporary doc-value KV staging. The writer materializes
-    // selected paths and emits the remainder to sparse payload columns.
-    RegularDocValueStaging,
-    // Persistent doc mode writes doc-value bucket columns.
-    PersistentDocValueMode,
+// The variant root column is always written by _process_root_column(). The plan below only decides
+// how to write non-root variant data: extracted subcolumns, sparse columns, or doc-value buckets.
+// Used when extracted columns already own all non-root variant data.
+struct ExtractedColumnsOwnDataPlan {};
+
+// Used when JSON parse already expanded paths into ColumnVariant subcolumns.
+struct ParseTimeSubcolumnsWritePlan {
+    // True when sparse columns are generated from the parse tree after top-N selection.
+    bool write_sparse_columns = false;
 };
 
-struct VariantFinalizeContext {
-    // True only for plain non-doc VARIANT using temporary doc-value KV staging.
-    bool use_regular_doc_value_staging = false;
-    // True when typed/dynamic subcolumns should be prepared from parse-time subcolumns.
-    bool prepare_parse_time_subcolumns = true;
-    // True when the sparse payload is generated from the parse tree instead of staging data.
-    bool prepare_sparse_payload_from_parse_tree = false;
-    VariantPayloadWritePath payload_write_path = VariantPayloadWritePath::ParseTimeSubcolumns;
-};
+// Used when plain non-doc VARIANT arrives as temporary doc-value KV staging.
+struct DocValueStagingWritePlan {};
 
-VariantFinalizeContext build_variant_finalize_context(const TabletColumn& tablet_column,
-                                                      const ColumnVariant& variant,
-                                                      bool has_extracted_columns) {
-    VariantFinalizeContext context;
+// Used by persistent doc mode; non-root data is written to doc-value bucket columns.
+struct PersistentDocValueWritePlan {};
+
+using VariantNonRootWritePlan =
+        std::variant<ExtractedColumnsOwnDataPlan, ParseTimeSubcolumnsWritePlan,
+                     DocValueStagingWritePlan, PersistentDocValueWritePlan>;
+
+template <typename... Visitors>
+struct Overloaded : Visitors... {
+    using Visitors::operator()...;
+};
+template <typename... Visitors>
+Overloaded(Visitors...) -> Overloaded<Visitors...>;
+
+VariantNonRootWritePlan build_variant_non_root_write_plan(const TabletColumn& tablet_column,
+                                                          const ColumnVariant& variant,
+                                                          bool has_extracted_columns) {
+    if (has_extracted_columns) {
+        return ExtractedColumnsOwnDataPlan {};
+    }
 
     // Plain non-doc VARIANT may arrive as doc-value KV staging from storage parse. The staging data
     // is internal to this root writer and is converted into materialized subcolumns plus sparse
-    // payload. When extracted columns own the payload, leave this writer in metadata-only mode.
-    context.use_regular_doc_value_staging =
-            !has_extracted_columns && !tablet_column.variant_enable_doc_mode() &&
-            !tablet_column.variant_enable_nested_group() && has_doc_value_data(variant);
-    context.prepare_parse_time_subcolumns = !context.use_regular_doc_value_staging;
-    context.prepare_sparse_payload_from_parse_tree =
-            context.prepare_parse_time_subcolumns &&
-            variant_util::should_write_variant_binary_columns(tablet_column);
-
-    if (has_extracted_columns) {
-        context.payload_write_path = VariantPayloadWritePath::None;
-    } else if (context.use_regular_doc_value_staging) {
-        context.payload_write_path = VariantPayloadWritePath::RegularDocValueStaging;
-    } else if (tablet_column.variant_enable_doc_mode()) {
-        context.payload_write_path = VariantPayloadWritePath::PersistentDocValueMode;
-    } else {
-        context.payload_write_path = VariantPayloadWritePath::ParseTimeSubcolumns;
+    // columns.
+    if (!tablet_column.variant_enable_doc_mode() && !tablet_column.variant_enable_nested_group() &&
+        has_doc_value_data(variant)) {
+        return DocValueStagingWritePlan {};
     }
-    return context;
+
+    if (tablet_column.variant_enable_doc_mode()) {
+        return PersistentDocValueWritePlan {};
+    }
+
+    return ParseTimeSubcolumnsWritePlan {
+            .write_sparse_columns =
+                    variant_util::should_write_variant_binary_columns(tablet_column)};
 }
 
 Status collect_typed_subcolumn_info_from_parse_tree(
@@ -710,6 +712,42 @@ Status collect_typed_subcolumn_info_from_parse_tree(
         }
     }
     return Status::OK();
+}
+
+Status prepare_parse_time_subcolumns_for_write(
+        ColumnVariant* variant, const TabletColumn& tablet_column,
+        const TabletSchema& tablet_schema,
+        std::unordered_map<std::string, TabletSchema::SubColumnInfo>* subcolumns_info) {
+    // Temporary doc-value staging has no parse-time subcolumns, so only ParseTimeSubcolumnsWritePlan
+    // reaches this helper. Parse-time paths still need typed-path storage conversion before their
+    // writers are created.
+    RETURN_IF_ERROR(collect_typed_subcolumn_info_from_parse_tree(*variant, tablet_column,
+                                                                 tablet_schema, subcolumns_info));
+    RETURN_IF_ERROR(variant->convert_typed_path_to_storage_type(*subcolumns_info));
+    return Status::OK();
+}
+
+Status prepare_non_root_write_plan_before_write(
+        const VariantNonRootWritePlan& non_root_write_plan, ColumnVariant* variant,
+        const TabletColumn& tablet_column, const TabletSchema& tablet_schema,
+        std::unordered_map<std::string, TabletSchema::SubColumnInfo>* subcolumns_info) {
+    if (std::holds_alternative<ParseTimeSubcolumnsWritePlan>(non_root_write_plan)) {
+        RETURN_IF_ERROR(prepare_parse_time_subcolumns_for_write(variant, tablet_column,
+                                                                tablet_schema, subcolumns_info));
+    }
+    return Status::OK();
+}
+
+Status prepare_sparse_columns_from_parse_tree(
+        const VariantNonRootWritePlan& non_root_write_plan, ColumnVariant* variant,
+        const TabletColumn& tablet_column,
+        const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& subcolumns_info) {
+    const auto* parse_time_plan = std::get_if<ParseTimeSubcolumnsWritePlan>(&non_root_write_plan);
+    if (parse_time_plan == nullptr || !parse_time_plan->write_sparse_columns) {
+        return Status::OK();
+    }
+    return variant->pick_subcolumns_to_sparse_column(
+            subcolumns_info, tablet_column.variant_enable_typed_paths_to_sparse());
 }
 
 struct RegularVariantDocValuePlan {
@@ -1702,16 +1740,11 @@ Status VariantColumnWriterImpl::finalize() {
 
     DCHECK(ptr->is_finalized());
     const bool has_extracted_columns = _has_extracted_variant_columns();
-    const VariantFinalizeContext finalize_context =
-            build_variant_finalize_context(*_tablet_column, *ptr, has_extracted_columns);
-
-    if (finalize_context.prepare_parse_time_subcolumns) {
-        // Temporary doc-value staging has no parse-time subcolumns, so it skips this block.
-        // Parse-time paths still need typed-path storage conversion before their writers are created.
-        RETURN_IF_ERROR(collect_typed_subcolumn_info_from_parse_tree(
-                *ptr, *_tablet_column, *_opts.rowset_ctx->tablet_schema, &_subcolumns_info));
-        RETURN_IF_ERROR(ptr->convert_typed_path_to_storage_type(_subcolumns_info));
-    }
+    const VariantNonRootWritePlan non_root_write_plan =
+            build_variant_non_root_write_plan(*_tablet_column, *ptr, has_extracted_columns);
+    RETURN_IF_ERROR(prepare_non_root_write_plan_before_write(
+            non_root_write_plan, ptr, *_tablet_column, *_opts.rowset_ctx->tablet_schema,
+            &_subcolumns_info));
 
     // Root NG dedup is handled in _process_root_column() — see the
     // has_root_ng check there. We intentionally do NOT modify the in-memory
@@ -1729,10 +1762,8 @@ Status VariantColumnWriterImpl::finalize() {
         has_prebuilt_nested_groups = true;
     }
 
-    if (finalize_context.prepare_sparse_payload_from_parse_tree) {
-        RETURN_IF_ERROR(ptr->pick_subcolumns_to_sparse_column(
-                _subcolumns_info, _tablet_column->variant_enable_typed_paths_to_sparse()));
-    }
+    RETURN_IF_ERROR(prepare_sparse_columns_from_parse_tree(non_root_write_plan, ptr,
+                                                           *_tablet_column, _subcolumns_info));
 
 #ifndef NDEBUG
     ptr->check_consistency();
@@ -1744,27 +1775,29 @@ Status VariantColumnWriterImpl::finalize() {
     // convert root column data from engine format to storage layer format
     RETURN_IF_ERROR(_process_root_column(ptr, olap_data_convertor.get(), num_rows, column_id));
 
-    switch (finalize_context.payload_write_path) {
-    case VariantPayloadWritePath::None:
-        break;
-    case VariantPayloadWritePath::RegularDocValueStaging:
-        RETURN_IF_ERROR(_process_regular_doc_value_staging(ptr, olap_data_convertor.get(), num_rows,
-                                                           column_id));
-        break;
-    case VariantPayloadWritePath::PersistentDocValueMode:
-        RETURN_IF_ERROR(
-                _process_binary_column(ptr, olap_data_convertor.get(), num_rows, column_id));
-        break;
-    case VariantPayloadWritePath::ParseTimeSubcolumns:
-        // process and append each subcolumns to sub columns writers buffer
-        RETURN_IF_ERROR(_process_subcolumns(ptr, olap_data_convertor.get(), num_rows, column_id));
-        if (finalize_context.prepare_sparse_payload_from_parse_tree) {
-            // process sparse column and append to binary writer buffer
-            RETURN_IF_ERROR(
-                    _process_binary_column(ptr, olap_data_convertor.get(), num_rows, column_id));
-        }
-        break;
-    }
+    RETURN_IF_ERROR(std::visit(
+            Overloaded {[](const ExtractedColumnsOwnDataPlan&) { return Status::OK(); },
+                        [this, ptr, &olap_data_convertor, num_rows,
+                         &column_id](const DocValueStagingWritePlan&) {
+                            return _process_regular_doc_value_staging(
+                                    ptr, olap_data_convertor.get(), num_rows, column_id);
+                        },
+                        [this, ptr, &olap_data_convertor, num_rows,
+                         &column_id](const PersistentDocValueWritePlan&) {
+                            return _process_binary_column(ptr, olap_data_convertor.get(), num_rows,
+                                                          column_id);
+                        },
+                        [this, ptr, &olap_data_convertor, num_rows,
+                         &column_id](const ParseTimeSubcolumnsWritePlan& plan) {
+                            RETURN_IF_ERROR(_process_subcolumns(ptr, olap_data_convertor.get(),
+                                                                num_rows, column_id));
+                            if (plan.write_sparse_columns) {
+                                return _process_binary_column(ptr, olap_data_convertor.get(),
+                                                              num_rows, column_id);
+                            }
+                            return Status::OK();
+                        }},
+            non_root_write_plan));
 
     // Legacy non-streaming NestedGroup write behavior stays behind provider->prepare().
     if (_tablet_column->variant_enable_nested_group()) {
