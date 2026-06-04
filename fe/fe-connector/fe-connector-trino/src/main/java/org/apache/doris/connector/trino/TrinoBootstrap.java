@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.trino;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.EnvUtils;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -277,8 +280,16 @@ public class TrinoBootstrap {
     }
 
     /**
-     * Resolves the Trino plugin directory from catalog properties.
-     * Falls back to DORIS_HOME/plugins/connectors and DORIS_HOME/connectors.
+     * Resolves the Trino plugin directory.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>the per-catalog {@code trino.plugin.dir} property, when set;</li>
+     *   <li>the FE config {@code trino_connector_plugin_dir}, when it has been
+     *       overridden in {@code fe.conf} (the regression environment relies on this);</li>
+     *   <li>otherwise {@code DORIS_HOME/plugins/connectors}, falling back to the
+     *       pre-2.1.8 default {@code DORIS_HOME/connectors} when it is non-empty.</li>
+     * </ol>
      */
     public static String resolvePluginDir(Map<String, String> properties) {
         String explicitDir = properties.get("trino.plugin.dir");
@@ -286,13 +297,16 @@ public class TrinoBootstrap {
             return explicitDir;
         }
 
-        String dorisHome = System.getenv("DORIS_HOME");
-        if (dorisHome == null) {
-            dorisHome = ".";
+        String defaultDir = EnvUtils.getDorisHome() + "/plugins/connectors";
+        if (!Config.trino_connector_plugin_dir.equals(defaultDir)) {
+            // User explicitly set `trino_connector_plugin_dir` in fe.conf; use it directly.
+            return Config.trino_connector_plugin_dir;
         }
 
-        String defaultDir = dorisHome + "/plugins/connectors";
-        String oldDir = dorisHome + "/connectors";
+        // Config left at its default. The default changed from DORIS_HOME/connectors to
+        // DORIS_HOME/plugins/connectors in 2.1.8, so fall back to the old dir when it
+        // still holds connectors, for backward compatibility.
+        String oldDir = EnvUtils.getDorisHome() + "/connectors";
         File oldDirFile = new File(oldDir);
         if (oldDirFile.exists() && oldDirFile.isDirectory()) {
             String[] contents = oldDirFile.list();
