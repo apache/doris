@@ -126,13 +126,55 @@ public class AddLocalExchange {
             return false;
         }
         Map<Long, Set<Integer>> bucketsPerWorker = new HashMap<>();
+        Map<Long, Integer> instancesPerWorker = new HashMap<>();
+        Map<Long, Integer> coresPerWorker = new HashMap<>();
         for (AssignedJob job : instanceJobs) {
-            bucketsPerWorker.computeIfAbsent(job.getAssignedWorker().id(), k -> new HashSet<>())
+            long workerId = job.getAssignedWorker().id();
+            bucketsPerWorker.computeIfAbsent(workerId, k -> new HashSet<>())
                     .addAll(((LocalShuffleBucketJoinAssignedJob) job).getAssignedJoinBucketIndexes());
+            instancesPerWorker.merge(workerId, 1, Integer::sum);
+            coresPerWorker.computeIfAbsent(workerId, k -> resolveWorkerCores(job.getAssignedWorker()));
         }
-        long maxBucketsPerWorker = bucketsPerWorker.values().stream()
-                .mapToLong(Set::size).max().orElse(0);
-        return shouldUpgradeBucketParallelism(ratio, maxPerBeInstances, maxBucketsPerWorker);
+        // Conservative: every worker that owns buckets must clear the gain bar. The gain is
+        // computed on EFFECTIVE parallelism (capped by the BE's executor threads): when the
+        // bucket count already saturates the cores, adding instances cannot speed the join
+        // up and the extra local exchange is a pure cost.
+        boolean anyBuckets = false;
+        for (Map.Entry<Long, Set<Integer>> entry : bucketsPerWorker.entrySet()) {
+            int buckets = entry.getValue().size();
+            if (buckets == 0) {
+                continue;
+            }
+            anyBuckets = true;
+            int instances = instancesPerWorker.getOrDefault(entry.getKey(), 0);
+            int cores = coresPerWorker.getOrDefault(entry.getKey(), Integer.MAX_VALUE);
+            if (!shouldUpgradeBucketParallelism(ratio,
+                    Math.min(instances, cores), Math.min(buckets, cores))) {
+                return false;
+            }
+        }
+        return anyBuckets;
+    }
+
+    /**
+     * Effective execution threads of the worker's backend (pipelineExecutorSize, falling
+     * back to cpuCores). Values <= 1 mean the heartbeat has not reported yet — treat the
+     * capacity as unknown/uncapped rather than blocking the upgrade.
+     */
+    private static int resolveWorkerCores(
+            org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker worker) {
+        if (worker instanceof org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker) {
+            org.apache.doris.system.Backend backend =
+                    ((org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker) worker).getBackend();
+            int size = backend.getPipelineExecutorSize();
+            if (size <= 1) {
+                size = backend.getCputCores();
+            }
+            if (size > 1) {
+                return size;
+            }
+        }
+        return Integer.MAX_VALUE;
     }
 
     /**
