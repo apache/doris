@@ -1596,6 +1596,12 @@ struct TRuntimeFilterDesc {
   // the listed partitions with the listed direction; absent partitions are
   // unsafe for this RF target and must not be pruned by it.
   20: optional map<Types.TPlanNodeId, list<TPartitionTargetExprMonotonicity>> planId_to_partition_target_monotonicity;
+
+  // True when a local exchange sits between the filter builder (join) and a same-fragment
+  // target scan: per-instance partial filters are then NOT aligned with the scan's data
+  // slice and must be merged before being applied. Computed truthfully by FE after local
+  // exchange planning; replaces inferring this from the target scan's is_serial_operator.
+  21: optional bool force_local_merge;
 }
 
 
