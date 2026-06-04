@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -108,7 +110,7 @@ public class PushProjectThroughUnionTest {
     }
 
     @Test
-    public void testCastProjectCanOnlyPushThroughUnionAll() {
+    public void testCastProjectPushThroughUnionByQualifierAndSafety() {
         SlotReference unionOutput = new SlotReference(new ExprId(10), "s",
                 IntegerType.INSTANCE, true, ImmutableList.of());
         Alias castProject = new Alias(new ExprId(100),
@@ -121,7 +123,21 @@ public class PushProjectThroughUnionTest {
 
         LogicalUnion unionDistinct = new LogicalUnion(Qualifier.DISTINCT,
                 ImmutableList.of(unionOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
-        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(projects, unionDistinct));
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(projects, unionDistinct));
+
+        SlotReference dateTimeOutput = new SlotReference(new ExprId(11), "dt",
+                DateTimeType.INSTANCE, true, ImmutableList.of());
+        Alias unsafeCastProject = new Alias(new ExprId(101),
+                new Cast(dateTimeOutput, DateType.INSTANCE), "d");
+        ImmutableList<NamedExpression> unsafeProjects = ImmutableList.of(unsafeCastProject);
+
+        LogicalUnion unionAllWithUnsafeCast = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(dateTimeOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(unsafeProjects, unionAllWithUnsafeCast));
+
+        LogicalUnion unionDistinctWithUnsafeCast = new LogicalUnion(Qualifier.DISTINCT,
+                ImmutableList.of(dateTimeOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(unsafeProjects, unionDistinctWithUnsafeCast));
     }
 
     private LogicalUnion findUnion(Plan p) {

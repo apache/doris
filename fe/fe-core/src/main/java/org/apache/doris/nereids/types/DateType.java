@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import java.time.DateTimeException;
@@ -43,6 +44,11 @@ public class DateType extends DateLikeType {
 
     private DateType(boolean shouldConversion) {
         this.shouldConversion = shouldConversion;
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        return target instanceof DateType || target instanceof DateV2Type || target instanceof CharacterType;
     }
 
     @Override

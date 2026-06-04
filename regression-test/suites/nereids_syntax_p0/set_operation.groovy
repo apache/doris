@@ -291,7 +291,7 @@ suite("set_operation") {
         select count(*) from (select 1, 2 union select 1,1 ) a;
     """
 
-    // DORIS-26135: do not push non-injective cast project below UNION DISTINCT.
+    // do not push non-injective cast project below UNION DISTINCT.
     // The two datetime values are distinct before the outer cast, but become
     // equal after casting to date. The correct result keeps both rows.
     order_qt_union46 """

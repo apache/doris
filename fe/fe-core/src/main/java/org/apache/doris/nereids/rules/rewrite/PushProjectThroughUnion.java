@@ -60,11 +60,15 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
         return projects.size() == logicalSetOperation.getOutput().size() && projects.stream().allMatch(e -> {
             if (e instanceof SlotReference) {
                 return true;
-            } else if (logicalSetOperation.getQualifier().equals(Qualifier.ALL)) {
-                Expression expr = ExpressionUtils.getExpressionCoveredByCast(e.child(0));
+            } else {
+                Expression expr;
+                if (logicalSetOperation.getQualifier().equals(Qualifier.ALL)) {
+                    expr = ExpressionUtils.getExpressionCoveredByCast(e.child(0));
+                } else {
+                    expr = ExpressionUtils.getExpressionCoveredBySafetyCast(e.child(0));
+                }
                 return expr instanceof SlotReference;
             }
-            return false;
         });
     }
 
