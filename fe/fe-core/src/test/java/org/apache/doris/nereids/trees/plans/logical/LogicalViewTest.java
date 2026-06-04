@@ -96,9 +96,9 @@ public class LogicalViewTest {
         List<Slot> output = logicalView.computeOutput();
 
         Assertions.assertEquals(3, output.size(), "Output size should match schema size");
-        Assertions.assertEquals("id",   output.get(0).getName());
+        Assertions.assertEquals("id", output.get(0).getName());
         Assertions.assertEquals("name", output.get(1).getName());
-        Assertions.assertEquals("age",  output.get(2).getName());
+        Assertions.assertEquals("age", output.get(2).getName());
     }
 
     /**
@@ -131,9 +131,9 @@ public class LogicalViewTest {
         // The new 'score' column is not visible until the view itself is refreshed.
         Assertions.assertEquals(3, output.size(),
                 "Output size should be truncated to fullSchema size to preserve view contract");
-        Assertions.assertEquals("id",   output.get(0).getName());
+        Assertions.assertEquals("id", output.get(0).getName());
         Assertions.assertEquals("name", output.get(1).getName());
-        Assertions.assertEquals("age",  output.get(2).getName());
+        Assertions.assertEquals("age", output.get(2).getName());
     }
 
     /**
@@ -156,7 +156,7 @@ public class LogicalViewTest {
 
         Assertions.assertEquals(2, output.size(),
                 "Output size should equal child output size (loop bound)");
-        Assertions.assertEquals("id",   output.get(0).getName());
+        Assertions.assertEquals("id", output.get(0).getName());
         Assertions.assertEquals("name", output.get(1).getName());
     }
 
@@ -175,7 +175,7 @@ public class LogicalViewTest {
                 "computeOutput() must not throw for empty fullSchema");
 
         Assertions.assertEquals(2, output.size());
-        Assertions.assertEquals("id",   output.get(0).getName());
+        Assertions.assertEquals("id", output.get(0).getName());
         Assertions.assertEquals("name", output.get(1).getName());
     }
 
