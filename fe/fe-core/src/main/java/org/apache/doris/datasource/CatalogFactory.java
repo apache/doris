@@ -30,7 +30,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalogFactory;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import com.google.common.base.Strings;
@@ -48,9 +47,9 @@ public class CatalogFactory {
     private static final Logger LOG = LogManager.getLogger(CatalogFactory.class);
 
     // Only these catalog types are routed through the SPI connector path.
-    // Other types (hms, iceberg, paimon, trino-connector, hudi, max_compute) still use
+    // Other types (hms, iceberg, paimon, hudi, max_compute) still use
     // their built-in ExternalCatalog implementations until their ConnectorProviders are fully ready.
-    private static final Set<String> SPI_READY_TYPES = ImmutableSet.of("jdbc", "es");
+    private static final Set<String> SPI_READY_TYPES = ImmutableSet.of("jdbc", "es", "trino-connector");
 
     /**
      * create the catalog instance from catalog log.
@@ -142,10 +141,6 @@ public class CatalogFactory {
                     break;
                 case "paimon":
                     catalog = PaimonExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
-                case "trino-connector":
-                    catalog = TrinoConnectorExternalCatalogFactory.createCatalog(
                             catalogId, name, resource, props, comment);
                     break;
                 case "max_compute":

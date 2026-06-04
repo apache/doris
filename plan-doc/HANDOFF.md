@@ -8,175 +8,130 @@
 
 ## 📅 最后一次 handoff
 
-- **日期 / 时间**：2026-05-25（白天 ④）
-- **本 session 主导者**：Claude Opus 4.7（1M context）
-- **本 session 主题**：**P1 阶段关闭**（批 B = T1 推迟到 P8；in-scope 100% 完成）
-- **预估 context 使用**：~25%（健康；本场无编码，主要是 recon + 用户决议 + 跟踪文档同步）
+- **日期 / 时间**：2026-06-04
+- **本 session 主题**：**P2 批 C+D+E 连续完成**（T07 翻闸 → T08-T10 删 legacy → T11 单测 → T13 文档），**T12 推迟**，**PR 待开**（分支基线对齐由用户处理）
+- **分支**：`catalog-spi-03`
 
 ---
 
 ## ✅ 本 session 完成项
 
-### 1. 批 B (T1) recon — 揭示 callers 非 dead code
+> 注：用户本 session 开始前把 `catalog-spi-03` **rebase 到了新 master**，所有旧 commit hash 已变。下方为 rebase 后的新 hash。
 
-启动批 B 前对 `Jdbc*Client.java` + `JdbcFieldSchema.java` 的 fe-core 引用做了 Explore subagent 调研。结论：
+### 批 C — T07 翻闸（commit `0fe4b8a93d6`）
 
-| Caller（路径） | Live? | 用途 |
-|---|---|---|
-| `job/extensions/insert/streaming/PostgresResourceValidator.java` | ✅ 活 | CREATE JOB 时校验 PG 复制槽 / 发布；被 StreamingJobUtils → StreamingInsertJob → CreateJobCommand 链调用 |
-| `job/util/StreamingJobUtils.java` | ✅ 活 | `getJdbcClient()` + `getPrimaryKeys`/`getColumnsFromJdbc`/`getTablesNameList`，CDC 表枚举 + DDL 生成 |
-| `tablefunction/CdcStreamTableValuedFunction.java` | ✅ 活 | `cdc_stream` TVF，被 `CdcStream.java:46` 调，streaming 作业执行链路 |
+`CatalogFactory.java:53` `SPI_READY_TYPES` 加 `"trino-connector"`（顺手删上方注释里过时的 trino 列举）。这一步把 `CREATE CATALOG type='trino-connector'` 路由到 SPI（`PluginDrivenExternalCatalog`），关闭了批 B→批 C 的 regression window。compile + checkstyle 绿。
 
-测试侧：`StreamingJobUtilsTest`（需重写）；`JdbcFieldSchemaTest` / `JdbcClickHouseClientTest` / `JdbcClientExceptionTest`（测 legacy 本身，随源删除）。
+### 批 D — 删 fe-core legacy trino 代码（commit `ed81a063fe8`，14 文件 / +1 −2508）
 
-fe-connector 侧 SPI 替换 `Jdbc*ConnectorClient`（ClickHouse/DB2/MySQL/Oracle/PostgreSQL/SQLServer/SapHana/Gbase）已就位，但 **fe-core 不能直接 import** —— 会破坏 `tools/check-connector-imports.sh` 守门。
+- **T08** `PhysicalPlanTranslator`：删 `instanceof TrinoConnectorExternalTable` scan 分支 + 2 import（`PluginDrivenExternalTable` SPI 前置分支接管）。
+- **T09** `CatalogFactory`：删 `case "trino-connector"` + import。
+- **T10**：删 `datasource/trinoconnector/` 整目录（10 文件）+ 删 legacy 测试 `TrinoConnectorPredicateTest`。
+- **DV-001（HANDOFF 原计划漏项，recon 补回）**：`ExternalCatalog.java:948` `case TRINO_CONNECTOR` 改返 `PluginDrivenExternalDatabase`（照搬已迁移的 JDBC case，line 936）+ 删 import。
+- **有意保留**：`MetastoreProperties.Type.TRINO_CONNECTOR` + `TrinoConnectorPropertiesFactory`（属性子系统，不引用被删目录，SPI 路径可能仍需）；`InitCatalogLog.Type.TRINO_CONNECTOR` + `TableType.TRINO_CONNECTOR_EXTERNAL_TABLE` 枚举（image compat）；`GsonUtils` 3 个 label redirect（批 B 已处理，T10 **不碰** GsonUtils）。
+- 守门：fe-core `clean test-compile`（main+test）BUILD SUCCESS、checkstyle 0、fe-connector import-gate SUCCESS。
 
-### 2. 用户决议（Q4）：推迟 T1 到 P8 收尾
+### 批 E — T11 单测（commit `9bba12a44b2`，3 文件 / +441）
 
-- 删 T1 需要在 `ConnectorPlugin`/`ConnectorMetadata` 上为 CDC use case 暴露 `getPrimaryKeys` / `getColumnsFromJdbc` / `listTables` 新 capability — 是 SPI 扩展工作，超出 Master Plan §3.2 P1 scope
-- 现状无 runtime 风险——legacy JDBC client 仍在原位，CDC 功能正常
-- 决策：T1 推迟到 P8 收尾，与 streaming CDC 重构一起做（避免 P1 阶段引入 1-2 天计划外 SPI 设计）
+3 个 JUnit5（Jupiter）纯转换器测试，**29 测试全绿**，checkstyle 0，本地 `mvn -pl fe-connector/fe-connector-trino -am test` 可跑：
+- `TrinoPredicateConverterTest`（14）— `ConnectorExpression` pushdown → Trino `TupleDomain`（EQ/range/NE/IN/NOT IN/IS [NOT] NULL/AND/OR、Slice 编码、null/unsupported 优雅降级到 `all()`）。
+- `TrinoTypeMappingTest`（11）— Trino type → Doris `ConnectorType`（标量、decimal 精度/scale、timestamp 精度 clamp 到 6、array/map/struct、unknown 抛错）。
+- `TrinoConnectorProviderTest`（4）— `validateProperties` 缺/空 `trino.connector.name` fail-fast（批 A T01）。
+- **DV-002**：fe-connector-trino 无 Mockito、`TrinoJsonSerializer` 非纯单元（需 plugin 的 HandleResolver+TypeRegistry）→ 砍 json/schema，用 `validateProperties` 替补第 3 类；plugin 依赖路径由现有 `external_table_p0/p2` trino_connector regression 套件覆盖。
 
-P1 状态因此提前关闭：**in-scope (T3+T4+T5) 100% 完成；T1 推迟 P8；T2 推迟 P4/P5**。
+### T13 — 跟踪文档同步（本次提交）
 
-### 3. 跟踪文档同步
-
-- `tasks/P1-scan-node-cleanup.md`：元信息状态翻 ✅；验收标准重新对齐（标 🚫/[x]/🟡）；任务表 T1 翻 🚫 + 备注引用 Q4；新增 白天 ④ 阶段日志条目；当前阻塞项更新
-- `PROGRESS.md`：header 项目总进度 16% → 20%；§一 P1 → 100% ✅；§一 P2 → 🚧 准备启动；全局进度 8% → 12%；§三 P1 表 header 改 "✅ 已完成"，T1 行翻 🚫；§四加 白天 ④ 条目；§七 session 状态更新
-- `HANDOFF.md`（本文件）：覆盖更新到 P1 阶段关闭状态
-
----
-
-## 🚧 本 session 进行中 / 未完成
-
-无编码工作。剩余动作：
-
-1. **commit 本场 plan-doc 改动** — 3 个文件（P1 task / PROGRESS / HANDOFF）
-2. **push `catalog-spi-02` 到 morningman fork**（**待用户授权**）— 含批 A commit `43a12a05ffe` + 本场 doc commit
-3. **`gh pr create --repo apache/doris --base branch-catalog-spi --head morningman:catalog-spi-02`**（**待用户授权**）
+PROGRESS / tasks/P2 / connectors/trino-connector.md / deviations-log（DV-001..004）/ 本 HANDOFF 全部翻到 P2 完成态。
 
 ---
 
-## 📝 关键认知 / 临时发现
+## 🚧 未完成 / 待办
 
-继承前一版认知。**本场新增**：
+1. **PR 未开 —— 阻塞于分支基线错位（用户处理）**。`catalog-spi-03` 现基于**新 master**（含 `#63823 split fe-sql-parser`、`#64016 TLS` 等 master-only commit），而远端 `apache/doris:branch-catalog-spi` 仍停在 P1 merge `778c5dd610f`（旧 master 基线）；两者分叉于 `68d4eb308e5`（#63552）。`git rev-list --count upstream-apache/branch-catalog-spi..HEAD` = **191**（仅顶部 7 个是 P2）。**直接开 `catalog-spi-03 → branch-catalog-spi` 会是 191-commit 的错误巨型 PR**。等用户对齐分支后再开。
+2. **T12 回归测试推迟**（DV-003）——`trino_connector_migration_compat`（CREATE CATALOG→image→重启读回 + 旧 image 含 `TRINO_CONNECTOR` 枚举反序列化），需有 Trino plugin + docker/集群的环境。
 
-1. **`tools/check-connector-imports.sh` 是一个隐含的设计约束** — fe-core 不能 import fe-connector 内部类（`org.apache.doris.connector.*`），所以"复用"SPI 实现唯一通道是 `ConnectorPlugin` 接口。批 B 直接 import `JdbcConnectorClient` 替换 `JdbcClient` 本能解法**走不通**——一定要经过 SPI capability 扩展。这条约束以前 P0 文档讲过，但批 B recon 时是第一次真正触发它
-2. **CDC streaming 是 SPI 未覆盖的 use case** — 现有 SPI（ConnectorMetadata.getTable / listTables / getTableHandle）是面向"标准 SELECT"的，没暴露 PK 探测、columns-from-jdbc-driver、replication-slot 校验。P8 启动前需要先在 RFC 中起 §17 章节描述这套扩展，否则 P8 实施会 stall
-3. **fe-connector 侧的 `Jdbc*ConnectorClient` 是 P0 阶段 JDBC 迁移的产物** — 它们没有暴露 PK / column-from-driver 接口（按 ConnectorMetadata 标准抽象设计），所以即便允许 fe-core 直接 import 也不能直接替换 legacy client。换言之 SPI 设计本身需要扩展（不只是 "改 import 路径"）
+---
+
+## ⚠️ 关键认知 / 临时发现
+
+1. **rebase 后 fe-core 编译坑（非代码问题）**：本场最大时间消耗。rebase 拉入 `#63823`（nereids 语法从 fe-core 拆到新模块 `fe-sql-parser`）后，`fe-core/target/generated-sources/.../DorisParser.java` 旧生成物残留（git 不管 target/），FQCN 撞名盖过 fe-sql-parser 依赖里的新版 → `LogicalPlanBuilder` 报 `cannot find symbol HOT()/expression()`。**修法：`clean` fe-core**（旧生成物删除、fe-core 已无 grammar 不会再生成）。只 clean fe-sql-parser 不够。任何 rebase 后遇此症状先 clean fe-core，别当代码 bug 查。
+2. **`MetastoreProperties` trino 条目有意保留**：它在 `property/metastore/` 子系统、不引用被删目录、删之不影响编译，但 SPI 建 catalog 可能仍走它解析属性。批 D 不动它；是否死代码留待后续评估（DV-001 后续动作）。
+3. **docs-next 不在本代码仓**：用户向文档在 doris-website 仓（DV-004）。本仓只有 `docs/`。
+4. （沿用）`tools/check-connector-imports.sh` import gate：fe-core 不能 import `org.apache.doris.connector.*`。
+5. （沿用）P1 fallback：`PhysicalPlanTranslator` 里其余 6 个连接器的 instanceof 分支待 P3-P7 各自迁完时删；本场只清了 trino 那一支（T08）。
 
 ---
 
 ## 🎯 下一个 session 第一件事
 
-> P1 已关闭。下一阶段 P2 (trino-connector，2 周)。**预备动作**：先把批 A push + PR，再做 P2 recon。
-
 ```
-1. git branch --show-current → 确认在 catalog-spi-02
-   git status → 应 clean（本场 doc commit 已 push 前提下）
-   git log --oneline -3 → 应见 2 个本地未推 commit：
-     a) 批 A scan-node 收口（43a12a05ffe）
-     b) P1 关闭 + T1 推迟 P8 doc commit
-2. 读 PROGRESS.md + 本 HANDOFF + tasks/P1-scan-node-cleanup.md（确认 P1 已 ✅）
-3. push + PR（如本场尚未完成）：
-   git push -u origin catalog-spi-02
-   gh pr create --repo apache/doris --base branch-catalog-spi \
-     --head morningman:catalog-spi-02 \
-     --title "[P1-T03-T05] route plugin-driven scans first in nereids translator"
-4. 启动 P2 (trino-connector) recon — 用 Explore subagent：
-   a. fe-core 侧 `datasource/trinoconnector/` 现状（多少类、多少 LOC）
-   b. fe-connector 侧 trino-connector 模块完成度（连接器看板里目前标 70%）
-   c. SPI_READY 加进 `CatalogFactory.SPI_READY_TYPES` 的预条件
-   d. 反向 instanceof：grep "instanceof.*Trino" in nereids/planner（看板里目前标 0/2）
-5. 创建 plan-doc/tasks/P2-trino-connector-migration.md（_template.md 复制）
-6. 守门：P2 改动跨 fe-core + fe-connector 双侧，每次 commit 前
-   - `mvn -pl fe-connector validate` 触发 check-connector-imports.sh
-   - `mvn -pl fe-core checkstyle:check`
+1. 自检：
+   git branch --show-current → catalog-spi-03
+   git log --oneline -8 → 顶层应是 9bba12a44b2 (T11) → ed81a063fe8 (T08-T10)
+                          → 0fe4b8a93d6 (T07) → 5e504a24883 (doc) → 9ed33f9a7a5 (批 B)
+                          → 69203b6418e (批 A) → 8f0b749bd06 (recon) → 3adabcaf54b (P1)
+   git status → 干净（本次文档 commit 之后）
+
+2. 解决 PR base（核心待办）：
+   - git fetch upstream-apache branch-catalog-spi
+   - 确认 branch-catalog-spi 是否仍停在 778c5dd610f（P1）。
+   - 推荐做法：从远端 branch-catalog-spi 拉新分支（如 catalog-spi-03-pr），
+     cherry-pick 这 7 个 P2 commit（8f0b749bd06 recon → 69203b6418e A → 9ed33f9a7a5 B
+     → 5e504a24883 doc → 0fe4b8a93d6 C → ed81a063fe8 D → 9bba12a44b2 E）。
+     注意：branch-catalog-spi 没有 fe-sql-parser 拆分（#63823），但我们的改动与之正交，
+     cherry-pick 后应能编译；在该分支上重跑 fe-core compile + fe-connector-trino test 验证。
+   - 或：等 branch-catalog-spi 被刷新到 master 后直接用 catalog-spi-03。
+   - PR：gh pr create --repo apache/doris --base branch-catalog-spi --head morningman:<分支>
+     --title "[feat](connector) P2 trino-connector migration"
+
+3. T12 回归测试：在有 Trino plugin + docker/集群环境补（DV-003）。
+
+4. 之后启动 P3 Hudi 迁移（见 00-master-plan / connectors/hudi.md）。
+   注意 P1-T4 incrementalRelation 是 P3 Hudi SPI 缺口。
 ```
 
 ---
 
-## ⚠️ 开放问题 / 风险提示
+## 📋 P2 commit 节奏（branch `catalog-spi-03`，rebase 到新 master 后）
 
-继承前一版；批 B 关闭 1 项、转入 P8 待办 1 项；其余沿用。
+```
+9bba12a44b2  [test](connector) [P2-T11] add fe-connector-trino unit tests              ← 批 E
+ed81a063fe8  [refactor](connector) [P2-T08-T10] remove legacy trino-connector code      ← 批 D
+0fe4b8a93d6  [feat](connector) [P2-T07] enable trino-connector in SPI_READY_TYPES        ← 批 C
+5e504a24883  [doc](connector) refresh P2 HANDOFF for batch C kickoff
+9ed33f9a7a5  [feat](connector) [P2-T03-T06] bridge trino-connector through fe-core       ← 批 B
+69203b6418e  [feat](connector) [P2-T01-T02] complete trino-connector SPI surface         ← 批 A
+8f0b749bd06  [doc](connector) P2 trino-connector recon + task breakdown                  ← 批 0
+3adabcaf54b  [P1-T03-T05] route plugin-driven scans first (#63641)                       ← P1（rebase 后新 hash）
+```
 
-### 本场关闭
+本次文档 commit（T13）将追加一条 `[doc](connector) [P2-T13] sync P2 tracking docs`。
 
-- ~~T1 何时实施~~ — 已决：推迟 P8 收尾
-
-### 本场新增（P8 待办）
-
-1. **P8 SPI 扩展：CDC capability 群**：为 streaming CDC 在 SPI 上暴露 `getPrimaryKeys` / `getColumnsFromJdbc` / `listTables`（候选：`ConnectorMetadata` 新 default 方法 + 或 `ConnectorPlugin` 上的 `Optional<ConnectorCdcSupport>`）；改写 PostgresResourceValidator / StreamingJobUtils / CdcStreamTableValuedFunction 走 SPI；重写 StreamingJobUtilsTest；批量删 13 个 Jdbc*Client + JdbcFieldSchema + 3 个 legacy test。**预估**：~1-2 天 SPI 设计 + ~1 天实施
-2. **P8 启动前 RFC 扩展**：在 `01-spi-extensions-rfc.md` 新增 §17 章节描述 CDC capability 设计；否则 P8 实施会 stall
-
-### 沿用（保留）
-
-3. **T4 PluginDrivenScanNode 不支持 hudi 增量场景** — `incrementalRelation` 待 P3 Hudi 迁移时 SPI 扩展
-4. **T2 已推迟到 P4/P5**（用户决议 Q2，2026-05-25）
-5. **T3 fallback 保留期跨度长**（P1 → P7 20 周）—— 每连接器在 P3-P7 迁移完成后立即删对应 fallback
-6. （沿用 P0）`ColumnDefinition.defaultValue` SPI 缺位 — P5/P6 评估
-7. （沿用 P0）LIST/RANGE `initialValues` flatten 缺位 — P5/P6 评估
-8. （沿用 P0）`PluginDrivenExternalCatalog.createTable` 返回值丢失"已存在"信息 — P5/P6/P7 评估
-9. （沿用 P0）bucket 算法名 `"doris_default"` / `"doris_random"` 占位 — Hive/Iceberg 自己推导
-10. （沿用 P0）Maven build cache 误导；`mvn -pl fe-core` 必须 cwd=`fe/` + `-am`；`-Dtest=` 务必带 `-DfailIfNoTests=false`
-11. （沿用 P0）`PluginDrivenTransactionManager.begin(ConnectorTransaction)` 暂无 caller — P5/P6/P7 接通
-12. （沿用 P0）`ConnectorMetaInvalidator.invalidatePartition` fallback 到 invalidateTable；`invalidateStatistics` no-op
-13. （沿用 P0）`mvn -pl fe-core test` 不带 `-am` 失败
+> ⚠️ 这 7 个 P2 commit 是干净的；问题只在 base（见 §未完成 1）。PR 不要在 base 对齐前开。
 
 ---
 
-## 📂 当前关键文件清单
-
-### 本场（2026-05-25 白天 ④）修改
+## 📂 本场修改 / 新增的关键文件
 
 ```
-MOD  plan-doc/tasks/P1-scan-node-cleanup.md   (元信息 ✅；验收标准重对齐；T1 → 🚫；新增白天 ④ 日志)
-MOD  plan-doc/PROGRESS.md                     (P1 → 100% ✅；P2 → 准备启动；§三 T1 翻 🚫；§四加白天 ④)
-MOD  plan-doc/HANDOFF.md                      (本文件覆盖更新)
-```
-
-工作树状态（本场 commit 前）：
-```
- M plan-doc/tasks/P1-scan-node-cleanup.md
- M plan-doc/PROGRESS.md
- M plan-doc/HANDOFF.md
-```
-
-### 待 push 的本地 commit（catalog-spi-02 → upstream-apache/branch-catalog-spi）
-
-```
-43a12a05ffe  [refactor](connector) [P1-T03-T05] route plugin-driven scans first in nereids translator
-???????????  [doc](connector) [P1] close P1 — defer T1 to P8, batch A only      ← 本场即将创建
-```
-
-### P2 (trino-connector) 涉及的目标（recon 时确认）
-
-```
-fe/fe-core/src/main/java/org/apache/doris/datasource/trinoconnector/   (待 recon — 看现状)
-fe/fe-connector/fe-connector-trino-connector/                          (已存在；看板里标 70%)
-nereids/glue/translator/PhysicalPlanTranslator.java                    (T3 fallback 待 P2 完成时清理 trino 分支)
-CatalogFactory.SPI_READY_TYPES                                          (P2 末加 "trino-connector" 进白名单)
-```
-
-### 跟踪体系（沿用不变）
-
-```
-plan-doc/  (~225K, 18 文件)
-├── 00-connector-migration-master-plan.md / 01-spi-extensions-rfc.md
-├── README.md / PROGRESS.md / AGENT-PLAYBOOK.md / HANDOFF.md
-├── decisions-log.md (18) / deviations-log.md (0) / risks.md (14)
-├── tasks/{_template.md, P0-spi-foundation.md, P1-scan-node-cleanup.md}
-└── connectors/{_template.md, jdbc, es, trino-connector, hudi, maxcompute, paimon, iceberg, hive}.md
+批 C (0fe4b8a93d6):  fe-core/.../datasource/CatalogFactory.java (SPI_READY_TYPES)
+批 D (ed81a063fe8):  fe-core/.../nereids/glue/translator/PhysicalPlanTranslator.java (删 trino 分支+import)
+                     fe-core/.../datasource/CatalogFactory.java (删 case+import)
+                     fe-core/.../datasource/ExternalCatalog.java (TRINO_CONNECTOR db→PluginDrivenExternalDatabase, DV-001)
+                     删 fe-core/.../datasource/trinoconnector/ (10 文件)
+                     删 fe-core/src/test/.../trinoconnector/TrinoConnectorPredicateTest.java
+批 E (9bba12a44b2):  新建 fe-connector/fe-connector-trino/src/test/.../trino/
+                       TrinoPredicateConverterTest.java / TrinoTypeMappingTest.java / TrinoConnectorProviderTest.java
+T13:                 plan-doc/{PROGRESS, tasks/P2, connectors/trino-connector, deviations-log, HANDOFF}.md
 ```
 
 ---
 
 ## 🧠 给下一个 agent 的 meta 建议
 
-- **分支 `catalog-spi-02`**：本场结束时含 2 个本地未推 commit（批 A scan-node + P1 关闭 doc）。push 与 PR 创建是**风险动作**，必须先与用户确认（已在本场末尾问过；如本场已 push，下场看 `git log --oneline -3` 验证 `origin/catalog-spi-02` 同步）
-- **PR 目标分支永远是 `apache/doris:branch-catalog-spi`**（不是 master）
-- **commit message** 沿用 `[refactor|feat|doc](connector) [Pn-Tnn] ...` 前缀风格（AGENT-PLAYBOOK §5.4）
-- **Maven 命令**：cwd=`fe/`；`mvn -pl fe-core -am compile -Dmaven.build.cache.enabled=false`；测试用 `-Dtest=... -DfailIfNoTests=false`
-- **P2 启动前必读**：`connectors/trino-connector.md`（连接器看板里目前 70% 完成度）+ Master Plan §3.3 P2 章节
-- **P2 主要工作量预估**：补齐 fe-connector trino-connector 模块剩余 30%（核心是 catalog 注册 + SPI_READY_TYPES）；删 fe-core 侧 trino-connector legacy；清掉 T3 fallback 中的 trino 分支（PhysicalPlanTranslator）
-- **不要试图删 13 个 Jdbc*Client** — P1 阶段已决议推迟到 P8。看到 legacy jdbc client 不要技痒
+- **分支 `catalog-spi-03`** 现基于 master；**开 PR 前务必先解决 base 错位**（§未完成 1），否则会是 191-commit 错误 PR。
+- rebase 后 fe-core 编译失败先想到 **clean fe-core**（stale DorisParser），别查代码（§关键认知 1）。
+- commit message 沿用 `[feat|refactor|test|doc](connector) [P2-Tnn] ...`。
+- Maven：cwd=`fe/` 或 `-f fe/pom.xml`；`-pl fe-core -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`。
+- **不要乱碰 P1 fallback 中 trino 之外的连接器分支**。
+- 偏差先记 `deviations-log.md` 再改文档（本场 DV-001..004 已记）。
