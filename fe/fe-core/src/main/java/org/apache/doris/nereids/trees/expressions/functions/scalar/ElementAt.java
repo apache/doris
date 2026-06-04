@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -87,6 +88,19 @@ public class ElementAt extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitElementAt(this, context);
+    }
+
+    @Override
+    public boolean foldable() {
+        // A map may legitimately contain a null key, so element_at(map, NULL) must be evaluated by
+        // the BE (which looks up the null key) rather than being folded to NULL on the FE through
+        // PropagateNullLiteral. Marking it non-foldable here skips that fold for the map null-key
+        // case only; a null container (element_at(NULL, ...)) or a null array/struct index still
+        // folds to NULL as before.
+        if (child(0).getDataType() instanceof MapType && child(1) instanceof NullLiteral) {
+            return false;
+        }
+        return true;
     }
 
     @Override
