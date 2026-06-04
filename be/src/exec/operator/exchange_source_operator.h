@@ -78,6 +78,9 @@ public:
     doris::VExprContextSPtrs ordering_expr_ctxs;
     int64_t num_rows_skipped;
     bool is_ready;
+    // per-BE local instance index (LocalStateInfo::task_idx), used for bucket-shuffle
+    // orphan detection in create_stream_recvr — see is_bucket_shuffle_orphan_instance.
+    int local_task_idx = 0;
 
     std::vector<std::shared_ptr<Dependency>> deps;
 
@@ -125,9 +128,20 @@ public:
         _has_bucket_dest_instances = true;
     }
 
-    [[nodiscard]] bool is_bucket_shuffle_orphan_instance(int instance_idx) const {
-        return _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED &&
-               _has_bucket_dest_instances && !_bucket_dest_instances.contains(instance_idx);
+    // local_task_idx is the per-BE local instance index (LocalStateInfo::task_idx) — the
+    // same numbering as bucket_seq_to_instance_idx values (built per worker on FE). Do NOT
+    // pass per_fragment_instance_idx here: that is sender_id = the GLOBAL index across all
+    // workers, which only coincides with the local index on the first worker (single-BE
+    // tests pass, multi-BE silently drops every later worker's buckets).
+    //
+    // Ownership-based orphan detection is only valid when destinations follow bucket
+    // ownership, i.e. the non-serial (FE planner dest spread) mode. A serial exchange's
+    // destinations funnel to the first instance per worker regardless of bucket ownership,
+    // and BE's serial-exchange mechanics already close the other receivers.
+    [[nodiscard]] bool is_bucket_shuffle_orphan_instance(int local_task_idx) const {
+        return !is_serial_operator() &&
+               _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED &&
+               _has_bucket_dest_instances && !_bucket_dest_instances.contains(local_task_idx);
     }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
