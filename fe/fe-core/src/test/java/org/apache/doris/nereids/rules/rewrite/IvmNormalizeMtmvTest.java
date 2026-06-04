@@ -57,12 +57,14 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -482,6 +484,39 @@ class IvmNormalizeMtmvTest {
 
         // Row-id determinism: grouped agg → deterministic
         Assertions.assertTrue(normalizeResult.isDeterministic(rowIdAlias.toSlot()));
+    }
+
+    @Test
+    void testRepeatUnderAggregateDoesNotOwnRowId() {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        LogicalRepeat<Plan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(idSlot, nameSlot), ImmutableList.of(idSlot), ImmutableList.of()),
+                ImmutableList.of(idSlot, nameSlot),
+                RepeatType.GROUPING_SETS,
+                scan);
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(idSlot, nameSlot), repeat);
+        Alias countAlias = new Alias(new Count(), "cnt");
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                ImmutableList.of(idSlot, nameSlot),
+                ImmutableList.of(idSlot, nameSlot, countAlias),
+                true,
+                java.util.Optional.of(repeat),
+                project);
+
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, newJobContextForRoot(agg, true));
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> topProject = (LogicalProject<?>) result;
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, topProject.getOutput().get(0).getName());
+        Assertions.assertInstanceOf(LogicalAggregate.class, topProject.child());
+        LogicalAggregate<?> normalizedAgg = (LogicalAggregate<?>) topProject.child();
+        Assertions.assertTrue(normalizedAgg.getSourceRepeat().isPresent());
+        LogicalRepeat<?> normalizedRepeat = normalizedAgg.getSourceRepeat().get();
+        Assertions.assertFalse(normalizedRepeat.getOutput().stream()
+                .anyMatch(slot -> Column.IVM_ROW_ID_COL.equals(slot.getName())));
+        Assertions.assertFalse(normalizedRepeat.getPassThroughSlots().stream()
+                .anyMatch(slot -> Column.IVM_ROW_ID_COL.equals(slot.getName())));
     }
 
     @Test

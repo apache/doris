@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -205,7 +206,7 @@ class IvmAggDeltaHandler {
                     target, dmlFactorSlot, deltaAggOutputs, aggExpressionBuilder);
         }
 
-        LogicalAggregate<?> deltaAgg = normalizedAgg.withAggOutputChild(deltaAggOutputs, newAggChild);
+        LogicalAggregate<?> deltaAgg = withDeltaAggregateOutput(normalizedAgg, deltaAggOutputs, newAggChild);
         List<NamedExpression> topOutputs = new ArrayList<>();
         Alias rowIdAlias = new Alias(
                 IvmUtil.buildRowIdHash(deltaAgg.getOutput().subList(0, groupKeySize)), Column.IVM_ROW_ID_COL);
@@ -325,6 +326,19 @@ class IvmAggDeltaHandler {
         Expression filter = new Not(new And(new IsNull(mvRowId),
                 new LessThanEqual(deltaGroupCount(delta), new BigIntLiteral(0))));
         return new LogicalFilter<>(ImmutableSet.of(filter), join);
+    }
+
+    private LogicalAggregate<?> withDeltaAggregateOutput(LogicalAggregate<?> normalizedAgg,
+            List<NamedExpression> deltaAggOutputs, Plan newAggChild) {
+        LogicalAggregate<?> newAgg = normalizedAgg.withAggOutputChild(deltaAggOutputs, newAggChild);
+        if (!normalizedAgg.getSourceRepeat().isPresent()) {
+            return newAgg;
+        }
+        Optional<LogicalRepeat<?>> sourceRepeat = newAggChild.collectFirst(LogicalRepeat.class::isInstance);
+        if (!sourceRepeat.isPresent()) {
+            throw new AnalysisException("IVM agg delta rewrite failed to resolve rewritten source repeat");
+        }
+        return newAgg.withSourceRepeat(sourceRepeat.get());
     }
 
     private LogicalOlapScan buildMvScan(MTMV mtmv, IvmRefreshContext ctx) {

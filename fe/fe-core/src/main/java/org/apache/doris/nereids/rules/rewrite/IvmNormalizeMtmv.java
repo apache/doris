@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -70,6 +71,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -240,7 +242,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
                     "IVM does not support DISTINCT project.");
         }
         Plan newChild = project.child().accept(this, context);
-        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects());
+        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects(),
+                context.isFirstNonSink);
         if (newChild == project.child() && newOutputs.equals(project.getProjects())) {
             return project;
         }
@@ -411,6 +414,16 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
                 newOutputs.build(), newChildren, newChildrenOutputs, union.getConstantExprsList());
     }
 
+    @Override
+    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, NormalizeContext context) {
+        if (!context.isInsideAggregate) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "IVM does not support LogicalRepeat outside aggregate.");
+        }
+        Plan newChild = repeat.child().accept(this, context.afterNonSink());
+        return repeat.withChildren(ImmutableList.of(newChild));
+    }
+
     /**
      * Handles aggregate MV normalization. Post-NormalizeAggregate plan shape:
      * {@code Project(top) → Aggregate(normalized) → Project(bottom) → ... → Scan}
@@ -474,6 +487,14 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         newAggOutputs.addAll(origOutputs);
         newAggOutputs.addAll(hiddenAggOutputs);
         LogicalAggregate<Plan> newAgg = agg.withAggOutputChild(newAggOutputs.build(), newChild);
+        if (agg.getSourceRepeat().isPresent()) {
+            Optional<LogicalRepeat<?>> sourceRepeat = newChild.collectFirst(LogicalRepeat.class::isInstance);
+            if (!sourceRepeat.isPresent()) {
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                        "IVM aggregate source repeat is missing after normalize");
+            }
+            newAgg = newAgg.withSourceRepeat(sourceRepeat.get());
+        }
 
         // Build wrapping Project that computes row-id and exposes all slots
         // Output order: [row_id, original visible outputs, hidden state outputs]
@@ -576,7 +597,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
         Plan newChild = sink.child().accept(this, context);
-        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs());
+        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(),
+                context.isFirstNonSink);
         if (newChild == sink.child() && newOutputs.equals(sink.getOutputExprs())) {
             return sink;
         }
@@ -599,9 +621,12 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
      * Output order: [row_id, original visible outputs, other hidden cols (count, per-agg states)].
      */
     private List<NamedExpression> rewriteOutputsWithIvmHiddenColumns(
-            Plan normalizedChild, List<NamedExpression> outputs) {
+            Plan normalizedChild, List<NamedExpression> outputs, boolean requireRowId) {
         Map<String, Slot> ivmHiddenSlotsByName = collectIvmHiddenSlots(normalizedChild);
         if (!ivmHiddenSlotsByName.containsKey(Column.IVM_ROW_ID_COL)) {
+            if (!requireRowId && outputs.stream().noneMatch(output -> IvmUtil.isIvmHiddenColumn(output.getName()))) {
+                return outputs;
+            }
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM normalization error: child plan has no row-id slot after normalization");
         }
