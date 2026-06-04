@@ -270,11 +270,11 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     public void close() {
-        // Flag exit + clear()/shutdownNow to free producers parked on a full flushQueue (writer
-        // thread leak).
+        // Wake up any blocked producer and stop the loader to avoid writer thread leak.
         this.started.set(false);
         this.loadThreadAlive = false;
         this.flushQueue.clear();
+        this.currentCacheBytes.set(0);
         this.loadExecutorService.shutdownNow();
     }
 
