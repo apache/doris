@@ -340,7 +340,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
@@ -400,7 +400,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
             TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
@@ -459,7 +459,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
@@ -519,7 +519,7 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
             TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(22)));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
@@ -563,7 +563,7 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
                                                      Field::create_field<TYPE_STRING>("bad")));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
@@ -600,7 +600,7 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
             TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(22)));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::SchemaField int_file_field;
     int_file_field.id = 0;
@@ -665,7 +665,7 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
                                                      Field::create_field<TYPE_STRING>("bad")));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
@@ -698,7 +698,7 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
             TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::SchemaField int_file_field;
     int_file_field.id = 0;
@@ -761,7 +761,7 @@ TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
             TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
@@ -801,7 +801,7 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest first_request;
     ASSERT_TRUE(
@@ -832,7 +832,7 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::SchemaField int_file_field;
     int_file_field.id = 0;
@@ -905,7 +905,7 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
     reader::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
-    table_filter.slot_ids = {7};
+    table_filter.column_unique_ids = {table_column};
 
     reader::FileScanRequest first_request;
     ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &first_request).ok());

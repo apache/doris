@@ -67,23 +67,19 @@ using DeleteRows = std::vector<int64_t>;
 // table/global schema 中的列视图。
 // Iceberg 场景下，id 默认对应 Iceberg field id。该结构不描述文件中的物理列。
 struct TableColumn {
-    ColumnId id = -1;
+    ColumnId id = -1; // column_unique_id
     std::string name;
     DataTypePtr type;
-    std::vector<TableColumn> children;
-    VExprContextSPtr default_expr;
+    std::vector<TableColumn> children {};
+    VExprContextSPtr default_expr = nullptr;
     bool is_partition_key = false;
 };
 
 // Row-level predicates on table/global schema. They are rewritten to file-local expressions when
 // possible, and remain the source of row-level filtering after localization.
 struct TableFilter {
-    // 表达式过滤，适合表达 cast、复杂表达式、复杂列提取等语义。
     VExprContextSPtr conjunct;
-
-    // Table slot ids referenced by conjunct. A single expression filter may depend on multiple
-    // columns, while ColumnPredicate pruning still belongs to one concrete column.
-    std::vector<int32_t> slot_ids;
+    std::vector<TableColumn> column_unique_ids;
 };
 
 enum class TableFilterConversion {
@@ -809,6 +805,7 @@ protected:
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     bool _aggregate_pushdown_tried = false;
+    TableColumnMapperOptions _mapper_options;
 
 private:
     static const SchemaField* _find_schema_field(const std::vector<SchemaField>& schema,

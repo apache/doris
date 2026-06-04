@@ -18,10 +18,17 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "cpp/sync_point.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
@@ -36,6 +43,18 @@
 #include "runtime/user_function_cache.h"
 
 namespace doris {
+namespace {
+
+TColumnAccessPath data_access_path(std::vector<std::string> path) {
+    TColumnAccessPath access_path;
+    access_path.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data_path;
+    data_path.__set_path(std::move(path));
+    access_path.__set_data_access_path(std::move(data_path));
+    return access_path;
+}
+
+} // namespace
 
 class TestSplitSourceConnectorStub : public SplitSourceConnector {
 private:
@@ -376,6 +395,109 @@ TEST(FileScannerV2Test, SupportOnlyRefactoredTableReaders) {
     scan_range_params.scan_range.ext_scan_range.file_scan_range.ranges[0] = range;
     LocalSplitSourceConnector supported_split_source({scan_range_params}, 1);
     EXPECT_TRUE(supported_split_source.all_scan_ranges_match(params, FileScannerV2::is_supported));
+}
+
+TEST(FileScannerV2Test, BuildNestedChildrenFromAccessPaths) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto key_type = std::make_shared<DataTypeString>();
+    const auto value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"b", "c"});
+    reader::TableColumn column {
+            .id = 100, .name = "m", .type = std::make_shared<DataTypeMap>(key_type, value_type)};
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"m", "KEYS"}));
+    access_paths.push_back(data_access_path({"m", "VALUES", "b"}));
+    access_paths.push_back(data_access_path({"m", "*", "c"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(column.children.size(), 1);
+    const auto& entries = column.children[0];
+    EXPECT_EQ(entries.id, 0);
+    EXPECT_EQ(entries.name, "entries");
+    ASSERT_EQ(entries.children.size(), 2);
+    EXPECT_EQ(entries.children[0].name, "key");
+    EXPECT_TRUE(entries.children[0].children.empty());
+    EXPECT_EQ(entries.children[1].name, "value");
+    ASSERT_EQ(entries.children[1].children.size(), 2);
+    EXPECT_EQ(entries.children[1].children[0].name, "b");
+    EXPECT_EQ(entries.children[1].children[1].name, "c");
+}
+
+TEST(FileScannerV2Test, BuildArrayStructChildrenFromAccessPaths) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto element_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    reader::TableColumn column {
+            .id = 100,
+            .name = "arr",
+            .type = std::make_shared<DataTypeArray>(element_type),
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"arr", "*", "a"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(column.children.size(), 1);
+    const auto& element = column.children[0];
+    EXPECT_EQ(element.id, 0);
+    EXPECT_EQ(element.name, "element");
+    ASSERT_EQ(element.children.size(), 1);
+    EXPECT_EQ(element.children[0].id, 0);
+    EXPECT_EQ(element.children[0].name, "a");
+}
+
+TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    reader::TableColumn column {
+            .id = 100,
+            .name = "s",
+            .type = struct_type,
+    };
+    reader::TableColumn schema_column {
+            .id = 100,
+            .name = "s",
+            .type = struct_type,
+            .children =
+                    {
+                            {.id = 101, .name = "a", .type = int_type},
+                            {.id = 205, .name = "b", .type = int_type},
+                    },
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"100", "205"}));
+    auto status = FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths,
+                                                                              &schema_column);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(column.children.size(), 1);
+    EXPECT_EQ(column.children[0].id, 205);
+    EXPECT_EQ(column.children[0].name, "b");
+}
+
+TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    reader::TableColumn column {
+            .id = 100,
+            .name = "s",
+            .type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                     Strings {"a", "b"}),
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"s"}));
+    access_paths.push_back(data_access_path({"s", "a"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(column.children.empty());
 }
 
 } // namespace doris

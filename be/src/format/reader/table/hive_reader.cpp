@@ -56,11 +56,9 @@ Status HiveReader::init(reader::TableReadOptions&& options) {
         break;
     }
 
-    reader::TableColumnMapperOptions mapper_options;
-    mapper_options.mode = use_column_names ? reader::TableColumnMappingMode::BY_NAME
+    _mapper_options.mode = use_column_names ? reader::TableColumnMappingMode::BY_NAME
                                            : reader::TableColumnMappingMode::BY_INDEX;
-    mapper_options.allow_missing_columns = allow_missing_columns;
-    _data_reader.column_mapper = reader::TableColumnMapper(mapper_options);
+    _mapper_options.allow_missing_columns = allow_missing_columns;
     return Status::OK();
 }
 

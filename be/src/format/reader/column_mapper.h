@@ -41,7 +41,8 @@ namespace doris::reader {
 struct TableColumn;
 struct TableFilter;
 
-using TableColumnPredicates = std::map<int32_t, std::vector<std::shared_ptr<ColumnPredicate>>>;
+using TableColumnPredicates =
+        std::map<int32_t, std::pair<TableColumn, std::vector<std::shared_ptr<ColumnPredicate>>>>;
 
 enum class TableColumnMappingMode {
     BY_FIELD_ID,
@@ -138,23 +139,8 @@ private:
                                     const std::vector<SchemaField>& file_schema,
                                     ColumnMapping* mapping) const;
 
-    ColumnMapping* _find_mapping(int32_t table_column_id) {
-        for (auto& mapping : _mappings) {
-            if (mapping.table_column_id == table_column_id) {
-                return &mapping;
-            }
-        }
-        return nullptr;
-    }
-
-    const ColumnMapping* _find_mapping(int32_t table_column_id) const {
-        for (const auto& mapping : _mappings) {
-            if (mapping.table_column_id == table_column_id) {
-                return &mapping;
-            }
-        }
-        return nullptr;
-    }
+    ColumnMapping* _find_mapping(const TableColumn& table_column);
+    const ColumnMapping* _find_mapping(const TableColumn& table_column) const;
 
     bool _is_same_type(const DataTypePtr& table_type, const DataTypePtr& file_type) const {
         DORIS_CHECK(table_type != nullptr);
