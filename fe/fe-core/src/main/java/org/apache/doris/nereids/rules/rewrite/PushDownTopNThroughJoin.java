@@ -91,6 +91,18 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                             if (!join.getOutputSet().containsAll(projectInputSlots)) {
                                 return null;
                             }
+                            // Verify the push-down target child has all required
+                            // slots. Intermediate Projects (e.g. from ColumnPruning)
+                            // may restrict output, and push-down would break the plan.
+                            List<Slot> orderbySlots = topN.getOrderKeys().stream()
+                                    .map(OrderKey::getExpr)
+                                    .flatMap(e -> e.getInputSlots().stream())
+                                    .collect(Collectors.toList());
+                            Plan targetChild = join.left().getOutputSet().containsAll(orderbySlots)
+                                    ? join.left() : join.right();
+                            if (!targetChild.getOutputSet().containsAll(projectInputSlots)) {
+                                return null;
+                            }
                             Plan newJoin = pushLimitThroughJoin(topN, join, projectInputSlots);
                             if (newJoin == null) {
                                 return null;
@@ -113,9 +125,6 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
                     List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
                             requiredOutputSlots, join.getLeftConditionSlot());
-                    if (!canPushToChild(join.left(), childRequiredOutputSlots)) {
-                        return null;
-                    }
                     return join.withChildren(
                             pushTopNToChild(topN, join.left(), orderbySlots, childRequiredOutputSlots),
                             join.right());
@@ -129,9 +138,6 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 if (join.right().getOutputSet().containsAll(orderbySlots)) {
                     List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
                             requiredOutputSlots, join.getRightConditionSlot());
-                    if (!canPushToChild(join.right(), childRequiredOutputSlots)) {
-                        return null;
-                    }
                     return join.withChildren(
                             join.left(),
                             pushTopNToChild(topN, join.right(), orderbySlots, childRequiredOutputSlots));
@@ -144,9 +150,6 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     }
                     List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
                             requiredOutputSlots, join.getLeftConditionSlot());
-                    if (!canPushToChild(join.left(), childRequiredOutputSlots)) {
-                        return null;
-                    }
                     return join.withChildren(
                             pushTopNToChild(topN, join.left(), orderbySlots, childRequiredOutputSlots),
                             join.right());
@@ -156,9 +159,6 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                     }
                     List<Slot> childRequiredOutputSlots = buildRequiredOutputSlots(
                             requiredOutputSlots, join.getRightConditionSlot());
-                    if (!canPushToChild(join.right(), childRequiredOutputSlots)) {
-                        return null;
-                    }
                     return join.withChildren(
                             join.left(),
                             pushTopNToChild(topN, join.right(), orderbySlots, childRequiredOutputSlots));
@@ -183,12 +183,23 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
 
     private Plan pushTopNToChild(LogicalTopN<? extends Plan> topN, Plan child, List<Slot> orderbySlots,
             List<Slot> requiredOutputSlots) {
-        if (requiredOutputSlots.isEmpty()) {
+        // Keep only the slots that this child actually outputs. When pushing to
+        // one side of an outer join, requiredOutputSlots may include columns from
+        // the other side which this child cannot provide.
+        Set<Slot> childOutputSet = child.getOutputSet();
+        List<Slot> childRequired = requiredOutputSlots.stream()
+                .filter(childOutputSet::contains)
+                .collect(Collectors.toList());
+        if (childRequired.isEmpty()) {
             return topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, child);
         }
-
-        Set<Slot> requiredSet = new HashSet<>(requiredOutputSlots);
+        // Ensure the child outputs all required columns. If the child already
+        // outputs everything needed, no extra Project is required.
+        Set<Slot> requiredSet = new HashSet<>(childRequired);
         requiredSet.addAll(orderbySlots);
+        if (childOutputSet.containsAll(requiredSet)) {
+            return topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, child);
+        }
         List<NamedExpression> childOutput = child.getOutput().stream()
                 .filter(requiredSet::contains)
                 .collect(Collectors.toList());
