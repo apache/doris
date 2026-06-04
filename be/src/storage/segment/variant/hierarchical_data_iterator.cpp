@@ -166,36 +166,38 @@ ordinal_t HierarchicalDataIterator::get_current_ordinal() const {
     return (*_substream_reader.begin())->data.iterator->get_current_ordinal();
 }
 
-Status HierarchicalDataIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+Status HierarchicalDataIterator::init_cache_block_prefetch(
+        const SegmentCacheBlockPrefetchParams& params) {
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
-        RETURN_IF_ERROR(node.data.iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(node.data.iterator->init_cache_block_prefetch(params));
         return Status::OK();
     }));
     if (_root_reader) {
         DCHECK(_root_reader->inited);
-        RETURN_IF_ERROR(_root_reader->iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_root_reader->iterator->init_cache_block_prefetch(params));
     }
     if (_binary_column_reader) {
         DCHECK(_binary_column_reader->inited);
-        RETURN_IF_ERROR(_binary_column_reader->iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_binary_column_reader->iterator->init_cache_block_prefetch(params));
     }
     return Status::OK();
 }
 
-void HierarchicalDataIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
+void HierarchicalDataIterator::collect_cache_block_prefetch_iterators(
+        std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+        FileAccessRangeBuildMethod init_method) {
     static_cast<void>(tranverse([&](SubstreamReaderTree::Node& node) {
-        node.data.iterator->collect_prefetchers(prefetchers, init_method);
+        node.data.iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
         return Status::OK();
     }));
     if (_root_reader) {
         DCHECK(_root_reader->inited);
-        _root_reader->iterator->collect_prefetchers(prefetchers, init_method);
+        _root_reader->iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
     }
     if (_binary_column_reader) {
         DCHECK(_binary_column_reader->inited);
-        _binary_column_reader->iterator->collect_prefetchers(prefetchers, init_method);
+        _binary_column_reader->iterator->collect_cache_block_prefetch_iterators(iterators,
+                                                                                init_method);
     }
 }
 

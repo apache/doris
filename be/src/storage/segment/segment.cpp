@@ -124,6 +124,10 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
     if (st) {
         segment->_fs = fs;
         segment->_file_reader = std::move(file_reader);
+        // Keep the exact reader options that produced the opened segment reader.
+        // ColumnReaderCache uses them later to reopen equivalent per-iterator
+        // data readers when cache-block prefetch is enabled.
+        segment->_reader_options = reader_options;
         st = segment->_open(stats);
     }
 
@@ -143,6 +147,10 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         if (st) {
             segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
+            // See the first open path above. The retry still uses the original
+            // cache-enabled options, so per-iterator readers should use the same
+            // stack after the corrupt cache blocks are removed.
+            segment->_reader_options = reader_options;
             st = segment->_open(stats);
         }
         TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
@@ -159,6 +167,10 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
             RETURN_IF_ERROR(fs->open_file(path, &file_reader, &opt));
             segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
+            // The segment finally opened without file cache. Preserve that
+            // choice so later ColumnReaderCache factories do not recreate
+            // cache-aware per-iterator readers for this segment.
+            segment->_reader_options = opt;
             st = segment->_open(stats);
             if (!st.ok()) {
                 // Tier 3: Remote source itself is corrupt.
@@ -642,8 +654,14 @@ Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
         }
     }
 
+    // ColumnReaderCache keeps ColumnReaders as shared metadata, but it also gets
+    // fs/path/options so it can provide a FileReader factory to FileColumnIterator.
+    // That factory returns the shared _file_reader when cache-block prefetch is
+    // off, and opens a fresh cache-aware reader per physical iterator when it is
+    // on.
     _column_reader_cache = std::make_unique<ColumnReaderCache>(
-            _column_meta_accessor.get(), _tablet_schema, _file_reader, _num_rows,
+            _column_meta_accessor.get(), _tablet_schema, _file_reader, _fs, _file_reader->path(),
+            _reader_options, _num_rows,
             [this](std::shared_ptr<SegmentFooterPB>& footer_pb, OlapReaderStatistics* stats) {
                 return _get_segment_footer(footer_pb, stats);
             });

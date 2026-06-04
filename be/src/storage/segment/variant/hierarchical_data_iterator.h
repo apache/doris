@@ -88,10 +88,10 @@ public:
     Status add_stream(int32_t col_uid, const SubcolumnColumnMetaInfo::Node* node,
                       ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override;
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override;
 
 private:
     SubstreamReaderTree _substream_reader;

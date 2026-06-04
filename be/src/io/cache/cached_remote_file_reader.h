@@ -37,8 +37,8 @@ namespace doris::io {
 struct IOContext;
 struct FileCacheStatistics;
 
-class CachedRemoteFileReader final : public FileReader,
-                                     public std::enable_shared_from_this<CachedRemoteFileReader> {
+class CachedRemoteFileReader : public FileReader,
+                               public std::enable_shared_from_this<CachedRemoteFileReader> {
 public:
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions& opts);
 
@@ -58,17 +58,17 @@ public:
 
     int64_t mtime() const override { return _remote_file_reader->mtime(); }
 
-    // Asynchronously prefetch a range of file cache blocks.
-    // This method triggers read file cache in dryrun mode to warm up the cache
-    // without actually reading the data into user buffers.
+    // Asynchronously touch a range into the local file cache.
+    // This method schedules a dry-run read, which downloads missing bytes into
+    // local file cache blocks without copying data into the caller's buffer.
     //
     // Parameters:
     //   offset: Starting offset in the file
-    //   size: Number of bytes to prefetch
+    //   size: Number of bytes to touch into local cache
     //   io_ctx: IO context (can be nullptr, will create a dryrun context internally)
     //
     // Note: This is a best-effort operation. Errors are logged but not returned.
-    void prefetch_range(size_t offset, size_t size, const IOContext* io_ctx = nullptr);
+    void async_touch_local_cache(size_t offset, size_t size, const IOContext* io_ctx = nullptr);
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

@@ -273,6 +273,9 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
             .tablet_id = _rowset_meta->tablet_id(),
+            .enable_cache_block_prefetch = config::is_cloud_mode() && config::enable_file_cache &&
+                                           (config::enable_query_segment_file_cache_prefetch ||
+                                            config::enable_compaction_segment_file_cache_prefetch),
     };
 
     auto s = segment_v2::Segment::open(
@@ -633,6 +636,10 @@ Status BetaRowset::check_current_rowset_segment() {
                 .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
                 .tablet_id = _rowset_meta->tablet_id(),
+                .enable_cache_block_prefetch =
+                        config::is_cloud_mode() && config::enable_file_cache &&
+                        (config::enable_query_segment_file_cache_prefetch ||
+                         config::enable_compaction_segment_file_cache_prefetch),
         };
 
         auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id,

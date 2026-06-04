@@ -1631,13 +1631,13 @@ DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "2000");
 
 DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
 // Enable segment file cache block prefetch for query
-DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
+DEFINE_mBool(enable_query_segment_file_cache_prefetch, "true");
 // Number of blocks to prefetch ahead in segment iterator for query
-DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
+DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "4");
 // Enable segment file cache block prefetch for compaction
-DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
+DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "true");
 // Number of blocks to prefetch ahead in segment iterator for compaction
-DEFINE_mInt32(compaction_segment_file_cache_prefetch_block_size, "2");
+DEFINE_mInt32(compaction_segment_file_cache_prefetch_block_size, "4");
 // The min thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
