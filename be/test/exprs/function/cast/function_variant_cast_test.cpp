@@ -24,6 +24,7 @@
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -281,6 +282,269 @@ TEST(FunctionVariantCast, CastFromVariant) {
         ASSERT_EQ(result_data.get_element(1), 2);
         ASSERT_EQ(result_data.get_element(2), 3);
         ASSERT_FALSE(result_nullable.has_null());
+    }
+}
+
+TEST(FunctionVariantCast, CastFromVariantDoesNotFinalizeSourceColumn) {
+    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto int32_type = std::make_shared<DataTypeInt32>();
+    auto string_type = std::make_shared<DataTypeString>();
+    auto variant_col = construct_basic_varint_column();
+
+    ASSERT_FALSE(variant_col->is_finalized());
+
+    {
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, int32_type, "int32_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, int32_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, int32_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(
+                function->execute(ctx.get(), block, {0}, result_column, variant_col->size()).ok());
+
+        EXPECT_FALSE(variant_col->is_finalized());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), variant_col->size());
+    }
+
+    {
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, string_type, "string_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, string_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, string_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(
+                function->execute(ctx.get(), block, {0}, result_column, variant_col->size()).ok());
+
+        EXPECT_FALSE(variant_col->is_finalized());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), variant_col->size());
+    }
+}
+
+TEST(FunctionVariantCast, CastFromVariantJsonbPrefixDoesNotFinalizeSourceColumn) {
+    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+    auto variant_col = construct_basic_varint_column();
+
+    ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                      {nullptr, jsonb_type, "jsonb_type"}};
+
+    auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, jsonb_type);
+    ASSERT_NE(function, nullptr);
+
+    Block block {arguments};
+    size_t result_column = block.columns();
+    block.insert({nullptr, jsonb_type, "result"});
+
+    RuntimeState state;
+    auto ctx = FunctionContext::create_context(&state, {}, {});
+    ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 1).ok());
+
+    EXPECT_FALSE(variant_col->is_finalized());
+    auto result_col = block.get_by_position(result_column).column;
+    ASSERT_NE(result_col.get(), nullptr);
+    ASSERT_EQ(result_col->size(), 1);
+}
+
+TEST(FunctionVariantCast, CastFromVariantZeroRowPrefixDoesNotFinalizeSourceColumn) {
+    auto variant_type = std::make_shared<DataTypeVariant>();
+
+    {
+        auto string_type = std::make_shared<DataTypeString>();
+        auto variant_col = construct_basic_varint_column();
+        ASSERT_FALSE(variant_col->is_finalized());
+
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, string_type, "string_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, string_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, string_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 0).ok());
+
+        EXPECT_FALSE(variant_col->is_finalized());
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), 0);
+    }
+
+    {
+        auto jsonb_type = std::make_shared<DataTypeJsonb>();
+        auto variant_col = construct_basic_varint_column();
+        ASSERT_FALSE(variant_col->is_finalized());
+
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, jsonb_type, "jsonb_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, jsonb_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, jsonb_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 0).ok());
+
+        EXPECT_FALSE(variant_col->is_finalized());
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), 0);
+    }
+}
+
+TEST(FunctionVariantCast, CastFromFinalizedVariantJsonbPrefix) {
+    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+
+    {
+        auto variant_col = construct_basic_varint_column();
+        variant_col->finalize();
+        ASSERT_TRUE(variant_col->is_finalized());
+
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, jsonb_type, "jsonb_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, jsonb_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, jsonb_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 1).ok());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), 1);
+    }
+
+    {
+        auto variant_col = construct_basic_varint_column();
+        variant_col->finalize();
+        ASSERT_TRUE(variant_col->is_finalized());
+        const auto rows = variant_col->size();
+        auto nullable_variant_col =
+                ColumnNullable::create(std::move(variant_col), ColumnUInt8::create(rows, 0));
+        auto nullable_variant_type = make_nullable(variant_type);
+
+        ColumnsWithTypeAndName arguments {
+                {nullable_variant_col->get_ptr(), nullable_variant_type, "variant_col"},
+                {nullptr, jsonb_type, "jsonb_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, jsonb_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, jsonb_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 1).ok());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), 1);
+    }
+}
+
+TEST(FunctionVariantCast, CastFromNullableVariantPrefixDoesNotFinalizeSourceColumn) {
+    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto nullable_variant_type = make_nullable(variant_type);
+
+    {
+        auto variant_col = construct_basic_varint_column();
+        const auto* source_variant = variant_col.get();
+        auto null_map = ColumnUInt8::create(variant_col->size(), 0);
+        auto nullable_variant_col =
+                ColumnNullable::create(std::move(variant_col), std::move(null_map));
+        auto string_type = std::make_shared<DataTypeString>();
+
+        ColumnsWithTypeAndName arguments {
+                {nullable_variant_col->get_ptr(), nullable_variant_type, "variant_col"},
+                {nullptr, string_type, "string_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, string_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, string_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 1).ok());
+
+        EXPECT_FALSE(source_variant->is_finalized());
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), 1);
+    }
+
+    {
+        auto variant_col = construct_basic_varint_column();
+        const auto* source_variant = variant_col.get();
+        auto null_map = ColumnUInt8::create(variant_col->size(), 0);
+        auto nullable_variant_col =
+                ColumnNullable::create(std::move(variant_col), std::move(null_map));
+        auto jsonb_type = std::make_shared<DataTypeJsonb>();
+
+        ColumnsWithTypeAndName arguments {
+                {nullable_variant_col->get_ptr(), nullable_variant_type, "variant_col"},
+                {nullptr, jsonb_type, "jsonb_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, jsonb_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, jsonb_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 1).ok());
+
+        EXPECT_FALSE(source_variant->is_finalized());
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), 1);
     }
 }
 

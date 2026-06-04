@@ -458,6 +458,11 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
     if (pos < src.data.size() && processed_rows < end) {
         size_t part_end = end - processed_rows;
         insert_from_part(src.data[pos], src.data_types[pos], 0, part_end);
+        processed_rows = end;
+    }
+    size_t default_start = std::max(start, processed_rows);
+    if (default_start < end) {
+        data.back()->insert_many_defaults(end - default_start);
     }
 }
 
