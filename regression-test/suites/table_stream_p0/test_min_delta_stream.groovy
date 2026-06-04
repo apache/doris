@@ -760,6 +760,7 @@ suite("test_min_delta_stream") {
         sleep(1200)
         sql "INSERT INTO ${incrDupBase} VALUES (3, 30)"
         sql "sync"
+        sleep(1200)
 
         def dupDetailRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
@@ -804,7 +805,8 @@ suite("test_min_delta_stream") {
         sleep(1200)
         sql "INSERT INTO ${incrMowNoHistoryBase} VALUES (1, 11)"
         sql "sync"
-
+        sleep(1200)
+        
         def mowNoHistoryDetailRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrMowNoHistoryBase}@incr('startTimestamp' = '${mowNoHistoryStartTimestamp}',
