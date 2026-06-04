@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <numeric>
@@ -40,6 +41,7 @@
 #include "core/memcpy_small.h"
 #include "core/pod_array_fwd.h"
 #include "core/string_ref.h"
+#include "exec/common/string_searcher.h"
 #include "exec/common/stringop_substring.h"
 #include "exec/common/template_helpers.hpp"
 #include "exec/common/util.hpp"
@@ -796,6 +798,22 @@ private:
     template <bool src_const, bool pattern_const>
     void _execute(const ColumnString& src_column_string, const ColumnString& pattern_column,
                   ColumnInt32::Container& dest_column_data, size_t size) const {
+        if constexpr (pattern_const) {
+            const StringRef pattern_ref = pattern_column.get_data_at(0);
+            if (pattern_ref.size == 0) {
+                std::fill(dest_column_data.begin(), dest_column_data.end(), 0);
+                return;
+            }
+
+            const ASCIICaseSensitiveStringSearcher searcher(pattern_ref.data, pattern_ref.size);
+            for (size_t i = 0; i < size; i++) {
+                const StringRef str_ref =
+                        src_column_string.get_data_at(index_check_const<src_const>(i));
+                dest_column_data[i] = find_str_count_with_searcher(str_ref, pattern_ref, searcher);
+            }
+            return;
+        }
+
         for (size_t i = 0; i < size; i++) {
             const StringRef str_ref =
                     src_column_string.get_data_at(index_check_const<src_const>(i));
@@ -810,6 +828,31 @@ private:
     void _execute(const ColumnString& src_column_string, const ColumnString& pattern_column,
                   const ColumnInt32& start_pos_column, ColumnInt32::Container& dest_column_data,
                   size_t size) const {
+        if constexpr (pattern_const) {
+            const StringRef pattern_ref = pattern_column.get_data_at(0);
+            if (pattern_ref.size == 0) {
+                std::fill(dest_column_data.begin(), dest_column_data.end(), 0);
+                return;
+            }
+
+            const ASCIICaseSensitiveStringSearcher searcher(pattern_ref.data, pattern_ref.size);
+            for (size_t i = 0; i < size; i++) {
+                const StringRef str_ref =
+                        src_column_string.get_data_at(index_check_const<src_const>(i));
+                const int32_t start_pos =
+                        start_pos_column.get_element(index_check_const<start_pos_const>(i)) - 1;
+                const auto start_byte_len = get_start_byte_len(str_ref, start_pos);
+
+                if (start_pos < 0 || start_byte_len >= str_ref.size) {
+                    dest_column_data[i] = 0;
+                } else {
+                    dest_column_data[i] = find_str_count_with_searcher(
+                            str_ref.substring(start_byte_len), pattern_ref, searcher);
+                }
+            }
+            return;
+        }
+
         for (size_t i = 0; i < size; i++) {
             const StringRef str_ref =
                     src_column_string.get_data_at(index_check_const<src_const>(i));
@@ -819,13 +862,7 @@ private:
             int32_t start_pos =
                     start_pos_column.get_element(index_check_const<start_pos_const>(i)) - 1;
 
-            const char* p = str_ref.begin();
-            const char* end = str_ref.end();
-            int char_size = 0;
-            for (size_t j = 0; j < start_pos && p < end; ++j, p += char_size) {
-                char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
-            }
-            const auto start_byte_len = p - str_ref.begin();
+            const auto start_byte_len = get_start_byte_len(str_ref, start_pos);
 
             if (start_pos < 0 || start_byte_len >= str_ref.size) {
                 dest_column_data[i] = 0;
@@ -834,6 +871,16 @@ private:
                         find_str_count(str_ref.substring(start_byte_len), pattern_ref);
             }
         }
+    }
+
+    size_t get_start_byte_len(const StringRef str_ref, int32_t start_pos) const {
+        const char* p = str_ref.begin();
+        const char* end = str_ref.end();
+        int char_size = 0;
+        for (size_t j = 0; j < start_pos && p < end; ++j, p += char_size) {
+            char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+        }
+        return p - str_ref.begin();
     }
 
     size_t find_pos(size_t pos, const StringRef str_ref, const StringRef pattern_ref) const {
@@ -860,6 +907,26 @@ private:
                 count++;
                 str_pos = str_pos + res_pos + pattern_ref.size;
             }
+        }
+        return count;
+    }
+
+    int find_str_count_with_searcher(const StringRef str_ref, StringRef pattern_ref,
+                                     const ASCIICaseSensitiveStringSearcher& searcher) const {
+        if (str_ref.size == 0 || pattern_ref.size == 0) {
+            return 0;
+        }
+
+        int count = 0;
+        const char* pos = str_ref.data;
+        const char* const end = str_ref.data + str_ref.size;
+        while (pos < end) {
+            const char* match = searcher.search(pos, end);
+            if (match == end) {
+                break;
+            }
+            ++count;
+            pos = match + pattern_ref.size;
         }
         return count;
     }
