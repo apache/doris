@@ -17,49 +17,54 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.common.Config;
-
 import com.google.common.collect.ImmutableMap;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.Map;
 
 /**
  * Unit tests for {@link TrinoBootstrap#resolvePluginDir}.
  *
  * <p>Guards the plugin-directory resolution the regression environment depends on: the
  * connectors are dispatched to a custom directory and {@code fe.conf} points
- * {@code trino_connector_plugin_dir} at it. A refactoring once dropped the FE-config read,
- * which made every {@code trino-connector} catalog fail with "Cannot find Trino
- * ConnectorFactory". These tests ensure the override paths stay honored.
+ * {@code trino_connector_plugin_dir} at it. Because this plugin runs in an isolated
+ * classloader, it cannot read FE {@code Config}; the value must arrive through the engine
+ * environment map. A regression once made every {@code trino-connector} catalog fail with
+ * "Cannot find Trino ConnectorFactory" because that override was not honored.
  */
 public class TrinoBootstrapTest {
 
-    // Config.trino_connector_plugin_dir is process-global static state; capture it per
-    // instance (JUnit 5 creates one instance per method) and restore it after each test.
-    private final String savedPluginDir = Config.trino_connector_plugin_dir;
-
-    @AfterEach
-    public void restoreConfig() {
-        Config.trino_connector_plugin_dir = savedPluginDir;
-    }
-
     @Test
     public void perCatalogPropertyTakesPrecedence() {
-        Config.trino_connector_plugin_dir = "/etc/should-be-ignored";
+        Map<String, String> env = ImmutableMap.of(
+                "doris_home", "/opt/doris",
+                "trino_connector_plugin_dir", "/should/be/ignored");
         String resolved = TrinoBootstrap.resolvePluginDir(
-                ImmutableMap.of("trino.plugin.dir", "/custom/catalog/dir"));
+                ImmutableMap.of("trino.plugin.dir", "/custom/catalog/dir"), env);
         Assertions.assertEquals("/custom/catalog/dir", resolved);
     }
 
     @Test
-    public void feConfigOverrideIsHonored() {
-        // Exactly what the regression environment sets in fe.conf.
-        String configured = "/tmp/trino_connector/connectors";
-        Config.trino_connector_plugin_dir = configured;
-        String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap());
-        Assertions.assertEquals(configured, resolved);
+    public void feConfigFromEnvironmentIsHonored() {
+        // Exactly what the regression environment sets in fe.conf, delivered via the
+        // engine environment because the plugin classloader cannot read FE Config.
+        Map<String, String> env = ImmutableMap.of(
+                "doris_home", "/opt/doris",
+                "trino_connector_plugin_dir", "/tmp/trino_connector/connectors");
+        String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), env);
+        Assertions.assertEquals("/tmp/trino_connector/connectors", resolved);
+    }
+
+    @Test
+    public void defaultsToDorisHomeWhenConfigIsDefault() {
+        // Config left at its default value (DORIS_HOME/plugins/connectors). With no
+        // pre-2.1.8 dir present under the fake home, the default dir is returned.
+        Map<String, String> env = ImmutableMap.of(
+                "doris_home", "/opt/doris",
+                "trino_connector_plugin_dir", "/opt/doris/plugins/connectors");
+        String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), env);
+        Assertions.assertEquals("/opt/doris/plugins/connectors", resolved);
     }
 }

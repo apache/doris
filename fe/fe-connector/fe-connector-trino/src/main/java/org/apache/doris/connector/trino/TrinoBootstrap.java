@@ -17,9 +17,6 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.common.Config;
-import org.apache.doris.common.EnvUtils;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -145,6 +142,21 @@ public class TrinoBootstrap {
             }
         }
         return instance;
+    }
+
+    /**
+     * Returns the already-initialized singleton. Callers that run after a catalog has been
+     * created (e.g. scan planning) use this instead of re-resolving the plugin directory.
+     *
+     * @throws IllegalStateException if the singleton has not been initialized yet
+     */
+    public static TrinoBootstrap getInstance() {
+        TrinoBootstrap local = instance;
+        if (local == null) {
+            throw new IllegalStateException(
+                    "TrinoBootstrap is not initialized; a catalog must be created first");
+        }
+        return local;
     }
 
     /**
@@ -282,31 +294,42 @@ public class TrinoBootstrap {
     /**
      * Resolves the Trino plugin directory.
      *
+     * <p>This plugin runs in an isolated classloader and cannot read FE {@code Config}
+     * (it would see its own bundled copy holding default values). The FE config
+     * {@code trino_connector_plugin_dir} is therefore passed in through the engine
+     * environment map (see {@code DefaultConnectorContext}), mirroring how the JDBC
+     * connector receives {@code jdbc_drivers_dir}.
+     *
      * <p>Resolution order:
      * <ol>
      *   <li>the per-catalog {@code trino.plugin.dir} property, when set;</li>
-     *   <li>the FE config {@code trino_connector_plugin_dir}, when it has been
-     *       overridden in {@code fe.conf} (the regression environment relies on this);</li>
-     *   <li>otherwise {@code DORIS_HOME/plugins/connectors}, falling back to the
-     *       pre-2.1.8 default {@code DORIS_HOME/connectors} when it is non-empty.</li>
+     *   <li>the FE config {@code trino_connector_plugin_dir} from the environment, when it
+     *       has been overridden in {@code fe.conf} (the regression environment relies on this);</li>
+     *   <li>otherwise {@code DORIS_HOME/plugins/connectors}, falling back to the pre-2.1.8
+     *       default {@code DORIS_HOME/connectors} when it is non-empty.</li>
      * </ol>
+     *
+     * @param properties  catalog properties (unstripped, may carry {@code trino.plugin.dir})
+     * @param environment engine environment from {@code ConnectorContext.getEnvironment()}
      */
-    public static String resolvePluginDir(Map<String, String> properties) {
+    public static String resolvePluginDir(Map<String, String> properties, Map<String, String> environment) {
         String explicitDir = properties.get("trino.plugin.dir");
         if (explicitDir != null && !explicitDir.isEmpty()) {
             return explicitDir;
         }
 
-        String defaultDir = EnvUtils.getDorisHome() + "/plugins/connectors";
-        if (!Config.trino_connector_plugin_dir.equals(defaultDir)) {
+        String dorisHome = environment.getOrDefault("doris_home", ".");
+        String defaultDir = dorisHome + "/plugins/connectors";
+        String configuredDir = environment.get("trino_connector_plugin_dir");
+        if (configuredDir != null && !configuredDir.isEmpty() && !configuredDir.equals(defaultDir)) {
             // User explicitly set `trino_connector_plugin_dir` in fe.conf; use it directly.
-            return Config.trino_connector_plugin_dir;
+            return configuredDir;
         }
 
         // Config left at its default. The default changed from DORIS_HOME/connectors to
         // DORIS_HOME/plugins/connectors in 2.1.8, so fall back to the old dir when it
         // still holds connectors, for backward compatibility.
-        String oldDir = EnvUtils.getDorisHome() + "/connectors";
+        String oldDir = dorisHome + "/connectors";
         File oldDirFile = new File(oldDir);
         if (oldDirFile.exists() && oldDirFile.isDirectory()) {
             String[] contents = oldDirFile.list();

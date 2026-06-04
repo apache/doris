@@ -204,9 +204,9 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
                     new BoundedExecutor(executor, 10), MIN_SCHEDULE_SPLIT_BATCH_SIZE);
         }
 
-        // Prepare JSON serializer
-        TrinoBootstrap bootstrap = TrinoBootstrap.getInstance(
-                TrinoBootstrap.resolvePluginDir(dorisConnector.getTrinoProperties()));
+        // Prepare JSON serializer. The bootstrap singleton was already initialized when the
+        // catalog was created, so reuse it instead of re-resolving the plugin directory.
+        TrinoBootstrap bootstrap = TrinoBootstrap.getInstance();
         TrinoJsonSerializer serializer = new TrinoJsonSerializer(
                 bootstrap.getHandleResolver(), bootstrap.getTypeRegistry());
 

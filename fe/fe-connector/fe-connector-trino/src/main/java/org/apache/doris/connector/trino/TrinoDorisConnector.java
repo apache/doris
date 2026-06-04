@@ -163,8 +163,10 @@ public class TrinoDorisConnector implements Connector {
                     deprecated, connectorNameStr);
         }
 
-        // 2. Initialize Trino plugin infrastructure (singleton)
-        String pluginDir = TrinoBootstrap.resolvePluginDir(properties);
+        // 2. Initialize Trino plugin infrastructure (singleton).
+        // The plugin dir comes from the FE engine environment (fe-core reads fe.conf);
+        // this plugin's classloader cannot see FE Config directly.
+        String pluginDir = TrinoBootstrap.resolvePluginDir(properties, context.getEnvironment());
         TrinoBootstrap bootstrap = TrinoBootstrap.getInstance(pluginDir);
 
         // 3. Create Trino Connector + Session for this catalog
