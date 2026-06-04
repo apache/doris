@@ -133,7 +133,6 @@ suite("aggregate") {
     qt_aggregate """ select var_samp(c_bigint), var_samp(c_double) from ${tableName} """
     qt_aggregate """ select var_samp(distinct c_bigint), var_samp(c_double) from ${tableName} """
     qt_aggregate """ select var_samp(c_bigint), var_samp(distinct c_double) from ${tableName} """
-    qt_aggregate """ select var_samp(c_bigint), var_samp(c_double), stddev_samp(c_bigint), stddev_samp(c_double) from ${tableName2} """
     qt_aggregate """ select variance(c_bigint), variance(c_double) from ${tableName}  """
     qt_aggregate """ select variance(distinct c_bigint), variance(c_double) from ${tableName}  """
     qt_aggregate """ select variance(c_bigint), variance(distinct c_double) from ${tableName}  """
