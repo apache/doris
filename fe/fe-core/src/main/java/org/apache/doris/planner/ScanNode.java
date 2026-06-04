@@ -749,35 +749,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 || context.getSessionVariable().isForceToLocalShuffle();
     }
 
-    /**
-     * Spread-scan mode (mirrors the gate in
-     * {@code UnassignedScanBucketOlapTableJob.assignLocalShuffleJobs}): when the FE local
-     * shuffle planner's bucket upgrade is enabled, a pooled bucket-assigned fragment gives
-     * every bucket-owner instance its own buckets' scan ranges. The scan must then NOT be
-     * reported serial — BE runs one scan task per instance, and a serial flag would leave
-     * only instance 0's ranges scanned (silently dropping the other buckets).
-     *
-     * Plain pooled fragments (non-bucket assignment) keep all ranges on instance 0 and
-     * still rely on the serial flag + PASSTHROUGH fan-out, so the bucket-fragment shape
-     * check ({@code hasColocatePlanNode || hasBucketShuffleNode}, the same predicate
-     * UnassignedJobBuilder uses to pick the bucket job) is essential.
-     *
-     * Note this does NOT touch {@link #isSerialNode()}: pooling decisions
-     * (fragment.useSerialSource via hasSerialScanNode) stay unchanged.
-     */
-    @Override
-    public boolean isSerialOperatorOnBe(ConnectContext context) {
-        if (context != null
-                && context.getSessionVariable().isEnableLocalShuffle()
-                && context.getSessionVariable().isEnableLocalShufflePlanner()
-                && context.getSessionVariable().getLocalShuffleBucketUpgradeRatio() > 1.0
-                && fragment != null
-                && (fragment.hasColocatePlanNode() || fragment.hasBucketShuffleNode())) {
-            return false;
-        }
-        return super.isSerialOperatorOnBe(context);
-    }
-
     @Override
     public boolean hasSerialScanChildren() {
         return isSerialNode();
