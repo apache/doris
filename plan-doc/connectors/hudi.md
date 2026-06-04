@@ -63,6 +63,7 @@
   2. 把 `HudiScanNode` 删除，由 `PluginDrivenScanNode` + 增强后的 `HudiScanPlanProvider`（已存在）承接 incremental relation 逻辑。
   3. 改造 `PhysicalHudiScan` 让它走 SPI 路径。
 - **P3 启动前必须 P5 paimon 或 P7 hive 进入到至少完成 hms metadata 路径**，否则 hudi 拿不到底层 HMS 表元数据。**这是依赖序的隐藏约束**——见 master plan §3.4 第一段。
+- **⚠️ 2026-06-04 recon 更正（[DV-005](../deviations-log.md)）**：上一条「隐藏依赖」与代码不符。HMS-over-SPI 读路径（`fe-connector-hms` 客户端库 + `HiveConnectorMetadata`(type `"hms"`) + `HudiConnectorMetadata`(type `"hudi"`) + `ConnectorTableSchema.tableFormatType` 区分符）**早已存在但 dormant**（`CatalogFactory.SPI_READY_TYPES` 不含 hms/hudi，零 live caller）。**真正阻塞是 catalog 模型错配**：现存连接器是独立 `"hudi"` catalog type，而 Doris 真实模型是 hudi 寄生在 `"hms"` catalog 内、以 `DLAType.HUDI` 暴露，且 fe-core 不消费 `tableFormatType`。P3 改为：先 recon scan/split 路径 + 写 catalog 模型决策备忘（a/b；c 否决）→ 用户签字 → 编码。详见 [HANDOFF](../HANDOFF.md) 关键认知 1。
 
 ---
 
@@ -76,6 +77,9 @@
 ---
 
 ## 进度日志
+
+### 2026-06-04
+- P3 启动 recon（8-agent code-grounded workflow + 对抗验证）。结论（[DV-005](../deviations-log.md)）：HMS-over-SPI 读码已存在但 **dormant**（gate 未开、零 live caller）；**真阻塞=catalog 模型错配**（独立 `"hudi"` type vs 寄生 `"hms"` 的 `DLAType.HUDI`，fe-core 不消费 `tableFormatType`）+ 增量读无 SPI 表示（P1-T04 gap）+ 三模块零测试。P3 待 catalog 模型决策（a/b；c 否决）签字后开工。关键文件锚点见 HANDOFF。
 
 ### 2026-05-24
 - 跟踪文件建立。50% 实现已就位，但 P3 依赖 hms-connector 路径先打通（D-005 模型）。

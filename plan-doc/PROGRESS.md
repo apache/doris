@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-06-04** | 当前阶段：**P2 trino-connector 代码完成**（T07–T11,T13 ✅；T12 推迟）；PR 待开（分支基线对齐中） | 项目总进度：**30%**
+> 最后更新：**2026-06-04** | 当前阶段：**P2 已合入 `branch-catalog-spi`（#64096）；P3 Hudi 启动 recon 完成，待 catalog 模型决策（DV-005）** | 项目总进度：**32%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -11,8 +11,8 @@
 |---|---|---|---|---|---|
 | **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR #63582 squash-merge `c6f056fa5bd`，T24-T25 流水线全绿）| [tasks/P0](./tasks/P0-spi-foundation.md) |
 | **P1** | scan-node 收口 + 重复清理 | 1 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR [#63641](https://github.com/apache/doris/pull/63641) squash-merged `778c5dd610f`；T1 推迟 P8；T2 推迟 P4/P5）| [tasks/P1](./tasks/P1-scan-node-cleanup.md) |
-| **P2** | trino-connector 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 代码完成（T01-T11,T13；T12 推迟；PR 待开） | [tasks/P2](./tasks/P2-trino-connector-migration.md) |
-| P3 | hudi 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
+| **P2** | trino-connector 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 已合入 `branch-catalog-spi`（#64096，squash `0793f032662`；T12 回归推迟 DV-003）| [tasks/P2](./tasks/P2-trino-connector-migration.md) |
+| P3 | hudi 迁移 | 2 周 | ▰▱▱▱▱▱▱▱▱▱ 5% | 🚧 hybrid（D-019）；批 A 待启动 | [tasks/P3](./tasks/P3-hudi-migration.md) |
 | P4 | maxcompute 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P5 | paimon 迁移 | 3 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P6 | iceberg 迁移 | 5 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -32,7 +32,7 @@
 | **jdbc** | ✅ | ✅ 100% | ✅ | 🟡 (13 个旧 client，P1 删) | n/a | **95%** | [详情](./connectors/jdbc.md) |
 | **es** | ✅ | ✅ 100% | ✅ | ✅ | ✅ | **100%** | [详情](./connectors/es.md) |
 | trino-connector | ✅ | ✅ 100% | ✅ | ✅ | ✅ | **100%** | [详情](./connectors/trino-connector.md) |
-| hudi | 🟡 | 🟨 50% | ❌ | ❌ | 0/0（寄生 hive） | **20%** | [详情](./connectors/hudi.md) |
+| hudi | 🟡（D-005；模型待定 DV-005）| 🟨 50%（读路径已存在但 dormant）| ❌（gate 关）| ❌ | 0/0（寄生 hms）| **20%** | [详情](./connectors/hudi.md) |
 | maxcompute | 🟡 | 🟨 60% | ❌ | ❌ | 0/12 | **25%** | [详情](./connectors/maxcompute.md) |
 | paimon | 🟡 | 🟨 50% | ❌ | ❌ | 0/10 | **20%** | [详情](./connectors/paimon.md) |
 | iceberg | 🟡 | 🟥 10% | ❌ | ❌ | 0/19 | **5%** | [详情](./connectors/iceberg.md) |
@@ -44,7 +44,21 @@
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
 
-### P2 — trino-connector 迁移（🚧 进行中）
+### P3 — hudi 迁移（🚧 hybrid 启动，批 A 待开工）
+
+> 策略 = **hybrid**（[D-019](./decisions-log.md)）：现做 (b) 连接器硬化+测试（behind gate），推迟 (a) 模型落地+cutover 到 hive/HMS migration。详细批次见 [tasks/P3](./tasks/P3-hudi-migration.md)；背景见 [DV-005](./deviations-log.md) / [HANDOFF](./HANDOFF.md) 关键认知 1+1b。
+
+| 项 | 状态 | 备注 |
+|---|---|---|
+| HMS-over-SPI recon（#1 元数据 + #2 scan/split）| ✅ | code-grounded + 对抗验证；verdict `hmsMetadataOverSpiReady=false`（DV-005）|
+| catalog 模型决策（a/b/c）| ✅ hybrid（D-019）| 现做 (b)，推迟 (a)；真阻塞=独立 `"hudi"` type vs 寄生 `"hms"` 的 `DLAType.HUDI`、fe-core 不消费 `tableFormatType` |
+| SPI scan/split 路径 recon | ✅ | **混合 COW-native/MOR-JNI 不是问题**（per-range format，与 legacy 结构等价，BE 每 range 建 reader；2 路对抗验证）；plumbing 正确但 verdict 仍 false（gate/模型未解）|
+| scan 侧 parity 修复（HIGH，多数 SPI 内可修）| ⏳ | ①schema_id/history 缺→退化名匹配 ②column_types 双 bug（丢精度+逗号破坏 decimal/复杂类型）③time-travel 静默返最新 ④增量读须 fail-loud；详见 [HANDOFF](./HANDOFF.md) 1b |
+| 增量读 SPI hook / MVCC | ⏳ | P1-T04 incrementalRelation gap；4 个 `*IncrementalRelation` 仍在 fe-core |
+| listPartitions override + 真实裁剪 | ⏳ | Hudi applyFilter 现列全部分区不裁剪 |
+| 三连接器模块测试 | ⏳ | fe-connector-hms/hive/hudi 当前零测试 |
+
+### P2 — trino-connector 迁移（✅ 已合入 #64096）
 | ID | Task | 批次 | Owner | 状态 | 启动 | 备注 |
 |---|---|---|---|---|---|---|
 | P2-T01 | `TrinoConnectorProvider.validateProperties` + `TrinoDorisConnector.preCreateValidation` | 批 A | @me | ✅ | 2026-05-25 | required-property check + preCreateValidation 触发 plugin loading；+20 LOC |
@@ -59,7 +73,7 @@
 | P2-T10 | 删 `datasource/trinoconnector/` 整目录 + legacy test | 批 D | @me | ✅ | 2026-06-04 | commit `ed81a063fe8`；GsonUtils 不碰（批 B 已处理）；+ExternalCatalog db case（DV-001）|
 | P2-T11 | fe-connector-trino 单元测试 | 批 E | @me | ✅ | 2026-06-04 | commit `9bba12a44b2`；3 类/29 测试；无 mock，json/schema 砍（DV-002）|
 | P2-T12 | regression-test `trino_connector_migration_compat`（image 兼容） | 批 E | @me | 🟡 | — | **推迟**（无集群/plugin；DV-003）|
-| P2-T13 | 同步跟踪文档 + 开 PR | 批 E | @me | ✅ | 2026-06-04 | 文档已同步；docs-next 不在本仓（DV-004）；**PR 待开**（分支对齐）|
+| P2-T13 | 同步跟踪文档 + 开 PR | 批 E | @me | ✅ | 2026-06-04 | 文档已同步；docs-next 不在本仓（DV-004）；**已合入 #64096**（squash `0793f032662`）|
 
 详细任务说明、阶段日志见 [tasks/P2-trino-connector-migration.md](./tasks/P2-trino-connector-migration.md)
 
@@ -113,6 +127,9 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-06-04** ✅ **P3 scan/split recon + 定 hybrid（D-019）+ 建 tasks/P3**：第二轮 recon（scan/split 路径，verified）——单 `PluginDrivenScanNode` 混合 COW-native/MOR-JNI **不是问题**（per-range format，与 legacy 结构等价，BE 每 range 建 reader）；plumbing 正确，剩 model-agnostic 正确性 gap（schema_id/history 缺、column_types 双 bug、time-travel 静默返最新、增量无表示、partition 裁剪缺、三模块零测试）。用户定 **hybrid**（[D-019](./decisions-log.md)）：现做 (b) 连接器硬化+测试（behind gate，零 live 风险），推迟 (a) 模型落地+cutover 到 hive/HMS migration。已建 [tasks/P3](./tasks/P3-hudi-migration.md)，批 A 待启动
+- **2026-06-04** ✅ **P2 已合入 `branch-catalog-spi`**（#64096，squash `0793f032662`，叠在 P1 `2b1a3bb2197` / P0 `72d6d0109b9` 上）。旧「PR base 错位（191-commit）」阻塞消失——`branch-catalog-spi` 已重建到新 master（P0/P1 hash 随之更新）。P2 除 T12（回归，DV-003）外全部完成
+- **2026-06-04** 🚧 **P3 Hudi 启动 recon**（8-agent code-grounded workflow + 2 路对抗验证，verdict `hmsMetadataOverSpiReady=false` / high）：原计划「P3 需等 P5/P7 交付 HMS-over-SPI」与代码**不符**——HMS-over-SPI 读码（`fe-connector-hms` 客户端库 + `HiveConnectorMetadata`(type "hms") + `HudiConnectorMetadata`(type "hudi") + `ConnectorTableSchema.tableFormatType` 区分符）**早已存在但 dormant**（`SPI_READY_TYPES={jdbc,es,trino-connector}` 不含 hms/hudi，零 live caller，走 legacy `HMSExternalCatalog`）。**真正阻塞=catalog 模型错配**（独立 `"hudi"` catalog type vs Doris 真实的「寄生 `"hms"` 内以 `DLAType.HUDI` 暴露」；fe-core 不消费 `tableFormatType`）+ 增量读无 SPI 表示（P1-T04 gap）+ 三模块零测试。已验证非阻塞：SPI scan/split 通用链路被合入的 trino-connector 走通。记 **DV-005**；下一步=recon scan 路径 + 写 catalog 模型决策备忘（a/b；c 否决）+ 用户签字后编码
 - **2026-06-04** ✅ **P2 批 C+D+E 完成**（T07–T11,T13；T12 推迟；PR 待开）：批 C T07 翻闸（`0fe4b8a93d6`）；批 D 删 fe-core legacy trino 代码 14 文件 / −2508（`ed81a063fe8`，含 recon 补回的 `ExternalCatalog` db-case DV-001，保留 MetastoreProperties / 两个 image-compat 枚举 / GsonUtils redirect）；批 E T11 加 3 个纯转换器 JUnit5 测试 29 个全绿（`9bba12a44b2`，无 mock，DV-002）。T12 推迟（无集群/plugin，DV-003）；T13 文档同步本条。**rebase 构建坑**：fe-core 因 stale 生成的 `DorisParser`（grammar 随 #63823 拆到 `fe-sql-parser`）编译失败，clean fe-core 即解。**PR 待开**——`catalog-spi-03` 现基于 master、与 `branch-catalog-spi`（仍 P1，分叉于 #63552）错位（191-commit），分支对齐由用户处理
 - **2026-05-25（晚 ④）** ✅ **P2 批 B 完成**（T03+T04+T05+T06 fe-core 桥接）：recon 揭示 HANDOFF 三处描述误差并校正——(1) T03 不能"只加 redirect 不删旧"，必须 atomic replace 否则 `RuntimeTypeAdapterFactory.labelToSubtype` 撞名抛 IAE → FE 起不来；(2) T05 是 duplicate of T03，没有独立的 `ExternalCatalog.registerCompatibleSubtype` API；(3) T04 `name().toLowerCase()` 不通用——`Type.TRINO_CONNECTOR.name().toLowerCase()` 出 "trino_connector" 但 CatalogFactory 期望 "trino-connector"，新增 `legacyLogTypeToCatalogType` helper 做显式 case 映射；(4) T06 `TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName()` 返 null（switch 没 case，legacy 也是 null），保留此行为不修。3 files / +29 LOC 全在 fe-core。守门：fe-core compile + checkstyle + import gate 全绿。**重要**：批 B 后到批 C T07 翻闸前，新建 trino 目录无法序列化（registerSubtype 已删但 CatalogFactory 仍走 legacy）；不要在中间状态部署
 - **2026-05-25（晚 ③）** ✅ **P2 批 A 完成**（T01+T02 fe-connector-trino SPI 补齐）：`TrinoConnectorProvider.validateProperties` 校验 `trino.connector.name` 必填；`TrinoDorisConnector.preCreateValidation` 在 CREATE CATALOG 时触发 `ensureInitialized()` 完成 plugin 加载 + connector factory 解析，把延迟到首次查询的失败前移到 catalog 创建期。`TrinoConnectorDorisMetadata.applyFilter / applyProjection` 桥接 Trino 原生 push-down：复用现有 `TrinoPredicateConverter` 把 `ConnectorExpression` 转 `TupleDomain<ColumnHandle>`，调 Trino `metadata.applyFilter / applyProjection`，把回来的 trino-side `ConnectorTableHandle` 包成新的 `TrinoTableHandle`（保留 column maps）；`remainingFilter` 保守返回原表达式，匹配 legacy fe-core 行为（BE 端继续 re-evaluate）。+143 LOC 跨 3 文件，全部 `fe-connector-trino` 侧（**未触碰 fe-core**，严格守批 A 边界）；import gate + compile + checkstyle 全绿。单元测试推迟到 P2-T11 批 E 一起做
@@ -155,8 +172,8 @@
 
 | 类型 | 总数 | 最新条目 | 文档 |
 |---|---|---|---|
-| **决策**（D-NNN） | 18 | D-018（U6: ConnectorColumnStatistics 类型契约） | [decisions-log.md](./decisions-log.md) |
-| **偏差**（DV-NNN） | 0 | — | [deviations-log.md](./deviations-log.md) |
+| **决策**（D-NNN） | 19 | D-019（P3 hudi hybrid 推进策略）| [decisions-log.md](./decisions-log.md) |
+| **偏差**（DV-NNN） | 5 | DV-005（P3 HMS-over-SPI 依赖与代码不符；真阻塞=catalog 模型错配）| [deviations-log.md](./deviations-log.md) |
 | **风险**（R-NNN） | 14 | R-014（thrift sink 选择灵活性） | [risks.md](./risks.md) |
 
 ---
@@ -165,9 +182,9 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：P2 批 C（T07 翻闸 `0fe4b8a93d6`）+ 批 D（T08-T10 删 legacy `ed81a063fe8`）+ 批 E（T11 单测 `9bba12a44b2`）+ T13 文档同步。T12 推迟。本地 fe-core + fe-connector-trino 全绿（compile / test-compile / checkstyle / import-gate）。DV-001..004 已记
-- **下一个 session 应做**：(1) 解决 PR base 错位——`catalog-spi-03` 现基于 master，需从远端 `branch-catalog-spi` 拉新分支 cherry-pick 7 个 P2 commit 后开 PR；(2) T12 回归测试在有集群/plugin 的环境补；(3) 之后启动 P3 Hudi 迁移
-- **是否需要 handoff**：**是**——用户准备开新 session 跑批 C；本场已 rewrite [HANDOFF.md](./HANDOFF.md)（含 batch B→C regression window 警告 + T07/T08/T09/T10 详细 step-by-step）
+- **本 session 已完成**：确认 P2 已合入 `branch-catalog-spi`（#64096）；P3 Hudi 启动 recon（8-agent code-grounded workflow + 对抗验证）；记 DV-005；同步 HANDOFF / PROGRESS / deviations-log / connectors/hudi
+- **下一个 session 应做**：(1) 从 `branch-catalog-spi` 切 P3 工作分支；(2) recon SPI scan/split 路径（recon 唯一留白）；(3) 写 catalog 模型决策备忘（a/b；c 否决）交用户签字；(4) 签字后建 `tasks/P3-hudi-migration.md` 编码。**不要在签字前编码，更不要直接 flip `SPI_READY_TYPES`**
+- **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（P3 起点 step-by-step + 模型决策选项 + file:line 锚点 + 沿用的 clean-fe-core / import-gate 认知）
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---

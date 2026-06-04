@@ -9,129 +9,157 @@
 ## 📅 最后一次 handoff
 
 - **日期 / 时间**：2026-06-04
-- **本 session 主题**：**P2 批 C+D+E 连续完成**（T07 翻闸 → T08-T10 删 legacy → T11 单测 → T13 文档），**T12 推迟**，**PR 待开**（分支基线对齐由用户处理）
-- **分支**：`catalog-spi-03`
+- **本 session 主题**：**P2 已合入** `branch-catalog-spi`（#64096）；**P3 Hudi 两轮 recon + 定策略**——code-grounded 确认 HMS-over-SPI 现状（记 DV-005），用户定 **hybrid**（记 D-019），已建 [`tasks/P3-hudi-migration.md`](./tasks/P3-hudi-migration.md)
+- **分支**：`branch-catalog-spi`（P0 → P1 → P2 已干净 stack，工作树 clean）
 
 ---
 
 ## ✅ 本 session 完成项
 
-> 注：用户本 session 开始前把 `catalog-spi-03` **rebase 到了新 master**，所有旧 commit hash 已变。下方为 rebase 后的新 hash。
+### 1. P2 trino-connector 已合入主集成分支
 
-### 批 C — T07 翻闸（commit `0fe4b8a93d6`）
+`catalog-spi-03` 已 squash-merge 为单条 commit `0793f032662 [feat](connector) P2 migrate trino-connector to catalog SPI (T01-T13) (#64096)`，叠在 `2b1a3bb2197 [P1 #63641]` → `72d6d0109b9 [P0 #63582]` 之上。**旧 HANDOFF 的头号阻塞「PR base 错位（191-commit）」已消失**——`branch-catalog-spi` 已重建到新 master（P0/P1 hash 随之更新）。P2 阶段除 T12（回归测试，DV-003 推迟）外全部完成。
 
-`CatalogFactory.java:53` `SPI_READY_TYPES` 加 `"trino-connector"`（顺手删上方注释里过时的 trino 列举）。这一步把 `CREATE CATALOG type='trino-connector'` 路由到 SPI（`PluginDrivenExternalCatalog`），关闭了批 B→批 C 的 regression window。compile + checkstyle 绿。
+### 2. P3 Hudi 启动 recon（8-agent workflow，code-grounded + 对抗验证）
 
-### 批 D — 删 fe-core legacy trino 代码（commit `ed81a063fe8`，14 文件 / +1 −2508）
+用户准备启动 P3，要求**根据代码**确认 `fe-connector-hms` 的 SPI 元数据路径是否就绪。结论见下「关键认知 1」——简言之：**原计划「P3 需等 P5/P7 交付 HMS-over-SPI」的依赖假设与代码不符**（读码早已存在但 dormant），**真正阻塞是 catalog 模型错配 + gate 关闭**。verdict `hmsMetadataOverSpiReady=false`（high confidence，2 路对抗验证一致）。已记 **DV-005**，并同步 PROGRESS / connectors/hudi。
 
-- **T08** `PhysicalPlanTranslator`：删 `instanceof TrinoConnectorExternalTable` scan 分支 + 2 import（`PluginDrivenExternalTable` SPI 前置分支接管）。
-- **T09** `CatalogFactory`：删 `case "trino-connector"` + import。
-- **T10**：删 `datasource/trinoconnector/` 整目录（10 文件）+ 删 legacy 测试 `TrinoConnectorPredicateTest`。
-- **DV-001（HANDOFF 原计划漏项，recon 补回）**：`ExternalCatalog.java:948` `case TRINO_CONNECTOR` 改返 `PluginDrivenExternalDatabase`（照搬已迁移的 JDBC case，line 936）+ 删 import。
-- **有意保留**：`MetastoreProperties.Type.TRINO_CONNECTOR` + `TrinoConnectorPropertiesFactory`（属性子系统，不引用被删目录，SPI 路径可能仍需）；`InitCatalogLog.Type.TRINO_CONNECTOR` + `TableType.TRINO_CONNECTOR_EXTERNAL_TABLE` 枚举（image compat）；`GsonUtils` 3 个 label redirect（批 B 已处理，T10 **不碰** GsonUtils）。
-- 守门：fe-core `clean test-compile`（main+test）BUILD SUCCESS、checkstyle 0、fe-connector import-gate SUCCESS。
+### 3. 第二轮 scan/split recon + 定 hybrid 策略 + 建 tasks/P3
 
-### 批 E — T11 单测（commit `9bba12a44b2`，3 文件 / +441）
-
-3 个 JUnit5（Jupiter）纯转换器测试，**29 测试全绿**，checkstyle 0，本地 `mvn -pl fe-connector/fe-connector-trino -am test` 可跑：
-- `TrinoPredicateConverterTest`（14）— `ConnectorExpression` pushdown → Trino `TupleDomain`（EQ/range/NE/IN/NOT IN/IS [NOT] NULL/AND/OR、Slice 编码、null/unsupported 优雅降级到 `all()`）。
-- `TrinoTypeMappingTest`（11）— Trino type → Doris `ConnectorType`（标量、decimal 精度/scale、timestamp 精度 clamp 到 6、array/map/struct、unknown 抛错）。
-- `TrinoConnectorProviderTest`（4）— `validateProperties` 缺/空 `trino.connector.name` fail-fast（批 A T01）。
-- **DV-002**：fe-connector-trino 无 Mockito、`TrinoJsonSerializer` 非纯单元（需 plugin 的 HandleResolver+TypeRegistry）→ 砍 json/schema，用 `validateProperties` 替补第 3 类；plugin 依赖路径由现有 `external_table_p0/p2` trino_connector regression 套件覆盖。
-
-### T13 — 跟踪文档同步（本次提交）
-
-PROGRESS / tasks/P2 / connectors/trino-connector.md / deviations-log（DV-001..004）/ 本 HANDOFF 全部翻到 P2 完成态。
+第二轮 recon（scan/split 路径，verified）确认**混合 COW-native/MOR-JNI 不是问题**、plumbing 正确（详见关键认知 1b）。基于两轮 recon，用户拍板 **hybrid 策略**（记 **D-019**）：现做 (b) 连接器硬化+测试（behind 关闭的 gate，零 live-path 风险），推迟 (a) 模型落地+cutover 到 hive/HMS migration。已建 [`tasks/P3-hudi-migration.md`](./tasks/P3-hudi-migration.md)（hybrid 范围 + 批 A–E + file:line 锚点），批 A 待启动。
 
 ---
 
 ## 🚧 未完成 / 待办
 
-1. **PR 未开 —— 阻塞于分支基线错位（用户处理）**。`catalog-spi-03` 现基于**新 master**（含 `#63823 split fe-sql-parser`、`#64016 TLS` 等 master-only commit），而远端 `apache/doris:branch-catalog-spi` 仍停在 P1 merge `778c5dd610f`（旧 master 基线）；两者分叉于 `68d4eb308e5`（#63552）。`git rev-list --count upstream-apache/branch-catalog-spi..HEAD` = **191**（仅顶部 7 个是 P2）。**直接开 `catalog-spi-03 → branch-catalog-spi` 会是 191-commit 的错误巨型 PR**。等用户对齐分支后再开。
-2. **T12 回归测试推迟**（DV-003）——`trino_connector_migration_compat`（CREATE CATALOG→image→重启读回 + 旧 image 含 `TRINO_CONNECTOR` 枚举反序列化），需有 Trino plugin + docker/集群的环境。
+1. **P3 Hudi 批 A 待启动**——策略已定 **hybrid**（[D-019](./decisions-log.md)），已建 [`tasks/P3`](./tasks/P3-hudi-migration.md)。下一 session 第一件事见下（批 A T02 起）。批 E（live cutover/模型落地）deferred 到 hive/HMS migration。
+2. **T12 回归测试推迟**（DV-003）——`trino_connector_migration_compat`（CREATE CATALOG→image→重启读回 + 旧 image 含 `TRINO_CONNECTOR` 枚举反序列化），需有 Trino plugin + docker/集群环境。
+3. **DV-001 后续**：评估 `MetastoreProperties.Type.TRINO_CONNECTOR` + `TrinoConnectorPropertiesFactory` 是否真被 SPI 路径使用（纯死代码可清）。
+4. **DV-004 后续**：trino-connector 用户向安装文档在 doris-website 仓补（不在本仓）。
 
 ---
 
 ## ⚠️ 关键认知 / 临时发现
 
-1. **rebase 后 fe-core 编译坑（非代码问题）**：本场最大时间消耗。rebase 拉入 `#63823`（nereids 语法从 fe-core 拆到新模块 `fe-sql-parser`）后，`fe-core/target/generated-sources/.../DorisParser.java` 旧生成物残留（git 不管 target/），FQCN 撞名盖过 fe-sql-parser 依赖里的新版 → `LogicalPlanBuilder` 报 `cannot find symbol HOT()/expression()`。**修法：`clean` fe-core**（旧生成物删除、fe-core 已无 grammar 不会再生成）。只 clean fe-sql-parser 不够。任何 rebase 后遇此症状先 clean fe-core，别当代码 bug 查。
-2. **`MetastoreProperties` trino 条目有意保留**：它在 `property/metastore/` 子系统、不引用被删目录、删之不影响编译，但 SPI 建 catalog 可能仍走它解析属性。批 D 不动它；是否死代码留待后续评估（DV-001 后续动作）。
-3. **docs-next 不在本代码仓**：用户向文档在 doris-website 仓（DV-004）。本仓只有 `docs/`。
-4. （沿用）`tools/check-connector-imports.sh` import gate：fe-core 不能 import `org.apache.doris.connector.*`。
-5. （沿用）P1 fallback：`PhysicalPlanTranslator` 里其余 6 个连接器的 instanceof 分支待 P3-P7 各自迁完时删；本场只清了 trino 那一支（T08）。
+### 1. 【P3 核心】HMS-over-SPI「读码已存在但 dormant」；真正阻塞是 catalog 模型错配（DV-005，verified high-confidence）
+
+recon（8 agent，读真实方法体 + 2 路对抗验证）的关键事实：
+
+- **读码早已存在且非 stub**（在 `branch-catalog-spi` HEAD，源自更早的 #62183/#62821，一直 dormant 在 gate 后）：
+  - `fe-connector-hms` = 共享 **HMS Thrift 客户端库**（`HmsClient`/`ThriftHmsClient`，**不是** ConnectorMetadata）。
+  - `fe-connector-hive` = `HiveConnectorMetadata`(type `"hms"`)，真实读路径 + applyFilter 真分区裁剪。
+  - `fe-connector-hudi` = `HudiConnectorMetadata`(type `"hudi"`)，从 Hudi Avro MetaClient 读 schema（HMS fallback），COW/MOR 探测，`HudiScanPlanProvider` 快照扫描规划。
+  - D-005 区分符 `ConnectorTableSchema.tableFormatType` 已存在并被各连接器写入。
+- **但全部未接线（zero live caller）**：`CatalogFactory.SPI_READY_TYPES = {jdbc, es, trino-connector}`（`CatalogFactory.java:52`）不含 hms/hudi → 任何 HMS 系 catalog 永远走 legacy `HMSExternalCatalog`，不进 SPI。
+- **真正阻塞 = catalog 模型错配（架构级，用户/设计决策）**：现存连接器注册的是**独立 `"hudi"` catalog type**（`HudiConnectorProvider.getType()=="hudi"`），而 Doris 真实模型是 hudi **寄生**在 `"hms"` catalog 内、以 `HMSExternalTable.DLAType.HUDI` 暴露；fe-core **没有 `"hudi"` catalog type**，且 `PluginDrivenExternalTable` **从不消费** `tableFormatType`（只读 `getColumns()`，按 catalog TYPE 字串路由）。即单个 `"hms"` 连接器**没有 per-table HUDI/HIVE/ICEBERG 分流的 SPI 机制**。
+- **其他确认缺口**：增量读无 SPI 表示（P1-T04 的 `visitPhysicalHudiScan` SPI 分支丢弃 `getIncrementalRelation()`；MVCC trio 未实现；4 个 `*IncrementalRelation` 仍在 fe-core）；hive/hudi 未 override `listPartitions*`（Hudi applyFilter 列全部分区**不做**约束裁剪，Hive applyFilter **做** EQ/IN 裁剪）；三个连接器模块**零测试**。
+- **已验证非阻塞**：SPI scan/split **通用链路**（`PluginDrivenScanNode.planScan` → BE）已被合入的 trino-connector 走通；**hudi-specific** 的「单 ScanNode 混合 COW-native + MOR-JNI 每-split 格式」正确性才是待验证项。
+
+**→ catalog 模型决策【已定 2026-06-04 = hybrid，[D-019](./decisions-log.md)】**：现做 (b)（批 A–D，behind gate，零 live 风险），推迟 (a)（批 E，并入 hive/HMS migration）。原选项供回溯：
+
+- **(a) hms-first**：把 `HiveConnectorProvider(type="hms")` 接入 `PluginDrivenExternalCatalog` + fe-core 消费 `tableFormatType` 分流，hudi 作薄增量。一次命中真正架构阻塞、契合现存 `type="hms"` 设计；但把 P7(hive/HMS) 范围拉进 P3、触碰 **live 重度使用的 HMS 路径**、零测试网，回归风险大。
+- **(b) gate 后建脚手架**：先做 format-dispatch / 增量 SPI hook / MVCC + 补测试（design+stub，**不动 live 路径，零回归**）；但 hudi 不会单独端到端可用，推迟模型决策。
+- **(c) 直接 flip gate** —— **否决**（模型错配下 `"hudi"` provider 不可达；把 live hms catalog 推到未测 SPI；增量丢失；高回归）。
+- 对抗验证的 framing nit：**不要**在备忘里预设「推荐 (a)」——(a) 让 P3 依赖完成 P7 模型迁移、且在零测试的 live 路径上，是大而易回归的首交付；把 (a)/(b) 留给用户真实选择。
+
+### 1b. 【P3 scan 侧】scan/split 路径 recon 完成（verified；mixed-format 是非问题，parity gap 多数可在 SPI 层修）
+
+第二个 recon（4 reader + synthesis + 2 对抗验证，verdict `spiHudiCanReachBeModuloGate=false`——false **只因 gate/模型未解，不是 plumbing 问题**）：
+
+- **✅ 混合 COW-native + MOR-JNI 不是问题（之前最担心的点，已排除）**：单 `PluginDrivenScanNode` 能正确服务混合格式。node 级 `getFileFormatType()` 只是**默认种子**；真正生效的是 **per-range** `TFileRangeDesc.format_type`（`PlanNodes.thrift:566`），node 级 `TFileScanRangeParams.format_type`（:469）已标 **deprecated**。BE `file_scanner.h:291-295` per-range 优先于 node 级，且**每 range 新建 reader**（`_get_next_reader`），FORMAT_JNI+hudi→HudiJniReader / PARQUET/ORC→native。`HudiScanRange.populateRangeParams`(160-176) 自做 JNI→native 降级，与 legacy `HudiScanNode.setScanParams`(263-276) **逐行等价**。两路对抗验证确认，其中一路尝试 refute 失败。
+- **parity gap（FE 侧数据/特性缺口，多数可在 SPI surface 内修，不动 fe-core）**：
+  - **HIGH ① schema_id / history_schema_info 全缺**：legacy 每个 native split 设 `THudiFileDesc.schema_id` + `params.history_schema_info`；SPI 都没设 → BE 退化为**列名匹配**（`table_schema_change_helper.h:219-236`），重命名/schema-evolution/大小写不一致的列返 null/错列（**退化非崩溃**）。可经现有 SPI hook `ConnectorScanPlanProvider.populateScanLevelParams`（Paimon/ES 已 override，hudi 没）+ 在 `HudiScanRange` 设 schema_id 修复，**无需 fe-core 改动**。
+  - **HIGH ② column_types 双 bug**（对抗验证从 MEDIUM 升级）：(a) 用 `ConnectorType.getTypeName()` 返裸 `"DECIMAL"`/`"STRUCT"`，**丢精度/scale/子类型**（legacy 发 `decimal(10,2)`/`struct<...>`）；(b) `HudiScanRange` 把 column_names/types/delta_logs 用**逗号 join 再 split**，而 Hive 类型串本身含逗号 → decimal/复杂类型元素被**打碎**、names 与 types 长度错位。命中**任何含 decimal/复杂列的 MOR-with-logs JNI split**。修：发完整 Hive 类型串 + 改 typed list 端到端（停止逗号 join/split）。
+  - **HIGH ③ time-travel 静默返最新**：snapshot 传到 node（`PhysicalPlanTranslator:835 setQueryTableSnapshot`）但 `HudiTableHandle` 无 snapshot 字段、`HudiScanPlanProvider` 永远用 `timeline.lastInstant` → `FOR TIME AS OF` 静默返最新。修：透传 snapshot，否则 fail-loud。
+  - **HIGH ④ 增量读无 SPI 表示**（代码已 defer）：失败模式未验证，**必须 fail-loud 而非静默全扫**。
+  - **MEDIUM**：MOR node（node=JNI）下 per-range 降级的 native split 继承 node 级 JNI location-props——很可能 parity（native reader 按 resolved format 派发、直接读 schema_id），但是唯一需 runtime 验证项。
+  - **LOW**：`forceJniScanner` 被忽略；runtime-filter 分区裁剪值缺；limit pushdown 被丢（4-arg vs 5-arg planScan，perf 非正确性）；`nested_fields` 两路都没设（at parity）。
+- **仍 false 的原因**：gate（`SPI_READY_TYPES` 不含 hms/hudi）+ 关键认知 1 的 catalog 模型错配。**scan plumbing 正确是必要非充分。**
+- **对 a/b 的影响**：scan 侧 HIGH 修复项（①schema_id/history、②column_types、④增量 fail-loud）**与模型选择无关、多数在 SPI surface 内可修**——正是选项 (b) 的高价值内容；无论 a/b 都要做。
+
+### 2.（沿用）rebase 后 fe-core 编译坑：stale `DorisParser`
+
+rebase 拉入 #63823（nereids 语法拆到 `fe-sql-parser`）后，`fe-core/target/generated-sources/.../DorisParser.java` 旧生成物残留导致 `LogicalPlanBuilder` 报 cannot find symbol。**修法：clean fe-core**（不是 fe-sql-parser）。任何 rebase 后遇此先 clean，别当代码 bug 查。
+
+### 3.（沿用）P1 fallback `instanceof` 分支
+
+`PhysicalPlanTranslator` 里其余连接器的 `instanceof` 分支待各自 P 阶段迁完再删；本场未动。hudi 的 `visitPhysicalHudiScan` 已有 SPI 分支（P1-T04）但 incrementalRelation 缺口见关键认知 1。**不要乱碰 hudi 之外的连接器分支。**
+
+### 4.（沿用）import gate
+
+`tools/check-connector-imports.sh`：fe-core 不能 import `org.apache.doris.connector.*`。
+
+### 5.（沿用）docs-next 不在本仓（DV-004）
+
+用户向文档在 doris-website 仓；本仓只有 `docs/`。
 
 ---
 
-## 🎯 下一个 session 第一件事
+## 🎯 下一个 session 第一件事（P3 Hudi）
 
 ```
 1. 自检：
-   git branch --show-current → catalog-spi-03
-   git log --oneline -8 → 顶层应是 9bba12a44b2 (T11) → ed81a063fe8 (T08-T10)
-                          → 0fe4b8a93d6 (T07) → 5e504a24883 (doc) → 9ed33f9a7a5 (批 B)
-                          → 69203b6418e (批 A) → 8f0b749bd06 (recon) → 3adabcaf54b (P1)
-   git status → 干净（本次文档 commit 之后）
+   git branch --show-current → branch-catalog-spi
+   git log --oneline -3 → 0793f032662 (P2 #64096) → 2b1a3bb2197 (P1 #63641) → 72d6d0109b9 (P0 #63582)
+   git status → clean（除 .audit-scratch/ conf.cmy/ 等本地未跟踪物）
+   Read plan-doc/tasks/P3-hudi-migration.md（hybrid 范围 + 批 A–E + file:line 锚点）
 
-2. 解决 PR base（核心待办）：
-   - git fetch upstream-apache branch-catalog-spi
-   - 确认 branch-catalog-spi 是否仍停在 778c5dd610f（P1）。
-   - 推荐做法：从远端 branch-catalog-spi 拉新分支（如 catalog-spi-03-pr），
-     cherry-pick 这 7 个 P2 commit（8f0b749bd06 recon → 69203b6418e A → 9ed33f9a7a5 B
-     → 5e504a24883 doc → 0fe4b8a93d6 C → ed81a063fe8 D → 9bba12a44b2 E）。
-     注意：branch-catalog-spi 没有 fe-sql-parser 拆分（#63823），但我们的改动与之正交，
-     cherry-pick 后应能编译；在该分支上重跑 fe-core compile + fe-connector-trino test 验证。
-   - 或：等 branch-catalog-spi 被刷新到 master 后直接用 catalog-spi-03。
-   - PR：gh pr create --repo apache/doris --base branch-catalog-spi --head morningman:<分支>
-     --title "[feat](connector) P2 trino-connector migration"
+2. 从 branch-catalog-spi 切 P3 工作分支（catalog-spi-04 / catalog-spi-p3-hudi）。
 
-3. T12 回归测试：在有 Trino plugin + docker/集群环境补（DV-003）。
+3. 启动【批 A】（全部 behind 关闭的 gate，零 live-path 风险；不要碰 SPI_READY_TYPES、不删 legacy）。
+   第一个 task = P3-T02（column_types 双 bug）：
+   - 读 fe-connector-hudi: HudiScanPlanProvider.java（getScanNodeProperties / collectMorSplits 塞 column_types 处）
+            HudiScanRange.java（~89/92/95 逗号 join、~194/199/202 split）
+            HudiTypeMapping.java（fromAvroSchema().getTypeName() —— 丢精度/子类型）
+     对照 fe-core legacy HudiUtils.convertAvroToHiveType（发完整 Hive 类型串）
+   - 关键：先读 BE hudi_jni_reader.cpp 确认 JNI scanner 期望的精确串格式（names ',' / types '#'），再改
+   - 改：发完整 Hive 类型串（decimal(10,2)/struct<...>）+ 停止逗号 join/split（typed list 端到端）+ 单测
 
-4. 之后启动 P3 Hudi 迁移（见 00-master-plan / connectors/hudi.md）。
-   注意 P1-T4 incrementalRelation 是 P3 Hudi SPI 缺口。
+4. 批 A 续：P3-T03（schema_id/history —— override populateScanLevelParams，无需动 fe-core）
+            → P3-T04（time-travel/增量 fail-loud）。
+   再 批 B（T05 partition 裁剪 / T06 MVCC）→ 批 C（T07 测试基线 + parity）→ 批 D（T08 dispatch 设计 design-only）。
+
+5. 守门 / 构建（每 task）：
+   mvn -pl fe-connector/fe-connector-hudi -am test -Dmaven.build.cache.enabled=false -DfailIfNoTests=false
+   （cwd=fe/ 或 -f fe/pom.xml）；fe-connector 编译 + checkstyle 0 + import-gate 通过；
+   rebase 后 fe-core 编译失败先 clean fe-core（关键认知 2）。
+
+6. 文档同步（每 task）：tasks/P3 状态 + PROGRESS §三 + connectors/hudi（playbook §5.1）。
+
+7. 批 E（T09–T11，deferred）不在本阶段编码——并入 hive/HMS migration（D-019）。
+   T12（trino 回归，DV-003）在有集群/plugin 环境补。
 ```
 
 ---
 
-## 📋 P2 commit 节奏（branch `catalog-spi-03`，rebase 到新 master 后）
+## 📂 P3 关键文件锚点（recon 已定位，附 file:line）
 
 ```
-9bba12a44b2  [test](connector) [P2-T11] add fe-connector-trino unit tests              ← 批 E
-ed81a063fe8  [refactor](connector) [P2-T08-T10] remove legacy trino-connector code      ← 批 D
-0fe4b8a93d6  [feat](connector) [P2-T07] enable trino-connector in SPI_READY_TYPES        ← 批 C
-5e504a24883  [doc](connector) refresh P2 HANDOFF for batch C kickoff
-9ed33f9a7a5  [feat](connector) [P2-T03-T06] bridge trino-connector through fe-core       ← 批 B
-69203b6418e  [feat](connector) [P2-T01-T02] complete trino-connector SPI surface         ← 批 A
-8f0b749bd06  [doc](connector) P2 trino-connector recon + task breakdown                  ← 批 0
-3adabcaf54b  [P1-T03-T05] route plugin-driven scans first (#63641)                       ← P1（rebase 后新 hash）
-```
-
-本次文档 commit（T13）将追加一条 `[doc](connector) [P2-T13] sync P2 tracking docs`。
-
-> ⚠️ 这 7 个 P2 commit 是干净的；问题只在 base（见 §未完成 1）。PR 不要在 base 对齐前开。
-
----
-
-## 📂 本场修改 / 新增的关键文件
-
-```
-批 C (0fe4b8a93d6):  fe-core/.../datasource/CatalogFactory.java (SPI_READY_TYPES)
-批 D (ed81a063fe8):  fe-core/.../nereids/glue/translator/PhysicalPlanTranslator.java (删 trino 分支+import)
-                     fe-core/.../datasource/CatalogFactory.java (删 case+import)
-                     fe-core/.../datasource/ExternalCatalog.java (TRINO_CONNECTOR db→PluginDrivenExternalDatabase, DV-001)
-                     删 fe-core/.../datasource/trinoconnector/ (10 文件)
-                     删 fe-core/src/test/.../trinoconnector/TrinoConnectorPredicateTest.java
-批 E (9bba12a44b2):  新建 fe-connector/fe-connector-trino/src/test/.../trino/
-                       TrinoPredicateConverterTest.java / TrinoTypeMappingTest.java / TrinoConnectorProviderTest.java
-T13:                 plan-doc/{PROGRESS, tasks/P2, connectors/trino-connector, deviations-log, HANDOFF}.md
+gate:          fe-core/.../datasource/CatalogFactory.java:52  (SPI_READY_TYPES，不含 hms/hudi)
+legacy 模型:   fe-core/.../datasource/hive/HMSExternalTable.java:208-210 (DLAType enum),
+                 250-281 / 297-306 (HUDI 探测), 722-759 (initHudiSchema 走 legacy)
+               fe-core/.../datasource/hive/HMSExternalCatalog.java:52 (extends ExternalCatalog，非 PluginDriven)
+               fe-core/.../datasource/hive/HudiDlaTable.java (dlaType=HUDI 表对象，在 hive/ 不在 hudi/)
+relation 分流: fe-core/.../nereids/rules/analysis/BindRelation.java:483-548
+                 (HMS_EXTERNAL_TABLE + dlaType==HUDI → LogicalHudiScan)
+scan 桥:       fe-core/.../nereids/glue/translator/PhysicalPlanTranslator.java:828-854
+                 (SPI 分支 828-838 丢 incrementalRelation；legacy 分支 840-854 传)
+legacy hudi:   fe-core/.../datasource/hudi/  15 文件 ~2403 LOC（top 9 + source/ 6），
+                 含 4 个 *IncrementalRelation + HudiScanNode(614 LOC)；live caller 仅 7 个 fe-core 文件，零测试
+SPI 已存在:    fe-connector/fe-connector-hms/  (HmsClient/ThriftHmsClient 客户端库，非 ConnectorMetadata)
+               fe-connector/fe-connector-hive/HiveConnectorMetadata.java  (type "hms")
+               fe-connector/fe-connector-hudi/HudiConnectorMetadata.java  (type "hudi")
+                 + HudiConnector(自建 ThriftHmsClient) + HudiScanPlanProvider
+               fe-connector/fe-connector-api/ConnectorTableSchema.java:33/58
+                 (tableFormatType；fe-core 从不消费 schema 级区分符)
 ```
 
 ---
 
 ## 🧠 给下一个 agent 的 meta 建议
 
-- **分支 `catalog-spi-03`** 现基于 master；**开 PR 前务必先解决 base 错位**（§未完成 1），否则会是 191-commit 错误 PR。
-- rebase 后 fe-core 编译失败先想到 **clean fe-core**（stale DorisParser），别查代码（§关键认知 1）。
-- commit message 沿用 `[feat|refactor|test|doc](connector) [P2-Tnn] ...`。
-- Maven：cwd=`fe/` 或 `-f fe/pom.xml`；`-pl fe-core -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`。
-- **不要乱碰 P1 fallback 中 trino 之外的连接器分支**。
-- 偏差先记 `deviations-log.md` 再改文档（本场 DV-001..004 已记）。
+- **P3 是架构决策先行**：先 recon scan 路径 + 写模型决策备忘 + 用户签字，**再**编码。别被「读码已存在」误导成「flip gate 就行」（DV-005 选项 c 已否决）。
+- 偏差先记 `deviations-log.md` 再改文档（本场记了 DV-005）。
+- commit message 沿用 `[feat|refactor|test|doc](connector) [P3-Tnn] ...`；PR base = `apache/doris:branch-catalog-spi`（base 已对齐，不再有 P2 那种错位）。
+- Maven：cwd=`fe/` 或 `-f fe/pom.xml`；`-pl <module> -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`。rebase 后编译失败先 clean fe-core。
+- 不要乱碰 P1 fallback 中 hudi 之外的连接器 `instanceof` 分支。

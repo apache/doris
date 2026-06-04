@@ -15,6 +15,7 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-019 | — | P3 hudi 采用 hybrid：现做 model-agnostic 连接器硬化+测试（behind gate），推迟 catalog 模型落地+cutover 到 hive/HMS migration | 2026-06-04 | ✅ |
 | D-018 | U6 | `ConnectorColumnStatistics` 用 javadoc 类型映射表 + IAE 保证类型安全 | 2026-05-24 | ✅ |
 | D-017 | U5 | sys-table 命名统一 `$suffix`，别名机制留待未来 | 2026-05-24 | ✅ |
 | D-016 | U4 | `getCredentialsForScans` 批量化，返回 `Map<Range, Credentials>` | 2026-05-24 | ✅ |
@@ -37,6 +38,18 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-019 — P3 hudi 采用 hybrid 推进策略
+
+- **日期**：2026-06-04
+- **状态**：✅ 生效
+- **关联**：[DV-005](./deviations-log.md)、[D-005](#d-005)、[tasks/P3](./tasks/P3-hudi-migration.md)、master plan §3.4/§3.8
+- **背景**：两轮 code-grounded recon（+ 对抗验证）揭示：HMS-over-SPI 读码已存在但 dormant（gate 关、零 live caller）；scan/split plumbing 正确（单 `PluginDrivenScanNode` 混合 COW-native+MOR-JNI 非问题，与 legacy 结构等价）；真正阻塞是 catalog 模型错配（独立 `"hudi"` type vs 寄生 `"hms"` 的 `DLAType.HUDI`，fe-core 不消费 `tableFormatType`）+ 关闭的 gate；另有一批**与模型无关**的 SPI-surface 正确性缺口（`schema_id`/`history_schema_info` 缺、`column_types` 双 bug、time-travel 静默返最新、增量读无表示、partition 裁剪缺、三模块零测试）。
+- **决策**：P3 走 **hybrid**。**现在做 (b)**（批 A–D，全部 behind 关闭的 gate，零 live-path 风险）：hudi 连接器 model-agnostic 正确性修复 + metadata 补全 + 测试基线 + 模型 dispatch 设计（design-only）。**推迟 (a)**（批 E，登记不编码）：fe-core 消费 `tableFormatType` 的 per-table 分流、gate flip（`SPI_READY_TYPES` 加 hms/hudi）、live cutover、删 legacy `datasource/hudi/`、完整增量/time-travel、集群/runtime 验证 —— 并入一个 properly-scoped hive/HMS migration（P7 或专门子阶段）。
+- **替代方案**：(a) **hms-first 一次到位** —— 否决为 P3 首交付（把 P7 范围拉进 P3、re-route live 重度使用的 HMS 路径、零测试网，回归风险大）；(c) **直接 flip gate** —— 早已否决（模型错配下 `"hudi"` provider 不可达 + 高回归）。
+- **影响**：P3（hybrid）**不交付用户可见行为变化**（hudi 仍走 legacy，gate 不翻）；产出是连接器硬化 + 测试网 + 设计。批 A–C 验证为单测/设计级，端到端/集群验证随批 E cutover。tasks/P3 据此划批。
+
+---
 
 ### D-018 — `ConnectorColumnStatistics` 类型安全契约（原 U6）
 
