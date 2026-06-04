@@ -52,6 +52,7 @@ STATEFULSET_NAME=${STATEFULSET_NAME}
 
 ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
 WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
+TERMINATING_SENTINEL_PATH=${TERMINATING_SENTINEL_PATH:-"/var/run/doris-operator/terminating"}
 
 # enable_tls specify use tls connection or not.
 ENABLE_TLS=
@@ -68,6 +69,14 @@ TLS_CA_CERTIFICATE_PATH=
 log_stderr()
 {
     echo "[`date`] $@" >&2
+}
+
+exit_if_terminating_sentinel_exists()
+{
+    if [[ -f "$TERMINATING_SENTINEL_PATH" ]]; then
+        log_stderr "[info] terminating sentinel detected at $TERMINATING_SENTINEL_PATH, skip starting BE in terminating pod."
+        exit 0
+    fi
 }
 
 # start workload
@@ -600,6 +609,8 @@ function post_exit() {
 
 
 # scripts start position.
+exit_if_terminating_sentinel_exists
+
 fe_addrs=$1
 if [[ "x$fe_addrs" == "x" ]]; then
     echo "need fe address as paramter!"
