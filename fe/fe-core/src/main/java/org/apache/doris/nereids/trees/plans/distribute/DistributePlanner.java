@@ -212,7 +212,7 @@ public class DistributePlanner {
         List<AssignedJob> receiverInstances = filterInstancesWhichCanReceiveDataFromRemote(
                 receiverPlan, enableShareHashTableForBroadcastJoin, linkNode);
         if (linkNode.getPartitionType() == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
-            receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances);
+            receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances, linkNode);
         }
 
         DataSink sink = senderPlan.getFragmentJob().getFragment().getSink();
@@ -232,10 +232,17 @@ public class DistributePlanner {
 
     private List<AssignedJob> getDestinationsByBuckets(
             PipelineDistributedPlan joinSide,
-            List<AssignedJob> receiverInstances) {
+            List<AssignedJob> receiverInstances,
+            ExchangeNode linkNode) {
         UnassignedScanBucketOlapTableJob bucketJob = (UnassignedScanBucketOlapTableJob) joinSide.getFragmentJob();
         int bucketNum = bucketJob.getOlapScanNodes().get(0).getBucketNum();
+        // The spread is only valid for a NON-serial exchange: a serial exchange
+        // (use_serial_exchange / UNPARTITIONED) receives through one task per worker and
+        // expects funnel destinations; spreading them loses every row addressed to a
+        // non-first instance. Mirrors the !is_serial_operator() gate on the BE orphan
+        // receiver fix.
         if (isEnableLocalShufflePlanner()
+                && !linkNode.isSerialOperatorOnBe(statementContext.getConnectContext())
                 && !joinSide.getInstanceJobs().isEmpty()
                 && joinSide.getInstanceJobs().stream()
                         .allMatch(LocalShuffleBucketJoinAssignedJob.class::isInstance)) {
