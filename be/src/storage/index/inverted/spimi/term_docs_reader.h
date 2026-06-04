@@ -25,18 +25,20 @@
 namespace doris::segment_v2::inverted_index::spimi {
 
 // Reader-side decoder for SPIMI-written `.frq` term blocks. Handles
-// both encodings the SPIMI writer emits in Phase 35:
+// the encodings the SPIMI writer emits:
 //
-//   - `kCodeModeDefault = 0x00`: byte-equal to what CLucene's
-//     `SDocumentWriter::appendPostings:1330` writes for the same term.
-//     `VInt(docFreq)` followed by per-doc (`deltaDoc << 1 | freq_bit`
-//     [+ VInt(freq) if freq != 1]) when `has_prox`; or raw
-//     `VInt(deltaDoc)` when `omit_tfap`.
+//   - SLIM kDefault (is_slim == true, df < skip_interval): per-doc
+//     (`deltaDoc << 1 | freq_bit` [+ VInt(freq) if freq != 1]) when
+//     `has_prox`, or raw `VInt(deltaDoc)` when `omit_tfap`. There is NO
+//     leading codec byte and NO VInt(doc_count) — doc_count comes from .tis
+//     and the slim-vs-coded decision is the caller-supplied is_slim hint
+//     (df < skip_interval), mirroring the writer's dispatch exactly.
 //
-//   - `kCodeModeSpimiPfor = 0x05`: Phase 35 PFOR encoding. One or
-//     more `SpimiPforEncoder` sub-blocks covering all doc_deltas,
-//     followed by — if has_prox — the same number of sub-blocks for
-//     freqs. Each sub-block carries its own count + bit-width.
+//   - `kCodeModeSpimiPfor = 0x05` (is_slim == false): PFOR encoding. One or
+//     more `SpimiPforEncoder` sub-blocks covering all doc_deltas, followed
+//     by — if has_prox — the same number of sub-blocks for freqs. Each
+//     sub-block carries its own count + bit-width. Also handles the windowed
+//     (0x06) and whole-term ZSTD (0x80) envelopes on this codec-byte path.
 //
 // This decoder is intentionally Doris-namespaced (not part of the
 // CLucene reader) so it can evolve without touching the `contrib/`
@@ -65,15 +67,21 @@ public:
     // callers must wrap in a try/catch once wired into the query
     // path; today's callers are tests where a panic is the right
     // signal.
+    // `is_slim` is the term's TermInfo::is_slim hint (true ⇔ df < skip_interval,
+    // the SLIM kDefault layout: pure per-doc VInt deltas, NO leading codec byte,
+    // NO VInt(doc_count)). When true the decoder skips the codec-byte dispatch
+    // and reads exactly `doc_freq` VInt deltas. When false it keeps the
+    // codec-byte dispatch (windowed / PFOR / ZSTD). It defaults false only for
+    // the rare caller that genuinely holds a codec-byte-prefixed block.
     static std::vector<DocFreq> ReadTerm(const uint8_t* frq_data, size_t frq_length,
-                                         int32_t doc_freq, bool has_prox);
+                                         int32_t doc_freq, bool has_prox, bool is_slim = false);
 
     // Convenience overload for callers that hold the whole `.frq` as
     // a vector (i.e. unit tests, where the buffer starts at the only
     // term's freq_pointer = 0).
     static std::vector<DocFreq> ReadTerm(const std::vector<uint8_t>& frq_bytes, int32_t doc_freq,
-                                         bool has_prox) {
-        return ReadTerm(frq_bytes.data(), frq_bytes.size(), doc_freq, has_prox);
+                                         bool has_prox, bool is_slim = false) {
+        return ReadTerm(frq_bytes.data(), frq_bytes.size(), doc_freq, has_prox, is_slim);
     }
 };
 

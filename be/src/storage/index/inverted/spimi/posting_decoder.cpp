@@ -75,18 +75,18 @@ private:
 };
 
 // Decodes consecutive PFOR sub-blocks until `count` values are
-// recovered.  Same logic as `DecodePforRun` in term_docs_reader.cpp.
+// recovered.  Same logic as `DecodePforRun` in frq_window_decode_internal.h.
+// The block value count is implicit (kBlockSize per block except the last),
+// so it is derived here rather than read from the stream.
 std::vector<uint32_t> DecodePforRun(Cursor& cur, int32_t count) {
     std::vector<uint32_t> values;
     constexpr size_t kSafeReserveCap = 1U << 24;
     values.reserve(std::min(static_cast<size_t>(count), kSafeReserveCap));
     int32_t collected = 0;
     while (collected < count) {
+        const int32_t n = static_cast<int32_t>(
+                std::min<int64_t>(SpimiPforEncoder::kBlockSize, count - collected));
         const size_t mark = cur.pos();
-        const int32_t n = cur.ReadVInt();
-        if (n <= 0 || n > count - collected) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder PFOR sub-block count out of range");
-        }
         const uint8_t raw_width = cur.ReadByte();
         const bool patched = (raw_width & 0x80U) != 0U; // patched-PFOR signal bit
         const uint8_t width = raw_width & 0x3FU;
@@ -96,15 +96,6 @@ std::vector<uint32_t> DecodePforRun(Cursor& cur, int32_t count) {
         const size_t bit_bytes = (static_cast<size_t>(n) * width + 7U) / 8U;
         std::vector<uint8_t> block;
         block.reserve((cur.pos() - mark) + bit_bytes);
-        // Re-emit the VInt(n) bytes.
-        {
-            uint32_t vn = static_cast<uint32_t>(n);
-            while ((vn & ~0x7FU) != 0) {
-                block.push_back(static_cast<uint8_t>((vn & 0x7FU) | 0x80U));
-                vn >>= 7U;
-            }
-            block.push_back(static_cast<uint8_t>(vn));
-        }
         // Preserve the UNMASKED width byte so DecodeBlockFromBytes sees the
         // patch flag and parses the trailer.
         block.push_back(raw_width);
@@ -130,7 +121,7 @@ std::vector<uint32_t> DecodePforRun(Cursor& cur, int32_t count) {
             cur.ReadInto(&block, high_bytes);
         }
         std::vector<uint32_t> sub;
-        SpimiPforDecoder::DecodeBlockFromBytes(block, &sub);
+        SpimiPforDecoder::DecodeBlockFromBytes(block, static_cast<size_t>(n), &sub);
         if (sub.size() != static_cast<size_t>(n)) [[unlikely]] {
             SPIMI_THROW_CORRUPT("PostingDecoder PFOR sub-block decoded count mismatch");
         }
@@ -287,14 +278,14 @@ void DecodePositions(const uint8_t* prx_data, size_t prx_length, std::vector<Dec
 
 std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t frq_length,
                                                const uint8_t* prx_data, size_t prx_length,
-                                               int32_t doc_freq, bool has_prox) {
+                                               int32_t doc_freq, bool has_prox, bool is_slim) {
     if (doc_freq <= 0 || frq_length == 0U) [[unlikely]] {
         SPIMI_THROW_CORRUPT("PostingDecoder: bad doc_freq / buffer length");
     }
 
     // Decode the .frq stream (resolving any whole-term kCodeModeZstd envelope)
     // into per-doc {doc_id, freq}, then attach positions from the .prx stream.
-    std::vector<DecodedDoc> docs = DecodeInner(frq_data, frq_length, doc_freq, has_prox);
+    std::vector<DecodedDoc> docs = DecodeInner(frq_data, frq_length, doc_freq, has_prox, is_slim);
     if (has_prox) {
         DecodePositions(prx_data, prx_length, docs);
     }
@@ -302,36 +293,68 @@ std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t f
 }
 
 std::vector<DecodedDoc> PostingDecoder::DecodeInner(const uint8_t* frq_data, size_t frq_length,
-                                                    int32_t doc_freq, bool has_prox) {
+                                                    int32_t doc_freq, bool has_prox, bool is_slim) {
     Cursor cur(frq_data, frq_length);
-    const uint8_t mode = cur.ReadByte();
 
     std::vector<DecodedDoc> docs;
     constexpr size_t kSafeReserveCap = 1U << 24;
     docs.reserve(std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
 
+    if (is_slim) {
+        // SLIM kDefault block (df < skip_interval): NO codec byte, NO
+        // VInt(doc_count). Read exactly `doc_freq` per-doc VInt deltas; doc_freq
+        // is authoritative from .tis so the loop never over-reads.
+        int32_t last_doc = 0;
+        for (int32_t i = 0; i < doc_freq; ++i) {
+            DecodedDoc d;
+            if (has_prox) {
+                const uint32_t code = static_cast<uint32_t>(cur.ReadVInt());
+                last_doc += static_cast<int32_t>(code >> 1U);
+                d.freq = ((code & 1U) != 0) ? 1 : cur.ReadVInt();
+            } else {
+                last_doc += static_cast<int32_t>(cur.ReadVInt());
+                d.freq = 1;
+            }
+            d.doc_id = last_doc;
+            docs.push_back(std::move(d));
+        }
+        return docs;
+    }
+
+    const uint8_t mode = cur.ReadByte();
+
     if (mode == FreqProxEncoder::kCodeModeZstd) {
         const std::vector<uint8_t> raw = DecompressZstdFrqBlock(cur);
-        return DecodeInner(raw.data(), raw.size(), doc_freq, has_prox);
+        // Only PFOR blocks are ZSTD-wrapped; the inner block keeps its codec
+        // byte, so is_slim stays false through the recursion.
+        return DecodeInner(raw.data(), raw.size(), doc_freq, has_prox, /*is_slim=*/false);
     }
     if (mode == FreqProxEncoder::kCodeModeSpimiWindowed) {
         const uint8_t inner_mode = cur.ReadByte();
-        (void)cur.ReadVInt(); // W
+        const int32_t W = cur.ReadVInt(); // window doc-width; derives win_doc_count
+        if (W <= 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: non-positive W");
+        }
         const int32_t num_windows = cur.ReadVInt();
         if (num_windows <= 0 || num_windows > doc_freq) [[unlikely]] {
             SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: num_windows out of range");
         }
+        // SLIM skip table (3 VInts/window): win_doc_count is DERIVED as
+        // min(W, remaining) (every non-last window is exactly W docs; only the
+        // term's last window may be a partial unit). The delta-coded offset /
+        // min_docid are stepped over for whole-term sequential decode.
         std::vector<int32_t> win_doc_count(static_cast<size_t>(num_windows));
         int64_t total = 0;
         for (int32_t w = 0; w < num_windows; ++w) {
-            win_doc_count[static_cast<size_t>(w)] = cur.ReadVInt();
-            (void)cur.ReadVInt(); // win_byte_offset
-            (void)cur.ReadVInt(); // win_min_docid
+            (void)cur.ReadVInt(); // win_byte_offset_delta
+            (void)cur.ReadVInt(); // win_min_docid_delta
             (void)cur.ReadVInt(); // win_max_docid_delta
-            const int32_t c = win_doc_count[static_cast<size_t>(w)];
+            const int32_t c = static_cast<int32_t>(std::min<int64_t>(W, doc_freq - total));
             if (c <= 0 || c > doc_freq) [[unlikely]] {
-                SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: win_doc_count out of range");
+                SPIMI_THROW_CORRUPT(
+                        "PostingDecoder .frq windowed: derived win_doc_count out of range");
             }
+            win_doc_count[static_cast<size_t>(w)] = c;
             total += c;
         }
         if (total != doc_freq) [[unlikely]] {
@@ -375,26 +398,10 @@ std::vector<DecodedDoc> PostingDecoder::DecodeInner(const uint8_t* frq_data, siz
         }
         return docs;
     }
-    if (mode == FreqProxEncoder::kCodeModeDefault) {
-        const int32_t recorded = cur.ReadVInt();
-        if (recorded != doc_freq) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder .frq kDefault docCount disagrees with .tis");
-        }
-        int32_t last_doc = 0;
-        for (int32_t i = 0; i < doc_freq; ++i) {
-            DecodedDoc d;
-            if (has_prox) {
-                const uint32_t code = static_cast<uint32_t>(cur.ReadVInt());
-                last_doc += static_cast<int32_t>(code >> 1U);
-                d.freq = ((code & 1U) != 0) ? 1 : cur.ReadVInt();
-            } else {
-                last_doc += static_cast<int32_t>(cur.ReadVInt());
-                d.freq = 1;
-            }
-            d.doc_id = last_doc;
-            docs.push_back(std::move(d));
-        }
-    } else if (mode == FreqProxEncoder::kCodeModeSpimiPfor) {
+    // A SLIM kDefault top-level block (df < skip_interval) carries NO codec byte
+    // and is handled by the is_slim fast path above; it never reaches this
+    // codec-byte dispatch. Only PFOR / windowed / ZSTD blocks remain here.
+    if (mode == FreqProxEncoder::kCodeModeSpimiPfor) {
         const auto doc_deltas = DecodePforRun(cur, doc_freq);
         std::vector<uint32_t> freqs;
         if (has_prox) {

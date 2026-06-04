@@ -223,6 +223,10 @@ void SpimiQueryTermEnum::DecodeOne() {
     if (_current_info.doc_freq < 0) [[unlikely]] {
         _CLTHROWA(CL_ERR_IO, "SPIMI .tis: negative doc_freq");
     }
+    // Slim kDefault hint (df < skip_interval): the SeekByTermEnum fast path
+    // caches this TermInfo and feeds it straight to LoadDocsForTerm, so the
+    // hint MUST be set here too — mirrors the writer's dispatch exactly.
+    _current_info.is_slim = _current_info.doc_freq < _skip_interval;
 
     if (inlined) {
         // Inline entry: freq/prox pointer deltas OMITTED, so the running

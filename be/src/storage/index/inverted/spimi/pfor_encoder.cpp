@@ -129,8 +129,8 @@ bool select_patch(const uint32_t* values, size_t count, uint8_t plain_width,
     if (except_width == 0 || static_cast<uint32_t>(base_width) + except_width > 32U) {
         return false; // trailer would not satisfy the decoder's bounds
     }
-    // Exact byte cost comparison (excluding the shared VInt(n) + width byte,
-    // which both forms pay identically).
+    // Exact byte cost comparison (excluding the shared width byte, which both
+    // forms pay identically; neither form stores a count).
     const size_t plain_payload = (count * plain_width + 7U) / 8U;
     const size_t patched_payload = (count * base_width + 7U) / 8U;
     const size_t trailer = 1U /*num_exc*/ + 1U /*except_width*/ + num_exc /*positions*/ +
@@ -154,7 +154,6 @@ size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, ByteOutput*
     DCHECK_GT(count, 0U);
 
     const int64_t start_offset = out->FilePointer();
-    out->WriteVInt(static_cast<int32_t>(count));
 
     uint32_t max_value = 0;
     for (size_t i = 0; i < count; ++i) {
@@ -163,11 +162,11 @@ size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, ByteOutput*
     const uint8_t width = bit_width_for(max_value);
     DCHECK_LE(width, 32U);
 
-    // Opt-in patched encoding (freq region only). Try to split the few
-    // high-magnitude outliers into a patch trailer so the bitpacked
-    // payload packs at a narrower base width. Only accepted on a strict
-    // size win, so the 0x80 flag stays clear on no-outlier blocks and the
-    // output is byte-identical to the legacy encoder.
+    // Opt-in patched encoding. Try to split the few high-magnitude
+    // outliers into a patch trailer so the bitpacked payload packs at a
+    // narrower base width. Only accepted on a strict size win, so the 0x80
+    // flag stays clear on no-outlier blocks and the output is the plain
+    // width-byte + bitpacked form.
     if (allow_patch) {
         uint8_t base_width = 0;
         uint8_t except_width = 0;
@@ -196,7 +195,7 @@ size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, ByteOutput*
         }
     }
 
-    // Plain (legacy) block — byte-identical to the pre-patch encoder.
+    // Plain block: width byte + bitpacked payload (no leading count).
     out->WriteByte(width);
     pack_bits(values, count, width, out);
     return static_cast<size_t>(out->FilePointer() - start_offset);
@@ -214,9 +213,9 @@ std::vector<uint8_t> SpimiPforEncoder::EncodeBlockToBytes(const std::vector<uint
 
 namespace {
 
-// Tiny VInt + Byte reader over a byte vector. Mirrors Arrow's BitReader
-// for the parts we care about (BitReader doesn't have a public VInt
-// API we can leverage here).
+// Tiny Byte reader over a byte vector, plus an Arrow-BitReader-backed
+// bitpacked unpack. The block format no longer carries a leading VInt
+// count, so no VInt reader is needed here.
 class ByteCursor {
 public:
     ByteCursor(const uint8_t* data, size_t len) : _data(data), _len(len) {}
@@ -225,22 +224,6 @@ public:
             SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block cursor underflow");
         }
         return _data[_pos++];
-    }
-    int32_t ReadVInt() {
-        uint32_t v = 0;
-        uint32_t shift = 0;
-        while (true) {
-            const uint8_t b = ReadByte();
-            if (shift >= 32U) [[unlikely]] {
-                SPIMI_THROW_CORRUPT("SPIMI .frq PFOR VInt: shift overflow on crafted input");
-            }
-            v |= static_cast<uint32_t>(b & 0x7FU) << shift;
-            if ((b & 0x80U) == 0) {
-                break;
-            }
-            shift += 7;
-        }
-        return static_cast<int32_t>(v);
     }
     // Reads `width` low-bit/high-bit bitpacked values starting at the
     // current cursor position via Arrow's BitReader, then advances the
@@ -267,26 +250,27 @@ private:
 
 } // namespace
 
-size_t SpimiPforDecoder::DecodeBlockFromBytes(const std::vector<uint8_t>& in,
+size_t SpimiPforDecoder::DecodeBlockFromBytes(const std::vector<uint8_t>& in, size_t count,
                                               std::vector<uint32_t>* out) {
     DCHECK(out != nullptr);
     out->clear();
-    if (in.empty()) {
-        return 0;
-    }
-
-    ByteCursor cur(in.data(), in.size());
-    const size_t count = static_cast<size_t>(cur.ReadVInt());
-    const uint8_t raw_width = cur.ReadByte();
-    const bool patched = (raw_width & kPatchFlag) != 0U; // patched-PFOR signal bit
-    const uint8_t width = raw_width & kWidthMask;        // base bit width
-    // Hard-fail on untrusted-byte invariants. Attacker bytes in
-    // `in` could otherwise drive `out->resize(huge_count)` →
-    // bad_alloc, or pass an out-of-range bit width that
-    // Arrow's BitReader UB-shifts past `sizeof(uint32_t)*8`.
+    // `count` is supplied out-of-band (the block no longer stores it).
+    // Reject a count that the format cannot represent so a crafted run
+    // total can't drive `out->resize(huge_count)` → bad_alloc.
     if (count == 0U || count > SpimiPforEncoder::kBlockSize) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block count out of range");
     }
+    if (in.empty()) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block: empty buffer");
+    }
+
+    ByteCursor cur(in.data(), in.size());
+    const uint8_t raw_width = cur.ReadByte();
+    const bool patched = (raw_width & kPatchFlag) != 0U; // patched-PFOR signal bit
+    const uint8_t width = raw_width & kWidthMask;        // base bit width
+    // Hard-fail on untrusted-byte invariants. An out-of-range bit width
+    // would otherwise drive Arrow's BitReader to UB-shift past
+    // `sizeof(uint32_t)*8`.
     if (width == 0U || width > 32U) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block width out of range");
     }

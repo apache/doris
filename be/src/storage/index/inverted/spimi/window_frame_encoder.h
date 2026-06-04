@@ -75,12 +75,21 @@ namespace doris::segment_v2::inverted_index::spimi {
 //   byte    inner_mode             // 0x05 PFOR parts, 0x00 VInt parts
 //   VInt    W                      // finest window doc-width (256..2048)
 //   VInt    num_windows            // >= 1
-//   per window w:                  // skip table, written BEFORE payloads
-//     VInt  win_doc_count          // docs in window
-//     VInt  win_byte_offset        // byte offset of window w's payload tuple,
-//                                  //   relative to the FIRST payload tuple
-//     VInt  win_min_docid          // first absolute docid in window
+//   per window w:                  // SLIM skip table, written BEFORE payloads
+//     VInt  win_byte_offset_delta  // payload-tuple byte offset of window w MINUS
+//                                  //   that of window w-1 (== window w-1's payload
+//                                  //   length); 0 for w==0. Reader running-sums to
+//                                  //   the absolute offset (relative to the first
+//                                  //   payload tuple).
+//     VInt  win_min_docid_delta    // (first abs docid in window w) MINUS
+//                                  //   (max docid of window w-1); == win_min_docid
+//                                  //   for w==0 (prev max seeds at 0). Reader
+//                                  //   running-sums to the absolute min_docid.
 //     VInt  win_max_docid_delta    // (max docid in window) - win_min_docid
+//   // win_doc_count is NOT stored: the reader derives it as
+//   //   min(W, doc_freq - docs_so_far)
+//   // because every non-last window is exactly W docs and only the term's last
+//   // unit (hence its last window) may be a partial 256-doc unit.
 //   per window w (in order):       // payloads
 //     byte  win_mode               // 0 raw, 1 ZSTD
 //     VInt  uncomp_len             // length of inflated part-wise inner bytes

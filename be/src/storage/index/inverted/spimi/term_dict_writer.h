@@ -38,6 +38,18 @@ struct TermInfo {
     int64_t prox_pointer = 0;
     int32_t skip_offset = 0;
 
+    // --- Slim kDefault .frq decode hint (read side only) ---
+    // True when this term's .frq block is the SLIM kDefault layout: pure per-doc
+    // VInt deltas with NO leading codec byte and NO VInt(doc_count). It holds
+    // exactly when doc_freq < skip_interval — the same gate the writer uses to
+    // pick the kDefault (non-windowed / non-PFOR) path. The reader precomputes
+    // this at .tis decode (where skip_interval is known) so every decode site
+    // dispatches without re-reading skip_interval. For an external/inline kDefault
+    // term it is true; for a windowed/PFOR term (df >= skip_interval) it is false
+    // and the reader keeps the codec-byte dispatch. Defaults false so a manually
+    // constructed TermInfo (legacy/test) reads the codec-byte path unless set.
+    bool is_slim = false;
+
     // --- Inline-small-terms (kFormatInline = -5 segments only) ---
     // When `inlined` is true, the term's FULL .frq / .prx posting block bytes
     // were stored directly in the .tis entry instead of as external pointers.

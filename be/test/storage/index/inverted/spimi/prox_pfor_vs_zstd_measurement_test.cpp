@@ -36,6 +36,7 @@
 #include <functional>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "storage/index/inverted/spimi/pfor_encoder.h"
@@ -150,15 +151,18 @@ EncodedProx encode_current(const std::vector<uint32_t>& deltas) {
 }
 
 // ---- codec B: patched-PFOR 128-blocks of the delta stream ----
-std::vector<std::vector<uint8_t>> encode_pfor(const std::vector<uint32_t>& deltas, size_t* total) {
-    std::vector<std::vector<uint8_t>> blocks;
+// Returns per-block (bytes, value_count); the count is no longer stored in
+// the block, so it is tracked alongside the bytes for the decode loops.
+std::vector<std::pair<std::vector<uint8_t>, size_t>> encode_pfor(
+        const std::vector<uint32_t>& deltas, size_t* total) {
+    std::vector<std::pair<std::vector<uint8_t>, size_t>> blocks;
     *total = 0;
     for (size_t off = 0; off < deltas.size(); off += SpimiPforEncoder::kBlockSize) {
         const size_t n = std::min(SpimiPforEncoder::kBlockSize, deltas.size() - off);
         std::vector<uint32_t> blk(deltas.begin() + static_cast<long>(off),
                                   deltas.begin() + static_cast<long>(off + n));
-        blocks.push_back(SpimiPforEncoder::EncodeBlockToBytes(blk, /*allow_patch=*/true));
-        *total += blocks.back().size();
+        blocks.emplace_back(SpimiPforEncoder::EncodeBlockToBytes(blk, /*allow_patch=*/true), n);
+        *total += blocks.back().first.size();
     }
     return blocks;
 }
@@ -183,7 +187,7 @@ void measure(const std::string& kind, uint64_t seed) {
     size_t pfor_total = 0;
     const auto pfor_blocks = encode_pfor(deltas, &pfor_total);
     std::vector<uint8_t> pfor_concat;
-    for (const auto& b : pfor_blocks) {
+    for (const auto& [b, n] : pfor_blocks) {
         pfor_concat.insert(pfor_concat.end(), b.begin(), b.end());
     }
     std::vector<uint8_t> pfor_zstd;
@@ -192,9 +196,9 @@ void measure(const std::string& kind, uint64_t seed) {
     // ---- correctness: PFOR blocks round-trip to the original deltas ----
     {
         std::vector<uint32_t> back;
-        for (const auto& b : pfor_blocks) {
+        for (const auto& [b, n] : pfor_blocks) {
             std::vector<uint32_t> sub;
-            SpimiPforDecoder::DecodeBlockFromBytes(b, &sub);
+            SpimiPforDecoder::DecodeBlockFromBytes(b, n, &sub);
             back.insert(back.end(), sub.begin(), sub.end());
         }
         ASSERT_EQ(back, deltas) << kind << ": PFOR round-trip mismatch";
@@ -219,8 +223,8 @@ void measure(const std::string& kind, uint64_t seed) {
     });
     std::vector<uint32_t> sub;
     const double t_pfor = now_ns_per(npos, reps, [&] {
-        for (const auto& b : pfor_blocks) {
-            SpimiPforDecoder::DecodeBlockFromBytes(b, &sub);
+        for (const auto& [b, n] : pfor_blocks) {
+            SpimiPforDecoder::DecodeBlockFromBytes(b, n, &sub);
         }
     });
 

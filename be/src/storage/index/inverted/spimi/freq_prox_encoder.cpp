@@ -193,9 +193,9 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
     _pfor_freq_blocks.Clear();
 
     if (_use_pfor) {
-        // PFOR mode: header byte only; sub-blocks (each carrying its
-        // own VInt(count) + byte(width) + bitpacked payload) follow at
-        // FinishTerm via `SpimiPforEncoder::EncodeBlock`.
+        // PFOR mode: header byte only; sub-blocks (each byte(width) +
+        // bitpacked payload, count IMPLICIT = min(128, doc_freq - collected))
+        // follow at FinishTerm via `SpimiPforEncoder::EncodeBlock`.
         _frq_out->WriteByte(kCodeModeSpimiPfor);
         // Anchor for PFOR skip entries, in REAL .frq coordinates (the space the
         // skip list's pointers live in): _term_freq_start is where this term's
@@ -213,13 +213,15 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
         // emit skips, so small-df tests never tripped it), and aborting the
         // ASAN DCHECK_GE(freq_delta, 0) in SkipListWriter.
         _pfor_frq_anchor = _term_freq_start + _frq_out->FilePointer();
-    } else {
-        // kDefault mode (byte-equal to CLucene's
-        // `SDocumentWriter::appendPostings:1330` for the same term):
-        // codec byte + VInt(doc_count) + per-doc encoding.
-        _frq_out->WriteByte(kCodeModeDefault);
-        _frq_out->WriteVInt(expected_doc_freq);
     }
+    // kDefault mode (df < skip_interval): SLIM layout — NO leading codec byte
+    // and NO VInt(doc_count). The block is pure per-doc VInt deltas. The reader
+    // recovers doc_count from .tis (doc_freq) and decides slim purely from
+    // df < skip_interval, mirroring this writer dispatch exactly, so no codec
+    // byte is needed to disambiguate. (PFOR/windowed paths — df >= skip_interval
+    // — keep their codec byte above.) This also means the kDefault block is
+    // NEVER ZSTD-wrapped (see FlushFrqBlock), so it can never collide with the
+    // 0x80 ZSTD marker.
 
     _skip_list_writer.Reset(expected_doc_freq, _term_freq_start, _term_prox_start);
 }
@@ -267,8 +269,13 @@ void FreqProxEncoder::StartDoc(int32_t doc_id, int32_t freq) {
         if (_pfor_doc_deltas.size() == SpimiPforEncoder::kBlockSize) {
             // Flush a full doc-delta sub-block immediately; bytes are identical
             // to flushing it at FinishTerm (each block encodes independently).
+            // Doc-delta blocks opt into patched PFOR, matching both the freq
+            // blocks below and the windowed path: an occasional large gap no
+            // longer forces the whole block to a wide bit-width. The patch flag
+            // (0x80) stays clear when no outlier wins, so outlier-free blocks
+            // are byte-identical to plain PFOR.
             SpimiPforEncoder::EncodeBlock(_pfor_doc_deltas.data(), _pfor_doc_deltas.size(),
-                                          _frq_out);
+                                          _frq_out, /*allow_patch=*/true);
             _pfor_doc_deltas.clear();
         }
         if (!_omit_tfap) {
@@ -368,10 +375,11 @@ TermInfo FreqProxEncoder::FinishTerm() {
         // is reached, then (if has_prox) consumes another `doc_freq`
         // worth of sub-blocks for freqs.
         // Full doc-delta sub-blocks were already streamed in StartDoc; flush
-        // only the trailing partial block here, then the freq region.
+        // only the trailing partial block here, then the freq region. Patched
+        // PFOR (allow_patch=true) matches the full-block flush in StartDoc.
         if (!_pfor_doc_deltas.empty()) {
             SpimiPforEncoder::EncodeBlock(_pfor_doc_deltas.data(), _pfor_doc_deltas.size(),
-                                          _frq_out);
+                                          _frq_out, /*allow_patch=*/true);
         }
         if (!_omit_tfap) {
             // Flush the trailing partial freq block, then bulk-append the whole
@@ -402,6 +410,12 @@ TermInfo FreqProxEncoder::FinishTerm() {
     info.freq_pointer = _term_freq_start;
     info.prox_pointer = _term_prox_start;
     info.skip_offset = (_doc_freq >= _skip_interval) ? static_cast<int32_t>(skip_pointer) : 0;
+    // Self-describe the SLIM kDefault layout on the returned TermInfo: this
+    // FinishTerm path is non-windowed, so the block is slim exactly when it is
+    // NOT the PFOR path (df < skip_interval). Mirrors the reader's .tis-derived
+    // is_slim (df < skip_interval) so a caller that round-trips this TermInfo
+    // straight into a decode sees the correct dispatch.
+    info.is_slim = !_use_pfor;
 
     // Flush the whole term's staged .frq (raw, or ZSTD behind a kCodeModeZstd
     // envelope) to the real output at _term_freq_start.
@@ -437,13 +451,21 @@ void FreqProxEncoder::FinishTermWindowed(TermInfo* info) {
     info->freq_pointer = _term_freq_start;
     info->prox_pointer = _term_prox_start;
     info->skip_offset = 0;
+    info->is_slim = false; // windowed terms carry a codec byte, never slim
 }
 
 void FreqProxEncoder::FlushFrqBlock() {
     const auto& buf = _frq_term_buf.bytes();
     const size_t n = buf.size();
     faststring comp;
-    if (n >= kProxCompressMin && TryCompressBlock(_cctx, buf.data(), n, &comp, FrqZstdMinBytes())) {
+    // The SLIM kDefault block (df < skip_interval, !_use_pfor) is NEVER
+    // ZSTD-wrapped: it carries no codec byte, so wrapping it in a kCodeModeZstd
+    // envelope would be indistinguishable from a raw doc-delta VInt that happens
+    // to start with 0x80. The reader decides slim purely from df < skip_interval
+    // and reads the bytes verbatim; only the PFOR path (df >= skip_interval,
+    // codec-byte prefixed) opts into whole-term ZSTD here.
+    if (_use_pfor && n >= kProxCompressMin &&
+        TryCompressBlock(_cctx, buf.data(), n, &comp, FrqZstdMinBytes())) {
         // A single term's .frq stays far below 2 GB (arena byte cap), so the
         // VInt length casts below never lose bits.
         DCHECK_LE(n, static_cast<size_t>(INT32_MAX));
@@ -453,8 +475,10 @@ void FreqProxEncoder::FlushFrqBlock() {
         _frq_sink->WriteBytes(comp.data(), comp.size());
         return;
     }
-    // Raw fallback: emit the term .frq verbatim (its first byte is the inner
-    // kCodeModeDefault/kCodeModeSpimiPfor mode, never kCodeModeZstd).
+    // Raw fallback: emit the term .frq verbatim. For a SLIM kDefault block this
+    // is pure per-doc VInt deltas with NO leading codec byte; for the PFOR path
+    // (the only path that reaches the ZSTD attempt above) the first byte is the
+    // kCodeModeSpimiPfor mode. Either way it is never kCodeModeZstd.
     if (n > 0) {
         _frq_sink->WriteBytes(buf.data(), n);
     }

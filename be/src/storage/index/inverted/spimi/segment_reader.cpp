@@ -231,7 +231,7 @@ std::vector<SpimiSegmentReader::DocFreq> SpimiSegmentReader::Search(
     }
     const auto fp = static_cast<size_t>(term_info->freq_pointer);
     return SpimiTermDocsReader::ReadTerm(_frq_bytes.data() + fp, _frq_bytes.size() - fp,
-                                         term_info->doc_freq, fi.has_prox);
+                                         term_info->doc_freq, fi.has_prox, term_info->is_slim);
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

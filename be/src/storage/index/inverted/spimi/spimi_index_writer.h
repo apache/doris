@@ -74,7 +74,14 @@ public:
     // threaded into SpillManager so spill segments are written with the SAME
     // index_version the final segment advertises. Required for the
     // single-input byte-copy merge fast path to stay format-consistent.
-    explicit SpimiIndexWriter(std::string field_name, bool is_v4 = false);
+    //
+    // `omit_term_freq_and_positions` (derived from the field's support_phrase
+    // property, known at construction) is likewise threaded into SpillManager so
+    // spill segments omit freq+positions in lockstep with the final segment. It
+    // MUST equal SpimiFinishConfig::omit_term_freq_and_positions passed to
+    // Finish() (both come from the same index meta); Finish() DCHECKs this.
+    explicit SpimiIndexWriter(std::string field_name, bool is_v4 = false,
+                              bool omit_term_freq_and_positions = false);
 
     SpimiIndexWriter(const SpimiIndexWriter&) = delete;
     SpimiIndexWriter& operator=(const SpimiIndexWriter&) = delete;
@@ -174,6 +181,9 @@ private:
     void EmitMerged(const OutputStreams& streams, const SpimiFinishConfig& config);
 
     std::string _field_name;
+    // Field's omit-freq-and-positions flag (support_phrase off). Threaded into
+    // SpillManager at construction; cross-checked against the Finish() config.
+    bool _omit_tfap = false;
     std::unique_ptr<SpimiPostingBuffer> _buffer;
     std::unique_ptr<SpillManager> _spill_manager;
 };

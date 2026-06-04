@@ -56,6 +56,7 @@
 
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
+#include "storage/index/inverted/spimi/pfor_encoder.h"
 #include "storage/index/inverted/spimi/prox_reader.h"
 #include "storage/index/inverted/spimi/term_docs_reader.h"
 #include "storage/index/inverted/spimi/window_term_reader.h"
@@ -144,13 +145,51 @@ Term MakeIrregular(int32_t df, bool has_prox, uint32_t seed) {
     return t;
 }
 
+// Doc-delta OUTLIER gaps: long stretches of tiny gaps (1..3 docs) punctuated by
+// a handful of huge jumps. Within a 128-doc PFOR block this drives the
+// SEEK-CRITICAL doc-delta patch path: the plain base width is forced wide by a
+// few big-gap deltas, while the patched form packs the small deltas at a narrow
+// base and splits the few large gaps into the trailer. The skipTo battery then
+// proves the patched doc-delta blocks decode correctly with NO leading sub-block
+// count (the trailer is found at the implicitly-derived block offset).
+Term MakeOutlierGaps(int32_t df, bool has_prox, uint32_t seed) {
+    Term t;
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<int32_t> small_gap(1, 3);
+    std::uniform_int_distribution<int32_t> big_gap(50000, 200000);
+    std::uniform_int_distribution<int32_t> fq(1, 4);
+    // Place a few outliers per 128-doc block at irregular offsets so each
+    // doc-delta PFOR block carries 1..3 huge gaps among ~125 tiny ones.
+    int32_t doc = 7;
+    for (int32_t i = 0; i < df; ++i) {
+        t.docs.push_back(doc);
+        const int32_t f = has_prox ? fq(rng) : 1;
+        t.freqs.push_back(f);
+        std::vector<int32_t> pos;
+        int32_t pp = 0;
+        for (int32_t k = 0; k < f; ++k) {
+            pos.push_back(pp);
+            pp += 1 + (k % 5);
+        }
+        t.positions.push_back(std::move(pos));
+        // ~2 outliers per 128-block: trigger on a couple of fixed in-block offsets.
+        const int32_t in_block = i % 128;
+        const bool outlier = (in_block == 17 || in_block == 88);
+        doc += outlier ? big_gap(rng) : small_gap(rng);
+    }
+    return t;
+}
+
 // ---- Skip-table parser (validator-side, for the S3 byte proxy) ------------
-// Mirrors the format documented in the task: after [outer mode][inner mode]
-// [VInt W][VInt num_windows] comes the per-window skip table of
-// {VInt doc_count, VInt byte_offset, VInt min_docid, VInt max_docid_delta};
-// then the payload tuples begin. byte_offset[w] is relative to the first
-// payload tuple. We compute each window's payload byte size as
-// offset[w+1]-offset[w] (last window runs to end-of-buffer).
+// Mirrors the SLIM format: after [outer mode][inner mode][VInt W]
+// [VInt num_windows] comes the per-window skip table of 3 VInts/window —
+// {VInt byte_offset_delta, VInt min_docid_delta, VInt max_docid_delta} —
+// where byte_offset and min_docid are delta-coded (offset vs the previous
+// window's payload size; min_docid vs the previous window's max_docid).
+// win_doc_count is NOT stored (derived = min(W, remaining)). We running-sum the
+// deltas back to absolute byte_offset (relative to the first payload tuple) and
+// min/max_docid; each window's payload byte size is offset[w+1]-offset[w] (last
+// window runs to end-of-buffer).
 struct SkipTable {
     int32_t num_windows = 0;
     std::vector<int32_t> doc_count;
@@ -186,16 +225,22 @@ SkipTable ParseSkipTable(const std::vector<uint8_t>& frq) {
     st.total_len = frq.size();
     size_t pos = 0;
     EXPECT_EQ(frq[pos++], FreqProxEncoder::kCodeModeSpimiWindowed);
-    ++pos;                      // inner mode
-    (void)ReadVIntAt(frq, pos); // W
+    ++pos;                                  // inner mode
+    const int32_t W = ReadVIntAt(frq, pos); // window doc-width (derives doc_count)
     st.num_windows = ReadVIntAt(frq, pos);
+    int32_t byte_offset_abs = 0;
+    int32_t prev_max_docid = 0;
     for (int32_t w = 0; w < st.num_windows; ++w) {
-        st.doc_count.push_back(ReadVIntAt(frq, pos));
-        st.byte_offset.push_back(ReadVIntAt(frq, pos));
-        const int32_t mn = ReadVIntAt(frq, pos);
+        const int32_t byte_offset_delta = ReadVIntAt(frq, pos);
+        const int32_t min_docid_delta = ReadVIntAt(frq, pos);
         const int32_t dl = ReadVIntAt(frq, pos);
+        byte_offset_abs += byte_offset_delta;
+        const int32_t mn = prev_max_docid + min_docid_delta;
+        st.doc_count.push_back(W); // derived; provisional W (unused downstream)
+        st.byte_offset.push_back(byte_offset_abs);
         st.min_docid.push_back(mn);
         st.max_docid.push_back(mn + dl);
+        prev_max_docid = mn + dl;
     }
     st.payload_base = pos;
     return st;
@@ -382,6 +427,50 @@ TEST(WindowTermReaderDiffTest, MultiWindowIrregularHasProx) {
 
 TEST(WindowTermReaderDiffTest, MultiWindowIrregularOmitTfap) {
     RunBattery(MakeIrregular(/*df=*/3000, /*has_prox=*/false, /*seed=*/202), /*has_prox=*/false);
+}
+
+// SEEK-CRITICAL doc-delta patch path. A term whose doc-deltas are mostly tiny
+// gaps punctuated by a few huge jumps drives the patched-PFOR doc-delta
+// encoding (allow_patch=true at window_frame_encoder.cpp EncodePforPart for
+// PART_DD). The full skipTo/next battery proves those patched doc-delta blocks
+// decode correctly through the lazy window reader — i.e. with NO leading
+// sub-block count, the patch trailer is found at the implicitly-derived block
+// offset and skipTo binary-search lands byte-identically to the eager oracle.
+TEST(WindowTermReaderDiffTest, DocDeltaOutlierPatchSeekHasProx) {
+    RunBattery(MakeOutlierGaps(/*df=*/3000, /*has_prox=*/true, /*seed=*/707), /*has_prox=*/true);
+}
+
+TEST(WindowTermReaderDiffTest, DocDeltaOutlierPatchSeekOmitTfap) {
+    RunBattery(MakeOutlierGaps(/*df=*/3000, /*has_prox=*/false, /*seed=*/808), /*has_prox=*/false);
+}
+
+// Proves the doc-delta patch is actually ENGAGED for the outlier-gap term (not a
+// vacuous pass of the battery above): a doc-delta PFOR block built from the
+// outlier-gap deltas is STRICTLY SMALLER patched than plain, and round-trips.
+// This is the byte-cost half of anchor (1) — the battery is the decode half.
+TEST(WindowTermReaderDiffTest, DocDeltaOutlierPatchIsSmaller) {
+    // Reconstruct one 128-doc-delta block exactly as the window encoder would:
+    // the deltas of the first 128 docs of the outlier-gap term.
+    const Term t = MakeOutlierGaps(/*df=*/256, /*has_prox=*/false, /*seed=*/909);
+    std::vector<uint32_t> deltas;
+    deltas.reserve(SpimiPforEncoder::kBlockSize);
+    int32_t prev = 0;
+    for (size_t i = 0; i < SpimiPforEncoder::kBlockSize; ++i) {
+        deltas.push_back(static_cast<uint32_t>(t.docs[i] - prev));
+        prev = t.docs[i];
+    }
+    const auto plain = SpimiPforEncoder::EncodeBlockToBytes(deltas, /*allow_patch=*/false);
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(deltas, /*allow_patch=*/true);
+    ASSERT_GE(patched.size(), 1U);
+    EXPECT_NE(patched[0] & 0x80U, 0U) << "doc-delta outlier block must set the 0x80 patch flag";
+    EXPECT_EQ(plain[0] & 0x80U, 0U) << "plain doc-delta block must leave 0x80 clear";
+    EXPECT_LT(patched.size(), plain.size())
+            << "patched doc-delta encoding must be strictly smaller than allow_patch=false";
+    // Round-trip the patched form (count supplied out-of-band, as in the run).
+    std::vector<uint32_t> back;
+    const size_t n = SpimiPforDecoder::DecodeBlockFromBytes(patched, deltas.size(), &back);
+    ASSERT_EQ(n, deltas.size());
+    EXPECT_EQ(back, deltas);
 }
 
 // Very large df=20000.

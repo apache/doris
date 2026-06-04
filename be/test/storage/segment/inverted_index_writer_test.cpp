@@ -367,7 +367,8 @@ public:
     }
 
     // Helper method to create an inverted index with tokenization enabled
-    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer) {
+    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer,
+                                bool support_phrase = false) {
         auto tablet_schema = create_schema();
 
         // Create index meta with tokenization setting
@@ -387,6 +388,10 @@ public:
             // Enable tokenization by setting parser to standard
             // This will make should_analyzer() return true
             (*properties)["parser"] = "standard";
+            // Norms are only kept for analyzed fields that retain freq+positions.
+            if (support_phrase) {
+                (*properties)["support_phrase"] = "true";
+            }
         }
 
         TabletIndex idx_meta;
@@ -2364,14 +2369,14 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     // but it should not crash
 }
 
-// Test case to verify .nrm file creation behavior with different tokenization settings
-// This test verifies the change in inverted_index_writer.cpp lines 165-171
-// where .nrm file is only created when field requires tokenization (_should_analyzer == true)
+// Test case to verify .nrm file creation behavior with tokenization and phrase support.
+// Norms are kept ONLY for analyzed fields that retain term freq+positions (phrase
+// support on). A DOCS_ONLY field (analyzed but support_phrase off) and an
+// un-analyzed field both omit norms (the .nrm is dead weight without scoring).
 TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
-    // Test case 1: Create index with tokenization enabled (parser = "standard")
-    // This should make _should_analyzer = true, and setOmitNorms(false) will be called
-    // which should create .nrm file
-    create_tokenized_index("test_with_analyzer", 0, true);
+    // Test case 1: analyzed (parser=standard) WITH phrase support -> norms kept.
+    // _should_analyzer == true && !omit_term_freq_and_positions -> setOmitNorms(false).
+    create_tokenized_index("test_with_analyzer", 0, true, /*support_phrase=*/true);
 
     auto tablet_schema = create_schema();
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -2395,10 +2400,21 @@ TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
     // Check if .nrm file exists for tokenized index
     bool norms_exists_tokenized =
             check_norms_file_exists(index_path_prefix_with_analyzer, &idx_meta_with_analyzer);
-    // When _should_analyzer == true, setOmitNorms(false) is called, so .nrm should be created
+    // analyzed + phrase support -> norms retained.
     EXPECT_TRUE(norms_exists_tokenized)
-            << "Expected .nrm file to exist when tokenization is enabled (parser=standard) "
-            << "because setOmitNorms(false) should be called";
+            << "Expected .nrm to exist for an analyzed field WITH support_phrase "
+            << "(scoring needs freq+positions, so norms are retained).";
+
+    // Test case 1b: analyzed (parser=standard) WITHOUT phrase support -> DOCS_ONLY,
+    // so norms are omitted (matches the SPIMI/V4 path, avoids dead .nrm bytes).
+    create_tokenized_index("test_analyzer_phrase_off", 2, true, /*support_phrase=*/false);
+    std::string index_path_prefix_phrase_off {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_analyzer_phrase_off", 2))};
+    bool norms_exists_phrase_off =
+            check_norms_file_exists(index_path_prefix_phrase_off, &idx_meta_with_analyzer);
+    EXPECT_FALSE(norms_exists_phrase_off)
+            << "Expected NO .nrm for an analyzed field with support_phrase OFF "
+            << "(DOCS_ONLY can't be scored, so norms are dead weight).";
 
     // Test case 2: Create index with tokenization disabled (parser = "none")
     // This should make _should_analyzer = false, and setOmitNorms(false) will NOT be called

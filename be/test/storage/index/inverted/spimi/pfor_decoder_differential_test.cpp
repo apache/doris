@@ -22,8 +22,9 @@
 // unpacker.
 //
 // IMPORTANT — independence: the scalar reference here does NOT call any
-// Arrow primitive. It re-parses the VInt(count) + width-byte header and
-// then extracts each value bit-by-bit straight out of the raw payload
+// Arrow primitive. It re-parses the width-byte header (the count is
+// supplied out-of-band) and then extracts each value bit-by-bit out of
+// the raw payload
 // bytes, LSB-first / little-endian, exactly matching the layout Arrow's
 // BitWriter wrote (documented "little-endian format" in
 // arrow/util/bit_stream_utils.h). Because the oracle shares no code
@@ -40,8 +41,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <random>
+#include <utility>
 #include <vector>
 
 #include "storage/index/inverted/spimi/byte_output.h"
@@ -53,9 +56,8 @@ namespace {
 
 // ---------------------------------------------------------------------
 // Independent scalar reference unpacker. No Arrow. Reads the SPIMI PFOR
-// block format directly:
+// block format directly (the count is supplied out-of-band, not stored):
 //
-//   VInt   count        (LEB128, 7 data bits per byte, low byte first)
 //   byte   bit_width     (low 6 bits; 0x80 reserved patch flag masked off)
 //   bytes  bitpacked     (count * bit_width bits, LSB-first little-endian)
 //
@@ -64,25 +66,12 @@ namespace {
 // least-significant bit first — the canonical little-endian bitpacking
 // Arrow's BitWriter emits.
 // ---------------------------------------------------------------------
-std::vector<uint32_t> IndependentScalarDecode(const std::vector<uint8_t>& in) {
+std::vector<uint32_t> IndependentScalarDecode(const std::vector<uint8_t>& in, size_t count) {
     std::vector<uint32_t> out;
     if (in.empty()) {
         return out;
     }
     size_t pos = 0;
-
-    // VInt(count).
-    uint32_t count = 0;
-    uint32_t shift = 0;
-    while (true) {
-        EXPECT_LT(pos, in.size()) << "ref decode: VInt underflow";
-        const uint8_t b = in[pos++];
-        count |= static_cast<uint32_t>(b & 0x7FU) << shift;
-        if ((b & 0x80U) == 0) {
-            break;
-        }
-        shift += 7;
-    }
 
     // Width byte (mask the reserved patch-signal bit).
     EXPECT_LT(pos, in.size()) << "ref decode: width-byte underflow";
@@ -111,18 +100,20 @@ std::vector<uint32_t> IndependentScalarDecode(const std::vector<uint8_t>& in) {
     return out;
 }
 
-// Encode `values` as one or more 128-value PFOR blocks, concatenating
-// the per-block byte streams. Returns (concatenated bytes, block count).
-// Mirrors how the .frq writer chunks a posting list into kBlockSize
-// sub-blocks, so block size 1000 is genuinely exercised end to end.
-std::vector<std::vector<uint8_t>> EncodeChunked(const std::vector<uint32_t>& values) {
-    std::vector<std::vector<uint8_t>> blocks;
+// Encode `values` as one or more 128-value PFOR blocks. Returns per-block
+// (bytes, value_count) pairs — the block no longer self-describes its count,
+// so the count is tracked alongside the bytes here exactly as the run decoder
+// derives it. Mirrors how the .frq writer chunks a posting list into
+// kBlockSize sub-blocks, so block size 1000 is genuinely exercised end to end.
+std::vector<std::pair<std::vector<uint8_t>, size_t>> EncodeChunked(
+        const std::vector<uint32_t>& values) {
+    std::vector<std::pair<std::vector<uint8_t>, size_t>> blocks;
     const size_t bs = SpimiPforEncoder::kBlockSize;
     for (size_t off = 0; off < values.size(); off += bs) {
         const size_t n = std::min(bs, values.size() - off);
         std::vector<uint32_t> chunk(values.begin() + static_cast<std::ptrdiff_t>(off),
                                     values.begin() + static_cast<std::ptrdiff_t>(off + n));
-        blocks.push_back(SpimiPforEncoder::EncodeBlockToBytes(chunk));
+        blocks.emplace_back(SpimiPforEncoder::EncodeBlockToBytes(chunk), n);
     }
     return blocks;
 }
@@ -134,11 +125,11 @@ void ExpectByteIdentical(const std::vector<uint32_t>& values) {
     const auto blocks = EncodeChunked(values);
     std::vector<uint32_t> rebuilt;
     rebuilt.reserve(values.size());
-    for (const auto& block : blocks) {
+    for (const auto& [block, count] : blocks) {
         std::vector<uint32_t> batched;
-        const size_t n = SpimiPforDecoder::DecodeBlockFromBytes(block, &batched);
+        const size_t n = SpimiPforDecoder::DecodeBlockFromBytes(block, count, &batched);
         ASSERT_EQ(n, batched.size());
-        const auto reference = IndependentScalarDecode(block);
+        const auto reference = IndependentScalarDecode(block, count);
         // The load-bearing assertion: SIMD/batched production decode is
         // bit-for-bit the same vector as the hand-rolled scalar unpack.
         ASSERT_EQ(batched, reference)

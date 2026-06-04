@@ -35,13 +35,14 @@ using frq_internal::ReadWindowPayload;
 namespace {
 // Header + skip-table prefix probe. The header is
 //   [outer mode][inner mode][VInt W][VInt num_windows]
-// followed by `num_windows` entries of 4 VInts each. We do NOT know
-// `num_windows` until we read it, so we fetch a bounded prefix, parse the
-// header, and — if the probe is too short to hold the whole table — re-read
-// sized to the exact worst case. A VInt is at most 5 bytes.
+// followed by `num_windows` SLIM entries of 3 VInts each (win_doc_count is
+// derived, not stored). We do NOT know `num_windows` until we read it, so we
+// fetch a bounded prefix, parse the header, and — if the probe is too short to
+// hold the whole table — re-read sized to the exact worst case. A VInt is at
+// most 5 bytes.
 constexpr size_t kPrefixProbe = 4096;
 constexpr size_t kMaxVIntBytes = 5;
-constexpr size_t kMaxSkipEntryBytes = 4 * kMaxVIntBytes; // 4 VInts per entry
+constexpr size_t kMaxSkipEntryBytes = 3 * kMaxVIntBytes; // 3 VInts per entry
 } // namespace
 
 bool SpimiWindowedTermDocs::Open(PostingStore* store, int64_t term_base, int32_t doc_freq,
@@ -91,7 +92,10 @@ bool SpimiWindowedTermDocs::Open(PostingStore* store, int64_t term_base, int32_t
         _inner_mode != FreqProxEncoder::kCodeModeDefault) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .frq windowed: unknown inner_mode");
     }
-    (void)cur.ReadVInt(); // W (not needed once the skip table gives us doc ranges)
+    const int32_t W = cur.ReadVInt(); // window doc-width; derives win_doc_count
+    if (W <= 0) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .frq windowed: non-positive W");
+    }
     const int32_t num_windows = cur.ReadVInt();
     if (num_windows <= 0 || num_windows > doc_freq) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .frq windowed: num_windows out of range");
@@ -103,6 +107,7 @@ bool SpimiWindowedTermDocs::Open(PostingStore* store, int64_t term_base, int32_t
     // probe never OOB-reads — it just triggers this exact-size re-read.
     {
         const size_t header_consumed = cur.pos();
+        // SLIM skip table: 3 VInts/window (win_doc_count dropped).
         const size_t worst_case =
                 header_consumed + static_cast<size_t>(num_windows) * kMaxSkipEntryBytes;
         if (worst_case > prefix.size() && static_cast<int64_t>(prefix.size()) < avail) {
@@ -123,19 +128,38 @@ bool SpimiWindowedTermDocs::Open(PostingStore* store, int64_t term_base, int32_t
     int64_t total = 0;
     int32_t prev_doc_index = 0;
     int32_t prev_max_docid = 0; // last window's max docid (== running last_doc into next window)
+    // SLIM skip table: win_byte_offset and win_min_docid are delta-coded, so we
+    // running-sum them back to absolute. win_doc_count is DERIVED: every non-last
+    // window is exactly W docs; only the term's last window may be a partial unit,
+    // so doc_count = min(W, remaining). `byte_offset_abs` / `min_docid_abs` are the
+    // reconstructed absolutes.
+    int64_t byte_offset_abs = 0;
     std::vector<int64_t> rel_offsets(static_cast<size_t>(num_windows));
     for (int32_t w = 0; w < num_windows; ++w) {
         WinEntry& e = _windows[static_cast<size_t>(w)];
-        e.doc_count = cur.ReadVInt();
-        const int32_t byte_offset = cur.ReadVInt();
-        e.min_docid = cur.ReadVInt();
+        const int32_t byte_offset_delta = cur.ReadVInt();
+        const int32_t min_docid_delta = cur.ReadVInt();
         const int32_t max_docid_delta = cur.ReadVInt();
+        // Derive win_doc_count from W and the remaining doc count. The writer
+        // frames every non-last window at exactly W docs and only the final
+        // (partial-unit) window shorter, so min(W, remaining) is exact.
+        const int64_t remaining = static_cast<int64_t>(doc_freq) - total;
+        e.doc_count = static_cast<int32_t>(std::min<int64_t>(W, remaining));
+        // Running-sum the byte-offset delta. byte_offset_delta is the PREVIOUS
+        // window's payload length (0 for the first window), so the accumulator is
+        // this window's absolute offset relative to the first payload tuple.
+        byte_offset_abs += byte_offset_delta;
+        const int64_t byte_offset = byte_offset_abs;
+        // Running-sum the min_docid delta vs the previous window's max_docid.
+        const int64_t min_docid64 = static_cast<int64_t>(prev_max_docid) + min_docid_delta;
+        e.min_docid = static_cast<int32_t>(min_docid64);
 
         if (e.doc_count <= 0 || e.doc_count > doc_freq) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: win_doc_count out of range");
+            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: derived win_doc_count out of range");
         }
-        if (byte_offset < 0 || max_docid_delta < 0 || e.min_docid < 0) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: negative skip-table field");
+        if (byte_offset_delta < 0 || max_docid_delta < 0 || min_docid_delta < 0 ||
+            min_docid64 > std::numeric_limits<int32_t>::max()) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: negative/overflow skip-table field");
         }
         e.max_docid = e.min_docid + max_docid_delta;
         if (e.max_docid < e.min_docid) [[unlikely]] {

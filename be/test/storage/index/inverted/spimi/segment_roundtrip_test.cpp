@@ -208,14 +208,13 @@ struct DecodedDoc {
 //     covering all doc_deltas, followed by (if has_prox) the same number
 //     of blocks for freqs.
 // Returns the reconstructed (doc_id, freq) pairs.
-std::vector<std::pair<int32_t, int32_t>> DecodeFrqDocs(ByteReader& fr, int32_t doc_freq) {
-    const uint8_t code_mode = fr.Byte();
+std::vector<std::pair<int32_t, int32_t>> DecodeFrqDocs(ByteReader& fr, int32_t doc_freq,
+                                                       bool is_slim) {
     std::vector<std::pair<int32_t, int32_t>> docs;
     docs.reserve(doc_freq);
-    if (code_mode == 0x00) {
-        const int32_t recorded_doc_count = fr.ReadVInt();
-        EXPECT_EQ(recorded_doc_count, doc_freq)
-                << "prefix doc count must match the .tis docFreq for the term";
+    if (is_slim) {
+        // SLIM kDefault block (df < skip_interval): NO codec byte, NO doc count.
+        // Just per-doc (deltaDoc<<1|freq_bit) VInts.
         int32_t last_doc = 0;
         for (int32_t i = 0; i < doc_freq; ++i) {
             const int32_t code = fr.ReadVInt();
@@ -227,31 +226,28 @@ std::vector<std::pair<int32_t, int32_t>> DecodeFrqDocs(ByteReader& fr, int32_t d
         }
         return docs;
     }
-    EXPECT_EQ(code_mode, 0x05U) << "unknown CodeMode in .frq";
+    const uint8_t code_mode = fr.Byte();
+    EXPECT_EQ(code_mode, 0x05U) << "non-slim .frq must be PFOR (df >= skip_interval)";
     // Phase 35 PFOR mode: decode N doc-delta sub-blocks then (with
-    // prox) N freq sub-blocks. Each sub-block starts with VInt(n) +
-    // byte(width) + bitpacked payload — same shape SpimiPforEncoder
-    // emits.
+    // prox) N freq sub-blocks. Each sub-block is byte(width) + bitpacked
+    // payload (+ optional patch trailer) — same shape SpimiPforEncoder
+    // emits. The block does NOT store its value count: blocks are
+    // kBlockSize values except the last, so the count is derived here
+    // exactly as the production run decoder does.
     auto decode_chunks = [&fr](int32_t total) {
         std::vector<uint32_t> values;
         values.reserve(total);
         int32_t collected = 0;
         while (collected < total) {
-            // Reconstruct one sub-block by reading raw bytes starting
-            // at the cursor and handing them to SpimiPforDecoder. The
-            // decoder needs to know how many bytes to consume; here
-            // we feed it the rest of the buffer and rely on it to
-            // advance its internal cursor — but ByteReader is not
-            // shared with the decoder, so we peek the count + width
-            // ourselves and let Arrow's BitReader read the rest.
+            const int32_t n = static_cast<int32_t>(std::min<int64_t>(
+                    static_cast<int64_t>(SpimiPforEncoder::kBlockSize), total - collected));
             const size_t mark = fr.pos();
-            const int32_t n = fr.ReadVInt();
             const uint8_t raw_width = fr.Byte();
             const bool patched = (raw_width & 0x80U) != 0U;
             const uint8_t width = raw_width & 0x3FU;
             const size_t bit_bytes = (static_cast<size_t>(n) * width + 7U) / 8U;
-            // Total on-wire span of this sub-block: VInt(n) + width byte +
-            // bitpacked payload, plus the patch trailer when 0x80 is set.
+            // Total on-wire span of this sub-block: width byte + bitpacked
+            // payload, plus the patch trailer when 0x80 is set.
             size_t span = (fr.pos() - mark) + bit_bytes;
             if (patched) {
                 // Trailer = byte k, byte except_width, k position bytes,
@@ -268,13 +264,13 @@ std::vector<std::pair<int32_t, int32_t>> DecodeFrqDocs(ByteReader& fr, int32_t d
                 slice.push_back(fr.byte_at(i));
             }
             std::vector<uint32_t> sub;
-            SpimiPforDecoder::DecodeBlockFromBytes(slice, &sub);
+            SpimiPforDecoder::DecodeBlockFromBytes(slice, static_cast<size_t>(n), &sub);
             for (uint32_t v : sub) {
                 values.push_back(v);
             }
             collected += static_cast<int32_t>(sub.size());
             // Advance cursor past everything after the already-consumed
-            // VInt(n) + width byte.
+            // width byte.
             for (size_t i = (fr.pos() - mark); i < span; ++i) {
                 (void)fr.Byte();
             }
@@ -341,7 +337,14 @@ std::vector<uint8_t> ReadTermProxRaw(const std::vector<uint8_t>& prx, int64_t pr
 // SpimiTermDocsReader: a large block is wrapped in a kCodeModeZstd envelope
 // (VInt(uncomp) VInt(comp) ZSTD-payload); a small block is the raw CodeMode
 // block verbatim. DecodeFrqDocs then reads the inner kDefault/kSpimiPfor block.
-std::vector<uint8_t> ReadTermFrqRaw(const std::vector<uint8_t>& frq, int64_t freq_pointer) {
+std::vector<uint8_t> ReadTermFrqRaw(const std::vector<uint8_t>& frq, int64_t freq_pointer,
+                                    bool is_slim) {
+    // A SLIM kDefault block (df < skip_interval) carries no codec byte and is
+    // never ZSTD-wrapped, so return its bytes verbatim (DecodeFrqDocs reads only
+    // the doc_freq-bounded VInt deltas).
+    if (is_slim) {
+        return {frq.begin() + static_cast<size_t>(freq_pointer), frq.end()};
+    }
     ByteReader h(frq);
     h.Seek(static_cast<size_t>(freq_pointer));
     const uint8_t mode = h.Byte();
@@ -370,9 +373,10 @@ std::vector<ReconstructedTerm> ReconstructSegment(const std::vector<uint8_t>& ti
     std::vector<ReconstructedTerm> result;
     result.reserve(entries.size());
     for (const auto& entry : entries) {
-        const std::vector<uint8_t> term_frq = ReadTermFrqRaw(frq, entry.freq_pointer);
+        const bool is_slim = entry.doc_freq < skip_interval;
+        const std::vector<uint8_t> term_frq = ReadTermFrqRaw(frq, entry.freq_pointer, is_slim);
         ByteReader fr(term_frq);
-        const auto doc_freqs = DecodeFrqDocs(fr, entry.doc_freq);
+        const auto doc_freqs = DecodeFrqDocs(fr, entry.doc_freq, is_slim);
         const std::vector<uint8_t> term_prox = ReadTermProxRaw(prx, entry.prox_pointer);
         ByteReader pr(term_prox);
         ReconstructedTerm rt;
@@ -507,13 +511,13 @@ TEST(SegmentRoundtripTest, FilePointersInTermDictMatchByteOffsets) {
     EXPECT_EQ(entries[0].freq_pointer, 0);
     EXPECT_EQ(entries[0].prox_pointer, 0);
 
-    // Each term's .frq block now opens with the Doris-CLucene codec
-    // prefix `[CodeMode byte][VInt doc_count]` = 2 bytes for docFreq=1,
-    // followed by 1 byte of doc-encoding ⇒ 3 bytes per term. Each term's .prx
-    // block is `[prox-mode byte 0x00][VInt 0 position]` = 2 bytes (the prox
-    // block carries a 1-byte raw/ZSTD mode header, then the position deltas).
-    EXPECT_EQ(entries[1].freq_pointer, 3);
-    EXPECT_EQ(entries[2].freq_pointer, 6);
+    // Each term's .frq block is now the SLIM kDefault layout: NO codec byte and
+    // NO VInt(doc_count), just the single doc-encoding VInt ⇒ 1 byte per term
+    // for docFreq=1. Each term's .prx block is `[prox-mode byte 0x00][VInt 0
+    // position]` = 2 bytes (the prox block carries a 1-byte raw/ZSTD mode header,
+    // then the position deltas) — unchanged by the slim .frq change.
+    EXPECT_EQ(entries[1].freq_pointer, 1);
+    EXPECT_EQ(entries[2].freq_pointer, 2);
 
     EXPECT_EQ(entries[1].prox_pointer, 2);
     EXPECT_EQ(entries[2].prox_pointer, 4);

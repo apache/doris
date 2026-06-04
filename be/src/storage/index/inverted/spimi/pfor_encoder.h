@@ -51,26 +51,32 @@ class ByteOutput;
 //
 // Format per block of N uint32 values (N ≤ kBlockSize = 128):
 //
-//   VInt    n               // number of values in the block (= N)
 //   byte    bit_width        // bits needed to encode max value (1..32)
 //   bytes   bitpacked        // N × bit_width bits, ceil-byte aligned
 //
-// Reasoning for this minimal-FOR (no exception patches) shape: it
+// The block does NOT self-describe its value count N: the caller always
+// knows N implicitly. A run is exactly `count` values (the window/term
+// doc_count from the outer header); within a run, every block holds
+// kBlockSize values except the final block, which holds the remainder.
+// So the decoder derives N = min(kBlockSize, count - collected) per block
+// — no leading VInt(n) is stored. This removes the per-block VInt(n)
+// overhead (a guaranteed win: every block except the last had n == 128,
+// costing 2 VInt bytes each for nothing).
+//
+// Reasoning for this minimal-FOR (no exception patches) base shape: it
 // mirrors what Tantivy emits (per the Lucene team's benchmark), it
 // uses Arrow's bitpacker without any extra abstractions, and the
-// per-block overhead is constant (VInt n + 1 byte width). On
-// adversarial input the worst case is 1 value of full 32-bit width
-// in a block of small values — we pay 32×N bits instead of e.g.
-// 4×N + 1×(32-4); the FastPFor / Lucene patched variant wins on
-// these inputs by ~10-15%.
+// per-block overhead is constant (1 byte width). On adversarial input
+// the worst case is 1 value of full 32-bit width in a block of small
+// values — we pay 32×N bits instead of e.g. 4×N + 1×(32-4); the
+// FastPFor / Lucene patched variant (below) wins on these inputs.
 //
 // PATCHED variant (opt-in, freq region only). The 0x80 bit in the
 // width byte — previously reserved — now signals a trailing patch
 // list (FastPFor / Lucene90 "split high bits into a patch list"
 // shape, simplified to byte-indexed positions because a block is
-// ≤128 values). Patched block layout:
+// ≤128 values). Patched block layout (N is implicit, as above):
 //
-//   VInt    n                  // unchanged
 //   byte    base_width | 0x80   // low 6 bits = base width (read masks &0x3F)
 //   bytes   bitpacked           // N × base_width bits — the LOW base_width
 //                               //   bits of every value, ceil-byte aligned
@@ -85,18 +91,22 @@ class ByteOutput;
 // The patched form is emitted ONLY when it is strictly smaller than the
 // plain form; otherwise the encoder leaves 0x80 clear and emits the
 // exact legacy bytes (byte-identical). The patch path is opt-in per
-// call (`allow_patch`); doc-delta callers never enable it so doc-delta
-// blocks stay branch-free and byte-identical to the legacy format.
+// call (`allow_patch`). Both freq AND doc-delta PFOR runs enable it: a
+// doc-delta block with a few large-gap outliers packs at a narrower base
+// width with the gaps split into the trailer, and a no-outlier block
+// stays byte-identical to the plain form (the flag is only set on a
+// strict win). The decoder is the SAME patch-aware DecodePforRun for
+// both regions, so doc-delta patches round-trip via the freq decode path.
 class SpimiPforEncoder {
 public:
     static constexpr size_t kBlockSize = 128;
 
     // Encodes `values[0..count)` into `out`. `count` must be
-    // ≤ kBlockSize. `values` may be modified (the encoder may use it
-    // as scratch). When `allow_patch` is true AND a patched encoding is
-    // strictly smaller, emits the patched form (0x80 set); otherwise
-    // emits the legacy plain block (byte-identical to `allow_patch ==
-    // false`). Returns bytes written.
+    // ≤ kBlockSize. The value count is NOT stored in the block — the
+    // decoder is told `count` out-of-band. `values` may be modified (the
+    // encoder may use it as scratch). When `allow_patch` is true AND a
+    // patched encoding is strictly smaller, emits the patched form (0x80
+    // set); otherwise emits the plain block. Returns bytes written.
     static size_t EncodeBlock(uint32_t* values, size_t count, ByteOutput* out,
                               bool allow_patch = false);
 
@@ -112,9 +122,13 @@ public:
 // between writer and reader.
 class SpimiPforDecoder {
 public:
-    // Decodes a single block from `in` into `out`. `out` is resized to
-    // hold the block. Returns the number of values decoded.
-    static size_t DecodeBlockFromBytes(const std::vector<uint8_t>& in, std::vector<uint32_t>* out);
+    // Decodes a single block of exactly `count` values from `in` into
+    // `out`. The block does not self-describe its count (see header note),
+    // so the caller supplies it. `count` must be ≥ 1 and ≤ kBlockSize.
+    // `out` is resized to `count`. Returns the number of values decoded
+    // (== count).
+    static size_t DecodeBlockFromBytes(const std::vector<uint8_t>& in, size_t count,
+                                       std::vector<uint32_t>* out);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

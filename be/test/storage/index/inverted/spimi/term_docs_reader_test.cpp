@@ -37,15 +37,18 @@ struct WriteThenReadOneTerm {
     MemoryByteOutput frq;
     MemoryByteOutput prx;
     std::unique_ptr<FreqProxEncoder> enc;
+    int32_t skip_interval;
 
-    explicit WriteThenReadOneTerm(int32_t skip_interval = 16, bool omit_tfap = false) {
+    explicit WriteThenReadOneTerm(int32_t skip_interval = 16, bool omit_tfap = false)
+            : skip_interval(skip_interval) {
         enc = std::make_unique<FreqProxEncoder>(&frq, &prx, skip_interval,
                                                 /*max_skip_levels=*/4, omit_tfap);
     }
 
     std::vector<SpimiTermDocsReader::DocFreq> ReadDocs(
             const std::vector<std::pair<int32_t, int32_t>>& doc_freqs, bool has_prox) {
-        enc->StartTerm(static_cast<int32_t>(doc_freqs.size()));
+        const auto doc_freq = static_cast<int32_t>(doc_freqs.size());
+        enc->StartTerm(doc_freq);
         for (const auto& [doc_id, freq] : doc_freqs) {
             enc->StartDoc(doc_id, freq);
             for (int32_t p = 0; p < freq; ++p) {
@@ -54,8 +57,10 @@ struct WriteThenReadOneTerm {
             enc->FinishDoc();
         }
         (void)enc->FinishTerm();
-        return SpimiTermDocsReader::ReadTerm(frq.bytes(), static_cast<int32_t>(doc_freqs.size()),
-                                             has_prox);
+        // is_slim mirrors the writer's kDefault dispatch (df < skip_interval):
+        // such terms are the SLIM no-codec-byte layout.
+        const bool is_slim = doc_freq < skip_interval;
+        return SpimiTermDocsReader::ReadTerm(frq.bytes(), doc_freq, has_prox, is_slim);
     }
 };
 
@@ -161,6 +166,73 @@ TEST(SpimiTermDocsReaderTest, RandomizedRoundTripStress) {
                     << "trial=" << trial << " i=" << i;
         }
     }
+}
+
+// === SLIM kDefault .frq format (df < skip_interval) ========================
+// Proves the in-place format change: a df=1 kDefault term's external .frq block
+// is now just the per-doc VInt(s) — NO leading codec byte and NO VInt(doc_count)
+// — so the block is 1-3 bytes (the docid VInt) instead of the old 5. A term just
+// below the skip_interval is still slim and round-trips; a term at/above the
+// skip_interval takes the (unchanged) PFOR path with its codec byte preserved.
+
+TEST(SpimiTermDocsReaderTest, SlimDf1BlockHasNoCodecByteOrDocCount) {
+    // df=1, has_prox: the block is exactly the single doc-delta VInt. For doc 5,
+    // freq 1 ⇒ (5 << 1) | 1 = 11 (a single VInt byte). The OLD format prepended
+    // a codec byte (0x00) + a VInt(doc_count=1), making it 3 bytes; the SLIM
+    // format drops both.
+    WriteThenReadOneTerm fx(/*skip_interval=*/16);
+    const auto got = fx.ReadDocs({{5, 1}}, /*has_prox=*/true);
+    ASSERT_EQ(got.size(), 1U);
+    EXPECT_EQ(got[0], (std::pair<int32_t, int32_t> {5, 1}));
+
+    // Inspect the raw .frq bytes: exactly one byte, equal to the doc-delta VInt.
+    ASSERT_EQ(fx.frq.bytes().size(), 1U) << "SLIM df=1 block is a single doc-delta VInt";
+    EXPECT_EQ(fx.frq.bytes()[0], 11U) << "(5 << 1) | 1; no codec byte, no doc count";
+}
+
+TEST(SpimiTermDocsReaderTest, SlimBlockJustBelowSkipIntervalRoundTrips) {
+    // df = skip_interval - 1 is the largest df that still takes the SLIM kDefault
+    // path. It must round-trip exactly, and its block must NOT begin with any of
+    // the codec-mode bytes (its first byte is a doc-delta VInt).
+    constexpr int32_t kSkip = 16;
+    WriteThenReadOneTerm fx(kSkip);
+    std::vector<std::pair<int32_t, int32_t>> docs;
+    for (int32_t i = 0; i < kSkip - 1; ++i) {
+        docs.emplace_back(i * 3, 1 + (i % 2));
+    }
+    const auto got = fx.ReadDocs(docs, /*has_prox=*/true);
+    ASSERT_EQ(got.size(), docs.size());
+    for (size_t i = 0; i < got.size(); ++i) {
+        EXPECT_EQ(got[i], docs[i]) << "slim mismatch at i=" << i;
+    }
+    // First doc: delta 0, freq 1 ⇒ (0 << 1) | 1 = 1. Definitely not a PFOR
+    // (0x05) / windowed (0x06) / ZSTD (0x80) codec byte.
+    ASSERT_FALSE(fx.frq.bytes().empty());
+    EXPECT_EQ(fx.frq.bytes()[0], 1U);
+    EXPECT_NE(fx.frq.bytes()[0], FreqProxEncoder::kCodeModeSpimiPfor);
+    EXPECT_NE(fx.frq.bytes()[0], FreqProxEncoder::kCodeModeSpimiWindowed);
+    EXPECT_NE(fx.frq.bytes()[0], FreqProxEncoder::kCodeModeZstd);
+}
+
+TEST(SpimiTermDocsReaderTest, AtSkipIntervalKeepsPforCodecByte) {
+    // df == skip_interval takes the (UNCHANGED) PFOR path: its .frq block still
+    // begins with the kCodeModeSpimiPfor codec byte. The is_slim hint is false
+    // for such a term (df >= skip_interval), so ReadDocs reads via the
+    // codec-byte dispatch and round-trips exactly.
+    constexpr int32_t kSkip = 16;
+    WriteThenReadOneTerm fx(kSkip);
+    std::vector<std::pair<int32_t, int32_t>> docs;
+    for (int32_t i = 0; i < kSkip; ++i) {
+        docs.emplace_back(i * 2, 1 + (i % 3));
+    }
+    const auto got = fx.ReadDocs(docs, /*has_prox=*/true);
+    ASSERT_EQ(got.size(), docs.size());
+    for (size_t i = 0; i < got.size(); ++i) {
+        EXPECT_EQ(got[i], docs[i]) << "PFOR mismatch at i=" << i;
+    }
+    ASSERT_FALSE(fx.frq.bytes().empty());
+    EXPECT_EQ(fx.frq.bytes()[0], FreqProxEncoder::kCodeModeSpimiPfor)
+            << "df >= skip_interval keeps the codec byte (untouched by the slim change)";
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

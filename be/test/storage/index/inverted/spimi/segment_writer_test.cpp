@@ -133,13 +133,11 @@ TEST(SegmentWriterTest, SingleTermSingleDocRoundTrip) {
     EXPECT_EQ(emitted, 1);
     EXPECT_EQ(w.TermCount(), 1);
 
-    // .frq: codec prefix `[CodeMode::kDefault=0][VInt docCount=1]` (2 B)
-    // then one doc encoded as ((3 << 1) | 1) = 7 (1 B).
+    // .frq: SLIM kDefault block (df < skip_interval) — NO codec byte, NO
+    // VInt(doc_count). Just one doc encoded as ((3 << 1) | 1) = 7 (1 B).
     ByteReader fr(frq.bytes());
-    EXPECT_EQ(fr.Byte(), 0x00) << "CodeMode::kDefault prefix";
-    EXPECT_EQ(fr.ReadVInt(), 1) << "VInt docCount prefix";
     EXPECT_EQ(fr.ReadVInt(), 7);
-    EXPECT_EQ(fr.remaining(), 0U) << "df < skip_interval ⇒ no skip block";
+    EXPECT_EQ(fr.remaining(), 0U) << "df < skip_interval ⇒ slim block, no skip block";
 
     // .prx: one position delta 0 ⇒ single byte 0x00.
     ByteReader pr(prx.bytes());
@@ -183,22 +181,16 @@ TEST(SegmentWriterTest, MultipleTermsAreEmittedInSortedOrder) {
 
     EXPECT_EQ(emitted, 3);
 
-    // .frq: 3 terms emit sequentially, each prefixed with the codec
-    // pair `[CodeMode::kDefault=0][VInt docCount]`.
+    // .frq: 3 terms emit sequentially as SLIM kDefault blocks (df < skip_interval)
+    // — NO codec byte, NO VInt(doc_count). Just per-doc deltas back-to-back.
     //   apple (df=2): doc 0 freq 1 → 1; doc 2 (delta 2) freq 1 → 5.
     //   banana (df=1): doc 1 freq 1 → 3.
     //   cherry (df=1): doc 3 freq 1 → 7.
     ByteReader fr(frq.bytes());
-    EXPECT_EQ(fr.Byte(), 0x00);
-    EXPECT_EQ(fr.ReadVInt(), 2); // apple docCount
-    EXPECT_EQ(fr.ReadVInt(), 1);
-    EXPECT_EQ(fr.ReadVInt(), 5);
-    EXPECT_EQ(fr.Byte(), 0x00);
-    EXPECT_EQ(fr.ReadVInt(), 1); // banana docCount
-    EXPECT_EQ(fr.ReadVInt(), 3);
-    EXPECT_EQ(fr.Byte(), 0x00);
-    EXPECT_EQ(fr.ReadVInt(), 1); // cherry docCount
-    EXPECT_EQ(fr.ReadVInt(), 7);
+    EXPECT_EQ(fr.ReadVInt(), 1); // apple doc 0
+    EXPECT_EQ(fr.ReadVInt(), 5); // apple doc 2
+    EXPECT_EQ(fr.ReadVInt(), 3); // banana doc 1
+    EXPECT_EQ(fr.ReadVInt(), 7); // cherry doc 3
     EXPECT_EQ(fr.remaining(), 0U);
 }
 
@@ -217,12 +209,10 @@ TEST(SegmentWriterTest, MultiPositionDocsPreserveOrder) {
     w.Emit(buffer, 0);
     w.Close();
 
-    // .frq: one term "the" with codec prefix `[0][VInt docCount=2]`,
-    // then doc 5 freq 3 → (5<<1)=10 then freq=3; doc 8 delta=3 freq 1 →
-    // (3<<1)|1 = 7.
+    // .frq: one term "the" as a SLIM kDefault block (df=2 < skip_interval) —
+    // NO codec byte, NO VInt(doc_count). doc 5 freq 3 → (5<<1)=10 then freq=3;
+    // doc 8 delta=3 freq 1 → (3<<1)|1 = 7.
     ByteReader fr(frq.bytes());
-    EXPECT_EQ(fr.Byte(), 0x00);
-    EXPECT_EQ(fr.ReadVInt(), 2); // docCount
     EXPECT_EQ(fr.ReadVInt(), 10);
     EXPECT_EQ(fr.ReadVInt(), 3);
     EXPECT_EQ(fr.ReadVInt(), 7);

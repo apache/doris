@@ -221,6 +221,10 @@ void DecodeEntry(ByteCursor& cur, int32_t skip_interval, bool inline_format,
     if (state.info.doc_freq < 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis: negative doc_freq");
     }
+    // Slim kDefault hint: a term with df < skip_interval was written via the
+    // SLIM kDefault path (no codec byte, no doc_count). Mirrors the writer's
+    // exact dispatch; applies to both inline and external kDefault terms.
+    state.info.is_slim = state.info.doc_freq < skip_interval;
 
     if (inlined) {
         // Inline entry: the freq/prox pointer deltas are OMITTED, so the

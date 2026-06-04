@@ -74,16 +74,13 @@ TEST(FreqProxEncoderTest, SingleDocSingleFreqEncodesAsTaggedVInt) {
     EXPECT_EQ(info.skip_offset, 0) << "doc_freq < skip_interval ⇒ no skip data emitted";
 
     ByteReader fr(frq.bytes());
-    // Each term's .frq block opens with a 2-byte codec prefix produced by
-    // Doris's CLucene fork (`CodeMode` byte + VInt doc count); see
-    // contrib/clucene/src/core/CLucene/index/SDocumentWriter.cpp
-    // appendPostings line ~1330. SPIMI mirrors the same prefix so the
-    // production reader picks the matching decode branch.
-    EXPECT_EQ(fr.Byte(), 0x00) << "CodeMode::kDefault prefix";
-    EXPECT_EQ(fr.ReadVInt(), 1) << "doc count VInt prefix";
+    // SLIM kDefault layout (df < skip_interval): the per-term .frq block is pure
+    // per-doc VInt deltas — NO leading codec byte and NO VInt(doc_count). The
+    // reader recovers doc_count from .tis (doc_freq) and decides slim from
+    // df < skip_interval, mirroring the writer's dispatch exactly.
     // Single doc: doc_delta = 5-0 = 5; freq == 1 ⇒ encoded as (5 << 1) | 1 = 11.
     EXPECT_EQ(fr.ReadVInt(), 11);
-    EXPECT_EQ(fr.remaining(), 0U) << "No skip data appended for short term";
+    EXPECT_EQ(fr.remaining(), 0U) << "No codec byte, no doc count, no skip data (df=1)";
 
     ByteReader pr(prx.bytes());
     EXPECT_EQ(pr.Byte(), 0x00) << "prox block raw-mode header byte";
@@ -105,8 +102,7 @@ TEST(FreqProxEncoderTest, MultiFreqDocEncodesAsTwoVInts) {
     (void)e.FinishTerm();
 
     ByteReader fr(frq.bytes());
-    EXPECT_EQ(fr.Byte(), 0x00) << "CodeMode::kDefault prefix";
-    EXPECT_EQ(fr.ReadVInt(), 1) << "doc count VInt prefix";
+    // SLIM kDefault layout: no codec byte, no doc count — just per-doc deltas.
     EXPECT_EQ(fr.ReadVInt(), 8) << "doc_delta=4 << 1 = 8 (LSB clear ⇒ freq follows)";
     EXPECT_EQ(fr.ReadVInt(), 3) << "freq";
 
@@ -141,8 +137,7 @@ TEST(FreqProxEncoderTest, MultipleDocsWithDocDeltas) {
     EXPECT_EQ(info.doc_freq, 3);
 
     ByteReader fr(frq.bytes());
-    EXPECT_EQ(fr.Byte(), 0x00) << "CodeMode::kDefault prefix";
-    EXPECT_EQ(fr.ReadVInt(), 3) << "doc count VInt prefix";
+    // SLIM kDefault layout: no codec byte, no doc count — just per-doc deltas.
     EXPECT_EQ(fr.ReadVInt(), (2 << 1) | 1); // doc 2, freq 1 (tagged)
     EXPECT_EQ(fr.ReadVInt(), (3 << 1));     // doc delta 3, freq 2 follows
     EXPECT_EQ(fr.ReadVInt(), 2);            // freq
@@ -243,9 +238,10 @@ TEST(FreqProxEncoderTest, MultipleTermsReuseTheEncoder) {
     const TermInfo b = e.FinishTerm();
     EXPECT_GT(b.freq_pointer, a.freq_pointer);
     EXPECT_GT(b.prox_pointer, a.prox_pointer);
-    // Term B occupies its own [CodeMode byte][VInt doc count][doc delta]
-    // block — 3 bytes total for one doc — at the tail of the .frq stream.
-    EXPECT_EQ(b.freq_pointer, static_cast<int64_t>(frq.bytes().size() - 3));
+    // Term B occupies its own SLIM kDefault block — just the single doc-delta
+    // VInt (no codec byte, no doc count) — 1 byte total for one doc — at the
+    // tail of the .frq stream. doc 3, freq 1 ⇒ (3 << 1) | 1 = 7 (one byte).
+    EXPECT_EQ(b.freq_pointer, static_cast<int64_t>(frq.bytes().size() - 1));
 }
 
 TEST(FreqProxEncoderTest, SkipOffsetMatchesFrqByteLayout) {
@@ -286,9 +282,11 @@ TEST(FreqProxEncoderTest, AdaptiveGateSmallDfStaysLegacy) {
     (void)e.FinishTerm();
 
     ByteReader fr(frq.bytes());
-    EXPECT_EQ(fr.Byte(), FreqProxEncoder::kCodeModeDefault)
-            << "df=1 must stay on the legacy compact VInt path under a "
-               "windowed-capable encoder";
+    // df=1 stays on the SLIM kDefault path (no codec byte) even under a
+    // windowed-capable encoder. The whole .frq block is just the single
+    // doc-delta VInt: doc 5, freq 1 ⇒ (5 << 1) | 1 = 11 (one byte).
+    EXPECT_EQ(fr.ReadVInt(), 11) << "df=1 SLIM kDefault block is a bare doc-delta VInt";
+    EXPECT_EQ(fr.remaining(), 0U) << "no codec byte / doc count / skip data for df=1";
     ByteReader pr(prx.bytes());
     EXPECT_EQ(pr.Byte(), FreqProxEncoder::kProxRaw) << "legacy term ⇒ raw prox header";
 }

@@ -74,8 +74,13 @@ inline size_t VIntLen(uint32_t v) {
 
 // PFOR-encodes `vals[off..off+count)` as a run of <=128-value sub-blocks into
 // `out`, returning the byte length written. Concatenating the runs of two
-// adjacent units yields one valid longer PFOR run (each sub-block self-describes
-// its count), which is what makes part-wise window composition decode correctly.
+// adjacent units yields one valid longer PFOR run: the sub-block count is
+// IMPLICIT (the decoder derives n = min(kBlockSize, run_total - collected)), so
+// composition decodes correctly only because every unit is exactly kUnitDocs
+// (256 = 2*kBlockSize) docs — a whole number of full 128-value blocks — except
+// the term's final unit, whose remainder becomes the run's single partial
+// (last) block. Block boundaries therefore always land on 128 within the
+// concatenated run, which is what makes part-wise window composition decode.
 size_t EncodePforPart(const std::vector<uint32_t>& vals, size_t off, size_t count, bool allow_patch,
                       std::vector<uint8_t>& out) {
     const size_t start = out.size();
@@ -284,15 +289,25 @@ size_t MeasureAndCacheFrq(std::vector<Window>& windows, ZSTD_CCtx* cctx, faststr
             w.cached = true;
         }
     }
-    size_t payload_offset = 0;
+    // SLIM skip table (3 VInts/window): win_doc_count is DROPPED (reader derives
+    // it = min(W, remaining_docs) since every non-last window is exactly W docs
+    // and only the last is a partial unit), win_min_docid is delta-coded vs the
+    // previous window's max_docid, and win_byte_offset is delta-coded vs the
+    // previous window's offset (== the previous window's payload size).
+    int32_t prev_max_docid = 0;
+    size_t prev_payload_size = 0;
     for (const auto& w : windows) {
-        total += VIntLen(static_cast<uint32_t>(w.doc_count));
-        total += VIntLen(static_cast<uint32_t>(payload_offset));
-        total += VIntLen(static_cast<uint32_t>(w.min_docid));
+        // win_byte_offset delta (prev_payload_size; 0 for the first window).
+        total += VIntLen(static_cast<uint32_t>(prev_payload_size));
+        // win_min_docid delta vs previous window's max_docid (>= 0).
+        total += VIntLen(static_cast<uint32_t>(w.min_docid - prev_max_docid));
         total += VIntLen(static_cast<uint32_t>(w.max_docid - w.min_docid));
-        payload_offset += w.frq_payload.size();
+        prev_max_docid = w.max_docid;
+        prev_payload_size = w.frq_payload.size();
     }
-    total += payload_offset;
+    for (const auto& w : windows) {
+        total += w.frq_payload.size();
+    }
     return total;
 }
 
@@ -307,17 +322,25 @@ void EmitFrqCached(const std::vector<Window>& windows, uint8_t inner_mode, int32
     out->WriteByte(inner_mode);
     out->WriteVInt(W);
     out->WriteVInt(static_cast<int32_t>(windows.size()));
+    // SLIM skip table (3 VInts/window): drop win_doc_count (reader derives
+    // = min(W, remaining_docs)), delta-code win_min_docid vs the previous
+    // window's max_docid, and delta-code win_byte_offset vs the previous
+    // window's offset (== the previous window's payload size). The reader
+    // running-sums both deltas back to absolute values.
     size_t payload_offset = 0;
+    int32_t prev_max_docid = 0;
+    size_t prev_payload_size = 0;
     for (const auto& win : windows) {
         DCHECK(win.cached) << "EmitFrqCached requires MeasureAndCacheFrq to have run";
         // win_byte_offset is a 32-bit VInt: a single term's .frq block stays far
         // below 2 GiB (arena byte cap), so the cast never loses bits.
         DCHECK_LE(payload_offset, static_cast<size_t>(INT32_MAX));
-        out->WriteVInt(win.doc_count);
-        out->WriteVInt(static_cast<int32_t>(payload_offset));
-        out->WriteVInt(win.min_docid);
+        out->WriteVInt(static_cast<int32_t>(prev_payload_size)); // delta offset
+        out->WriteVInt(win.min_docid - prev_max_docid);          // delta min_docid
         out->WriteVInt(win.max_docid - win.min_docid);
         payload_offset += win.frq_payload.size();
+        prev_max_docid = win.max_docid;
+        prev_payload_size = win.frq_payload.size();
     }
     for (const auto& win : windows) {
         out->WriteBytes(win.frq_payload.data(), win.frq_payload.size());
@@ -464,7 +487,7 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
         if (inner_pfor) {
             u.dd_off = frq_parts.size();
             u.dd_len = EncodePforPart(doc_deltas, static_cast<size_t>(doc_start), count,
-                                      /*allow_patch=*/false, frq_parts);
+                                      /*allow_patch=*/true, frq_parts);
             if (has_prox) {
                 u.fq_off = frq_parts.size();
                 u.fq_len = EncodePforPart(freqs, static_cast<size_t>(doc_start), count,

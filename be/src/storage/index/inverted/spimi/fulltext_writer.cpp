@@ -70,8 +70,9 @@ int64_t SpimiFulltextWriter::Finish() {
     DCHECK(!_finished);
     _finished = true;
     // Direct single-flush path: this IS the final segment (no spill/merge), so
-    // inline small terms (V4 only; EmitSegment gates on use_windowed). The
-    // spill path passes inline_small_terms=false for its transient segments.
+    // inline small terms (V4 only; EmitSegment gates on use_windowed). The spill
+    // path now ALSO inlines its transient segments, in lockstep with the final
+    // segment, so a single-spill byte-copy merge yields an inlined result.
     _term_count =
             EmitSegment(_buffer, _sink, _segment_name, _field_name, _doc_count, _index_version,
                         /*omit_term_freq_and_positions=*/false, /*omit_norms=*/false,

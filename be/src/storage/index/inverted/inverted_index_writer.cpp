@@ -200,10 +200,16 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     field_config |= _should_analyzer ? int32_t(lucene::document::Field::INDEX_TOKENIZED)
                                      : int32_t(lucene::document::Field::INDEX_UNTOKENIZED);
     *field = new lucene::document::Field(_field_name.c_str(), field_config);
-    (*field)->setOmitTermFreqAndPositions(
+    const bool omit_term_freq_and_positions =
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
-              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    if (_should_analyzer) {
+              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+    (*field)->setOmitTermFreqAndPositions(omit_term_freq_and_positions);
+    // Norms (length normalization) are only consumed by relevance scoring, which
+    // needs term frequencies. A DOCS_ONLY field (omit_term_freq_and_positions,
+    // i.e. support_phrase off) can never be scored, so its per-doc norms are pure
+    // dead weight on disk -- the SPIMI/V4 path omits them unconditionally. Keep
+    // norms only for analyzed fields that still carry freq+positions.
+    if (_should_analyzer && !omit_term_freq_and_positions) {
         (*field)->setOmitNorms(false);
     }
 
@@ -284,8 +290,14 @@ Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
     }
     if (_is_v4) {
         const std::string field_name_utf8(_field_name.begin(), _field_name.end());
+        // Same flag Finish() passes via SpimiFinishConfig (see ~L997). Captured
+        // here so spill segments omit freq+positions in lockstep with the final
+        // segment when the field has no phrase support.
+        const bool omit_term_freq_and_positions =
+                !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
+                  INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         _spimi_writer = std::make_unique<segment_v2::inverted_index::spimi::SpimiIndexWriter>(
-                field_name_utf8, /*is_v4=*/true);
+                field_name_utf8, /*is_v4=*/true, omit_term_freq_and_positions);
         _spimi_tee = std::make_unique<segment_v2::inverted_index::spimi::TeeTokenStream>();
         // Per-writer backstop: cap a single column writer at min(2GiB,
         // mem_limit/20) of SPIMI buffer before forcing a spill, independent of

@@ -42,10 +42,8 @@ using frq_internal::ReadWindowPayload;
 
 } // namespace
 
-std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const uint8_t* frq_data,
-                                                                        size_t frq_length,
-                                                                        int32_t doc_freq,
-                                                                        bool has_prox) {
+std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(
+        const uint8_t* frq_data, size_t frq_length, int32_t doc_freq, bool has_prox, bool is_slim) {
     // Untrusted-byte invariants. `doc_freq` is .tis-validated by the
     // upper layer at this point but defence-in-depth — a negative or
     // zero value on a corrupt segment must not silently produce an
@@ -60,34 +58,68 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
     }
 
     ByteStream cur(frq_data, frq_length);
+
+    if (is_slim) {
+        // SLIM kDefault block (df < skip_interval): NO codec byte, NO
+        // VInt(doc_count). The block is exactly `doc_freq` per-doc VInt deltas.
+        // doc_freq is authoritative from .tis, so the loop never over-reads.
+        std::vector<DocFreq> out;
+        constexpr size_t kSlimReserveCap = 1U << 24;
+        out.reserve(std::min(static_cast<size_t>(doc_freq), kSlimReserveCap));
+        int32_t last_doc = 0;
+        for (int32_t i = 0; i < doc_freq; ++i) {
+            if (has_prox) {
+                const auto code = static_cast<uint32_t>(cur.ReadVInt());
+                last_doc += static_cast<int32_t>(code >> 1U);
+                const int32_t freq = ((code & 1U) != 0) ? 1 : cur.ReadVInt();
+                out.emplace_back(last_doc, freq);
+            } else {
+                last_doc += static_cast<int32_t>(cur.ReadVInt());
+                out.emplace_back(last_doc, 1);
+            }
+        }
+        return out;
+    }
+
     const uint8_t mode = cur.ReadByte();
     if (mode == FreqProxEncoder::kCodeModeZstd) {
-        // Whole-term .frq was ZSTD-compressed: decompress, then decode the
-        // inner block (which begins with its own kDefault/kPfor mode byte).
+        // Whole-term .frq was ZSTD-compressed: decompress, then decode the inner
+        // block. Only the PFOR path (df >= skip_interval) is ever ZSTD-wrapped,
+        // so the inner block always begins with its kCodeModeSpimiPfor byte —
+        // never a SLIM kDefault block (which is never wrapped). is_slim stays
+        // false through the recursion so the inner codec-byte dispatch runs.
         const std::vector<uint8_t> raw = DecompressZstdFrqBlock(cur);
-        return ReadTerm(raw.data(), raw.size(), doc_freq, has_prox);
+        return ReadTerm(raw.data(), raw.size(), doc_freq, has_prox, /*is_slim=*/false);
     }
     if (mode == FreqProxEncoder::kCodeModeSpimiWindowed) {
         // V4 windowed block: inner_mode, W, num_windows, per-window skip table,
         // then per-window payloads. Decode windows in order, threading last_doc
         // across them, to materialize the whole term.
         const uint8_t inner_mode = cur.ReadByte();
-        (void)cur.ReadVInt(); // W (not needed for whole-term sequential decode)
+        const int32_t W = cur.ReadVInt(); // window doc-width; derives win_doc_count
+        if (W <= 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SPIMI .frq windowed: non-positive W");
+        }
         const int32_t num_windows = cur.ReadVInt();
         if (num_windows <= 0 || num_windows > doc_freq) [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .frq windowed: num_windows out of range");
         }
+        // SLIM skip table (3 VInts/window): win_doc_count is DERIVED, not stored.
+        // Every non-last window is exactly W docs; only the term's last window may
+        // be a partial unit, so win_doc_count = min(W, remaining). We only need the
+        // counts here (whole-term sequential decode), so the delta-coded offsets /
+        // min_docids are stepped over.
         std::vector<int32_t> win_doc_count(static_cast<size_t>(num_windows));
         int64_t total = 0;
         for (int32_t w = 0; w < num_windows; ++w) {
-            win_doc_count[static_cast<size_t>(w)] = cur.ReadVInt();
-            (void)cur.ReadVInt(); // win_byte_offset (range-GET only; unused here)
-            (void)cur.ReadVInt(); // win_min_docid
+            (void)cur.ReadVInt(); // win_byte_offset_delta (range-GET only; unused here)
+            (void)cur.ReadVInt(); // win_min_docid_delta
             (void)cur.ReadVInt(); // win_max_docid_delta
-            const int32_t c = win_doc_count[static_cast<size_t>(w)];
+            const int32_t c = static_cast<int32_t>(std::min<int64_t>(W, doc_freq - total));
             if (c <= 0 || c > doc_freq) [[unlikely]] {
-                SPIMI_THROW_CORRUPT("SPIMI .frq windowed: win_doc_count out of range");
+                SPIMI_THROW_CORRUPT("SPIMI .frq windowed: derived win_doc_count out of range");
             }
+            win_doc_count[static_cast<size_t>(w)] = c;
             total += c;
         }
         if (total != doc_freq) [[unlikely]] {
@@ -141,35 +173,16 @@ std::vector<SpimiTermDocsReader::DocFreq> SpimiTermDocsReader::ReadTerm(const ui
     constexpr size_t kSafeReserveCap = 1U << 24;
     out.reserve(std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
 
-    if (mode == FreqProxEncoder::kCodeModeDefault) {
-        // Byte-equal to CLucene's kDefault block. The leading
-        // `VInt(docCount)` redundantly encodes doc_freq — assert it
-        // matches the caller-provided value so a stale .tis entry
-        // can't silently corrupt the read.
-        const int32_t recorded = cur.ReadVInt();
-        if (recorded != doc_freq) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .frq kDefault VInt(docCount) disagrees with .tis docFreq");
-        }
-        int32_t last_doc = 0;
-        for (int32_t i = 0; i < doc_freq; ++i) {
-            if (has_prox) {
-                const auto code = static_cast<uint32_t>(cur.ReadVInt());
-                last_doc += static_cast<int32_t>(code >> 1U);
-                const int32_t freq = ((code & 1U) != 0) ? 1 : cur.ReadVInt();
-                out.emplace_back(last_doc, freq);
-            } else {
-                last_doc += static_cast<int32_t>(cur.ReadVInt());
-                out.emplace_back(last_doc, 1);
-            }
-        }
-        return out;
-    }
-
+    // NOTE: a SLIM kDefault top-level block (df < skip_interval) carries NO
+    // codec byte and is handled by the is_slim fast path above — it never
+    // reaches this codec-byte dispatch. A bare kCodeModeDefault top-level byte
+    // is therefore no longer produced; only PFOR / windowed / ZSTD remain.
     if (mode == FreqProxEncoder::kCodeModeSpimiPfor) {
         // Phase 35 PFOR block. Consume doc_freq doc_delta values,
         // then — if has_prox — another doc_freq freqs. The sub-block
-        // boundaries are self-describing (each carries VInt(n)) so we
-        // simply pull until count is met.
+        // count is IMPLICIT (kBlockSize per block except the last);
+        // DecodePforRun derives it from the run total and pulls until
+        // count is met.
         const auto doc_deltas = DecodePforRun(cur, doc_freq);
         std::vector<uint32_t> freqs;
         if (has_prox) {

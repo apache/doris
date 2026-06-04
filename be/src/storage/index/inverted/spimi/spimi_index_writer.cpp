@@ -55,10 +55,13 @@ SpimiIndexWriter::OutputStreams SpimiIndexWriter::CreateOutputStreams(DorisFSDir
     return s;
 }
 
-SpimiIndexWriter::SpimiIndexWriter(std::string field_name, bool is_v4)
+SpimiIndexWriter::SpimiIndexWriter(std::string field_name, bool is_v4,
+                                   bool omit_term_freq_and_positions)
         : _field_name(std::move(field_name)),
+          _omit_tfap(omit_term_freq_and_positions),
           _buffer(std::make_unique<SpimiPostingBuffer>()),
-          _spill_manager(std::make_unique<SpillManager>(_field_name, is_v4)) {}
+          _spill_manager(std::make_unique<SpillManager>(_field_name, is_v4, /*tmp_dir=*/"",
+                                                        omit_term_freq_and_positions)) {}
 
 void SpimiIndexWriter::AppendToken(std::string_view term, uint32_t doc_id, uint32_t position) {
     DCHECK(_buffer != nullptr);
@@ -197,6 +200,16 @@ void SpimiIndexWriter::Finish(DorisFSDirectory* dir, const SpimiFinishConfig& co
         _buffer.reset();
         return;
     }
+
+    // Any spill segments were written with the omit flag captured at
+    // construction (_omit_tfap). The final emit/merge below MUST use the same
+    // flag, or the k-way merge would decode spill .frq/.prx with the wrong
+    // has_prox and corrupt the result. Both derive from the field's
+    // support_phrase property, so they always agree in production; crash loud in
+    // debug if a future caller threads them from different sources.
+    DCHECK_EQ(config.omit_term_freq_and_positions, _omit_tfap)
+            << "SPIMI omit_term_freq_and_positions drift: spill=" << _omit_tfap
+            << " final=" << config.omit_term_freq_and_positions;
 
     const FileNames names = GetFileNames(config.is_v4);
     OutputStreams streams;

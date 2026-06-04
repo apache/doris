@@ -109,12 +109,15 @@ private:
 };
 
 // Decodes consecutive PFOR sub-blocks from `cur` until `count` total
-// values have been recovered. Each sub-block is `VInt(n) +
-// byte(width) + bitpacked` per `SpimiPforEncoder::EncodeBlock`. The
-// reader reconstitutes the on-wire bytes for one sub-block and hands
-// them to `SpimiPforDecoder::DecodeBlockFromBytes`, which uses
-// Arrow's `BitReader` for the actual bit unpacking — same primitive
-// the encoder uses so the bit-width interpretation cannot drift.
+// values have been recovered. Each sub-block is `byte(width) +
+// bitpacked` (+ optional patch trailer) per `SpimiPforEncoder::
+// EncodeBlock`. The block does NOT store its value count: the encoder
+// emits kBlockSize values per block except the final one, so the decoder
+// derives `n = min(kBlockSize, count - collected)` here. The reader
+// reconstitutes the on-wire bytes for one sub-block and hands them (with
+// `n`) to `SpimiPforDecoder::DecodeBlockFromBytes`, which uses Arrow's
+// `BitReader` for the actual bit unpacking — same primitive the encoder
+// uses so the bit-width interpretation cannot drift.
 inline std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
     std::vector<uint32_t> values;
     // Cap pre-reserve against a sane upper bound to defeat the
@@ -125,22 +128,17 @@ inline std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
     values.reserve(std::min(static_cast<size_t>(count), kSafeReserveCap));
     int32_t collected = 0;
     while (collected < count) {
+        // Block value count is implicit: kBlockSize per block except the
+        // last. `count` (window/term doc_count) is from .tis doc_freq, which
+        // the upper layer already validated, so this is always in [1, 128].
+        const int32_t n = static_cast<int32_t>(
+                std::min<int64_t>(SpimiPforEncoder::kBlockSize, count - collected));
         const size_t mark = cur.pos();
-        const int32_t n = cur.ReadVInt();
-        // Bound `n` against `count` so a malformed PFOR header
-        // can't make us loop forever or allocate an astronomical
-        // sub-block buffer. count itself is from .tis doc_freq
-        // which the upper layer already validated as a sensible
-        // bound (≤ max_doc per the segment manifest).
-        if (n <= 0 || n > count - collected) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block count out of range");
-        }
         const uint8_t raw_width = cur.ReadByte();
         const bool patched = (raw_width & 0x80U) != 0U; // patched-PFOR signal bit
         const uint8_t width = raw_width & 0x3FU;
-        // Validate width BEFORE the reserve so a crafted width=63 +
-        // n=16M can't allocate ~126 MB before rejection. Encoder
-        // emits width ∈ [1, 32]; decoder accepts the same range.
+        // Validate width BEFORE the reserve. Encoder emits width ∈ [1, 32];
+        // decoder accepts the same range.
         if (width == 0 || width > 32U) [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .frq invalid PFOR bit width");
         }
@@ -148,19 +146,8 @@ inline std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
         std::vector<uint8_t> block;
         block.reserve((cur.pos() - mark) + bit_bytes);
         // Reconstitute the on-wire bytes [mark, cur.pos() + bit_bytes).
-        // The VInt(n) + byte(width) bytes have already been consumed by
-        // cur above, so re-emit them in order matching what the
-        // encoder wrote.
-        {
-            auto vn = static_cast<uint32_t>(n);
-            while ((vn & ~0x7FU) != 0) {
-                block.push_back(static_cast<uint8_t>((vn & 0x7FU) | 0x80U));
-                vn >>= 7U;
-            }
-            block.push_back(static_cast<uint8_t>(vn));
-        }
-        // Preserve the UNMASKED width byte so DecodeBlockFromBytes sees
-        // the patch flag and parses the trailer.
+        // Preserve the UNMASKED width byte so DecodeBlockFromBytes sees the
+        // patch flag and parses the trailer.
         block.push_back(raw_width);
         cur.ReadInto(&block, bit_bytes);
         if (patched) {
@@ -184,7 +171,7 @@ inline std::vector<uint32_t> DecodePforRun(ByteStream& cur, int32_t count) {
             cur.ReadInto(&block, high_bytes);
         }
         std::vector<uint32_t> sub;
-        SpimiPforDecoder::DecodeBlockFromBytes(block, &sub);
+        SpimiPforDecoder::DecodeBlockFromBytes(block, static_cast<size_t>(n), &sub);
         if (sub.size() != static_cast<size_t>(n)) [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block decoded count mismatch");
         }

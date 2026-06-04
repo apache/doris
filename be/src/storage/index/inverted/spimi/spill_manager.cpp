@@ -58,8 +58,12 @@ std::string ResolveBaseTmpDir() {
 }
 } // namespace
 
-SpillManager::SpillManager(std::string field_name, bool is_v4, std::string tmp_dir)
-        : _field_name(std::move(field_name)), _is_v4(is_v4), _tmp_dir(std::move(tmp_dir)) {
+SpillManager::SpillManager(std::string field_name, bool is_v4, std::string tmp_dir,
+                           bool omit_term_freq_and_positions)
+        : _field_name(std::move(field_name)),
+          _is_v4(is_v4),
+          _omit_tfap(omit_term_freq_and_positions),
+          _tmp_dir(std::move(tmp_dir)) {
     if (_tmp_dir.empty()) {
         // Process-unique subdir: <base>/spimi_spill_<pid>_<counter>.
         const uint64_t uniq = g_spill_dir_counter.fetch_add(1, std::memory_order_relaxed);
@@ -166,12 +170,36 @@ int64_t SpillManager::FlushBuffer(SpimiPostingBuffer& buffer, int32_t doc_count)
     // spills keep V1 as before. The encoder is UNTOUCHED, and FileByteOutput's
     // FilePointer() returns the same running byte total MemoryByteOutput would,
     // so the final .idx remains byte-identical.
+    //
+    // inline_small_terms ALSO moves in lockstep with the final segment (was
+    // hardcoded false). The common single-spill Finish dispatches to
+    // SegmentMerger::MergeSingleInput, which byte-copies the spill's .tis/.frq/
+    // .prx VERBATIM. So whatever inline layout the spill is written with is the
+    // layout of the final segment. With inline_small_terms=false the small terms
+    // sat in the external .frq, costing a per-term GET on read; writing the spill
+    // inlined (V4 only; gated on use_windowed inside EmitSegment) relocates those
+    // small terms' frq+prx bytes into the .tis so the byte-copy yields an inlined
+    // final segment (TermInfo.inlined=true, external .frq carries none of their
+    // bytes). The multi-input k-way merge re-frames every term and re-inlines on
+    // its own use_windowed gate, and its process_input already decodes inlined
+    // inputs (entry.info.inlined branch), so multi-spill merges stay correct too.
+    // The reader's eager+inline path (query_term_docs.cpp) already handles
+    // inlined small terms, since direct single-flush and k-way merge already
+    // inline.
+    //
+    // omit_term_freq_and_positions ALSO moves in lockstep (was hardcoded false):
+    // when the field has support_phrase off, the spill drops freq+positions just
+    // like the final segment. This keeps the spill .frq/.prx format consistent
+    // with the has_prox=!omit the k-way merge decodes with (a mismatch would
+    // corrupt a spilled phrase-off field), and avoids encoding+spilling
+    // positions that the final merge would only discard.
     const int32_t index_version =
             _is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV1;
     reg.term_count = SpimiFulltextWriter::EmitSegment(buffer, sink, reg.segment_name, _field_name,
-                                                      doc_count, index_version,
-                                                      /*omit_term_freq_and_positions=*/false,
-                                                      /*omit_norms=*/true);
+                                                      doc_count, index_version, _omit_tfap,
+                                                      /*omit_norms=*/true,
+                                                      /*out_byte_counts=*/nullptr,
+                                                      /*inline_small_terms=*/true);
 
     // Flush each stream's residual staging buffer (FileByteOutput::Finish
     // returns the first IO error seen), record its final length, and close the

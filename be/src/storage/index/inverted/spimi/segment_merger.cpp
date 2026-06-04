@@ -42,7 +42,10 @@ namespace {
 //
 // Safe when the single input's encoding matches the output format:
 //   - doc_offset is 0 (always true for the first/only input)
-//   - omit_term_freq_and_positions is false (spill always has positions)
+//   - omit_term_freq_and_positions is false: the Merge() dispatch only routes
+//     position-bearing spills here. A phrase-off field's spills are written
+//     omit=true (lockstep with the final segment) and take the decode/re-encode
+//     path instead, so the byte-copy never sees an omit-mismatched input.
 //   - omit_norms is true (spill always omits norms)
 // This covers the V4 (pure SPIMI) path.
 int64_t MergeSingleInput(const SegmentMerger::Input& input, const SpimiSegmentSink& sink,
@@ -151,12 +154,13 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         return 0;
     }
 
-    // Single-input fast path: when there is exactly one input and
-    // the output format matches the spill format (has positions,
-    // omits norms — always true for V4), copy posting bytes
-    // directly and rebuild only metadata.  This eliminates the
-    // decode/re-encode cycle for the common case where the buffer
-    // was flushed exactly once before finish.
+    // Single-input fast path: when there is exactly one input and the output
+    // format matches the spill format (positions present and norms omitted),
+    // copy posting bytes directly and rebuild only metadata. This eliminates the
+    // decode/re-encode cycle for the common case where the buffer was flushed
+    // exactly once before finish. The !omit guard keeps it to phrase-on fields:
+    // a phrase-off field's single spill (omit=true, lockstep with the output)
+    // falls through to the decode/re-encode merge below, which honors omit.
     if (inputs.size() == 1 && !omit_term_freq_and_positions && omit_norms) {
         return MergeSingleInput(inputs[0], sink, segment_name, field_name, total_doc_count,
                                 index_version, omit_term_freq_and_positions, omit_norms);
@@ -229,9 +233,10 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
             if (entry.info.inlined) {
                 // Inline input term: the posting bytes live in the .tis entry
                 // (TermEnum recorded spans into the input's .tis buffer).
-                // Decode them directly — no .frq/.prx offset arithmetic. This
-                // path is exercised only if a spill segment is written inlined;
-                // spills are currently non-inlined, so this is defensive.
+                // Decode them directly — no .frq/.prx offset arithmetic. V4
+                // spills are now written inlined (lockstep with the final
+                // segment), so multi-spill merges hit this branch for every
+                // small term.
                 frq_ptr = entry.info.inline_frq;
                 frq_len = entry.info.inline_frq_len;
                 prx_ptr = entry.info.inline_prx;
@@ -255,8 +260,9 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
                 prx_len = range.second;
             }
 
-            auto docs = PostingDecoder::Decode(frq_ptr, frq_len, prx_ptr, prx_len,
-                                               entry.info.doc_freq, !omit_term_freq_and_positions);
+            auto docs =
+                    PostingDecoder::Decode(frq_ptr, frq_len, prx_ptr, prx_len, entry.info.doc_freq,
+                                           !omit_term_freq_and_positions, entry.info.is_slim);
 
             // Apply doc_id offset and append.
             for (auto& d : docs) {

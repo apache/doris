@@ -128,9 +128,12 @@ public:
     // on-disk segment matches what SPIMI intended to write.
     // `inline_small_terms` (V4 only): inline small terms' full posting bytes
     // into the .tis (zero extra read GET). The final / single-flush segment
-    // enables it; transient spill segments leave it false (their multi-input
-    // merge re-decodes from external pointers, and they are short-lived temp
-    // files where inlining loses little).
+    // enables it. V4 spill segments ALSO enable it (lockstep with the final
+    // segment): the common single-spill Finish dispatches to
+    // SegmentMerger::MergeSingleInput, which byte-copies the spill's .tis/.frq/
+    // .prx verbatim, so an inlined spill yields an inlined final segment. The
+    // multi-input k-way merge re-frames and re-inlines every term itself, and
+    // its process_input already decodes inlined inputs.
     static int64_t EmitSegment(SpimiPostingBuffer& buffer, const SpimiSegmentSink& sink,
                                const std::string& segment_name, const std::string& field_name,
                                int32_t doc_count,

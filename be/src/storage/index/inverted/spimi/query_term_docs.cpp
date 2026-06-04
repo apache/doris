@@ -145,13 +145,17 @@ void SpimiQueryTermDocs::LoadDocsForTerm(int32_t field_number, const TermInfo& i
     if (info.inlined) {
         const uint8_t* fdata = info.inline_frq;
         const size_t flen = info.inline_frq_len;
-        if (flen > 0 && may_use_lazy_windowed() &&
+        // A SLIM kDefault block (df < skip_interval) has no windowed header, so
+        // never hand it to the lazy window reader (its first byte is a doc-delta
+        // VInt, not a mode byte). Only windowed terms (df >= skip_interval) are
+        // lazy-eligible.
+        if (!info.is_slim && flen > 0 && may_use_lazy_windowed() &&
             _lazy_reader.Open(fdata, flen, info.doc_freq, has_prox)) {
             _lazy = true;
             return;
         }
-        // Eager fallback over the inline bytes (legacy / ZSTD-wrapped block).
-        _docs = SpimiTermDocsReader::ReadTerm(fdata, flen, info.doc_freq, has_prox);
+        // Eager fallback over the inline bytes (SLIM kDefault / ZSTD-wrapped).
+        _docs = SpimiTermDocsReader::ReadTerm(fdata, flen, info.doc_freq, has_prox, info.is_slim);
         return;
     }
 
@@ -171,7 +175,10 @@ void SpimiQueryTermDocs::LoadDocsForTerm(int32_t field_number, const TermInfo& i
     // to eager whole-term materialization. Both paths decode the SAME window
     // bytes with the SAME primitives, so a doc()/freq() observed lazily is
     // byte-identical to the eager `_docs[p]`.
-    if (may_use_lazy_windowed() && frq_len > 0) {
+    // SLIM kDefault terms (df < skip_interval) have no windowed header; skip the
+    // lazy window reader for them (its Open would misread the first doc-delta
+    // VInt as a mode byte). Only windowed terms reach the lazy path.
+    if (!info.is_slim && may_use_lazy_windowed() && frq_len > 0) {
         if (_lazy_reader.Open(_frq_store.get(), fp, info.doc_freq, has_prox)) {
             _lazy = true;
             return;
@@ -189,7 +196,8 @@ void SpimiQueryTermDocs::LoadDocsForTerm(int32_t field_number, const TermInfo& i
     } catch (const ::doris::Exception& e) {
         _CLTHROWA(CL_ERR_IO, e.what());
     }
-    _docs = SpimiTermDocsReader::ReadTerm(block.data(), block.size(), info.doc_freq, has_prox);
+    _docs = SpimiTermDocsReader::ReadTerm(block.data(), block.size(), info.doc_freq, has_prox,
+                                          info.is_slim);
 }
 
 void SpimiQueryTermDocs::seek(lucene::index::Term* term) {

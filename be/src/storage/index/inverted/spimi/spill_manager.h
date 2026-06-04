@@ -99,7 +99,16 @@ public:
     // empty, the manager resolves one itself ($DORIS_SPILL_TMP, else /tmp). A
     // process-unique subdir is appended so concurrent writers never collide and
     // gtest contexts work without a full ExecEnv. tmp files are BE-local only.
-    explicit SpillManager(std::string field_name, bool is_v4 = false, std::string tmp_dir = "");
+    //
+    // `omit_term_freq_and_positions` MUST equal the flag the final segment is
+    // emitted with (derived from the field's support_phrase property). Spill
+    // segments are written in lockstep: when phrase support is off the spill
+    // drops freq+positions too, so the .frq/.prx format the k-way merge decodes
+    // (has_prox = !omit) matches what the spill actually wrote. Hardcoding false
+    // here while the final merge omits positions corrupts a spilled phrase-off
+    // field; lockstepping it also skips the wasted position encode + spill IO.
+    explicit SpillManager(std::string field_name, bool is_v4 = false, std::string tmp_dir = "",
+                          bool omit_term_freq_and_positions = false);
 
     // Defensively cleans up any remaining spill tmp files and the per-instance
     // spill subdir, so an abandoned manager (no explicit CleanupSpillFiles call)
@@ -145,6 +154,9 @@ private:
 
     std::string _field_name;
     bool _is_v4 = false;
+    // Lockstep with the final segment's omit flag (see ctor doc). Spill segments
+    // omit freq+positions iff the field's index will.
+    bool _omit_tfap = false;
     std::string _tmp_dir;        // resolved spill directory (created lazily)
     bool _tmp_dir_ready = false; // whether _tmp_dir has been created
     std::vector<SpillSegment> _spills;

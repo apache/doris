@@ -454,8 +454,9 @@ TEST(WindowTermReaderTest, RandomMonotonicIrregularGaps) {
 
 // ===========================================================================
 // Fallback: Open must return false for a NON-windowed (.frq legacy) block so
-// the caller falls back to the eager path. df < 256 in legacy mode is a
-// kCodeModeDefault block (no skip table).
+// the caller falls back to the eager path. df < skip_interval in legacy mode is
+// now a SLIM kDefault block (no codec byte, no skip table); its first byte is a
+// doc-delta VInt, which Open will not mistake for kCodeModeSpimiWindowed.
 // ===========================================================================
 TEST(WindowTermReaderTest, OpenReturnsFalseForLegacyBlock) {
     const Term small = MakeTerm(/*df=*/10, /*stride=*/2, /*freq=*/1);

@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
+#include "storage/index/inverted/spimi/pfor_encoder.h"
 #include "storage/index/inverted/spimi/posting_decoder.h"
 #include "storage/index/inverted/spimi/prox_reader.h"
 #include "storage/index/inverted/spimi/term_docs_reader.h"
@@ -163,12 +164,33 @@ uint8_t ParseFrqSkipTable(const std::vector<uint8_t>& frq, std::vector<SkipEntry
 
     entries->clear();
     entries->resize(num_windows);
+    // SLIM skip table (3 VInts/window): win_doc_count is DERIVED = min(W,
+    // remaining); win_byte_offset and win_min_docid are delta-coded. Reconstruct
+    // the absolutes here so the structural assertions below operate on the same
+    // values the reader materializes.
+    uint32_t byte_offset_abs = 0;
+    uint32_t prev_max_docid = 0;
+    uint32_t docs_so_far = 0;
+    // We need doc_freq to derive doc_count; it is not in the header, but the
+    // window doc ranges in the payload are checked against the ground-truth docs
+    // by the caller. Here derive doc_count from the running last window: every
+    // non-last window is exactly W docs; the last takes the remainder, which we
+    // recompute once we know the total in ExpectSkipTableSound. To keep this
+    // helper self-contained we set doc_count = W for now and let the LAST entry
+    // be fixed up by the caller against the ground-truth doc count.
     for (uint32_t w = 0; w < num_windows; ++w) {
-        (*entries)[w].doc_count = ReadVIntAt(frq, &pos);
-        (*entries)[w].byte_offset = ReadVIntAt(frq, &pos);
-        (*entries)[w].min_docid = ReadVIntAt(frq, &pos);
-        (*entries)[w].max_docid_delta = ReadVIntAt(frq, &pos);
+        const uint32_t byte_offset_delta = ReadVIntAt(frq, &pos);
+        const uint32_t min_docid_delta = ReadVIntAt(frq, &pos);
+        const uint32_t max_docid_delta = ReadVIntAt(frq, &pos);
+        byte_offset_abs += byte_offset_delta;
+        (*entries)[w].byte_offset = byte_offset_abs;
+        (*entries)[w].min_docid = prev_max_docid + min_docid_delta;
+        (*entries)[w].max_docid_delta = max_docid_delta;
+        (*entries)[w].doc_count = W; // provisional; fixed for last window below
+        prev_max_docid = (*entries)[w].min_docid + max_docid_delta;
+        docs_so_far += W;
     }
+    (void)docs_so_far;
     // The byte right after the whole skip table is the first payload tuple; all
     // recorded win_byte_offset values are relative to it.
     const size_t payloads_base = pos;
@@ -184,6 +206,19 @@ void ExpectSkipTableSound(const std::vector<uint8_t>& frq, const std::vector<int
     std::vector<SkipEntry> entries;
     ParseFrqSkipTable(frq, &entries);
     ASSERT_FALSE(entries.empty());
+
+    // Fix up the LAST window's DERIVED doc_count to the remainder: every earlier
+    // window is exactly W docs (the provisional value ParseFrqSkipTable set), and
+    // the last window takes the rest = doc_freq - W*(num_windows-1). This mirrors
+    // the reader's min(W, remaining) derivation against the ground-truth df.
+    {
+        uint64_t prefix = 0;
+        for (size_t w = 0; w + 1 < entries.size(); ++w) {
+            prefix += entries[w].doc_count;
+        }
+        ASSERT_LE(prefix, docs.size());
+        entries.back().doc_count = static_cast<uint32_t>(docs.size() - prefix);
+    }
 
     // 1) win_byte_offset must be monotonically increasing and the first must be 0
     //    (offsets are relative to the first payload tuple).
@@ -331,6 +366,77 @@ TEST(WindowFrameEncoderTest, CompressibleLargeTerm) {
 // interleave bug). MakeTerm(df=512) yields exactly 2 units → one or two windows.
 TEST(WindowFrameEncoderTest, TwoUnitWindowDocDeltaContinuity) {
     ExpectRoundtrip(MakeTerm(/*df=*/512, /*stride=*/1, /*freq=*/2), /*has_prox=*/true);
+}
+
+// ---------------------------------------------------------------------------
+// Patched-PFOR for the DOC-DELTA region (OPT_PFOR_PATCH_DOC_DELTAS).
+// ---------------------------------------------------------------------------
+//
+// The doc-delta PFOR runs are now encoded with allow_patch=true (parity with
+// the freq region). A term whose docs cluster tightly (gap 1-2) but jump a few
+// times by a huge stride produces a doc-delta block of mostly-small values with
+// a few large outliers — exactly the FastPFor/Lucene90 patched-block win case.
+// This term (a) must round-trip EXACTLY through every reader (the doc-delta
+// decode runs through the SAME patch-aware DecodePforRun as freqs), and (b) the
+// patched doc-delta block must be STRICTLY smaller than the non-patched form.
+
+// Builds a term whose doc-deltas are mostly small (1-2) with a few large-gap
+// outliers, all within a single 256-doc unit so they land in one doc-delta PFOR
+// block. Returns the raw doc-delta vector via `*out_deltas` so the size win can
+// be asserted against SpimiPforEncoder directly.
+Term MakeLargeGapDocDeltaTerm(std::vector<uint32_t>* out_deltas) {
+    Term t;
+    out_deltas->clear();
+    int32_t prev = 0;
+    int32_t doc = 1;
+    for (int32_t i = 0; i < 256; ++i) {
+        // ~5% of docs jump by a large stride; the rest are tightly packed.
+        const int32_t gap = (i % 19 == 0 && i != 0) ? (40000 + i * 7) : (1 + (i % 2));
+        doc += gap;
+        t.docs.push_back(doc);
+        t.freqs.push_back(1);
+        t.positions.push_back(std::vector<int32_t> {0});
+        out_deltas->push_back(static_cast<uint32_t>(doc - prev));
+        prev = doc;
+    }
+    return t;
+}
+
+// (a) round-trip exactly through all readers AND (b) the patched doc-delta
+// block is strictly smaller than the non-patched (allow_patch=false) encoding.
+TEST(WindowFrameEncoderTest, PatchedDocDeltaShrinksAndRoundTrips) {
+    std::vector<uint32_t> deltas;
+    const Term t = MakeLargeGapDocDeltaTerm(&deltas);
+
+    // (a) Exact round-trip through the production windowed encoder/readers. The
+    // doc-delta region is now emitted with allow_patch=true; if the patched
+    // doc-delta block did not decode through the patch-aware DecodePforRun this
+    // would mis-reconstruct the doc ids.
+    ExpectRoundtrip(t, /*has_prox=*/true);
+    ExpectRoundtrip(t, /*has_prox=*/false);
+
+    // (b) The doc-delta PFOR block (a single <=128 sub-block run here, df=256 ⇒
+    // two 128-value sub-blocks) is strictly smaller patched than plain. Encode
+    // the first 128 deltas — the sub-block that carries the outliers — both ways
+    // through the SAME primitive the doc-delta path uses (EncodePforPart →
+    // SpimiPforEncoder::EncodeBlock).
+    ASSERT_GE(deltas.size(), SpimiPforEncoder::kBlockSize);
+    std::vector<uint32_t> first_block(deltas.begin(),
+                                      deltas.begin() + SpimiPforEncoder::kBlockSize);
+    const auto plain = SpimiPforEncoder::EncodeBlockToBytes(first_block, /*allow_patch=*/false);
+    const auto patched = SpimiPforEncoder::EncodeBlockToBytes(first_block, /*allow_patch=*/true);
+    ASSERT_GE(patched.size(), 1U);
+    // Width byte is now at index 0 (the block no longer stores a leading count).
+    EXPECT_NE(patched[0] & 0x80U, 0U) << "doc-delta block with outliers must set the 0x80 flag";
+    EXPECT_EQ(plain[0] & 0x80U, 0U) << "plain doc-delta block must leave 0x80 clear";
+    EXPECT_LT(patched.size(), plain.size())
+            << "patched doc-delta encoding must be strictly smaller than non-patched";
+
+    // And the patched doc-delta block decodes bit-for-bit.
+    std::vector<uint32_t> back;
+    const size_t n = SpimiPforDecoder::DecodeBlockFromBytes(patched, first_block.size(), &back);
+    ASSERT_EQ(n, first_block.size());
+    EXPECT_EQ(back, first_block) << "patched doc-delta block must reconstruct exactly";
 }
 
 // ---------------------------------------------------------------------------
@@ -530,18 +636,20 @@ TEST(WindowFrameEncoderTest, ByteIdentityGolden) {
         Term term;
         bool has_prox;
     };
-    // NOTE: the 5 `prox` digests were regenerated when `.prx` window framing was
-    // DECOUPLED from `.frq` (each `.prx` block now carries its own skip table +
-    // independent window width). The 2 `noprox` digests are UNCHANGED, confirming
-    // the decouple touched only `.prx` — the `.frq` stream is byte-for-byte stable.
+    // NOTE: ALL SEVEN digests were regenerated when the PFOR sub-block count was
+    // made IMPLICIT (P3): each sub-block no longer carries a leading VInt(n) —
+    // the decoder derives n = min(kBlockSize, run_total - collected). This drops
+    // 1-2 bytes per 128-value sub-block from every PFOR doc-delta AND freq run,
+    // shifting the bytes of every case that has a `.frq` PFOR block. (The earlier
+    // P2 slimming of the per-window `.frq` skip table is already folded in here.)
     std::vector<Case> cases = {
-            {"prox_df600_s2_f2", 16379604254638824085ULL, MakeTerm(600, 2, 2), true},
-            {"prox_df2050_s1_f1", 11229711407252124091ULL, MakeTerm(2050, 1, 1), true},
-            {"prox_df20000_s1_f2", 2447887475110899020ULL, MakeTerm(20000, 1, 2), true},
-            {"noprox_df2049_s1_f1", 1720537505972114867ULL, MakeTerm(2049, 1, 1), false},
-            {"prox_varfreq700", 11495599258771451347ULL, MakeVariableFreqTerm(), true},
-            {"prox_uniform5000", 17903490375456135199ULL, MakeUniformTerm(5000, true), true},
-            {"noprox_uniform5000", 1153719381930045208ULL, MakeUniformTerm(5000, false), false},
+            {"prox_df600_s2_f2", 977508873629497376ULL, MakeTerm(600, 2, 2), true},
+            {"prox_df2050_s1_f1", 13855447956602271214ULL, MakeTerm(2050, 1, 1), true},
+            {"prox_df20000_s1_f2", 3332247510199281986ULL, MakeTerm(20000, 1, 2), true},
+            {"noprox_df2049_s1_f1", 9223125671240280448ULL, MakeTerm(2049, 1, 1), false},
+            {"prox_varfreq700", 12758102024892498094ULL, MakeVariableFreqTerm(), true},
+            {"prox_uniform5000", 11774765915328683771ULL, MakeUniformTerm(5000, true), true},
+            {"noprox_uniform5000", 101352028602988839ULL, MakeUniformTerm(5000, false), false},
     };
     for (const auto& c : cases) {
         const uint64_t got = DigestWindowed(c.term, c.has_prox);

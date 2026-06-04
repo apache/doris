@@ -293,6 +293,10 @@ bool TermEnum::Next() {
     _current.info.freq_pointer = _last_freq_pointer;
     _current.info.prox_pointer = _last_prox_pointer;
     _current.info.skip_offset = skip_offset;
+    // Slim kDefault hint (df < skip_interval): mirrors the writer's dispatch so
+    // the merge re-encode decode site reads the no-codec-byte / no-doc_count
+    // layout. PFOR/windowed terms (df >= skip_interval) keep the codec byte.
+    _current.info.is_slim = doc_freq < _skip_interval;
 
     ++_consumed;
     if (_consumed >= _total_entries || _pos >= _data_end) {
