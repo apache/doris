@@ -488,10 +488,6 @@ private:
                                            const CacheContext& context,
                                            const FileBlock::Range& range,
                                            std::lock_guard<std::mutex>& cache_lock);
-    void fill_holes_with_skip_cache_blocks(FileBlocks& file_blocks, const UInt128Wrapper& hash,
-                                           const CacheContext& context,
-                                           const FileBlock::Range& range);
-
     size_t get_used_cache_size_unlocked(FileCacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
 

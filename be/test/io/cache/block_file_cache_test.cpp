@@ -8557,7 +8557,13 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_skips_new_blocks_during_clear) 
     EXPECT_EQ(new_holder.file_blocks.front()->state(), io::FileBlock::State::SKIP_CACHE);
     EXPECT_TRUE(cache.get_blocks_by_key(new_key).empty());
 
+    auto old_holder_after_barrier = cache.get_or_set(old_key, 0, 5, context);
+    ASSERT_EQ(old_holder_after_barrier.file_blocks.size(), 1);
+    EXPECT_EQ(old_holder_after_barrier.file_blocks.front()->state(),
+              io::FileBlock::State::SKIP_CACHE);
+
     holder.reset();
+    ASSERT_EQ(future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     auto msg = future.get();
     EXPECT_NE(msg.find("cancelled=0"), std::string::npos);
     EXPECT_TRUE(cache.get_blocks_by_key(old_key).empty());

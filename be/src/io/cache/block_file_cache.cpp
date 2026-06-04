@@ -1101,47 +1101,6 @@ void BlockFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks,
     }
 }
 
-void BlockFileCache::fill_holes_with_skip_cache_blocks(FileBlocks& file_blocks,
-                                                       const UInt128Wrapper& hash,
-                                                       const CacheContext& context,
-                                                       const FileBlock::Range& range) {
-    auto it = file_blocks.begin();
-    auto block_range = (*it)->range();
-
-    size_t current_pos = 0;
-    if (block_range.left < range.left) {
-        current_pos = block_range.right + 1;
-        ++it;
-    } else {
-        current_pos = range.left;
-    }
-
-    while (current_pos <= range.right && it != file_blocks.end()) {
-        block_range = (*it)->range();
-
-        if (current_pos == block_range.left) {
-            current_pos = block_range.right + 1;
-            ++it;
-            continue;
-        }
-
-        DCHECK(current_pos < block_range.left);
-
-        auto hole_size = block_range.left - current_pos;
-        file_blocks.splice(
-                it, split_range_into_skip_cache_blocks(hash, context, current_pos, hole_size));
-
-        current_pos = block_range.right + 1;
-        ++it;
-    }
-
-    if (current_pos <= range.right) {
-        auto hole_size = range.right - current_pos + 1;
-        file_blocks.splice(file_blocks.end(), split_range_into_skip_cache_blocks(
-                                                      hash, context, current_pos, hole_size));
-    }
-}
-
 FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                             CacheContext& context) {
     FileBlock::Range range(offset, offset + size - 1);
@@ -1161,24 +1120,21 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
         stats->lock_wait_timer += sw.elapsed_time();
         SCOPED_RAW_TIMER(&duration);
         /// Get all blocks which intersect with the given range.
-        {
-            SCOPED_RAW_TIMER(&stats->get_timer);
-            file_blocks = get_impl(hash, context, range, cache_lock);
-        }
-
-        if (_clear_file_cache_sync_running && file_blocks.empty()) {
+        if (_clear_file_cache_sync_running) {
             SCOPED_RAW_TIMER(&stats->set_timer);
             file_blocks = split_range_into_skip_cache_blocks(hash, context, offset, size);
-        } else if (_clear_file_cache_sync_running) {
-            SCOPED_RAW_TIMER(&stats->set_timer);
-            fill_holes_with_skip_cache_blocks(file_blocks, hash, context, range);
-        } else if (file_blocks.empty()) {
-            SCOPED_RAW_TIMER(&stats->set_timer);
-            file_blocks = split_range_into_cells(hash, context, offset, size,
-                                                 FileBlock::State::EMPTY, cache_lock);
         } else {
-            SCOPED_RAW_TIMER(&stats->set_timer);
-            fill_holes_with_empty_file_blocks(file_blocks, hash, context, range, cache_lock);
+            SCOPED_RAW_TIMER(&stats->get_timer);
+            file_blocks = get_impl(hash, context, range, cache_lock);
+
+            if (file_blocks.empty()) {
+                SCOPED_RAW_TIMER(&stats->set_timer);
+                file_blocks = split_range_into_cells(hash, context, offset, size,
+                                                     FileBlock::State::EMPTY, cache_lock);
+            } else {
+                SCOPED_RAW_TIMER(&stats->set_timer);
+                fill_holes_with_empty_file_blocks(file_blocks, hash, context, range, cache_lock);
+            }
         }
         DCHECK(!file_blocks.empty());
         *_num_read_blocks << file_blocks.size();
