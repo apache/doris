@@ -311,7 +311,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = requireProperty(properties.getRegion(), "OBS_REGION", "OBS region for STS");
+        String region = properties.getRegion();
         String accessKey = requireProperty(properties.getAccessKey(), "OBS_ACCESS_KEY", "OBS access key");
         String secretKey = requireProperty(properties.getSecretKey(), "OBS_SECRET_KEY", "OBS secret key");
         String agencyName = requireProperty(properties.getAgencyName(), "OBS_AGENCY_NAME", "OBS agency name for STS");

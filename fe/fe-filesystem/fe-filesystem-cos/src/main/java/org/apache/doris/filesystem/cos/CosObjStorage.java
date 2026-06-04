@@ -329,7 +329,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = requireProperty(properties.getRegion(), "COS_REGION", "COS region for STS");
+        String region = properties.getRegion();
         String accessKey = requireProperty(properties.getAccessKey(), "COS_ACCESS_KEY", "COS access key");
         String secretKey = requireProperty(properties.getSecretKey(), "COS_SECRET_KEY", "COS secret key");
         String roleArn = requireProperty(properties.getRoleArn(), "COS_ROLE_ARN", "COS role ARN");
@@ -377,7 +377,6 @@ public class CosObjStorage implements ObjStorage<COSClient> {
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
         String bucket = requireProperty(properties.getBucket(), "COS_BUCKET", "COS bucket for presigned URL");
-        String region = requireProperty(properties.getRegion(), "COS_REGION", "COS region for presigned URL");
         try {
             COSClient cos = getClient();
             Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
@@ -386,7 +385,8 @@ public class CosObjStorage implements ObjStorage<COSClient> {
             LOG.info("Generated COS presigned URL for key={}", objectKey);
             return url.toString();
         } catch (CosClientException e) {
-            LOG.warn("Failed to generate COS presigned URL for key={} in region={}", objectKey, region, e);
+            LOG.warn("Failed to generate COS presigned URL for key={} in region={}",
+                    objectKey, properties.getRegion(), e);
             throw new IOException("Failed to generate COS presigned URL: " + e.getMessage(), e);
         }
     }

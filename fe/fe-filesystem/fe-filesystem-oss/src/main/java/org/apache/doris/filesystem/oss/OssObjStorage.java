@@ -121,7 +121,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     }
 
     protected OSS buildOssClient() throws IOException {
-        String endpoint = requireProperty(properties.getEndpoint(), "OSS_ENDPOINT", "OSS endpoint");
+        String endpoint = properties.getEndpoint();
         String accessKey = properties.getAccessKey();
         String secretKey = properties.getSecretKey();
         if (!hasText(accessKey)) {
@@ -317,7 +317,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = requireProperty(properties.getRegion(), "OSS_REGION", "OSS region for STS");
+        String region = properties.getRegion();
         String accessKey = requireProperty(properties.getAccessKey(), "OSS_ACCESS_KEY", "OSS access key");
         String secretKey = requireProperty(properties.getSecretKey(), "OSS_SECRET_KEY", "OSS secret key");
         String roleArn = requireProperty(properties.getRoleArn(), "OSS_ROLE_ARN", "OSS role ARN");
