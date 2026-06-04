@@ -92,6 +92,5 @@ private:
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
-    bool _skip_build = false;
 };
 } // namespace doris::segment_v2

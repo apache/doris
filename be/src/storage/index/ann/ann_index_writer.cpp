@@ -88,7 +88,6 @@ Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values
 
 void AnnIndexColumnWriter::close_on_error() {
     _release_buffered_vectors();
-    _skip_build = true;
 }
 
 size_t AnnIndexColumnWriter::_add_chunk_rows_by_bytes(size_t dim) const {
@@ -126,10 +125,6 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    if (_skip_build) {
-        return Status::OK();
-    }
-
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
     if (min_train_rows == 0) {
         RETURN_IF_ERROR(_add_vectors_in_chunks(p, num_rows));
@@ -154,7 +149,7 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
-    if (_skip_build || _total_rows == 0) {
+    if (_total_rows == 0) {
         LOG_INFO("No data to train/add for ANN index. Skipping index building.");
         return _index_file_writer->delete_index(_index_meta);
     }
