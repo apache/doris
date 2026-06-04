@@ -230,6 +230,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.JDBC_EXTERNAL_TABLE.toEngineName();
             case "es":
                 return TableType.ES_EXTERNAL_TABLE.toEngineName();
+            case "trino-connector":
+                // TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName() returns null
+                // (no switch case in TableType.toEngineName), matching legacy behavior.
+                return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName();
             default:
                 return super.getEngine();
         }
@@ -244,6 +248,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.JDBC_EXTERNAL_TABLE.name();
             case "es":
                 return TableType.ES_EXTERNAL_TABLE.name();
+            case "trino-connector":
+                return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.name();
             default:
                 return TableType.PLUGIN_EXTERNAL_TABLE.name();
         }
