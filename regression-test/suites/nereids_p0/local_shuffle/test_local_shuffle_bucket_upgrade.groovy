@@ -146,6 +146,13 @@ suite("test_local_shuffle_bucket_upgrade") {
            GROUP BY g ORDER BY g"""
     }
 
+    // whole-chain shape: at an eligible ratio every level of the stacked bucket chain
+    // upgrades (the lower join reports NOOP so the upper re-align LE is kept).
+    def stackedUpgradedPlan = sql "EXPLAIN DISTRIBUTED PLAN ${stackedJoin(hints('true', '1.1'))}"
+    def stackedUpgradedText = stackedUpgradedPlan.toString()
+    assertTrue(stackedUpgradedText.contains("LOCAL_EXECUTION_HASH_SHUFFLE"),
+        "ratio=1.1 must upgrade the stacked bucket chain to LOCAL hash")
+
     def stacked_baseline = sql stackedJoin(hints('false', '0'))
     def stacked_bucket = sql stackedJoin(hints('true', '0'))
     def stacked_upgraded = sql stackedJoin(hints('true', '1.1'))

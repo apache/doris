@@ -390,10 +390,10 @@ public class LocalShuffleNodeCoverageTest {
         assertChildLocalExchangeType(ineligibleJoin, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
         assertChildLocalExchangeType(ineligibleJoin, 1, LocalExchangeType.BUCKET_HASH_SHUFFLE);
 
-        // 5. Stacked bucket joins: only the topmost upgrades. The inner join (direct probe
-        //    child of the upgraded one) is marked via hasBucketUpgradedAncestor and keeps
-        //    BUCKET requires; the outer join re-aligns the inner's BUCKET output to its own
-        //    keys with a LOCAL hash LE.
+        // 5. Stacked bucket joins: the whole chain upgrades. The inner join (direct probe
+        //    child of the upgraded one) also upgrades its children to LOCAL hash, but
+        //    reports NOOP output so the outer join always inserts its own re-align LE
+        //    (keys may differ between levels).
         PlanTranslatorContext stackedCtx = new PlanTranslatorContext();
         stackedCtx.setCurrentFragmentBucketUpgradeEligible(true);
         TrackingPlanNode innerProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
@@ -413,9 +413,9 @@ public class LocalShuffleNodeCoverageTest {
         // outer upgraded: probe side wrapped with LOCAL hash LE (re-aligning inner's output)
         assertChildLocalExchangeType(outerJoin, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
         assertChildLocalExchangeType(outerJoin, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
-        // inner stayed bucket: its own children keep BUCKET_HASH_SHUFFLE LEs
-        assertChildLocalExchangeType(innerJoin, 0, LocalExchangeType.BUCKET_HASH_SHUFFLE);
-        assertChildLocalExchangeType(innerJoin, 1, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        // inner upgraded too (whole-chain): its children get LOCAL hash LEs
+        assertChildLocalExchangeType(innerJoin, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        assertChildLocalExchangeType(innerJoin, 1, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
 
         // 6. Colocate join takes the same upgrade path.
         PlanTranslatorContext colocateCtx = new PlanTranslatorContext();

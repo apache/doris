@@ -355,7 +355,16 @@ public class HashJoinNode extends JoinNodeBase {
                         LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
                 buildSideRequire = LocalExchangeTypeRequire.requireSpecific(
                         LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
-                outputType = null; // derived from probeResult.second below
+                // Whole-chain upgrade: a stacked bucket join below an upgraded one also
+                // upgrades (16-way instead of bucket-capped), but must NOT let its LOCAL
+                // hash claim type-satisfy the upper join's requireSpecific(LOCAL) — the
+                // keys may differ (each level hashes its own distribute exprs). Claim NOOP
+                // so the upper join always inserts its own re-align LE; that LE existed in
+                // the bucket world too (bucket claim never satisfied LOCAL require), so
+                // the chain upgrade is pure parallelism gain.
+                outputType = translatorContext.hasBucketUpgradedAncestor(this)
+                        ? LocalExchangeType.NOOP
+                        : null; // null: derived from probeResult.second below
             } else {
                 probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
                 // For BUCKET_SHUFFLE with serial build child: use requireBucketHash() (not
@@ -413,9 +422,9 @@ public class HashJoinNode extends JoinNodeBase {
      * <ul>
      *   <li>the fragment passed the numeric gate (instances vs buckets-with-data × ratio),
      *       computed once per fragment in {@code AddLocalExchange};</li>
-     *   <li>no bucket join above already upgraded (stacked joins must keep bucket
-     *       alignment below the single upgraded ancestor — see
-     *       {@code PlanTranslatorContext#hasBucketUpgradedAncestor});</li>
+     *   <li>stacked bucket joins below an upgraded one also upgrade, but report NOOP
+     *       output so the upper join's re-align LE is always inserted — see the
+     *       whole-chain note in {@code enforceAndDeriveLocalExchange};</li>
      *   <li>the parent does not require bucket distribution of our output (an upper
      *       bucket join's probe/build require — upgrading here would break the bucket
      *       alignment it depends on);</li>
@@ -426,7 +435,6 @@ public class HashJoinNode extends JoinNodeBase {
     private boolean canUpgradeBucketToLocalHash(PlanTranslatorContext translatorContext,
             LocalExchangeTypeRequire parentRequire) {
         if (!translatorContext.isCurrentFragmentBucketUpgradeEligible()
-                || translatorContext.hasBucketUpgradedAncestor(this)
                 || parentRequire.preferType() == LocalExchangeType.BUCKET_HASH_SHUFFLE) {
             return false;
         }
