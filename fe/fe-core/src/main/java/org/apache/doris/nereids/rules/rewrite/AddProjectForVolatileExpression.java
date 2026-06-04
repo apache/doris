@@ -280,10 +280,10 @@ public class AddProjectForVolatileExpression implements RewriteRuleFactory {
                 Expression expr = (Expression) e;
                 if (expr.isVolatile()) {
                     volatileExpressionCounter.merge(expr, 1, Integer::sum);
-                    Set<Slot> inputSlots = expr.getInputSlots();
+                    Set<Slot> volatileInputSlots = expr.getInputSlots();
                     volatileExpressionSlots
                             .computeIfAbsent(expr, ignored -> Sets.newLinkedHashSet())
-                            .addAll(inputSlots.isEmpty() ? target.getInputSlots() : inputSlots);
+                            .addAll(volatileInputSlots.isEmpty() ? target.getInputSlots() : volatileInputSlots);
                 }
             });
         }

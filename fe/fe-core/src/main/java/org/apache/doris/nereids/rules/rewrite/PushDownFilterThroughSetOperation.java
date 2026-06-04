@@ -78,9 +78,11 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                         && setOperation.getQualifier() == Qualifier.ALL;
                 Set<Expression> pushableConjuncts;
                 Set<Expression> keptAboveConjuncts;
+                boolean allConjunctsPushable;
                 if (canPushVolatileExpr) {
                     pushableConjuncts = origFilter.getConjuncts();
                     keptAboveConjuncts = ImmutableSet.of();
+                    allConjunctsPushable = true;
                 } else {
                     pushableConjuncts = new LinkedHashSet<>();
                     Set<Expression> kept = new LinkedHashSet<>();
@@ -95,8 +97,9 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     if (pushableConjuncts.isEmpty()) {
                         return null;
                     }
+                    allConjunctsPushable = false;
                 }
-                LogicalFilter<LogicalSetOperation> filter = pushableConjuncts == origFilter.getConjuncts()
+                LogicalFilter<LogicalSetOperation> filter = allConjunctsPushable
                         ? origFilter
                         : new LogicalFilter<>(ImmutableSet.copyOf(pushableConjuncts), setOperation);
 
