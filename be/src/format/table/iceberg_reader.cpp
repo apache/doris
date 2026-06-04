@@ -205,16 +205,19 @@ Status IcebergTableReader::init_row_filters() {
     }
 
     const auto& table_desc = _range.table_format_params.iceberg_params;
-    const auto& version = table_desc.format_version;
-    if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
-        return Status::OK();
-    }
 
     auto* parquet_reader = dynamic_cast<ParquetReader*>(_file_format_reader.get());
     auto* orc_reader = dynamic_cast<OrcReader*>(_file_format_reader.get());
 
     // Initialize file information for $row_id generation
-    // Extract from table_desc which contains current file's metadata
+    // Extract from table_desc which contains current file's metadata.
+    // NOTE: row-id generation only needs the data file path / partition info / row positions,
+    // which are independent of delete-file support, so it MUST be set up before the
+    // format-version gate below. The FE adds the hidden __DORIS_ICEBERG_ROWID_COL__ column
+    // whenever show_hidden_columns is on, regardless of format version (see
+    // IcebergExternalTable.getFullSchema). If a v1 table selects this column we still have to
+    // fill it; otherwise it stays empty while the other columns are filtered down, tripping the
+    // `block->rows() == col.column->size()` check in RowGroupReader::_do_lazy_read.
     if (_need_row_id_column) {
         std::string file_path = table_desc.original_file_path;
         int32_t partition_spec_id = 0;
@@ -235,6 +238,11 @@ Status IcebergTableReader::init_row_filters() {
         }
         LOG(INFO) << "Initialized $row_id generation for file: " << file_path
                   << ", partition_spec_id: " << partition_spec_id;
+    }
+
+    const auto& version = table_desc.format_version;
+    if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
+        return Status::OK();
     }
 
     std::vector<TIcebergDeleteFileDesc> position_delete_files;
