@@ -79,6 +79,7 @@
 ## 进度日志
 
 ### 2026-06-05
+- **P3-T04 ✅**（批 A，commit `feceabb`）：`visitPhysicalHudiScan` SPI 分支 fail-loud——`FOR TIME/VERSION AS OF`（曾静默返最新）与增量读（曾静默全扫）抛 `AnalysisException`。dormant 分支零 live 风险；单测推迟批 E。**批 A 编码完成**（T02+T04 落地，T03→批 E）。
 - **P3-T03 🟡 推迟批 E**（[DV-006](../deviations-log.md)，用户签字）：schema_id/history_schema_info 非批 A 可做的 SPI-surface 修复——`HudiColumnHandle` 无 field id、SPI 无 Hudi `InternalSchema` 版本、连接器无 type→`TColumnType` thrift；裸 `current==file==-1`→BE `ConstNode`(大小写敏感) 弱于现状 `by_parquet_name` 名匹配（净回归）。批 A 保持现状名匹配（零回归，common 无 evolution 可用；改名/evolution 退化非崩溃），faithful parity 入批 E。
 
 ### 2026-06-04

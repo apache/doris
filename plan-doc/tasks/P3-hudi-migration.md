@@ -9,7 +9,7 @@
 
 ## 元信息
 
-- **状态**：🚧 进行中（批 0 ✅；批 A：T02 ✅，T03 推迟批 E（[DV-006]），T04 待启动）
+- **状态**：🚧 进行中（批 0 ✅；**批 A 编码完成**：T02 ✅、T04 ✅、T03 推迟批 E（[DV-006]）；下一步批 B：T05 partition 裁剪 / T06 MVCC）
 - **启动日期**：2026-06-04
 - **目标完成**：—（hybrid 范围，估时按批 A–C 约 1–1.5 周；批 D 设计 0.5 周；批 E deferred 不计入 P3）
 - **实际完成**：—
@@ -40,7 +40,7 @@
 ## 验收标准
 
 - [x] **批 A / T02**：`column_types` 双 bug 修复（发完整 Hive 类型串 + 弃逗号 join/split）✅（`95f23e9`）
-- [ ] **批 A / T04**：time-travel / 增量读 **fail-loud**（不静默返最新 / 不静默全扫）
+- [x] **批 A / T04**：time-travel / 增量读 **fail-loud**（不静默返最新 / 不静默全扫）✅（`feceabb`，单测推迟批 E）
 - [~] **批 A→E / T03**：native split `schema_id` + `params.history_schema_info` 填充 —— **推迟批 E（[DV-006]）**，非 model-agnostic SPI 修复（连接器缺 field-id/InternalSchema/type→thrift；裸基线净回归）
 - [ ] **批 B**：`listPartitions*` override + 真实 `applyFilter` 约束裁剪；MVCC/snapshot SPI 实现或显式 unsupported
 - [ ] **批 C**：fe-connector-hms/hive/hudi 测试基线（当前零测试）；**parity 测试**——SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `HiveMetaStoreClientHelper.getHudiTableSchema`，COW & MOR 各一
@@ -61,7 +61,7 @@
 | P3-T01 | 两轮 code-grounded recon + hybrid 决策（D-019）+ 本 task 文件 | 批 0 | @me | ✅ | — | 2026-06-04 | 2026-06-04 | recon #1（元数据）+ #2（scan/split）均含对抗验证；DV-005 记依赖更正；D-019 定 hybrid。锚点见 HANDOFF「P3 关键文件锚点」 |
 | P3-T02 | `column_types` 双 bug 修复 + 单测 | 批 A | @me | ✅ | `95f23e9` | 2026-06-04 | 2026-06-04 | (a) `HudiScanPlanProvider` 弃 `ConnectorType.getTypeName()`（丢精度/scale/子类型），改发完整 Hive 类型串（对标 legacy `HudiUtils.convertAvroToHiveType`，如 `decimal(10,2)`/`struct<...>`）；(b) `HudiScanRange` 停止 column_names/column_types/delta_logs 的逗号 join/split（含逗号的类型串会被打碎），改 typed list 端到端。**先读 BE `hudi_jni_reader.cpp` 确认 JNI scanner 期望的精确串格式**（names `,` / types `#`），再改。命中含 decimal/复杂列的 MOR-with-logs JNI split |
 | P3-T03 | native split `schema_id` + `history_schema_info` 填充 + 单测 | ~~批 A~~→**批 E** | TBD | 🟡 推迟 | — | — | — | **[DV-006] 推迟批 E**：recon 实证非 model-agnostic SPI-surface 修复——连接器缺 field-id（`HudiColumnHandle` 无）/ Hudi `InternalSchema` 版本 / type→`TColumnType` thrift；「Paimon/ES 已 override」前提失真（其 override 为 predicate/docvalue，**不设** schema 元数据）；裸 `current==file==-1`→BE `ConstNode`(identity-by-name,大小写敏感) **弱于**当前 `by_parquet_name` 名匹配 → **净回归**。faithful field-id evolution parity 需批 E 一次性建机制。批 A 保持现状名匹配（零回归） |
-| P3-T04 | time-travel + 增量读 fail-loud 守卫 + 单测 | 批 A | @me | ⏳ | — | — | — | 当前 `HudiScanPlanProvider` 永远用 `timeline.lastInstant`、`HudiTableHandle` 无 snapshot 字段 → `FOR TIME AS OF` 静默返最新；增量读无 SPI 表示。本 task 仅做**显式报错**（不静默），完整实现入批 E。透传 snapshot 的完整 wiring 也可在此起步 |
+| P3-T04 | time-travel + 增量读 fail-loud 守卫 | 批 A | @me | ✅ | `feceabb` | 2026-06-05 | 2026-06-05 | `visitPhysicalHudiScan` SPI 分支加两守卫：`getIncrementalRelation().isPresent()` / `getTableSnapshot().isPresent()` → 抛 `AnalysisException`（不再静默返最新/全扫）。唯一同时可见 snapshot+incremental 的位置（SPI surface 拿不到 incremental）。删 dead `setQueryTableSnapshot`。dormant 分支 gate 关时不可达 → 零 live 风险。**单测推迟批 E**（dormant 不可 exercise；regression 断言 FOR TIME AS OF/增量→报错，precedent DV-003）。完整 snapshot 透传/增量 SPI/MVCC 入批 E |
 | P3-T05 | `listPartitions/listPartitionNames/listPartitionValues` override + 真实 `applyFilter` 裁剪 + 单测 | 批 B | @me | ⏳ | — | — | — | 现 Hudi `applyFilter` 列**全部**分区不做约束裁剪（Hive 已做 EQ/IN）；SPI partition 方法默认空。补真实裁剪 + override 分区方法 |
 | P3-T06 | MVCC/snapshot SPI（实现或显式 unsupported） | 批 B | @me | ⏳ | — | — | — | `HudiConnectorMetadata` 未 override `beginQuerySnapshot/getSnapshotAt/getSnapshotById`（默认 `Optional.empty()`）。与 T04 关联：要么接 `HudiMvccSnapshot` 语义，要么显式 unsupported |
 | P3-T07 | 三模块测试基线 + parity 测试 | 批 C | @me | ⏳ | — | — | — | fe-connector-hms/hive/hudi 当前**零测试**。补单测 + **parity**：SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `HiveMetaStoreClientHelper.getHudiTableSchema`（fe-core），COW & MOR 各一。Rule 9：测意图（type-string 编码、schema_id、裁剪正确） |
@@ -75,6 +75,10 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-05（批 A 续：T04 ✅，批 A 编码收尾）
+- **P3-T04 ✅**（commit `feceabb`，feat）：`PhysicalPlanTranslator.visitPhysicalHudiScan` SPI 分支加 fail-loud 守卫——`getIncrementalRelation().isPresent()` → 抛 `AnalysisException`（曾静默全扫）；`getTableSnapshot().isPresent()` → 抛（曾静默返最新，因 `HudiScanPlanProvider` 永远用 `timeline.lastInstant()`）。该分支是**唯一**同时可见 snapshot + incrementalRelation 处（SPI surface 拿不到 incremental）。删 dead `setQueryTableSnapshot`。fe-core 编译 + checkstyle 0。**dormant 分支 gate 关时运行期不可达 → 零 live 风险**；**单测推迟批 E**（不可 exercise；批 E regression 断言 FOR TIME AS OF/增量→报错，precedent DV-003，R12 显式登记不静默跳过）。完整 snapshot 透传 + 增量 SPI 表示 + MVCC 入批 E（与 T06/T03/T09–T11 同批 E）。设计：[`designs/P3-T04-fail-loud-design.md`](./designs/P3-T04-fail-loud-design.md)。
+- **批 A 编码小结**：T02（column_types 双 bug）✅ + T04（fail-loud）✅ 落地；T03（schema_id/history）推迟批 E（[DV-006]，证非 model-agnostic SPI 修复）。批 A 净产出 = 2 个正确性修复（gate 后硬化，零回归）+ 1 个 code-grounded 推迟决策。
 
 ### 2026-06-05（批 A 续：T03 推迟决策）
 - **P3-T03 🟡 推迟批 E**（[DV-006]，用户签字 AskUserQuestion「Defer T03 to batch E」）：T03 启动前 4-reader code-grounded recon + 主线核读 BE `table_schema_change_helper.h:219-267` 揭示——schema_id/history **不是** 批 A 可做的 model-agnostic SPI-surface 修复：
