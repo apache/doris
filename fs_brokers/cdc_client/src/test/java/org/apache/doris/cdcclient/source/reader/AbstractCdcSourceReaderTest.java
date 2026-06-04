@@ -17,6 +17,9 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+import org.apache.doris.cdcclient.source.reader.postgres.PostgresSourceReader;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
@@ -37,6 +41,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 class AbstractCdcSourceReaderTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Test
+    void releaseStaysBaseImplSoReplicationSlotIsKept() throws Exception {
+        // release must stay the base impl (close drops the slot, release must not) so a reschedule keeps the slot.
+        Method pgRelease = PostgresSourceReader.class.getMethod("release", JobBaseConfig.class);
+        assertEquals(AbstractCdcSourceReader.class, pgRelease.getDeclaringClass());
+        Method mysqlRelease = MySqlSourceReader.class.getMethod("release", JobBaseConfig.class);
+        assertEquals(AbstractCdcSourceReader.class, mysqlRelease.getDeclaringClass());
+    }
 
     @Test
     void convertBoundsRestoresDateFromString() {

@@ -442,7 +442,11 @@ public class PipelineCoordinator {
         Map<String, String> targetTableMappings =
                 ConfigUtil.parseAllTargetTableMappings(writeRecordRequest.getConfig());
 
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
+        // Get-or-create the reader and claim ownership atomically, so a concurrent stale
+        // releaseReader RPC cannot stop the reader this task is about to use.
+        SourceReader sourceReader =
+                Env.getCurrentEnv()
+                        .getReaderAndClaim(writeRecordRequest, writeRecordRequest.getTaskId());
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
@@ -458,6 +462,8 @@ public class PipelineCoordinator {
             long startTime = System.currentTimeMillis();
             long streamingStartTime = -1;
             long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
+            // Half the FE task timeout; exit setup phase before FE force-kills. 0 disables.
+            long searchTimeoutMs = writeRecordRequest.getTaskTimeoutMs() / 2;
             boolean shouldStop = false;
             boolean lastMessageIsHeartbeat = false;
 
@@ -474,6 +480,21 @@ public class PipelineCoordinator {
 
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
+
+                    // Stream-split setup stuck (WAL search / idle): bail out; snapshot has its own
+                    // completion logic.
+                    if (!isSnapshotSplit
+                            && streamingStartTime < 0
+                            && searchTimeoutMs > 0
+                            && System.currentTimeMillis() - startTime > searchTimeoutMs) {
+                        LOG.warn(
+                                "Streaming not started within {} ms for jobId={} taskId={}, "
+                                        + "stopping to commit offset",
+                                searchTimeoutMs,
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId());
+                        break;
+                    }
 
                     // Check if should stop
                     long elapsedTime =

@@ -113,6 +113,8 @@ fe/fe-core/src/main/java/org/apache/doris/ha                 @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/journal            @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/load               @liaoxin01 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/master             @mymeiyi @deardeng @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/mtmv               @morrySnow @seawinde
+fe/fe-core/src/main/java/org/apache/doris/nereids            @morrySnow @924060929 @englefly @starocean999
 fe/fe-core/src/main/java/org/apache/doris/persist            @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/persist/gson       @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/persist/meta       @mymeiyi @gavinchou
@@ -136,6 +138,7 @@ fe/fe-core/src/test/java/org/apache/doris/fs                 @calvinkirs @mornin
 fe/fe-core/src/test/java/org/apache/doris/journal            @mymeiyi @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/load               @liaoxin01 @gavinchou
 fe/fe-filesystem                                             @calvinkirs @morningman @gavinchou
+fe/fe-sql-parser/src/main/antlr4                             @morrySnow @starocean999 @924060929 @englefly
 cloud                                                        @gavinchou
 cloud/cmake                                                  @liaoxin01 @luwei16 @gavinchou
 cloud/conf                                                   @liaoxin01 @luwei16 @gavinchou
