@@ -101,15 +101,6 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
     }
 
-    private LazySlotPruning createLazySlotPruning() {
-        return new LazySlotPruning() {
-            @Override
-            protected boolean shouldPruneChild(Plan child, Context context) {
-                return true;
-            }
-        };
-    }
-
     private Plan doComputeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx, List<Slot> effectiveOutput) {
         Map<Slot, MaterializeSource> materializeMap = new HashMap<>();
         List<Slot> materializedSlots = new ArrayList<>();
@@ -178,7 +169,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                         catalogRelation.getTable().getName() + ".global_row_id", false, Integer.MAX_VALUE);
                 SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
                         catalogRelation.getTable(), rowIdCol, catalogRelation.getQualifier());
-                result = result.accept(createLazySlotPruning(), new LazySlotPruning.Context(
+                result = result.accept(new LazySlotPruning(), new LazySlotPruning.Context(
                         (PhysicalCatalogRelation) relation,
                         rowIdSlot, relationToLazySlotMap.get(relation)));
                 relationToRowId.put(catalogRelation, rowIdSlot);
@@ -190,7 +181,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                         tvfRelation.getFunction().getName() + ".global_row_id", false, Integer.MAX_VALUE);
                 SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
                         tvfRelation.getFunction().getTable(), rowIdCol, ImmutableList.of());
-                result = result.accept(createLazySlotPruning(), new LazySlotPruning.Context(
+                result = result.accept(new LazySlotPruning(), new LazySlotPruning.Context(
                         (PhysicalTVFRelation) relation,
                         rowIdSlot, relationToLazySlotMap.get(relation)));
                 relationToRowId.put(tvfRelation, rowIdSlot);
