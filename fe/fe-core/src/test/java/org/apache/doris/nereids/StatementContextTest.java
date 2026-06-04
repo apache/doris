@@ -215,6 +215,98 @@ public class StatementContextTest {
     }
 
     @Test
+    public void testPreloadHmsIcebergLatestSnapshotBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Cover the HMS Iceberg branch using the real trait implementation.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hmsExternalTable.getId()).thenReturn(14L);
+        Mockito.when(hmsExternalTable.getName()).thenReturn("hms_iceberg_tbl");
+        Mockito.when(hmsExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(hmsExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.doCallRealMethod().when(hmsExternalTable).supportsLatestSnapshotPreload();
+        Mockito.when(hmsExternalTable.getDlaType()).thenReturn(DLAType.ICEBERG);
+        Mockito.when(hmsExternalTable.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(mvccSnapshot);
+        Mockito.when(hmsExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(hmsExternalTable.supportInternalPartitionPruned()).thenReturn(false);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hmsExternalTable, Optional.empty(), Optional.empty());
+
+            ExternalMetadataPreloadResult result = executePreload(statementContext);
+
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
+            Mockito.verify(hmsExternalTable, Mockito.times(1))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(hmsExternalTable, Mockito.times(1)).getBaseSchema();
+            Mockito.verify(hmsExternalTable, Mockito.never()).initSelectedPartitions(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testSkipHmsIcebergPreloadWhenOnlyNonLatestRelationExists() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // Skip latest schema warmup when HMS Iceberg is referenced only by non-latest relations.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hmsExternalTable.getId()).thenReturn(15L);
+        Mockito.when(hmsExternalTable.getName()).thenReturn("hms_iceberg_tbl");
+        Mockito.when(hmsExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(hmsExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.doCallRealMethod().when(hmsExternalTable).supportsLatestSnapshotPreload();
+        Mockito.when(hmsExternalTable.getDlaType()).thenReturn(DLAType.ICEBERG);
+        Mockito.when(hmsExternalTable.supportInternalPartitionPruned()).thenReturn(false);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hmsExternalTable,
+                    Optional.of(new TableSnapshot("2024-01-01 00:00:00", TableSnapshot.VersionType.TIME)),
+                    Optional.empty());
+
+            ExternalMetadataPreloadResult result = executePreload(statementContext);
+
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
+            Mockito.verify(hmsExternalTable, Mockito.never())
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(hmsExternalTable, Mockito.never()).getBaseSchema();
+            Mockito.verify(hmsExternalTable, Mockito.never()).initSelectedPartitions(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
     public void testPreloadJdbcExternalTablesBeforeLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
