@@ -59,7 +59,12 @@ SpimiIndexWriter::SpimiIndexWriter(std::string field_name, bool is_v4,
                                    bool omit_term_freq_and_positions)
         : _field_name(std::move(field_name)),
           _omit_tfap(omit_term_freq_and_positions),
-          _buffer(std::make_unique<SpimiPostingBuffer>()),
+          // Thread the omit flag into the buffer so DOCS_ONLY skips the per-token
+          // prox slice-chain write (positions are discarded at emit anyway). The
+          // emit side (SegmentWriter/FreqProxEncoder) gets the same flag
+          // independently via EmitSegment, which DCHECK_EQs buffer.OmitTfap()
+          // against the emit flag so the two cannot drift.
+          _buffer(std::make_unique<SpimiPostingBuffer>(omit_term_freq_and_positions)),
           _spill_manager(std::make_unique<SpillManager>(_field_name, is_v4, /*tmp_dir=*/"",
                                                         omit_term_freq_and_positions)) {}
 

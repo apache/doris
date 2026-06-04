@@ -607,4 +607,68 @@ TEST(SpimiPostingBufferTest, CompactModeActivatesAtExactThreshold) {
     EXPECT_EQ(buf.RecordCount(), 512U);
 }
 
+TEST(SpimiPostingBufferTest, OmitTfapAccessorReflectsConstruction) {
+    SpimiPostingBuffer phrase(/*omit_tfap=*/false);
+    SpimiPostingBuffer docs_only(/*omit_tfap=*/true);
+    EXPECT_FALSE(phrase.OmitTfap());
+    EXPECT_TRUE(docs_only.OmitTfap());
+    // Default ctor is phrase-on (omit_tfap=false).
+    SpimiPostingBuffer dflt;
+    EXPECT_FALSE(dflt.OmitTfap());
+}
+
+TEST(SpimiPostingBufferTest, OmitTfapLeavesProxChainEmptyInCompactMode) {
+    // DOCS_ONLY: the per-token prox slice chain is never allocated, so every
+    // term's (pos_start, pos_end) span is empty. Drive the buffer into compact
+    // direct-emit mode and inspect the streams.
+    SpimiPostingBuffer buf(/*omit_tfap=*/true);
+    // Single hot term over many docs: 600 occ / 1 term >> kCompactAvgOcc(8).
+    for (uint32_t i = 0; i < 600; ++i) {
+        buf.Append("term", /*doc_id=*/i / 3, /*position=*/i % 3);
+    }
+    EXPECT_TRUE(buf.records().empty()) << "compact mode should have activated";
+    buf.Sort(/*allow_direct_emit=*/true);
+    ASSERT_TRUE(buf.CompactDirectEmitReady());
+    const auto& terms = buf.SortedCompactTerms();
+    ASSERT_EQ(terms.size(), 1U);
+    const auto st = buf.CompactStreamsFor(terms[0].term_id);
+    EXPECT_EQ(st.pos_start, st.pos_end) << "DOCS_ONLY must not allocate a prox chain";
+    EXPECT_EQ(st.pos_start, 0U);
+    EXPECT_GT(st.doc_end, st.doc_start) << "freq/doc chain must still be present";
+}
+
+TEST(SpimiPostingBufferTest, OmitTfapDecodeReturnsDocsWithZeroPositions) {
+    // DecodeCompactTerm must round-trip the (term, doc) sequence with positions
+    // forced to 0 in DOCS_ONLY (no prox chain exists to read).
+    SpimiPostingBuffer buf(/*omit_tfap=*/true);
+    // Deterministic (doc, freq) layout: doc d appears (d % 4 + 1) times.
+    std::vector<uint32_t> expected_docs;
+    for (uint32_t d = 0; d < 200; ++d) {
+        const uint32_t freq = (d % 4) + 1;
+        for (uint32_t f = 0; f < freq; ++f) {
+            buf.Append("term", d, f);
+            expected_docs.push_back(d);
+        }
+    }
+    // Top up well past compact threshold with the same term so it stays compact.
+    while (buf.RecordCount() < 600) {
+        const uint32_t d = 1000 + static_cast<uint32_t>(buf.RecordCount());
+        buf.Append("term", d, 0);
+        expected_docs.push_back(d);
+    }
+    ASSERT_TRUE(buf.records().empty());
+    buf.Sort(/*allow_direct_emit=*/true);
+    ASSERT_TRUE(buf.CompactDirectEmitReady());
+    const auto& terms = buf.SortedCompactTerms();
+    ASSERT_EQ(terms.size(), 1U);
+    std::vector<uint32_t> docs;
+    std::vector<uint32_t> positions;
+    buf.DecodeCompactTerm(terms[0].term_id, docs, positions);
+    ASSERT_EQ(docs.size(), expected_docs.size());
+    EXPECT_EQ(docs, expected_docs);
+    for (uint32_t p : positions) {
+        EXPECT_EQ(p, 0U) << "DOCS_ONLY decode must yield position 0 for every occurrence";
+    }
+}
+
 } // namespace doris::segment_v2::inverted_index::spimi

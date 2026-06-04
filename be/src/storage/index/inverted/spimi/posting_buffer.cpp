@@ -133,12 +133,16 @@ uint64_t MakeHashSeed() {
 
 } // namespace
 
-SpimiPostingBuffer::SpimiPostingBuffer() : _hash_seed(MakeHashSeed()) {}
+// Member init order follows DECLARATION order (`_omit_tfap` is declared before
+// `_hash_seed`/`_limits` in the header) to avoid -Wreorder.
+SpimiPostingBuffer::SpimiPostingBuffer(bool omit_tfap)
+        : _omit_tfap(omit_tfap), _hash_seed(MakeHashSeed()) {}
 
-SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed) : _hash_seed(hash_seed) {}
+SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed, bool omit_tfap)
+        : _omit_tfap(omit_tfap), _hash_seed(hash_seed) {}
 
-SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed, Limits limits)
-        : _hash_seed(hash_seed), _limits(limits) {}
+SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed, Limits limits, bool omit_tfap)
+        : _omit_tfap(omit_tfap), _hash_seed(hash_seed), _limits(limits) {}
 
 // HashTerm is now defined inline in the header for use by
 // InternHot's inlined fast path. See posting_buffer.h.
@@ -407,18 +411,39 @@ void SpimiPostingBuffer::DecodeCompactTerm(uint32_t term_id, std::vector<uint32_
     // Per-doc freq chain (docCode = doc_delta<<1, low bit = freq==1, else a
     // trailing VInt(freq)) + per-occurrence absolute positions in the prox chain.
     // Expand back to the per-occurrence (doc, position) sequence as appended.
+    //
+    // In DOCS_ONLY there is NO prox chain (EncodeOccurrenceToStreamInline skipped
+    // it), so positions[] is filled with 0 and no prox reader is constructed —
+    // constructing one over the unwritten pos_start/pos_upto==0 span would read
+    // garbage. The 0 positions are discarded downstream (emit drops them via the
+    // encoder no-op / the omit-aware EmitFromCompactDirect), so this stays
+    // byte-neutral.
     ByteSliceReader freq_reader(_pool, state.doc_start, state.doc_upto);
-    ByteSliceReader pos_reader(_pool, state.pos_start, state.pos_upto);
+    const bool read_pos = !_omit_tfap;
     uint32_t prev = 0;
     uint32_t i = 0;
-    while (i < n) {
-        const uint64_t code = freq_reader.ReadVInt64();
-        prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
-        const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
-        for (uint32_t k = 0; k < freq; ++k) {
-            docs[i] = prev;
-            positions[i] = pos_reader.ReadVInt();
-            ++i;
+    if (read_pos) {
+        ByteSliceReader pos_reader(_pool, state.pos_start, state.pos_upto);
+        while (i < n) {
+            const uint64_t code = freq_reader.ReadVInt64();
+            prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
+            const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+            for (uint32_t k = 0; k < freq; ++k) {
+                docs[i] = prev;
+                positions[i] = pos_reader.ReadVInt();
+                ++i;
+            }
+        }
+    } else {
+        while (i < n) {
+            const uint64_t code = freq_reader.ReadVInt64();
+            prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
+            const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+            for (uint32_t k = 0; k < freq; ++k) {
+                docs[i] = prev;
+                positions[i] = 0; // DOCS_ONLY: no stored position; discarded at emit
+                ++i;
+            }
         }
     }
 }

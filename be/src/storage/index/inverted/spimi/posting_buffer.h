@@ -285,15 +285,23 @@ public:
     };
     static_assert(sizeof(Limits) <= 32, "Limits must stay cheap-by-value");
 
-    SpimiPostingBuffer();
+    // `omit_tfap` (default false): when true the field omits term-frequencies
+    // and positions (DOCS_ONLY / support_phrase=false). In that mode the
+    // per-occurrence absolute-position VInt is NOT written into the prox slice
+    // chain and the prox chain is never allocated — positions were always
+    // discarded at emit anyway (FreqProxEncoder::AddPosition no-ops, no .prx is
+    // written), so this is the pure-waste position work removed end to end. The
+    // per-doc freq/doc-delta chain is UNCHANGED (it drives StartDoc and the
+    // on-disk .frq), so the emitted .idx stays byte-identical.
+    explicit SpimiPostingBuffer(bool omit_tfap = false);
     // Test seam: deterministic hash seed (default-constructed picks a random
     // per-instance seed at runtime to defend against hash-collision DoS from
     // attacker-controlled term bytes).
-    explicit SpimiPostingBuffer(uint64_t hash_seed);
+    explicit SpimiPostingBuffer(uint64_t hash_seed, bool omit_tfap = false);
     // Test seam: deterministic seed + shrunken limits. Used by tests that
     // need to exercise the arena/record-cap saturation paths without a
     // 2 GiB allocation. NOT for production callers.
-    SpimiPostingBuffer(uint64_t hash_seed, Limits limits);
+    SpimiPostingBuffer(uint64_t hash_seed, Limits limits, bool omit_tfap = false);
 
     SpimiPostingBuffer(const SpimiPostingBuffer&) = delete;
     SpimiPostingBuffer& operator=(const SpimiPostingBuffer&) = delete;
@@ -385,6 +393,15 @@ public:
     }
     const BytePool& Pool() const { return _pool; }
 
+    // True when this buffer omits term-freq+positions (DOCS_ONLY). In that mode
+    // the prox slice chain is never written (pos_start==pos_end==0 for every
+    // term) and emit must NOT construct a prox ByteSliceReader. The emit side
+    // also tracks the same flag (via FreqProxEncoder); both derive from the
+    // field's support_phrase property, and a DCHECK_EQ at the top of
+    // SpimiFulltextWriter::EmitSegment cross-checks this buffer flag against the
+    // emit flag.
+    bool OmitTfap() const { return _omit_tfap; }
+
     // Resolves the term text referenced by `text_ref`. The returned view is
     // valid as long as the buffer is not modified.
     std::string_view TermAt(uint32_t text_ref) const;
@@ -434,7 +451,13 @@ private:
         // chain when the doc closes (here on a new doc, or at FinalizeBlocks).
         if (state.occ_count == 0) [[unlikely]] {
             state.doc_start = state.doc_upto = _pool.NewSlice(); // freq chain
-            state.pos_start = state.pos_upto = _pool.NewSlice(); // prox chain
+            // The prox chain is dead in DOCS_ONLY (positions are discarded at
+            // emit and no .prx is ever written), so skip the NewSlice() and the
+            // per-token position VInt below. pos_start/pos_upto stay 0; emit
+            // detects omit_tfap and never constructs a prox reader.
+            if (!_omit_tfap) {
+                state.pos_start = state.pos_upto = _pool.NewSlice(); // prox chain
+            }
             state.last_doc = doc_id;
             state.cur_doc_delta = doc_id; // delta from implicit 0
             state.cur_doc_freq = 1;
@@ -460,16 +483,26 @@ private:
             state.cur_doc_freq = 1;
             ++state.doc_count;
         } else {
-            if (position < state.last_pos) [[unlikely]] {
+            // The position-monotonic check feeds `_compact_streams_sorted`, but
+            // that only governs the prox re-sort — which is dead in DOCS_ONLY
+            // (no positions are stored or decoded). Gate it under !_omit_tfap so
+            // we don't read last_pos, which is no longer maintained in omit mode.
+            // The DOC-order check above (444) STAYS: doc-delta order still
+            // governs the .frq and the direct-emit-vs-sort decision.
+            if (!_omit_tfap && position < state.last_pos) [[unlikely]] {
                 _compact_streams_sorted = false;
             }
             ++state.cur_doc_freq;
         }
         // Absolute position per occurrence — same bytes the per-occ scheme stored,
         // so emit's StartDoc/AddPosition sequence (and the on-disk .prx) is byte-
-        // identical; only the freq/doc chain layout changed.
-        state.pos_upto = _pool.WriteVInt(state.pos_upto, position);
-        state.last_pos = position;
+        // identical; only the freq/doc chain layout changed. Skipped entirely in
+        // DOCS_ONLY: no position byte ever enters _pool (the O(total tokens) win)
+        // and last_pos is left stale (no reader of it in omit mode).
+        if (!_omit_tfap) {
+            state.pos_upto = _pool.WriteVInt(state.pos_upto, position);
+            state.last_pos = position;
+        }
         ++state.occ_count;
     }
 
@@ -646,6 +679,15 @@ private:
     //     it while still leaving genuinely-diverse data on the flat path.
     static constexpr size_t kCompactCheckEvery = 512;
     static constexpr size_t kCompactAvgOcc = 8;
+
+    // DOCS_ONLY (support_phrase=false). When true, EncodeOccurrenceToStreamInline
+    // skips the prox slice-chain allocation + the per-token position VInt write,
+    // and the records-fallback decode (DecodeCompactTerm) skips the prox reader
+    // and emits position=0. The per-doc freq/doc-delta chain is unchanged, so the
+    // on-disk .frq (hence .idx) is byte-identical to the non-gated path. Fixed at
+    // construction from the field's support_phrase property. pos_start/pos_upto/
+    // last_pos in TermPostingState are unused (stay 0/stale) while this is true.
+    bool _omit_tfap = false;
 
     // Returns true after `MaybeCompact()` has migrated records into
     // `_term_streams` and freed `_records`. While true, Append

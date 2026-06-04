@@ -347,6 +347,20 @@ SegmentBytes EmitToBytes(const SpimiPostingBuffer& buffer) {
             .tis = tis.bytes(), .tii = tii.bytes(), .frq = frq.bytes(), .prx = prx.bytes()};
 }
 
+// DOCS_ONLY variant: the SegmentWriter omits term-freq+positions (the .prx
+// stream stays empty). Pass an omit_tfap buffer here so the prox-chain-skip in
+// the buffer is matched by the prox-reader-skip in EmitFromCompactDirect.
+SegmentBytes EmitToBytesOmit(const SpimiPostingBuffer& buffer) {
+    MemoryByteOutput tis, tii, frq, prx;
+    SegmentWriter w(&tis, &tii, &frq, &prx, TermDictWriter::kDefaultIndexInterval,
+                    TermDictWriter::kDefaultSkipInterval, TermDictWriter::kMaxSkipLevels,
+                    /*omit_term_freq_and_positions=*/true);
+    w.Emit(buffer, /*field=*/0);
+    w.Close();
+    return SegmentBytes {
+            .tis = tis.bytes(), .tii = tii.bytes(), .frq = frq.bytes(), .prx = prx.bytes()};
+}
+
 // The compact direct-emit path (Sort(allow_direct_emit=true)) must produce
 // byte-for-byte identical .tis/.tii/.frq/.prx output to the legacy
 // records-materialization path (Sort(false)) on the same input.
@@ -381,6 +395,68 @@ TEST(SegmentWriterTest, CompactDirectEmitMatchesRecordsPathVInt) {
 TEST(SegmentWriterTest, CompactDirectEmitMatchesRecordsPathPfor) {
     // df = 600 >= skip_interval (512) ⇒ .frq uses the SPIMI PFOR block mode.
     ExpectDirectEmitMatchesRecords(/*docs=*/600, /*per_doc=*/2);
+}
+
+// DOCS_ONLY oracle: a buffer that OMITS the prox chain (omit_tfap=true), emitted
+// through a DOCS_ONLY SegmentWriter, must produce a .frq byte-identical to a
+// phrase-ON buffer (which stored the prox chain) emitted through the SAME
+// DOCS_ONLY SegmentWriter. This proves the per-token position skip in the buffer
+// is byte-neutral for the on-disk DOCS_ONLY format (positions were always
+// discarded at emit). The .prx must be empty in both cases.
+void ExpectOmitTfapByteNeutral(uint32_t docs, uint32_t per_doc) {
+    SpimiPostingBuffer omit(/*omit_tfap=*/true);
+    SpimiPostingBuffer phrase(/*omit_tfap=*/false);
+    BuildMonotonicCompact(omit, docs, per_doc);
+    BuildMonotonicCompact(phrase, docs, per_doc);
+
+    omit.Sort(/*allow_direct_emit=*/true);
+    phrase.Sort(/*allow_direct_emit=*/true);
+    ASSERT_TRUE(omit.CompactDirectEmitReady());
+    ASSERT_TRUE(phrase.CompactDirectEmitReady());
+
+    // Both emitted via a DOCS_ONLY SegmentWriter: .frq is doc-delta only and .prx
+    // is never written, so the position-bearing chain in `phrase` is irrelevant.
+    const SegmentBytes a = EmitToBytesOmit(omit);
+    const SegmentBytes b = EmitToBytesOmit(phrase);
+    EXPECT_EQ(a.frq, b.frq) << "DOCS_ONLY .frq must not depend on the omitted prox chain";
+    EXPECT_EQ(a.tis, b.tis);
+    EXPECT_EQ(a.tii, b.tii);
+    EXPECT_TRUE(a.prx.empty()) << "DOCS_ONLY must not write any .prx bytes";
+    EXPECT_TRUE(b.prx.empty()) << "DOCS_ONLY must not write any .prx bytes";
+}
+
+TEST(SegmentWriterTest, OmitTfapByteNeutralVInt) {
+    // df = 100 < skip_interval ⇒ kDefault VInt block mode.
+    ExpectOmitTfapByteNeutral(/*docs=*/100, /*per_doc=*/2);
+}
+
+TEST(SegmentWriterTest, OmitTfapByteNeutralPfor) {
+    // df = 600 >= skip_interval (512) ⇒ SPIMI PFOR block mode (+ skip list).
+    ExpectOmitTfapByteNeutral(/*docs=*/600, /*per_doc=*/2);
+}
+
+// The DOCS_ONLY direct-emit path (omit buffer) and the records-materialization
+// path (omit buffer, forced via Sort(false)) must agree byte-for-byte, just like
+// the phrase-on pair, proving the DecodeCompactTerm position=0 fallback is
+// consistent with the prox-chain-skip in EmitFromCompactDirect.
+TEST(SegmentWriterTest, OmitTfapDirectEmitMatchesRecordsPath) {
+    SpimiPostingBuffer direct(/*omit_tfap=*/true);
+    SpimiPostingBuffer records(/*omit_tfap=*/true);
+    BuildMonotonicCompact(direct, /*docs=*/120, /*per_doc=*/3);
+    BuildMonotonicCompact(records, /*docs=*/120, /*per_doc=*/3);
+
+    direct.Sort(/*allow_direct_emit=*/true);
+    records.Sort(/*allow_direct_emit=*/false);
+    ASSERT_TRUE(direct.CompactDirectEmitReady());
+    ASSERT_FALSE(records.CompactDirectEmitReady());
+
+    const SegmentBytes a = EmitToBytesOmit(direct);
+    const SegmentBytes b = EmitToBytesOmit(records);
+    EXPECT_EQ(a.tis, b.tis);
+    EXPECT_EQ(a.tii, b.tii);
+    EXPECT_EQ(a.frq, b.frq);
+    EXPECT_TRUE(a.prx.empty());
+    EXPECT_TRUE(b.prx.empty());
 }
 
 // Independent-oracle test for the StreamVByte block codec. Builds known

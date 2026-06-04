@@ -36,7 +36,9 @@
 #include "common/config.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
+#include "storage/index/inverted/spimi/fulltext_writer.h"
 #include "storage/index/inverted/spimi/pfor_encoder.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_writer.h"
@@ -630,6 +632,149 @@ TEST(SegmentRoundtripTest, PatchedFreqHighDfRoundTrips) {
         EXPECT_EQ(static_cast<int32_t>(reconstructed[0].docs[d].positions.size()), expected_freq[d])
                 << "freq (position count) at doc " << d;
     }
+}
+
+namespace {
+
+// Wires up a SpimiSegmentSink over the seven required MemoryByteOutput streams
+// (EmitSegment DCHECKs all of them non-null). `.nrm` is intentionally left null:
+// V4 sets omit_norms=true, so no norm stream is written.
+struct EmitStreams {
+    MemoryByteOutput tis;
+    MemoryByteOutput tii;
+    MemoryByteOutput frq;
+    MemoryByteOutput prx;
+    MemoryByteOutput fnm;
+    MemoryByteOutput seg_n;
+    MemoryByteOutput seg_gen;
+
+    SpimiSegmentSink Sink() {
+        SpimiSegmentSink sink;
+        sink.tis = &tis;
+        sink.tii = &tii;
+        sink.frq = &frq;
+        sink.prx = &prx;
+        sink.fnm = &fnm;
+        sink.nrm = nullptr; // V4 omits norms
+        sink.segments_n = &seg_n;
+        sink.segments_gen = &seg_gen;
+        return sink;
+    }
+};
+
+// Decodes a DOCS_ONLY slim `.frq` block into its doc-id set. In omit_tfap mode
+// the encoder writes each doc as a raw VInt doc-delta — NO low-bit freq flag and
+// NO separate freq VInt (FreqProxEncoder::AddDoc omit_tfap branch). So the
+// general DecodeFrqDocs (which assumes a freq bit) does not apply; this reads
+// `doc_freq` plain delta VInts and accumulates the doc ids.
+std::vector<int32_t> DecodeDocsOnlyFrq(const std::vector<uint8_t>& frq, int64_t freq_pointer,
+                                       int32_t doc_freq) {
+    ByteReader fr(frq);
+    fr.Seek(static_cast<size_t>(freq_pointer));
+    std::vector<int32_t> doc_ids;
+    doc_ids.reserve(static_cast<size_t>(doc_freq));
+    int32_t last_doc = 0;
+    for (int32_t i = 0; i < doc_freq; ++i) {
+        last_doc += fr.ReadVInt();
+        doc_ids.push_back(last_doc);
+    }
+    return doc_ids;
+}
+
+} // namespace
+
+// DOCS_ONLY (support_phrase=false) write path: a buffer constructed with
+// omit_tfap=true skips the per-term prox slice-chain, and EmitSegment must NOT
+// read it. Drives a multi-term, multi-doc, multi-occurrence input (positions
+// WOULD be emitted if not omitted) through the V4 (windowed-capable) EmitSegment
+// and asserts:
+//   1. every term's `.prx` is empty (prox_pointer == 0, .prx stream empty) — no
+//      positions were written;
+//   2. doc ids reconstruct correctly from `.frq` (raw doc-delta decode) per term;
+//   3. emit does not crash and the new buffer<->emit omit DCHECK passes.
+// For contrast, the SAME input emitted with omit=false produces a NON-empty
+// `.prx` for a multi-occurrence term — proving the assertions actually
+// distinguish the omit path.
+TEST(SegmentRoundtripTest, DocsOnlyOmitTfapRoundTrips) {
+    // Ground truth: term -> sorted distinct doc-id set. Every doc has multiple
+    // occurrences (would-be positions) so .prx would be non-empty if not omitted.
+    const std::map<std::string, std::vector<int32_t>> truth = {
+            {"alpha", {0, 1, 3}},
+            {"beta", {0, 2}},
+            {"gamma", {1, 2, 4}},
+    };
+
+    // Build the omit_tfap=true buffer and append multi-occurrence-per-doc input.
+    SpimiPostingBuffer buffer(/*omit_tfap=*/true);
+    ASSERT_TRUE(buffer.OmitTfap());
+    for (const auto& [term, docs] : truth) {
+        for (int32_t doc : docs) {
+            // Three occurrences per doc at distinct positions; if positions were
+            // NOT omitted these would yield two prox VInt deltas per doc.
+            buffer.Append(term, static_cast<uint32_t>(doc), /*pos=*/0);
+            buffer.Append(term, static_cast<uint32_t>(doc), /*pos=*/4);
+            buffer.Append(term, static_cast<uint32_t>(doc), /*pos=*/9);
+        }
+    }
+
+    constexpr int32_t kDocCount = 5;
+
+    EmitStreams streams;
+    SpimiSegmentSink sink = streams.Sink();
+    // V4 index_version -> windowed-capable path; omit_term_freq_and_positions=true
+    // exercises DOCS_ONLY. Trailing inline_small_terms defaults to false, so the
+    // `.tis` freq/prox pointers stay external offsets into the real streams.
+    const int64_t term_count = SpimiFulltextWriter::EmitSegment(
+            buffer, sink, /*segment_name=*/"_0", /*field_name=*/"body", kDocCount,
+            FieldInfosWriter::kIndexVersionV4, /*omit_term_freq_and_positions=*/true,
+            /*omit_norms=*/true, /*out_byte_counts=*/nullptr);
+    ASSERT_EQ(term_count, static_cast<int64_t>(truth.size()));
+
+    // Assertion (1): the whole `.prx` stream is empty — DOCS_ONLY never wrote it.
+    EXPECT_TRUE(streams.prx.bytes().empty()) << ".prx must be empty in DOCS_ONLY";
+
+    const auto entries = DecodeTis(streams.tis.bytes(), TermDictWriter::kDefaultSkipInterval);
+    ASSERT_EQ(entries.size(), truth.size());
+
+    size_t i = 0;
+    for (const auto& [term, docs] : truth) {
+        const auto& entry = entries[i];
+        EXPECT_EQ(entry.term_wide, Utf8ToWide(term)) << "term mismatch at " << i;
+        EXPECT_EQ(entry.doc_freq, static_cast<int32_t>(docs.size())) << "doc_freq for " << term;
+        // Assertion (1b): every term's prox slice has zero span (pointer stays 0).
+        // Don't call ReadTermProxRaw here: it reads a mode byte, which would index
+        // past the end of the (correctly) empty `.prx`. The empty-stream check
+        // above plus prox_pointer==0 already prove no positions were written.
+        EXPECT_EQ(entry.prox_pointer, 0) << "prox_pointer must be 0 for " << term;
+
+        // Assertion (2): doc ids reconstruct from `.frq` (raw doc-delta decode).
+        const auto decoded_docs =
+                DecodeDocsOnlyFrq(streams.frq.bytes(), entry.freq_pointer, entry.doc_freq);
+        EXPECT_EQ(decoded_docs, docs) << "doc set mismatch for " << term;
+        ++i;
+    }
+
+    // Contrast: the SAME input emitted with omit=false MUST produce a non-empty
+    // `.prx` (multi-occurrence docs write position deltas). Proves the omit
+    // assertions above actually distinguish the DOCS_ONLY path.
+    SpimiPostingBuffer with_prox(/*omit_tfap=*/false);
+    ASSERT_FALSE(with_prox.OmitTfap());
+    for (const auto& [term, docs] : truth) {
+        for (int32_t doc : docs) {
+            with_prox.Append(term, static_cast<uint32_t>(doc), /*pos=*/0);
+            with_prox.Append(term, static_cast<uint32_t>(doc), /*pos=*/4);
+            with_prox.Append(term, static_cast<uint32_t>(doc), /*pos=*/9);
+        }
+    }
+    EmitStreams streams_prox;
+    SpimiSegmentSink sink_prox = streams_prox.Sink();
+    SpimiFulltextWriter::EmitSegment(with_prox, sink_prox, /*segment_name=*/"_0",
+                                     /*field_name=*/"body", kDocCount,
+                                     FieldInfosWriter::kIndexVersionV4,
+                                     /*omit_term_freq_and_positions=*/false,
+                                     /*omit_norms=*/true, /*out_byte_counts=*/nullptr);
+    EXPECT_FALSE(streams_prox.prx.bytes().empty())
+            << "omit=false must write a non-empty .prx for multi-occurrence terms";
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

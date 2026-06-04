@@ -29,6 +29,7 @@ SegmentWriter::SegmentWriter(ByteOutput* tis_out, ByteOutput* tii_out, ByteOutpu
           _prx_out(prx_out),
           _inline_small_terms(inline_small_terms),
           _inline_threshold(inline_threshold),
+          _omit_tfap(omit_term_freq_and_positions),
           _dict(tis_out, tii_out, index_interval, skip_interval, inline_small_terms),
           _encoder(frq_out, prx_out, skip_interval, max_skip_levels, omit_term_freq_and_positions,
                    use_windowed, /*inline_capable=*/inline_small_terms) {}
@@ -119,8 +120,13 @@ int64_t SegmentWriter::EmitFromRecords(const SpimiPostingBuffer& buffer, int32_t
             }
             const auto freq = static_cast<int32_t>(doc_end - doc_start);
             _encoder.StartDoc(static_cast<int32_t>(doc_id), freq);
-            for (size_t k = doc_start; k < doc_end; ++k) {
-                _encoder.AddPosition(static_cast<int32_t>(records[k].position));
+            // DOCS_ONLY: records carry position=0 (DecodeTermToRecords) and the
+            // encoder no-ops AddPosition, so skip the loop entirely. Byte-neutral
+            // (no .prx is written either way); just avoids the no-op calls.
+            if (!_omit_tfap) {
+                for (size_t k = doc_start; k < doc_end; ++k) {
+                    _encoder.AddPosition(static_cast<int32_t>(records[k].position));
+                }
             }
             _encoder.FinishDoc();
             doc_start = doc_end;
@@ -172,19 +178,35 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
         // encoder — no per-occurrence regrouping needed. The StartDoc/AddPosition/
         // FinishDoc sequence (hence .frq/.prx output) is byte-identical.
         ByteSliceReader freq_reader(buffer.Pool(), st.doc_start, st.doc_end);
-        ByteSliceReader pos_reader(buffer.Pool(), st.pos_start, st.pos_end);
         uint32_t prev_doc = 0;
         uint32_t emitted_occ = 0;
-        while (emitted_occ < n) {
-            const uint64_t code = freq_reader.ReadVInt64();
-            prev_doc += static_cast<uint32_t>(code >> 1U);
-            const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
-            _encoder.StartDoc(static_cast<int32_t>(prev_doc), static_cast<int32_t>(freq));
-            for (uint32_t k = 0; k < freq; ++k) {
-                _encoder.AddPosition(static_cast<int32_t>(pos_reader.ReadVInt()));
+        if (_omit_tfap) {
+            // DOCS_ONLY: the buffer never wrote a prox chain (st.pos_start ==
+            // st.pos_end == 0), so do NOT construct a prox reader and skip the
+            // AddPosition loop. The StartDoc(prev_doc, freq) call STAYS — the
+            // encoder ignores freq in omit mode and writes only the doc-delta
+            // VInt, so .frq is byte-identical. `freq` still advances emitted_occ.
+            while (emitted_occ < n) {
+                const uint64_t code = freq_reader.ReadVInt64();
+                prev_doc += static_cast<uint32_t>(code >> 1U);
+                const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+                _encoder.StartDoc(static_cast<int32_t>(prev_doc), static_cast<int32_t>(freq));
+                _encoder.FinishDoc();
+                emitted_occ += freq;
             }
-            _encoder.FinishDoc();
-            emitted_occ += freq;
+        } else {
+            ByteSliceReader pos_reader(buffer.Pool(), st.pos_start, st.pos_end);
+            while (emitted_occ < n) {
+                const uint64_t code = freq_reader.ReadVInt64();
+                prev_doc += static_cast<uint32_t>(code >> 1U);
+                const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+                _encoder.StartDoc(static_cast<int32_t>(prev_doc), static_cast<int32_t>(freq));
+                for (uint32_t k = 0; k < freq; ++k) {
+                    _encoder.AddPosition(static_cast<int32_t>(pos_reader.ReadVInt()));
+                }
+                _encoder.FinishDoc();
+                emitted_occ += freq;
+            }
         }
 
         const std::string_view term_text = buffer.TermAt(term.text_ref);
