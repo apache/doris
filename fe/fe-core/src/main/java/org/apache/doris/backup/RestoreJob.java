@@ -1439,7 +1439,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
                             localTbl.disableAutoCompaction(),
-                            localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
                             localTbl.getCompactionPolicy(),
                             localTbl.getTimeSeriesCompactionGoalSizeMbytes(),

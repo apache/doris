@@ -38,8 +38,7 @@ suite("test_nested_lateral_view") {
                 "is_being_synced" = "false",
                 "storage_format" = "V2",
                 "light_schema_change" = "true",
-                "disable_auto_compaction" = "false",
-                "enable_single_replica_compaction" = "false"
+                "disable_auto_compaction" = "false"
                 );"""
     sql """INSERT INTO ods_42378777c342d2da36d05db875393811 (`57CE5E02901753F7_06a28`,`57CE5E02520653F7_06a28`,`65F695F4519253F7_06a28`,`65E5671F659C6760_06a28`,`57CE5E027A7A683C_06a28`,`57CE5E02767E520653F7_06a28a4`,`65705B575C0F657070B9_06a28a4`,qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq_,`5F88591A7B2653F7_06a28`) VALUES
          ('a,a,a,a','a;a;a;a','1899-12-31 15:11:22','2024-01-12 00:00:00','a a a a','a%a%a%a','33..33.*.@3',3.3300000000,''),

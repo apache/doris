@@ -998,18 +998,6 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             tablet->set_binlog_config(new_binlog_config);
             need_to_save = true;
         }
-        if (tablet_meta_info.__isset.enable_single_replica_compaction) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->tablet_meta()->mutable_tablet_schema()->set_enable_single_replica_compaction(
-                    tablet_meta_info.enable_single_replica_compaction);
-            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
-                        tablet_meta_info.enable_single_replica_compaction);
-            }
-            tablet->tablet_schema_unlocked()->set_enable_single_replica_compaction(
-                    tablet_meta_info.enable_single_replica_compaction);
-            need_to_save = true;
-        }
         if (tablet_meta_info.__isset.disable_auto_compaction) {
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(

@@ -487,10 +487,6 @@ public:
     bool deprecated_variant_flatten_nested() const {
         return _deprecated_enable_variant_flatten_nested;
     }
-    void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
-        _enable_single_replica_compaction = enable_single_replica_compaction;
-    }
-    bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     // indicate if full row store column(all the columns encodes as row) exists
     bool has_row_store_for_all_columns() const {
         return _store_row_column && row_columns_uids().empty();
@@ -819,7 +815,6 @@ private:
     int64_t _table_id = -1;
     int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
-    bool _enable_single_replica_compaction = false;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
