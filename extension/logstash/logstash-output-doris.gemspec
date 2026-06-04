@@ -46,10 +46,5 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'sinatra', '~> 1.4'
   s.add_development_dependency 'webrick', '~> 1.9'
 
-  # JARs are vendored under lib/; the corresponding require_jar calls live in
-  # lib/logstash-output-doris_jars.rb. We deliberately do NOT add a
-  #   s.requirements << 'jar org.apache.httpcomponents, httpclient, 4.5.13'
-  # entry: jar-dependencies' install hook would otherwise attempt a maven
-  # lookup at plugin-install time, which fails in air-gapped environments and
-  # forces users to set JARS_SKIP=true.
+  s.requirements << 'jar org.apache.httpcomponents, httpclient, 4.5.13'
 end
