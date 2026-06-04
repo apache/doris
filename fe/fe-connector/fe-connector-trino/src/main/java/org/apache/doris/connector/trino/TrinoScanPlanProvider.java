@@ -281,10 +281,19 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private String serializeOptions(ConnectorSession session) {
-        Map<String, String> props = new HashMap<>(session.getCatalogProperties());
-        if (!props.containsKey("create_time")) {
-            props.put("create_time", String.valueOf(System.currentTimeMillis() / 1000));
+        // BE re-adds the "trino." prefix to every option key (TRINO_CONNECTOR_OPTION_PREFIX),
+        // then strips it back off and reads "connector.name" from the result. So the options
+        // map must carry the *stripped* trino.* properties (connector.name, <connector>.*),
+        // matching the legacy TrinoConnectorScanNode. Sending the full prefixed catalog
+        // properties here would double the prefix and make BE read a null connector.name.
+        Map<String, String> props = new HashMap<>(dorisConnector.getTrinoProperties());
+        // BE also needs create_time; it is part of the BE-side connector cache key, so
+        // preserve the catalog's value rather than minting a new one per scan.
+        String createTime = session.getCatalogProperties().get("create_time");
+        if (createTime == null || createTime.isEmpty()) {
+            createTime = String.valueOf(System.currentTimeMillis() / 1000);
         }
+        props.put("create_time", createTime);
         try {
             return new ObjectMapper().writeValueAsString(props);
         } catch (JsonProcessingException e) {
