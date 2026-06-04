@@ -53,6 +53,9 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
         );
     }
 
+    /**
+     * Execute external metadata preload after relation collection and before internal table locks.
+     */
     public ExternalMetadataPreloadResult executePreload(StatementContext statementContext) {
         long preloadStartTime = TimeUtils.getStartTimeMs();
         Optional<String> skipReason = getSkipReason(statementContext);
