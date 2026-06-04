@@ -412,7 +412,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testRootFragmentOutputExprsKeepComputedProjectionAboveDeferredTopN() throws Exception {
+    public void testComputedProjectionAboveDeferredTopNIsTranslated() throws Exception {
         boolean originEnableTwoPhaseReadOpt = connectContext.getSessionVariable().enableTwoPhaseReadOpt;
         long originTopnOptLimitThreshold = connectContext.getSessionVariable().topnOptLimitThreshold;
         int originTopnLazyMaterializationThreshold =
@@ -435,7 +435,11 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
             Assertions.assertEquals(2, rootFragment.getOutputExprs().size());
             rootFragment.getOutputExprs().forEach(Assertions::assertNotNull);
-            Assertions.assertTrue(rootFragment.getOutputExprs().stream().allMatch(ArithmeticExpr.class::isInstance));
+            Assertions.assertTrue(rootFragment.getOutputExprs().stream().allMatch(SlotRef.class::isInstance));
+            Assertions.assertNotNull(rootFragment.getPlanRoot().getProjectList());
+            Assertions.assertEquals(2, rootFragment.getPlanRoot().getProjectList().size());
+            Assertions.assertTrue(rootFragment.getPlanRoot().getProjectList().stream()
+                    .allMatch(ArithmeticExpr.class::isInstance));
         } finally {
             connectContext.getSessionVariable().enableTwoPhaseReadOpt = originEnableTwoPhaseReadOpt;
             connectContext.getSessionVariable().topnOptLimitThreshold = originTopnOptLimitThreshold;
