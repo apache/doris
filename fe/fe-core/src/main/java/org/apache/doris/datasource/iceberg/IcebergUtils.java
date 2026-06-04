@@ -1089,12 +1089,16 @@ public class IcebergUtils {
 
     public static FileFormat getFileFormat(Table icebergTable) {
         Map<String, String> properties = icebergTable.properties();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            LOG.info("asd Iceberg table property: {}={}", entry.getKey(), entry.getValue());
+        }
         String fileFormatName;
         if (properties.containsKey(WRITE_FORMAT)) {
             fileFormatName = properties.get(WRITE_FORMAT);
         } else {
             fileFormatName = properties.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, PARQUET_NAME);
         }
+        LOG.info("asd Iceberg table {}.{} file format is {}", icebergTable.name(), fileFormatName);
         FileFormat fileFormat;
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             fileFormat = FileFormat.ORC;
