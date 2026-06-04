@@ -956,17 +956,13 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                                          const PathToNoneNullValues& stats,
                                          TabletSchema::PathsSetInfo& paths_set_info) {
-    std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
-    paths_with_sizes.reserve(stats.size());
-    for (const auto& [path, size] : stats) {
-        if (paths_set_info.typed_path_set.contains(path)) {
-            continue;
-        }
-        paths_with_sizes.emplace_back(size, path);
-    }
-
     // max_subcolumns_count is 0 means no limit
-    if (max_subcolumns_count > 0 && paths_with_sizes.size() > max_subcolumns_count) {
+    if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
+        std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
+        paths_with_sizes.reserve(stats.size());
+        for (const auto& [path, size] : stats) {
+            paths_with_sizes.emplace_back(size, path);
+        }
         std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
 
         // Select top N paths as subcolumns, remaining paths as sparse columns
@@ -982,7 +978,7 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                   << max_subcolumns_count << " stats size " << paths_with_sizes.size();
     } else {
         // Apply all paths as subcolumns
-        for (const auto& [_, path] : paths_with_sizes) {
+        for (const auto& [path, _] : stats) {
             paths_set_info.sub_path_set.emplace(path);
         }
     }
@@ -1166,12 +1162,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
     // append subcolumns
     for (const auto& subpath : sorted_subpaths) {
-        const std::string subpath_str = subpath.to_string();
-        if (paths_set_info.typed_path_set.contains(subpath_str)) {
-            paths_set_info.sub_path_set.erase(subpath);
-            continue;
-        }
-        auto column_name = parent_column->name_lower_case() + "." + subpath_str;
+        auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
         auto column_path = PathInData(column_name);
 
         const auto& find_data_types = path_to_data_types.find(PathInData(subpath));
@@ -1182,15 +1173,14 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
         // 3. the sparse paths are too much
         TabletSchema::SubColumnInfo sub_column_info;
         if (parent_column->variant_enable_typed_paths_to_sparse() &&
-            generate_sub_column_info(*target, parent_column->unique_id(), subpath_str,
+            generate_sub_column_info(*target, parent_column->unique_id(), std::string(subpath),
                                      &sub_column_info)) {
             inherit_column_attributes(*parent_column, sub_column_info.column);
             output_schema->append_column(sub_column_info.column);
-            paths_set_info.subcolumn_indexes.emplace(subpath_str,
-                                                     std::move(sub_column_info.indexes));
+            paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_info.indexes));
             VLOG_DEBUG << "append typed column " << subpath;
         } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
-                   sparse_paths.find(subpath_str) != sparse_paths.end() ||
+                   sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
                    sparse_paths.size() >=
                            parent_column->variant_max_sparse_column_statistics_size()) {
             TabletColumn subcolumn;
@@ -1219,7 +1209,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             inherit_column_attributes(*parent_column, sub_column);
             TabletIndexes sub_column_indexes;
             inherit_index(parent_indexes, sub_column_indexes, sub_column);
-            paths_set_info.subcolumn_indexes.emplace(subpath_str, std::move(sub_column_indexes));
+            paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_indexes));
             output_schema->append_column(sub_column);
             VLOG_DEBUG << "append sub column " << subpath << " data type " << data_type->get_name();
         }
@@ -2260,7 +2250,19 @@ ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& col
 
     // Plain dynamic non-doc VARIANT can avoid eagerly creating thousands of parse-time subcolumns.
     // The segment writer will pick the materialized/sparse split from this doc-value KV staging.
-    return ParseConfig::ParseTo::OnlyDocValueColumn;
+    // Keep a BE switch so tests and rollouts can compare the old parse-time path with staging under
+    // the same writer and schema.
+    switch (config::variant_storage_parse_mode) {
+    case 0:
+    case 2:
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    case 1:
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    default:
+        CHECK(false) << "invalid variant_storage_parse_mode: "
+                     << config::variant_storage_parse_mode;
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    }
 }
 
 } // namespace

@@ -105,6 +105,11 @@ static Block _make_scalar_variant_block(const std::vector<std::string>& jsons,
     return block;
 }
 
+static size_t _doc_value_entry_count(const ColumnVariant& variant) {
+    const auto& offsets = variant.serialized_doc_value_column_offsets();
+    return offsets.empty() ? 0 : offsets.back();
+}
+
 class ScopedDuplicateJsonPathCheck {
 public:
     explicit ScopedDuplicateJsonPathCheck(bool value)
@@ -117,6 +122,18 @@ public:
 
 private:
     bool _old_value;
+};
+
+class ScopedVariantStorageParseMode {
+public:
+    explicit ScopedVariantStorageParseMode(int32_t value)
+            : _old_value(config::variant_storage_parse_mode) {
+        config::variant_storage_parse_mode = value;
+    }
+    ~ScopedVariantStorageParseMode() { config::variant_storage_parse_mode = _old_value; }
+
+private:
+    int32_t _old_value;
 };
 
 TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
@@ -583,6 +600,34 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeKeepsDocValueWithTypedPathAndPa
     auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
     EXPECT_TRUE(docs_subcolumns.contains("a"));
     EXPECT_TRUE(docs_subcolumns.contains("b"));
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageParseModeConfigControlsPlainNonDocPath) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+
+    {
+        ScopedVariantStorageParseMode parse_time_guard(1);
+        Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+        Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+        EXPECT_EQ(_doc_value_entry_count(out), static_cast<size_t>(0));
+        EXPECT_NE(out.get_subcolumn(PathInData("a")), nullptr);
+        EXPECT_NE(out.get_subcolumn(PathInData("b")), nullptr);
+    }
+
+    {
+        ScopedVariantStorageParseMode doc_value_guard(2);
+        Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+        Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+        EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+        EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
+        EXPECT_EQ(_doc_value_entry_count(out), static_cast<size_t>(2));
+    }
 }
 
 TEST(VariantUtilTest, SparseStorageParseUsesDocValueKvInsteadOfManySubcolumns) {

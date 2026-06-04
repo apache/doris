@@ -458,7 +458,12 @@ Status prepare_materialized_subcolumn_writer(
     std::unique_ptr<ColumnWriter> writer;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
-    bool need_record_none_null_value_size = true;
+    const auto& path_info = tablet_column.path_info_ptr();
+    DCHECK(path_info != nullptr);
+    const bool need_record_none_null_value_size =
+            (!path_info->get_is_typed() || parent_column.variant_enable_typed_paths_to_sparse()) &&
+            !path_info->has_nested_part() &&
+            variant_util::should_record_variant_path_stats(parent_column);
 
     RETURN_IF_ERROR(_create_column_writer(
             current_column_id, tablet_column, base_opts.rowset_ctx->tablet_schema,

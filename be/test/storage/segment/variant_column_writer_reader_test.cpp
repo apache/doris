@@ -16,9 +16,7 @@
 // under the License.
 
 #include <atomic>
-#include <chrono>
 #include <cstdlib>
-#include <limits>
 #include <set>
 #include <thread>
 
@@ -119,14 +117,28 @@ static void fill_nullable_variant_block(Block* block,
     block->replace_by_position(0, std::move(column));
 }
 
-struct VariantWritePerfResult {
-    int64_t elapsed_us = 0;
+struct VariantStorageParseWriteResult {
     size_t num_rows = 0;
+    size_t parsed_subcolumns = 0;
+    size_t parsed_allocated_bytes = 0;
+    size_t doc_value_entries = 0;
     int footer_columns = 0;
     int materialized_columns = 0;
     int sparse_columns = 0;
     int doc_value_columns = 0;
     uint64_t segment_file_size = 0;
+};
+
+class ScopedVariantStorageParseMode {
+public:
+    explicit ScopedVariantStorageParseMode(int32_t value)
+            : _old_value(config::variant_storage_parse_mode) {
+        config::variant_storage_parse_mode = value;
+    }
+    ~ScopedVariantStorageParseMode() { config::variant_storage_parse_mode = _old_value; }
+
+private:
+    int32_t _old_value;
 };
 
 // MockColumnReaderCache class for testing
@@ -447,64 +459,14 @@ protected:
         return Status::OK();
     }
 
-    Status write_variant_perf_segment(MutableColumnPtr variant_col, std::string_view rowset_id,
-                                      VariantWritePerfResult* result) {
-        if (!variant_col) {
-            return Status::InvalidArgument("variant_col is null");
-        }
-
-        const size_t num_rows = variant_col->size();
-        io::FileWriterPtr file_writer;
-        const auto file_path = local_segment_path(_tablet->tablet_path(), rowset_id, 0);
-        static_cast<void>(io::global_local_filesystem()->delete_file(file_path));
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
-
-        SegmentFooterPB footer;
-        RowsetWriterContext rowset_ctx;
-        rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
-        rowset_ctx.tablet_schema = _tablet_schema;
-
-        TabletColumn parent_column = _tablet_schema->column(0);
-        ColumnWriterOptions opts;
-        opts.meta = footer.add_columns();
-        opts.compression_type = CompressionTypePB::LZ4;
-        opts.file_writer = file_writer.get();
-        opts.footer = &footer;
-        opts.rowset_ctx = &rowset_ctx;
-        opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
-        _init_column_meta(opts.meta, 0, parent_column, opts);
-
-        std::unique_ptr<ColumnWriter> writer;
-        RETURN_IF_ERROR(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer));
-        RETURN_IF_ERROR(writer->init());
-
-        Block block = _tablet_schema->create_block();
-        auto columns = std::move(block).mutate_columns();
-        columns[0] = std::move(variant_col);
-        block.set_columns(std::move(columns));
-
-        const auto begin = std::chrono::steady_clock::now();
-        auto converter = std::make_unique<OlapBlockDataConvertor>();
-        converter->add_column_data_convertor(parent_column);
-        converter->set_source_content(&block, 0, num_rows);
-        auto [convert_status, accessor] = converter->convert_column_data(0);
-        RETURN_IF_ERROR(convert_status);
-        RETURN_IF_ERROR(writer->append(accessor->get_nullmap(), accessor->get_data(), num_rows));
-        RETURN_IF_ERROR(writer->finish());
-        RETURN_IF_ERROR(writer->write_data());
-        RETURN_IF_ERROR(writer->write_ordinal_index());
-        RETURN_IF_ERROR(writer->write_zone_map());
-        RETURN_IF_ERROR(file_writer->close());
-        const auto elapsed = std::chrono::steady_clock::now() - begin;
-
-        int64_t file_size = 0;
-        RETURN_IF_ERROR(io::global_local_filesystem()->file_size(file_path, &file_size));
-        footer.set_num_rows(num_rows);
-
-        result->elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-        result->num_rows = num_rows;
+    void collect_variant_footer_stats(const SegmentFooterPB& footer, uint64_t file_size,
+                                      VariantStorageParseWriteResult* result) {
+        CHECK(result != nullptr);
         result->footer_columns = footer.columns_size();
-        result->segment_file_size = cast_set<uint64_t>(file_size);
+        result->materialized_columns = 0;
+        result->sparse_columns = 0;
+        result->doc_value_columns = 0;
+        result->segment_file_size = file_size;
         for (int i = 1; i < footer.columns_size(); ++i) {
             const auto& meta = footer.columns(i);
             if (!meta.has_column_path_info()) {
@@ -523,12 +485,12 @@ protected:
                 ++result->materialized_columns;
             }
         }
-        return Status::OK();
     }
 
     Status write_storage_parsed_segment(const std::vector<std::string>& jsons,
                                         std::string_view rowset_id, SegmentFooterPB* footer,
-                                        std::string* file_path, bool write_inverted_index = false) {
+                                        std::string* file_path, bool write_inverted_index = false,
+                                        VariantStorageParseWriteResult* result = nullptr) {
         if (footer == nullptr || file_path == nullptr) {
             return Status::InvalidArgument("footer or file_path is null");
         }
@@ -593,6 +555,16 @@ protected:
         RETURN_IF_ERROR(
                 variant_util::parse_and_materialize_variant_columns(block, *_tablet_schema, {0}));
 
+        const auto& parsed_variant =
+                assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+        if (result != nullptr) {
+            result->num_rows = num_rows;
+            result->parsed_subcolumns = parsed_variant.get_subcolumns().size();
+            result->parsed_allocated_bytes = parsed_variant.allocated_bytes();
+            const auto& doc_value_offsets = parsed_variant.serialized_doc_value_column_offsets();
+            result->doc_value_entries = doc_value_offsets.empty() ? 0 : doc_value_offsets.back();
+        }
+
         auto converter = std::make_unique<OlapBlockDataConvertor>();
         converter->add_column_data_convertor(parent_column);
         converter->set_source_content(&block, 0, num_rows);
@@ -613,6 +585,11 @@ protected:
         }
         RETURN_IF_ERROR(file_writer->close());
         footer->set_num_rows(num_rows);
+        if (result != nullptr) {
+            int64_t file_size = 0;
+            RETURN_IF_ERROR(io::global_local_filesystem()->file_size(*file_path, &file_size));
+            collect_variant_footer_stats(*footer, cast_set<uint64_t>(file_size), result);
+        }
         return Status::OK();
     }
 
@@ -764,8 +741,8 @@ static std::vector<std::string> normalize_json_rows(const std::vector<std::strin
     return normalized;
 }
 
-static void append_perf_json_field(std::string* json, bool* first, std::string_view key,
-                                   int64_t value) {
+static void append_variant_json_field(std::string* json, bool* first, std::string_view key,
+                                      int64_t value) {
     if (!*first) {
         json->push_back(',');
     }
@@ -776,10 +753,10 @@ static void append_perf_json_field(std::string* json, bool* first, std::string_v
     json->append(std::to_string(value));
 }
 
-static std::vector<std::string> make_variant_write_perf_jsons(size_t num_rows,
-                                                              size_t dense_key_count,
-                                                              size_t sparse_keys_per_row,
-                                                              size_t sparse_key_pool) {
+static std::vector<std::string> make_variant_write_footprint_jsons(size_t num_rows,
+                                                                   size_t dense_key_count,
+                                                                   size_t sparse_keys_per_row,
+                                                                   size_t sparse_key_pool) {
     std::vector<std::string> jsons;
     jsons.reserve(num_rows);
     for (size_t row = 0; row < num_rows; ++row) {
@@ -788,34 +765,18 @@ static std::vector<std::string> make_variant_write_perf_jsons(size_t num_rows,
         json.push_back('{');
         bool first = true;
         for (size_t i = 0; i < dense_key_count; ++i) {
-            append_perf_json_field(&json, &first, "hot" + std::to_string(i),
-                                   static_cast<int64_t>(row + i));
+            append_variant_json_field(&json, &first, "hot" + std::to_string(i),
+                                      static_cast<int64_t>(row + i));
         }
         for (size_t i = 0; i < sparse_keys_per_row; ++i) {
             const size_t key_id = (row * sparse_keys_per_row + i) % sparse_key_pool;
-            append_perf_json_field(&json, &first, "cold" + std::to_string(key_id),
-                                   static_cast<int64_t>(row + key_id));
+            append_variant_json_field(&json, &first, "cold" + std::to_string(key_id),
+                                      static_cast<int64_t>(row + key_id));
         }
         json.push_back('}');
         jsons.push_back(std::move(json));
     }
     return jsons;
-}
-
-static MutableColumnPtr parse_variant_write_perf_column(const std::vector<std::string>& jsons,
-                                                        int variant_max_subcolumns_count,
-                                                        ParseConfig::ParseTo parse_to) {
-    auto variant_col = ColumnVariant::create(variant_max_subcolumns_count, false);
-    auto json_col = ColumnString::create();
-    for (const auto& json : jsons) {
-        json_col->insert_data(json.data(), json.size());
-    }
-
-    ParseConfig config;
-    config.deprecated_enable_flatten_nested = false;
-    config.parse_to = parse_to;
-    variant_util::parse_json_to_variant(*variant_col, *json_col, config);
-    return variant_col;
 }
 
 // Regression test for legacy flat-dot-key compatibility.
@@ -2679,7 +2640,7 @@ TEST_F(VariantColumnWriterReaderTest,
     ASSERT_NE(typed_meta, nullptr);
     EXPECT_EQ(typed_meta->type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_INT));
     EXPECT_TRUE(typed_meta->is_nullable());
-    EXPECT_EQ(typed_meta->none_null_size(), 2);
+    EXPECT_FALSE(typed_meta->has_none_null_size());
 
     const auto* hot_meta = find_footer_column_meta_by_relative_path(footer, "hot");
     ASSERT_NE(hot_meta, nullptr);
@@ -2698,6 +2659,10 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_TRUE(variant_column_reader->exist_in_sparse_column(PathInData("cold0")));
     EXPECT_TRUE(variant_column_reader->exist_in_sparse_column(PathInData("cold1")));
     EXPECT_TRUE(variant_column_reader->exist_in_sparse_column(PathInData("cold2")));
+    const auto* stats = variant_column_reader->get_stats();
+    ASSERT_NE(stats, nullptr);
+    EXPECT_FALSE(stats->subcolumns_non_null_size.contains("typed_i"));
+    EXPECT_EQ(stats->subcolumns_non_null_size.at("hot"), jsons.size());
 
     std::vector<std::string> actual_rows;
     st = read_root_rows(footer, file_path, &actual_rows);
@@ -2806,7 +2771,7 @@ TEST_F(VariantColumnWriterReaderTest,
     ASSERT_NE(typed_meta, nullptr);
     EXPECT_EQ(typed_meta->type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_INT));
     EXPECT_TRUE(typed_meta->is_nullable());
-    EXPECT_EQ(typed_meta->none_null_size(), 2);
+    EXPECT_FALSE(typed_meta->has_none_null_size());
 
     const auto* hot_meta = find_footer_column_meta_by_relative_path(footer, "hot");
     ASSERT_NE(hot_meta, nullptr);
@@ -2817,6 +2782,19 @@ TEST_F(VariantColumnWriterReaderTest,
     ASSERT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(actual_rows,
               normalize_json_rows(jsons, _tablet_schema->column(0).variant_max_subcolumns_count()));
+
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.msg();
+    std::shared_ptr<ColumnReader> column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
+    ASSERT_TRUE(st.ok()) << st.msg();
+    auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+    ASSERT_NE(variant_column_reader, nullptr);
+    const auto* stats = variant_column_reader->get_stats();
+    ASSERT_NE(stats, nullptr);
+    EXPECT_FALSE(stats->subcolumns_non_null_size.contains("typed_g"));
+    EXPECT_EQ(stats->subcolumns_non_null_size.at("hot"), jsons.size());
 
     std::vector<std::string> typed_values;
     st = read_variant_path_rows(footer, file_path, "typed_g", FieldType::OLAP_FIELD_TYPE_INT,
@@ -3115,87 +3093,57 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
 
-TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_write_perf) {
-#ifndef NDEBUG
-    GTEST_SKIP() << "Variant write perf numbers must be collected from Release builds";
-#endif
-    if (std::getenv("DORIS_RUN_VARIANT_WRITE_PERF_TEST") == nullptr) {
-        GTEST_SKIP() << "Set DORIS_RUN_VARIANT_WRITE_PERF_TEST=1 to run this perf test";
+TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_reduces_sparse_parse_write_footprint) {
+    constexpr size_t kRows = 2048;
+    constexpr size_t kDenseKeys = 2;
+    constexpr size_t kSparseKeysPerRow = 30;
+    constexpr size_t kSparseKeyPool = 1000;
+    constexpr size_t kPathsPerRow = kDenseKeys + kSparseKeysPerRow;
+
+    init_variant_tablet(33004, kDenseKeys);
+    const auto jsons = make_variant_write_footprint_jsons(kRows, kDenseKeys, kSparseKeysPerRow,
+                                                          kSparseKeyPool);
+
+    VariantStorageParseWriteResult parse_time_result;
+    {
+        ScopedVariantStorageParseMode guard(1);
+        SegmentFooterPB footer;
+        std::string file_path;
+        auto st = write_storage_parsed_segment(jsons, "force_subcolumns", &footer, &file_path,
+                                               false, &parse_time_result);
+        ASSERT_TRUE(st.ok()) << st.to_string();
     }
 
-    struct PerfCase {
-        std::string name;
-        int64_t tablet_id;
-        size_t rows;
-        int variant_max_subcolumns_count;
-        size_t dense_key_count;
-        size_t sparse_keys_per_row;
-        size_t sparse_key_pool;
-    };
-
-    const std::vector<PerfCase> cases = {
-            {"sparse_keys", 33004, 8192, 2, 2, 30, 1000},
-            {"dense_keys", 33005, 8192, 32, 32, 0, 0},
-    };
-    constexpr int kWarmupRuns = 1;
-    constexpr int kMeasuredRuns = 3;
-
-    auto run_mode = [&](const PerfCase& perf_case, const std::vector<std::string>& jsons,
-                        ParseConfig::ParseTo parse_to, std::string_view mode,
-                        VariantWritePerfResult* best_result) -> Status {
-        best_result->elapsed_us = std::numeric_limits<int64_t>::max();
-        for (int run = 0; run < kWarmupRuns + kMeasuredRuns; ++run) {
-            auto variant_col = parse_variant_write_perf_column(
-                    jsons, perf_case.variant_max_subcolumns_count, parse_to);
-            VariantWritePerfResult result;
-            const auto rowset_id =
-                    perf_case.name + "_" + std::string(mode) + "_" + std::to_string(run);
-            RETURN_IF_ERROR(write_variant_perf_segment(std::move(variant_col), rowset_id, &result));
-            if (run >= kWarmupRuns && result.elapsed_us < best_result->elapsed_us) {
-                *best_result = result;
-            }
-        }
-        if (best_result->elapsed_us == std::numeric_limits<int64_t>::max()) {
-            return Status::InternalError("no measured variant write perf run was recorded");
-        }
-        return Status::OK();
-    };
-
-    for (const auto& perf_case : cases) {
-        init_variant_tablet(perf_case.tablet_id, perf_case.variant_max_subcolumns_count);
-        const auto jsons = make_variant_write_perf_jsons(perf_case.rows, perf_case.dense_key_count,
-                                                         perf_case.sparse_keys_per_row,
-                                                         perf_case.sparse_key_pool);
-
-        VariantWritePerfResult legacy_result;
-        auto st = run_mode(perf_case, jsons, ParseConfig::ParseTo::OnlySubcolumns,
-                           "legacy_subcolumns", &legacy_result);
+    VariantStorageParseWriteResult kv_result;
+    {
+        ScopedVariantStorageParseMode guard(2);
+        SegmentFooterPB footer;
+        std::string file_path;
+        auto st = write_storage_parsed_segment(jsons, "force_doc_value", &footer, &file_path, false,
+                                               &kv_result);
         ASSERT_TRUE(st.ok()) << st.to_string();
-
-        VariantWritePerfResult kv_result;
-        st = run_mode(perf_case, jsons, ParseConfig::ParseTo::OnlyDocValueColumn, "kv_writer",
-                      &kv_result);
-        ASSERT_TRUE(st.ok()) << st.to_string();
-
-        const auto paths_per_row = perf_case.dense_key_count + perf_case.sparse_keys_per_row;
-        const double kv_vs_legacy =
-                static_cast<double>(kv_result.elapsed_us) / legacy_result.elapsed_us;
-        std::cout << "variant_write_perf case=" << perf_case.name << " rows=" << perf_case.rows
-                  << " paths_per_row=" << paths_per_row
-                  << " max_subcolumns=" << perf_case.variant_max_subcolumns_count
-                  << " legacy_us=" << legacy_result.elapsed_us << " kv_us=" << kv_result.elapsed_us
-                  << " kv_vs_legacy=" << kv_vs_legacy
-                  << " legacy_footer_columns=" << legacy_result.footer_columns
-                  << " kv_footer_columns=" << kv_result.footer_columns
-                  << " legacy_materialized=" << legacy_result.materialized_columns
-                  << " kv_materialized=" << kv_result.materialized_columns
-                  << " legacy_sparse=" << legacy_result.sparse_columns
-                  << " kv_sparse=" << kv_result.sparse_columns
-                  << " legacy_doc_value=" << legacy_result.doc_value_columns
-                  << " kv_doc_value=" << kv_result.doc_value_columns
-                  << " legacy_file_size=" << legacy_result.segment_file_size
-                  << " kv_file_size=" << kv_result.segment_file_size << std::endl;
     }
+
+    EXPECT_EQ(parse_time_result.num_rows, kRows);
+    EXPECT_EQ(kv_result.num_rows, kRows);
+    EXPECT_EQ(parse_time_result.doc_value_entries, static_cast<size_t>(0));
+    EXPECT_EQ(kv_result.doc_value_entries, kRows * kPathsPerRow);
+    EXPECT_GE(parse_time_result.parsed_subcolumns, kSparseKeyPool);
+    EXPECT_LE(kv_result.parsed_subcolumns, static_cast<size_t>(1));
+    EXPECT_GT(parse_time_result.parsed_subcolumns, kv_result.parsed_subcolumns);
+    EXPECT_LT(kv_result.parsed_allocated_bytes, parse_time_result.parsed_allocated_bytes);
+
+    // KV staging is only a parse-time shape for plain non-doc VARIANT. The writer still emits the
+    // same top-N materialized subcolumns plus sparse fallback, with no persistent doc-value column.
+    EXPECT_EQ(parse_time_result.footer_columns, kv_result.footer_columns);
+    EXPECT_EQ(parse_time_result.materialized_columns, kv_result.materialized_columns);
+    EXPECT_EQ(parse_time_result.sparse_columns, kv_result.sparse_columns);
+    EXPECT_EQ(parse_time_result.doc_value_columns, 0);
+    EXPECT_EQ(kv_result.doc_value_columns, 0);
+    EXPECT_EQ(kv_result.materialized_columns, static_cast<int>(kDenseKeys));
+    EXPECT_EQ(kv_result.sparse_columns, 1);
+    EXPECT_GT(parse_time_result.segment_file_size, static_cast<uint64_t>(0));
+    EXPECT_GT(kv_result.segment_file_size, static_cast<uint64_t>(0));
 }
 
 TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
