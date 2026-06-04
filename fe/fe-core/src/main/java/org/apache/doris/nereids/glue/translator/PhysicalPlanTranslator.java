@@ -72,8 +72,6 @@ import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
-import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
@@ -778,9 +776,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     context.getScanContext());
         } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                    context.getScanContext());
-        } else if (table instanceof TrinoConnectorExternalTable) {
-            scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
         } else if (table instanceof MaxComputeExternalTable) {
             scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor,
