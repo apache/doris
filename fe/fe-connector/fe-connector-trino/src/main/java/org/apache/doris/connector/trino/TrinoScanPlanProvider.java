@@ -53,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -136,14 +137,17 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             }
 
-            // Apply projection pushdown
-            applyProjection(metadata, connSession, trinoHandle, currentTrinoHandle, columns);
+            // Apply projection pushdown. The returned handle carries the projected column
+            // list (e.g. JdbcTableHandle.getColumns()); it MUST be the handle serialized to BE.
+            // Otherwise Trino's JdbcRecordSetProvider.getRecordSet() fails its verify() because
+            // the handle's columns won't match the column handles passed to the scanner.
+            currentTrinoHandle = applyProjection(metadata, connSession, trinoHandle, currentTrinoHandle, columns);
 
             // Get splits
             return getSplitsFromTrino(
                     connector, trinoSession, catalogHandle, connSession,
                     txnHandle, metadata, currentTrinoHandle, constraint,
-                    trinoHandle, session);
+                    trinoHandle, columns, session);
         } finally {
             metadata.cleanupQuery(connSession);
         }
@@ -158,7 +162,10 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, ColumnHandle> colHandleMap = trinoHandle.getColumnHandleMap();
         Map<String, ColumnMetadata> colMetaMap = trinoHandle.getColumnMetadataMap();
 
-        Map<String, ColumnHandle> assignments = new HashMap<>();
+        // Preserve projection order (matches the serialized column handles below and the legacy
+        // TrinoConnectorScanNode). A plain HashMap would scramble JdbcTableHandle's column order
+        // and break the engine-vs-handle column verify on the BE scanner.
+        Map<String, ColumnHandle> assignments = new LinkedHashMap<>();
         List<io.trino.spi.expression.ConnectorExpression> projections = new ArrayList<>();
 
         for (ConnectorColumnHandle col : columns) {
@@ -189,6 +196,7 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
             io.trino.spi.connector.ConnectorTableHandle tableHandle,
             Constraint constraint,
             TrinoTableHandle dorisHandle,
+            List<ConnectorColumnHandle> columns,
             ConnectorSession dorisSession) {
 
         ConnectorSplitManager splitManager = connector.getSplitManager();
@@ -213,8 +221,8 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
         // Pre-serialize shared fields (same for all splits)
         String tableHandleJson = serializer.toJson(tableHandle);
         String txnHandleJson = serializer.toJson(txnHandle);
-        String columnHandlesJson = serializeColumnHandles(dorisHandle, serializer);
-        String columnMetadataJson = serializeColumnMetadata(dorisHandle, serializer);
+        String columnHandlesJson = serializeColumnHandles(dorisHandle, columns, serializer);
+        String columnMetadataJson = serializeColumnMetadata(dorisHandle, columns, serializer);
         String optionsJson = serializeOptions(dorisSession);
         String catalogName = dorisSession.getCatalogName();
 
@@ -263,20 +271,38 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
         return new Constraint(tupleDomain);
     }
 
+    // Serialize only the projected columns, in the same order (and with the same filter)
+    // applyProjection used, so the column handles passed to the BE scanner match
+    // JdbcTableHandle.getColumns() exactly (Trino's getRecordSet verifies handles.equals(columns)).
     private String serializeColumnHandles(TrinoTableHandle handle,
-            TrinoJsonSerializer serializer) {
-        List<ColumnHandle> handles = new ArrayList<>(handle.getColumnHandleMap().values());
+            List<ConnectorColumnHandle> columns, TrinoJsonSerializer serializer) {
+        Map<String, ColumnHandle> colHandleMap = handle.getColumnHandleMap();
+        Map<String, ColumnMetadata> colMetaMap = handle.getColumnMetadataMap();
+        List<ColumnHandle> handles = new ArrayList<>();
+        for (ConnectorColumnHandle col : columns) {
+            String colName = ((TrinoColumnHandle) col).getColumnName();
+            if (colHandleMap.containsKey(colName) && colMetaMap.containsKey(colName)) {
+                handles.add(colHandleMap.get(colName));
+            }
+        }
         return serializer.toJson(handles);
     }
 
     private String serializeColumnMetadata(TrinoTableHandle handle,
-            TrinoJsonSerializer serializer) {
-        List<TrinoColumnMetadata> metadataList = handle.getColumnMetadataMap().values().stream()
-                .map(m -> new TrinoColumnMetadata(
+            List<ConnectorColumnHandle> columns, TrinoJsonSerializer serializer) {
+        Map<String, ColumnHandle> colHandleMap = handle.getColumnHandleMap();
+        Map<String, ColumnMetadata> colMetaMap = handle.getColumnMetadataMap();
+        List<TrinoColumnMetadata> metadataList = new ArrayList<>();
+        for (ConnectorColumnHandle col : columns) {
+            String colName = ((TrinoColumnHandle) col).getColumnName();
+            if (colHandleMap.containsKey(colName) && colMetaMap.containsKey(colName)) {
+                ColumnMetadata m = colMetaMap.get(colName);
+                metadataList.add(new TrinoColumnMetadata(
                         m.getName(), m.getType(), m.isNullable(),
                         m.getComment(), m.getExtraInfo(), m.isHidden(),
-                        m.getProperties()))
-                .collect(Collectors.toList());
+                        m.getProperties()));
+            }
+        }
         return serializer.toJson(metadataList);
     }
 

@@ -48,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -179,12 +180,16 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
                 continue;
             }
             ConnectorType connType = TrinoTypeMapping.toConnectorType(colMeta.getType());
+            // Mark every column as a key column to match the Doris external-table convention
+            // (legacy TrinoConnectorExternalTable.initSchema and JdbcClient do the same), so
+            // `desc <table>` reports Key=true for each column.
             columns.add(new ConnectorColumn(
                     colMeta.getName(),
                     connType,
                     colMeta.getComment(),
                     true,
-                    null));
+                    null,
+                    true));
         }
 
         Map<String, String> tableProps = new HashMap<>();
@@ -268,7 +273,12 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
         Map<String, ColumnHandle> colHandleMap = dorisHandle.getColumnHandleMap();
         Map<String, ColumnMetadata> colMetaMap = dorisHandle.getColumnMetadataMap();
 
-        Map<String, ColumnHandle> assignments = new HashMap<>();
+        // Use LinkedHashMap: Trino's JDBC applyProjection derives the pushed-down handle's
+        // column order from assignments.values(). A HashMap would scramble that order, and
+        // because the later TrinoScanPlanProvider projection short-circuits to empty once the
+        // column *set* matches, the scrambled order would survive and break the BE-side
+        // engine-vs-handle column verify. Matches the legacy TrinoConnectorScanNode.
+        Map<String, ColumnHandle> assignments = new LinkedHashMap<>();
         List<io.trino.spi.expression.ConnectorExpression> trinoProjections = new ArrayList<>();
         for (ConnectorColumnHandle col : projections) {
             String colName = ((TrinoColumnHandle) col).getColumnName();
