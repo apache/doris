@@ -9,7 +9,7 @@
 
 ## 元信息
 
-- **状态**：🚧 进行中（批 0 ✅；**批 A 编码完成**：T02 ✅、T04 ✅、T03 推迟批 E（[DV-006]）；下一步批 B：T05 partition 裁剪 / T06 MVCC）
+- **状态**：🚧 进行中（批 0 ✅；批 A 编码完成 T02 ✅/T04 ✅/T03→批 E；**批 B 编码完成**：T05 applyFilter EQ/IN 裁剪 ✅、T06 MVCC keep-defaults 决策 ✅（[DV-007]）；下一步批 C：三模块测试基线 + COW/MOR parity）
 - **启动日期**：2026-06-04
 - **目标完成**：—（hybrid 范围，估时按批 A–C 约 1–1.5 周；批 D 设计 0.5 周；批 E deferred 不计入 P3）
 - **实际完成**：—
@@ -42,7 +42,8 @@
 - [x] **批 A / T02**：`column_types` 双 bug 修复（发完整 Hive 类型串 + 弃逗号 join/split）✅（`95f23e9`）
 - [x] **批 A / T04**：time-travel / 增量读 **fail-loud**（不静默返最新 / 不静默全扫）✅（`feceabb`，单测推迟批 E）
 - [~] **批 A→E / T03**：native split `schema_id` + `params.history_schema_info` 填充 —— **推迟批 E（[DV-006]）**，非 model-agnostic SPI 修复（连接器缺 field-id/InternalSchema/type→thrift；裸基线净回归）
-- [ ] **批 B**：`listPartitions*` override + 真实 `applyFilter` 约束裁剪；MVCC/snapshot SPI 实现或显式 unsupported
+- [x] **批 B / T05**：真实 `applyFilter` EQ/IN 约束裁剪 ✅（`10b72d4`，镜像 Hive）；`listPartitions*` override **推迟批 E**（[DV-007]，零 live caller、Hive 不 override）
+- [x] **批 B / T06**：MVCC/snapshot SPI **保持 default opt-out + 文档化** ✅（[DV-007]，非抛异常 override——破 opt-out 约定/不可达；T04 已 fail-loud time-travel）；完整 MVCC 入批 E
 - [ ] **批 C**：fe-connector-hms/hive/hudi 测试基线（当前零测试）；**parity 测试**——SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `HiveMetaStoreClientHelper.getHudiTableSchema`，COW & MOR 各一
 - [ ] **批 D**：`tableFormatType` 分流消费设计备忘（design-only，**不动 fe-core live 路径**）
 - [ ] 全程 fe-connector 编译 + checkstyle 0 + import-gate 通过；新增单测全绿
@@ -62,8 +63,8 @@
 | P3-T02 | `column_types` 双 bug 修复 + 单测 | 批 A | @me | ✅ | `95f23e9` | 2026-06-04 | 2026-06-04 | (a) `HudiScanPlanProvider` 弃 `ConnectorType.getTypeName()`（丢精度/scale/子类型），改发完整 Hive 类型串（对标 legacy `HudiUtils.convertAvroToHiveType`，如 `decimal(10,2)`/`struct<...>`）；(b) `HudiScanRange` 停止 column_names/column_types/delta_logs 的逗号 join/split（含逗号的类型串会被打碎），改 typed list 端到端。**先读 BE `hudi_jni_reader.cpp` 确认 JNI scanner 期望的精确串格式**（names `,` / types `#`），再改。命中含 decimal/复杂列的 MOR-with-logs JNI split |
 | P3-T03 | native split `schema_id` + `history_schema_info` 填充 + 单测 | ~~批 A~~→**批 E** | TBD | 🟡 推迟 | — | — | — | **[DV-006] 推迟批 E**：recon 实证非 model-agnostic SPI-surface 修复——连接器缺 field-id（`HudiColumnHandle` 无）/ Hudi `InternalSchema` 版本 / type→`TColumnType` thrift；「Paimon/ES 已 override」前提失真（其 override 为 predicate/docvalue，**不设** schema 元数据）；裸 `current==file==-1`→BE `ConstNode`(identity-by-name,大小写敏感) **弱于**当前 `by_parquet_name` 名匹配 → **净回归**。faithful field-id evolution parity 需批 E 一次性建机制。批 A 保持现状名匹配（零回归） |
 | P3-T04 | time-travel + 增量读 fail-loud 守卫 | 批 A | @me | ✅ | `feceabb` | 2026-06-05 | 2026-06-05 | `visitPhysicalHudiScan` SPI 分支加两守卫：`getIncrementalRelation().isPresent()` / `getTableSnapshot().isPresent()` → 抛 `AnalysisException`（不再静默返最新/全扫）。唯一同时可见 snapshot+incremental 的位置（SPI surface 拿不到 incremental）。删 dead `setQueryTableSnapshot`。dormant 分支 gate 关时不可达 → 零 live 风险。**单测推迟批 E**（dormant 不可 exercise；regression 断言 FOR TIME AS OF/增量→报错，precedent DV-003）。完整 snapshot 透传/增量 SPI/MVCC 入批 E |
-| P3-T05 | `listPartitions/listPartitionNames/listPartitionValues` override + 真实 `applyFilter` 裁剪 + 单测 | 批 B | @me | ⏳ | — | — | — | 现 Hudi `applyFilter` 列**全部**分区不做约束裁剪（Hive 已做 EQ/IN）；SPI partition 方法默认空。补真实裁剪 + override 分区方法 |
-| P3-T06 | MVCC/snapshot SPI（实现或显式 unsupported） | 批 B | @me | ⏳ | — | — | — | `HudiConnectorMetadata` 未 override `beginQuerySnapshot/getSnapshotAt/getSnapshotById`（默认 `Optional.empty()`）。与 T04 关联：要么接 `HudiMvccSnapshot` 语义，要么显式 unsupported |
+| P3-T05 | 真实 `applyFilter` EQ/IN 分区裁剪 + 单测（`listPartitions*` override 推迟批 E）| 批 B | @me | ✅ | `10b72d4` | 2026-06-05 | 2026-06-05 | applyFilter 原是占位（列全部分区不裁剪 + 无条件设 `prunedPartitionPaths` → 静默把分区来源从 Hudi-metadata 切到 HMS）。重写为**忠实镜像 `HiveConnectorMetadata`**：抽取 partition 列 EQ/IN 谓词 → 列候选 → 裁剪 → 仅在有效果时回传 pruned handle，否则 `Optional.empty()`（handle 不变，回落 Hudi-metadata listing）。保留 `List<String>` 路径表示 + `-1` 上限（不静默截断）；7 helper duplicate from Hive（hudi 仅依赖 fe-connector-hms）。`HudiPartitionPruningTest` 8 测全绿、checkstyle 0、import-gate 通过。**`listPartitions*` override 推迟批 E**（[DV-007]：零 live caller、Hive 不 override）。设计：[`designs/P3-T05-partition-pruning-design.md`](./designs/P3-T05-partition-pruning-design.md) |
+| P3-T06 | MVCC/snapshot SPI：保持 default opt-out + 文档化（完整 MVCC→批 E）| 批 B | @me | ✅ | — | 2026-06-05 | 2026-06-05 | **决策（[DV-007]，用户签字「Keep defaults + document」）**：不 override `beginQuerySnapshot/getSnapshotAt/getSnapshotById`，保持 SPI default `Optional.empty()`（= opt-out）。recon 证「显式抛异常 override」错——破 SPI opt-out 约定（全体连接器含 Iceberg/Paimon/Hive/Trino 均依赖 default，`FakeConnectorPluginTest` 断言）、不可达死代码（MVCC 无 production caller）、且 T04 已在唯一可触发点（time-travel）fail-loud。**零代码**。完整 MVCC（`HudiMvccSnapshot`+snapshot 透传+增量时序）入批 E。设计：[`designs/P3-T06-mvcc-design.md`](./designs/P3-T06-mvcc-design.md) |
 | P3-T07 | 三模块测试基线 + parity 测试 | 批 C | @me | ⏳ | — | — | — | fe-connector-hms/hive/hudi 当前**零测试**。补单测 + **parity**：SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `HiveMetaStoreClientHelper.getHudiTableSchema`（fe-core），COW & MOR 各一。Rule 9：测意图（type-string 编码、schema_id、裁剪正确） |
 | P3-T08 | `tableFormatType` 分流消费设计备忘（design-only） | 批 D | @me | ⏳ | — | — | — | 写清 `PluginDrivenExternalTable` 如何按 `ConnectorTableSchema.tableFormatType`（现 fe-core 从不消费）把一个 `"hms"` catalog 的 per-table 路由到 HUDI/HIVE/ICEBERG。**不实现 fe-core 消费**（那是批 E）。作为 (a) 落地入口设计，可催生 D-NNN |
 | P3-T09 | [deferred] fe-core 消费 `tableFormatType` + hudi 表产出为 `PluginDrivenExternalTable` | 批 E | TBD | ⏳ | — | — | — | **不在 P3 hybrid 编码范围**；并入 hive/HMS migration（D-019）。catalog 模型落地 |
@@ -75,6 +76,16 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-05（批 B：T05 ✅ 裁剪、T06 ✅ 决策，批 B 编码完成）
+- **P3-T05 ✅**（commit `10b72d4`，feat）：`HudiConnectorMetadata.applyFilter` 真实 EQ/IN 分区裁剪。
+  - **根因**：原 applyFilter 是占位——对任何分区表 (a) 列**全部** HMS 分区名、忽略谓词，(b) 无条件设 `prunedPartitionPaths`。后果：无裁剪扫全分区；且无条件设 `prunedPartitionPaths` **短路** `HudiScanPlanProvider.resolvePartitions`（:287-289），把分区来源从 Hudi-metadata（`getAllPartitionPaths`）**静默切到 HMS**（仅对带 WHERE 的查询）——未声明的行为分叉。
+  - **修复**：忠实镜像 `HiveConnectorMetadata.applyFilter`（7 步）——抽取 partition 列 EQ/IN 谓词（解析 `getExpression()`，`columnDomains` 在 fe-core 侧为空）→ 列候选 → `prunePartitionNames` 匹配 → 仅在 `matched.size() != all.size()`（真有效果）时回传 pruned handle，否则 `Optional.empty()`（handle 不变 → resolvePartitions 回落 Hudi-metadata listing，修复来源切换）。**保留 Hudi `List<String>` 路径表示**（resolvePartitions 喂路径给 FileSystemView，非 HmsPartitionInfo）+ `-1` 上限（不静默截断，严格安全于 Hive 的 100000）。7 个 private helper duplicate from Hive（hudi 仅依赖 fe-connector-hms 非 -hive；P7 hive migration 时 consolidate，同 T02 `toHiveTypeString` 先例）。
+  - **测试**：`HudiPartitionPruningTest` 8 测（EQ/IN/AND 裁剪、非分区谓词忽略、命中全部/0 分区、unpartitioned），手写 `HmsClient` 测试替身（接口 8 方法+close）。模块 19 测全绿；checkstyle 0；import-gate 通过。
+  - **`listPartitions*` override 推迟批 E**（[DV-007]）：SPI 三方法零 live caller（`SHOW PARTITIONS` 等走 legacy metastore 路径，非 SPI）、Hive 基准不 override → 现 override = 不可测死代码。批 E（fe-core SPI 消费就绪）再做。
+  - 设计：[`designs/P3-T05-partition-pruning-design.md`](./designs/P3-T05-partition-pruning-design.md)。gate 保持关闭，零 fe-core/BE/thrift/Hive 改动。
+- **P3-T06 ✅**（决策，零代码，[DV-007]，用户签字 AskUserQuestion「Keep defaults + document」）：MVCC/snapshot SPI **保持 default `Optional.empty()` opt-out**，不新增抛异常 override。recon（mvcc-t06 reader + grep fe-core）证「显式 unsupported override」错：① SPI 约定 default=opt-out（`FakeConnectorPluginTest` 断言）；② 全体连接器（Iceberg/Paimon/Hive/Trino）无一 override；③ MVCC 方法无 production caller（仅测试 adapter）→ override 是死代码；④ T04 已在唯一可触发点（time-travel `visitPhysicalHudiScan`）抛 `AnalysisException`。正确「unsupported」=保持 default + T04 守卫。完整 MVCC 入批 E。设计：[`designs/P3-T06-mvcc-design.md`](./designs/P3-T06-mvcc-design.md)。
+- **批 B 编码小结**：T05（applyFilter 真实裁剪）✅ 落地 + T06（MVCC keep-defaults）✅ 决策。批 B 净产出 = 1 个正确性/性能修复（分区裁剪 + 修复来源切换，gate 后硬化，零回归）+ 1 个 code-grounded 决策（MVCC opt-out）。批 A+B 编码完成，下一步批 C（三模块测试基线 + COW/MOR parity）。
 
 ### 2026-06-05（批 A 续：T04 ✅，批 A 编码收尾）
 - **P3-T04 ✅**（commit `feceabb`，feat）：`PhysicalPlanTranslator.visitPhysicalHudiScan` SPI 分支加 fail-loud 守卫——`getIncrementalRelation().isPresent()` → 抛 `AnalysisException`（曾静默全扫）；`getTableSnapshot().isPresent()` → 抛（曾静默返最新，因 `HudiScanPlanProvider` 永远用 `timeline.lastInstant()`）。该分支是**唯一**同时可见 snapshot + incrementalRelation 处（SPI surface 拿不到 incremental）。删 dead `setQueryTableSnapshot`。fe-core 编译 + checkstyle 0。**dormant 分支 gate 关时运行期不可达 → 零 live 风险**；**单测推迟批 E**（不可 exercise；批 E regression 断言 FOR TIME AS OF/增量→报错，precedent DV-003，R12 显式登记不静默跳过）。完整 snapshot 透传 + 增量 SPI 表示 + MVCC 入批 E（与 T06/T03/T09–T11 同批 E）。设计：[`designs/P3-T04-fail-loud-design.md`](./designs/P3-T04-fail-loud-design.md)。

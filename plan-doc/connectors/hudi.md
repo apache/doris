@@ -44,12 +44,12 @@
 | E2 Procedures | 🟡 | hudi 有 `archive_log` 等 procedure | 后续可考虑 |
 | E3 MetaInvalidator | 🟡 | 通过 HMS event 同步 | 复用 `fe-connector-hms` 的 invalidator |
 | E4 Transactions | 🟡 | hudi 有 timeline | 暂用 no-op |
-| E5 MvccSnapshot | ✅ 需要 | `HudiMvccSnapshot` 待迁移到 SPI | incremental query 时序 |
+| E5 MvccSnapshot | ✅ 需要 | 🟡 批 B 决策 keep default opt-out（T06/DV-007）；完整 `HudiMvccSnapshot` → 批 E | 全体连接器无 override，T04 已 fail-loud time-travel；incremental query 时序入批 E |
 | E6 VendedCredentials | ❌ | n/a | |
 | E7 SysTables | ❌ | n/a | |
 | E8 ColumnStatistics | 🟡 | hudi 有 column stats | 后续 |
 | E9 Delete/Merge sink | ❌ | hudi 写路径不在本计划范围 | 与 BE 强耦合 |
-| E10 listPartitions | ✅ 需要 | 走 HMS connector 的 listPartitions | |
+| E10 listPartitions | ✅ 需要 | 🟡 批 B：applyFilter EQ/IN 裁剪 ✅（T05 `10b72d4`，镜像 Hive）；`listPartitions*` override → 批 E（DV-007，零 live caller）| 分区裁剪经 applyFilter→prunedPartitionPaths→resolvePartitions 链路 |
 
 ---
 
@@ -78,7 +78,11 @@
 
 ## 进度日志
 
-### 2026-06-05
+### 2026-06-05（批 B）
+- **P3-T05 ✅**（批 B，commit `10b72d4`）：`HudiConnectorMetadata.applyFilter` 真实 EQ/IN 分区裁剪。原占位实现列**全部** HMS 分区不裁剪、且无条件设 `prunedPartitionPaths`（静默把分区来源从 Hudi-metadata 切到 HMS）；重写为忠实镜像 `HiveConnectorMetadata`（抽取 partition 列 EQ/IN 谓词→列候选→裁剪→仅有效果时回传 pruned handle，否则 `Optional.empty()` 回落 Hudi-metadata listing）。保留 `List<String>` 路径表示 + `-1` 上限；7 helper duplicate from Hive（仅依赖 fe-connector-hms）。`HudiPartitionPruningTest` 8 测全绿；gate 保持关闭。`listPartitions*` override 推迟批 E（[DV-007](../deviations-log.md)：零 live caller、Hive 不 override）。设计 [`../tasks/designs/P3-T05-partition-pruning-design.md`](../tasks/designs/P3-T05-partition-pruning-design.md)。
+- **P3-T06 ✅**（批 B 决策，零代码，[DV-007](../deviations-log.md)，用户签字）：MVCC/snapshot SPI 保持 default `Optional.empty()` opt-out，不新增抛异常 override（破 SPI opt-out 约定、全体连接器无 override、无 production caller=死代码、T04 已 fail-loud time-travel）。完整 MVCC 入批 E。设计 [`../tasks/designs/P3-T06-mvcc-design.md`](../tasks/designs/P3-T06-mvcc-design.md)。
+
+### 2026-06-05（批 A）
 - **P3-T04 ✅**（批 A，commit `feceabb`）：`visitPhysicalHudiScan` SPI 分支 fail-loud——`FOR TIME/VERSION AS OF`（曾静默返最新）与增量读（曾静默全扫）抛 `AnalysisException`。dormant 分支零 live 风险；单测推迟批 E。**批 A 编码完成**（T02+T04 落地，T03→批 E）。
 - **P3-T03 🟡 推迟批 E**（[DV-006](../deviations-log.md)，用户签字）：schema_id/history_schema_info 非批 A 可做的 SPI-surface 修复——`HudiColumnHandle` 无 field id、SPI 无 Hudi `InternalSchema` 版本、连接器无 type→`TColumnType` thrift；裸 `current==file==-1`→BE `ConstNode`(大小写敏感) 弱于现状 `by_parquet_name` 名匹配（净回归）。批 A 保持现状名匹配（零回归，common 无 evolution 可用；改名/evolution 退化非崩溃），faithful parity 入批 E。
 

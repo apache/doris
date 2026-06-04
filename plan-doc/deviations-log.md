@@ -13,10 +13,11 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **6** 项。
+> 时间倒序；当前共 **7** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-007 | P3 批 B scope 校正：T05 `listPartitions*` override 推迟批 E（零 live caller、Hive 不 override）；T06 MVCC 保持 default opt-out（非抛异常 override）| [HANDOFF 未完成 #1/#2](./HANDOFF.md) / [tasks/P3 T05/T06](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正（T05 裁剪已落地；list*/MVCC 入批 E）|
 | DV-006 | P3-T03 schema_id/history 非批 A 可修（连接器缺 field-id/InternalSchema/type→thrift；裸基线会回归）；推迟批 E | [HANDOFF 1b ①](./HANDOFF.md) / [tasks/P3 T03](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟡 推迟（批 E）|
 | DV-005 | P3 hudi「HMS-over-SPI 前置依赖」与代码不符；真阻塞=catalog 模型错配 | [connectors/hudi.md](./connectors/hudi.md) / [master plan §3.4](./00-connector-migration-master-plan.md) / D-005 | 2026-06-04 | 🟡 待修正（P3 模型决策）|
 | DV-004 | T13 用户向安装文档不在本代码仓（在 doris-website 仓） | [tasks/P2 T13](./tasks/P2-trino-connector-migration.md) | 2026-06-04 | 🟢 已修正 |
@@ -27,6 +28,30 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-007 — P3 批 B scope 校正：T05 `listPartitions*` override 推迟批 E；T06 MVCC 保持 default opt-out（非抛异常 override）
+
+- **发现日期**：2026-06-05
+- **发现 session / agent**：P3 批 B session（T05/T06 启动前 5-reader code-grounded recon workflow：hudi-current / hudi-resolve / hive-ref / spi-invoke / mvcc-t06 + 主线核读 `HudiConnectorMetadata`/`HiveConnectorMetadata` 全文 + grep fe-core 调用方）
+- **当前状态**：🟢 已修正（T05 applyFilter EQ/IN 裁剪已落地 commit `10b72d4`；list*/MVCC 完整实现入批 E）
+- **原计划位置**：[HANDOFF.md 未完成 #1/#2](./HANDOFF.md)（「T05：`listPartitions/listPartitionNames/listPartitionValues` override + 真实 applyFilter EQ/IN 分区裁剪」；「T06：大概率**显式 unsupported**（与 T04 fail-loud 一致）」）+ [tasks/P3 §T05/T06](./tasks/P3-hudi-migration.md)
+- **偏差描述**：原计划把 T05 的「`listPartitions*` override」与「applyFilter 裁剪」并列为批 B 交付；并暗示 T06 应**新增抛异常的 MVCC override**。recon 实测两点前提失真：
+  1. **T05 `listPartitions*` 零 live caller + Hive 不 override**：SPI `ConnectorMetadata.listPartitionNames/listPartitions/listPartitionValues` 在 fe-core **无任何调用方**——`PluginDrivenScanNode` 不调用（分区经 `applyFilter`→`prunedPartitionPaths`→`resolvePartitions` 链路）；`ShowPartitionsCommand`/`HudiExternalMetaCache`/`MetadataGenerator` 调的是 **legacy** metastore 路径（`dorisTable.getRemoteName()`），非 SPI。对标 `HiveConnectorMetadata`（批 B 基准）**也不 override** 这三方法。→ 现 override = 不可测的死代码（违 R2 nothing speculative / R9 测意图）。
+  2. **T06「显式 unsupported」违 SPI opt-out 约定**：三个 MVCC 方法 default 即 `Optional.empty()`（= 不支持），`FakeConnectorPluginTest` 有显式断言；`Iceberg`/`Paimon`/`Hive`/`Trino` **全部依赖 default**，无一 override；MVCC 方法**无 production caller**（仅测试用 adapter）；且 T04 已在唯一可触发点（time-travel）`visitPhysicalHudiScan` 抛 `AnalysisException`。→ 新增抛异常 override = 唯一打破约定 + 不可达死代码（违 R11 conformance / R3 surgical）。
+- **触发场景**：T05/T06 启动前 recon + grep fe-core 调用方；用户 AskUserQuestion 签字（2026-06-05，「Pruning only, defer list*」+「Keep defaults + document」）。
+- **新方案**：
+  - **T05** = 仅 applyFilter 真实 EQ/IN 裁剪（忠实镜像 Hive 7 步 + 7 helper，保留 `List<String>` 路径表示与 `-1` 上限）；`listPartitions*` override **推迟批 E**（届时 fe-core 长出 SPI 消费 + `SHOW PARTITIONS` 改走 SPI 时一并做）。已落地 `10b72d4`（8 单测、checkstyle 0、import-gate 通过）。
+  - **T06** = **不 override，保持 default `Optional.empty()` opt-out + 文档化**（零代码）；正确的 fail-loud 已在 T04 的 translator 守卫。完整 MVCC（`HudiMvccSnapshot`、snapshot 透传、增量时序）入批 E。见 [`designs/P3-T06-mvcc-design.md`](./tasks/designs/P3-T06-mvcc-design.md)。
+- **替代方案**：(T05) 现 override 三方法委托 HMS——否决（死代码、无可测意图、Hive 无先例）；(T06) 新增抛异常 override——否决（破 opt-out 约定、不可达、与全体连接器分叉、T04 已覆盖）。
+- **影响范围**：
+  - 文档：本条 + [tasks/P3](./tasks/P3-hudi-migration.md)（T05 ✅ 裁剪 + T06 ✅ 决策 + 验收标准 + 阶段日志）+ [PROGRESS](./PROGRESS.md)（§一 P3 / §三 / §四 / §六计数）+ [connectors/hudi.md](./connectors/hudi.md)（E5/E10 + 进度日志）。
+  - 代码：T05 已合入 `10b72d4`（applyFilter 裁剪 + 单测）；T06 零代码。
+  - 计划：批 B 范围由 {T05 裁剪+list* override, T06 throwing override} 收为 {T05 裁剪 ✅, T06 keep-defaults ✅}；list*/完整 MVCC 与 T03/T09–T11 同批 E。
+- **关联**：[DV-005](#dv-005--p3-hudi-的hms-over-spi-前置依赖与代码实际状态不符真正阻塞是-catalog-模型错配)（其后续动作「listPartitions override + 真实 applyFilter 裁剪」本条落地裁剪部分）、P3-T05、P3-T06、P3-T10/T11（批 E）、[D-019](./decisions-log.md)（hybrid）、[P3-T04](./tasks/designs/P3-T04-fail-loud-design.md)
+- **后续动作**：
+  - [x] T05 applyFilter EQ/IN 裁剪 + 单测（`10b72d4`）
+  - [ ] 批 E：`listPartitions*` override（fe-core SPI 消费就绪 + `SHOW PARTITIONS` 走 SPI 后）
+  - [ ] 批 E：完整 MVCC（`HudiMvccSnapshot` + snapshot 透传 + 增量时序），time-travel 从 T04 fail-loud 转为正确快照
 
 ### DV-006 — P3-T03（schema_id / history_schema_info）不是 model-agnostic 的批 A SPI-surface 修复；推迟到批 E
 
