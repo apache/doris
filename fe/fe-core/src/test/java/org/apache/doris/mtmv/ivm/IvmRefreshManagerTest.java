@@ -102,6 +102,18 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
+    public void testManagerMapsExecutionFallbackReasonFromDetail() {
+        assertExecutionFailureReason("IVM: deleted row may be current MIN value",
+                IvmFailureReason.MIN_MAX_BOUNDARY_HIT);
+        assertExecutionFailureReason("IVM: deleted row affects BITMAP aggregate",
+                IvmFailureReason.BITMAP_AGG_DELETE);
+        assertExecutionFailureReason("IVM fallback: delete on non-deterministic row_id",
+                IvmFailureReason.NON_DETERMINISTIC_ROW_ID);
+        assertExecutionFailureReason("executor failed",
+                IvmFailureReason.INCREMENTAL_EXECUTION_FAILED);
+    }
+
+    @Test
     public void testManagerReturnsBinlogNotEnabledFallbackOnIvmException() {
         MTMV mtmv = mockMtmv();
         TestDeltaExecutor executor = new TestDeltaExecutor();
@@ -520,9 +532,26 @@ public class IvmRefreshManagerTest {
         return Collections.singletonList(deltaWriteCommand);
     }
 
+    private static void assertExecutionFailureReason(String detail, IvmFailureReason expectedReason) {
+        MTMV mtmv = mockMtmv();
+        Command deltaWriteCommand = Mockito.mock(Command.class);
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        executor.throwOnExecute = true;
+        executor.executeErrorMessage = detail;
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), makeCommands(deltaWriteCommand, mtmv));
+
+        IvmRefreshResult result = manager.doRefresh(mtmv);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(expectedReason, result.getFailureReason());
+        Assertions.assertTrue(result.getDetailMessage().contains(detail));
+    }
+
     private static class TestDeltaExecutor extends IvmDeltaExecutor {
         private boolean executeCalled;
         private boolean throwOnExecute;
+        private String executeErrorMessage = "executor failed";
         private List<Command> lastCommands;
 
         @Override
@@ -531,7 +560,7 @@ public class IvmRefreshManagerTest {
             executeCalled = true;
             lastCommands = commands;
             if (throwOnExecute) {
-                throw new AnalysisException("executor failed");
+                throw new AnalysisException(executeErrorMessage);
             }
         }
     }

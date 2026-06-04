@@ -129,6 +129,7 @@ public class IvmAggExpressionBuilder {
                 return target.stateColumnName(IvmAggStateKey.SUM);
             case MIN:
             case MAX:
+            case BITMAP_UNION:
                 return IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), slotKind.name());
             default:
                 throw new IllegalArgumentException("Unsupported IVM aggregate delta slot: " + slotKind);

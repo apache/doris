@@ -323,23 +323,13 @@ public class IvmRefreshManager {
             // fall back to full refresh, which resets the flag on success.
             String detail = e.getMessage() != null ? e.getMessage()
                     : e.getClass().getName() + " (no message)";
-            if (detail.contains("IVM: deleted row may be current")) {
-                IvmRefreshResult result = IvmRefreshResult.fallback(
-                        IvmFailureReason.MIN_MAX_BOUNDARY_HIT, detail);
-                LOG.info("IVM MIN/MAX boundary hit for mv={}, falling back to COMPLETE refresh, result={}",
+            IvmRefreshResult result = buildExecutionFailureResult(detail);
+            if (result.getFailureReason() == IvmFailureReason.INCREMENTAL_EXECUTION_FAILED) {
+                LOG.warn("IVM execution failed for mv={}, result={}", mtmv.getName(), result, e);
+            } else {
+                LOG.info("IVM execution requires non-incremental recovery for mv={}, result={}",
                         mtmv.getName(), result);
-                return result;
             }
-            if (detail.contains("IVM fallback: delete on non-deterministic row_id")) {
-                IvmRefreshResult result = IvmRefreshResult.fallback(
-                        IvmFailureReason.NON_DETERMINISTIC_ROW_ID, detail);
-                LOG.info("IVM non-deterministic row_id for mv={}, falling back to COMPLETE refresh, result={}",
-                        mtmv.getName(), result);
-                return result;
-            }
-            IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, detail);
-            LOG.warn("IVM execution failed for mv={}, result={}", mtmv.getName(), result, e);
             return result;
         }
 
@@ -348,6 +338,19 @@ public class IvmRefreshManager {
         advanceConsumedTsoAndClearFlag(mtmv);
 
         return IvmRefreshResult.success();
+    }
+
+    private IvmRefreshResult buildExecutionFailureResult(String detail) {
+        if (detail.contains("IVM: deleted row may be current")) {
+            return IvmRefreshResult.fallback(IvmFailureReason.MIN_MAX_BOUNDARY_HIT, detail);
+        }
+        if (detail.contains("IVM: deleted row affects BITMAP aggregate")) {
+            return IvmRefreshResult.fallback(IvmFailureReason.BITMAP_AGG_DELETE, detail);
+        }
+        if (detail.contains("IVM fallback: delete on non-deterministic row_id")) {
+            return IvmRefreshResult.fallback(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, detail);
+        }
+        return IvmRefreshResult.fallback(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, detail);
     }
 
     /**
