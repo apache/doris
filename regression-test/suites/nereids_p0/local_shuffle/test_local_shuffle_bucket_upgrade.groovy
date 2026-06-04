@@ -28,10 +28,13 @@
  * Shape notes (verified against a live cluster):
  *  - LocalExchangeNodes only appear in EXPLAIN DISTRIBUTED PLAN (plain EXPLAIN
  *    renders the tree before AddLocalExchange runs).
- *  - Nereids bucket-shuffle downgrade: bucket shuffle only forms when
- *    totalBucketNum >= totalInstanceNum * 0.8, so BUCKETS 13 with
- *    parallel_pipeline_task_num=16 on 1 BE (13 >= 12.8) keeps the bucket join,
- *    and ratio=1.1 (16 > 13*1.1) enables the upgrade while default 1.5 does not.
+ *  - Nereids bucket-shuffle downgrade (bucket shuffle only forms when
+ *    totalBucketNum >= totalInstanceNum * bucket_shuffle_downgrade_ratio) depends on
+ *    the alive BE count, so the suite pins bucket_shuffle_downgrade_ratio=0 to keep
+ *    the bucket join forming in any environment. ratio=1.1 fires on any BE count
+ *    (per-BE instances 16 > bucketsPerWorker * 1.1 for 13 buckets on >= 1 BE);
+ *    assertions about ratios that should NOT fire are limited to <= 1 because
+ *    thresholds above 1 depend on how many buckets land on each BE.
  *  - The aggregation above must NOT group by the bucket key: a colocate agg
  *    requires bucket distribution of the join output and correctly blocks the
  *    upgrade via the parentRequire gate.
@@ -51,6 +54,7 @@ suite("test_local_shuffle_bucket_upgrade") {
             parallel_pipeline_task_num=16,
             parallel_exchange_instance_num=8,
             query_timeout=600,
+            bucket_shuffle_downgrade_ratio=0,
             local_shuffle_bucket_upgrade_ratio=${ratio},
             enable_local_shuffle=${ls_on},
             enable_local_shuffle_planner=${ls_on}
@@ -106,11 +110,6 @@ suite("test_local_shuffle_bucket_upgrade") {
     def ratioOnePlan = sql "EXPLAIN DISTRIBUTED PLAN ${singleJoin(hints('true', '1'))}"
     assertFalse(ratioOnePlan.toString().contains("LOCAL_EXECUTION_HASH_SHUFFLE"),
         "ratio=1 must keep the upgrade off (<=1 disables)")
-
-    // default ratio 1.5 does not fire here: 16 < 13*1.5 (gate respects the threshold)
-    def ratioDefaultPlan = sql "EXPLAIN DISTRIBUTED PLAN ${singleJoin(hints('true', '1.5'))}"
-    assertFalse(ratioDefaultPlan.toString().contains("LOCAL_EXECUTION_HASH_SHUFFLE"),
-        "ratio=1.5 with 16 instances vs 13 buckets (16 < 19.5) must not upgrade")
 
     // Note: whether a group-by-bucket-key agg blocks the upgrade depends on the agg
     // shape the optimizer picks (a colocate one-phase agg requires bucket distribution
