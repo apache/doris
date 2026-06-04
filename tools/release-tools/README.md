@@ -62,10 +62,12 @@ The scripts are reusable across releases — they hold no version; edit `release
 Set at least:
 - `VERSION` / `RC` — e.g. `4.0.6` and `rc02`; `TAG` is derived as `${VERSION}-${RC}`.
 - `GIT_REMOTE` — the git remote pointing at `github.com/apache/doris`.
-- `APACHE_ID` / `APACHE_EMAIL` — your committer id and `@apache.org` email.
+- `APACHE_ID` / `APACHE_EMAIL` / `SIGNER_NAME` — your committer id, `@apache.org` email, and the
+  display name used to sign the vote email.
 - `SIGNING_KEY` — fingerprint of the key to sign with (leave empty to auto-detect a single local secret key).
 - `BIN_FILES` — optional absolute paths to prebuilt binary tarballs to sign locally (see below). Leave
-  the list empty to skip binary signing.
+  the list empty (the default) to skip binary signing and run the source-only flow. When set, step 03
+  advertises each binary in the vote email under `BIN_DOWNLOAD_BASE`; when empty that section is omitted.
 
 `REPO_DIR` defaults to the enclosing checkout (`${ROOT}/../../`) since these scripts live inside
 `apache/doris`; override it only if you run them against a different clone.

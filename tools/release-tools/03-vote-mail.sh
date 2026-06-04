@@ -45,6 +45,18 @@ subject="[VOTE] Release Apache Doris ${TAG}"
 body_file="$WORK_DIR/vote-email.txt"
 eml_file="$WORK_DIR/vote-email.eml"
 
+# Convenience-binary download section: derived from BIN_FILES, omitted when empty.
+bin_section=""
+if [[ "${#BIN_FILES[@]}" -gt 0 ]]; then
+  bin_section=$'\nThe convenience binaries can be downloaded here:\n'
+  for bin in "${BIN_FILES[@]}"; do
+    b="$(basename "$bin")"
+    bin_section+="${BIN_DOWNLOAD_BASE}/${b}"$'\n'
+    bin_section+="${BIN_DOWNLOAD_BASE}/${b}.asc"$'\n'
+    bin_section+="${BIN_DOWNLOAD_BASE}/${b}.sha512"$'\n'
+  done
+fi
+
 read -r -d '' BODY <<EOF || true
 Hi all,
 
@@ -61,18 +73,7 @@ Thanks to everyone who has contributed to this release.
 The artifacts (source, signature and checksum) corresponding to this release
 candidate can be found here:
 ${DEV_SVN_DIR}/
-
-The convenience binaries can be downloaded here:
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64.tar.gz
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64.tar.gz.asc
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64.tar.gz.sha512
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64-noavx2.tar.gz
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64-noavx2.tar.gz.asc
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64-noavx2.tar.gz.sha512
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-arm64.tar.gz
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-arm64.tar.gz.asc
-https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-arm64.tar.gz.sha512
-
+${bin_section}
 This has been signed with PGP key ${FPR}, corresponding to ${APACHE_EMAIL}.
 KEYS file is available here:
 ${KEYS_URL}
@@ -88,7 +89,7 @@ The vote will be open for at least 72 hours.
 [ ] -1 Do not release this package because ...
 
 Best Regards,
-Mingyu Chen (${APACHE_ID})
+${SIGNER_NAME} (${APACHE_ID})
 EOF
 
 printf '%s\n' "$BODY" > "$body_file"
