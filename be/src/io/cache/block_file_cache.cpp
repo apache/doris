@@ -745,8 +745,25 @@ size_t BlockFileCache::count_deleting_blocks_unlocked(
     return deleting_blocks;
 }
 
-bool BlockFileCache::try_dequeue_recycle_key(FileCacheKey* key) {
+bool BlockFileCache::enqueue_recycle_key(const FileCacheKey& key) {
+    bool ret = false;
+    {
+        std::lock_guard lock(_recycle_keys_mutex);
+        ret = _recycle_keys.enqueue(key);
+    }
+    if (ret) {
+        _recycle_keys_cv.notify_all();
+    }
+    return ret;
+}
+
+bool BlockFileCache::try_dequeue_recycle_key(FileCacheKey* key, bool for_sync_clear) {
     std::lock_guard lock(_recycle_keys_mutex);
+    // Only the sync clear drain path waits for metadata delete fences. Keep keys in the queue
+    // while sync clear is active so background GC cannot finish them with async meta delete.
+    if (_clear_file_cache_sync_running.load(std::memory_order_acquire) && !for_sync_clear) {
+        return false;
+    }
     if (!_recycle_keys.try_dequeue(*key)) {
         return false;
     }
@@ -790,7 +807,7 @@ BlockFileCache::ClearFileCacheResult BlockFileCache::drain_recycle_keys(
         return cancel_token != nullptr && cancel_token->cancelled.load(std::memory_order_acquire);
     };
     FileCacheKey key;
-    while (!is_cancelled() && try_dequeue_recycle_key(&key)) {
+    while (!is_cancelled() && try_dequeue_recycle_key(&key, true)) {
         Status st = remove_dequeued_recycle_key(key, true);
         ++result.num_recycle_drained;
         if (!st.ok()) {
@@ -859,9 +876,9 @@ std::string BlockFileCache::clear_file_cache_sync(
     }
     if (!result.cancelled) {
         {
-            SCOPED_CACHE_LOCK(_mutex, this);
-            DCHECK(!_clear_file_cache_sync_running);
-            _clear_file_cache_sync_running = true;
+            std::lock_guard lock(_recycle_keys_mutex);
+            DCHECK(!_clear_file_cache_sync_running.load(std::memory_order_acquire));
+            _clear_file_cache_sync_running.store(true, std::memory_order_release);
         }
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_sync:barrier_ready");
     }
@@ -872,9 +889,12 @@ std::string BlockFileCache::clear_file_cache_sync(
             if (!_active) {
                 return;
             }
-            SCOPED_CACHE_LOCK(_cache->_mutex, _cache);
-            DCHECK(_cache->_clear_file_cache_sync_running);
-            _cache->_clear_file_cache_sync_running = false;
+            {
+                std::lock_guard lock(_cache->_recycle_keys_mutex);
+                DCHECK(_cache->_clear_file_cache_sync_running.load(std::memory_order_acquire));
+                _cache->_clear_file_cache_sync_running.store(false, std::memory_order_release);
+            }
+            _cache->_recycle_keys_cv.notify_all();
         }
 
     private:
@@ -890,6 +910,7 @@ std::string BlockFileCache::clear_file_cache_sync(
     }
 
     append_clear_result(result, clear_file_cache_async_impl());
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_sync:before_drain_recycle_keys");
 
     while (true) {
         size_t deleting_blocks = 0;
@@ -1120,7 +1141,7 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
         stats->lock_wait_timer += sw.elapsed_time();
         SCOPED_RAW_TIMER(&duration);
         /// Get all blocks which intersect with the given range.
-        if (_clear_file_cache_sync_running) {
+        if (_clear_file_cache_sync_running.load(std::memory_order_acquire)) {
             SCOPED_RAW_TIMER(&stats->set_timer);
             file_blocks = split_range_into_skip_cache_blocks(hash, context, offset, size);
         } else {
@@ -1791,7 +1812,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             // the file will be deleted in the bottom half
             // so there will be a window that the file is not in the cache but still in the storage
             // but it's ok, because the rowset is stale already
-            bool ret = _recycle_keys.enqueue(key);
+            bool ret = enqueue_recycle_key(key);
             if (ret) [[likely]] {
                 *_recycle_keys_length_recorder << _recycle_keys.size_approx();
             } else {
@@ -2373,7 +2394,7 @@ void BlockFileCache::run_background_gc() {
             }
         }
 
-        while (batch_count < batch_limit && try_dequeue_recycle_key(&key)) {
+        while (batch_count < batch_limit && try_dequeue_recycle_key(&key, false)) {
             Status st = remove_dequeued_recycle_key(key, false);
             if (!st.ok()) {
                 LOG_WARNING("").error(st);

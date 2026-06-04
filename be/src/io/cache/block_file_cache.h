@@ -426,7 +426,8 @@ private:
     ClearFileCacheResult drain_recycle_keys(
             const std::shared_ptr<ClearFileCacheCancelToken>& cancel_token = nullptr);
     bool recycle_keys_idle();
-    bool try_dequeue_recycle_key(FileCacheKey* key);
+    bool enqueue_recycle_key(const FileCacheKey& key);
+    bool try_dequeue_recycle_key(FileCacheKey* key, bool for_sync_clear);
     Status remove_dequeued_recycle_key(const FileCacheKey& key, bool wait_meta_delete_fence);
     void refresh_metrics_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
@@ -565,8 +566,9 @@ private:
     bool _disk_resource_limit_mode {false};
     bool _need_evict_cache_in_advance {false};
     bool _is_initialized {false};
-    // Guarded by _mutex. Cache misses skip insertion while sync clear is draining old blocks.
-    bool _clear_file_cache_sync_running {false};
+    // Set under _recycle_keys_mutex. Cache reads use the atomic value to skip insertion, and
+    // background GC uses it to leave recycle keys for the sync clear drain path.
+    std::atomic_bool _clear_file_cache_sync_running {false};
 
     // strategy
     using FileBlocksByOffset = std::map<size_t, FileBlockCell>;

@@ -8733,6 +8733,91 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_waits_meta_store_fence) {
     EXPECT_FALSE(storage->get_meta_store()->get(meta_key).has_value());
 }
 
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_keeps_background_gc_from_stealing_recycle_keys) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.tablet_id = 102;
+    auto key = io::BlockFileCache::hash("sync_clear_background_gc_no_steal");
+
+    std::optional<io::FileBlocksHolder> holder;
+    holder.emplace(cache.get_or_set(key, 0, 5, context));
+    ASSERT_EQ(holder->file_blocks.size(), 1);
+    auto& block = holder->file_blocks.front();
+    ASSERT_TRUE(block->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(block);
+
+    auto* storage = dynamic_cast<io::FSFileCacheStorage*>(cache.get_storage());
+    ASSERT_NE(storage, nullptr);
+    io::BlockMetaKey meta_key(context.tablet_id, key, 0);
+    for (int i = 0; i < 100; ++i) {
+        if (storage->get_meta_store()->get(meta_key).has_value()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(storage->get_meta_store()->get(meta_key).has_value());
+
+    auto sp = SyncPoint::get_instance();
+    std::promise<void> before_drain_promise;
+    auto before_drain_future = before_drain_promise.get_future();
+    std::promise<void> release_clear_promise;
+    auto release_clear_future = release_clear_promise.get_future().share();
+    SyncPoint::CallbackGuard before_drain_guard;
+    sp->set_call_back(
+            "BlockFileCache::clear_file_cache_sync:before_drain_recycle_keys",
+            [&before_drain_promise, release_clear_future](auto&&) mutable {
+                before_drain_promise.set_value();
+                release_clear_future.wait();
+            },
+            &before_drain_guard);
+    sp->enable_processing();
+    Defer defer {[sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto future =
+            std::async(std::launch::async, [&cache] { return cache.clear_file_cache_sync(); });
+    ASSERT_EQ(before_drain_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+
+    holder.reset();
+    ASSERT_EQ(cache._recycle_keys.size_approx(), 1);
+
+    io::FileCacheKey dequeued_key;
+    EXPECT_FALSE(cache.try_dequeue_recycle_key(&dequeued_key, false));
+    EXPECT_EQ(cache._recycle_keys.size_approx(), 1);
+
+    release_clear_promise.set_value();
+    auto msg = future.get();
+    EXPECT_NE(msg.find("cancelled=0"), std::string::npos);
+    EXPECT_EQ(cache._recycle_keys.size_approx(), 0);
+    EXPECT_FALSE(storage->get_meta_store()->get(meta_key).has_value());
+}
+
 TEST_F(BlockFileCacheTest, clear_file_cache_sync_drains_recycle_queue) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
