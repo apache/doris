@@ -67,7 +67,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -1691,33 +1690,23 @@ public class IcebergUtils {
     private static Table loadIcebergTableWithSession(ExternalTable dorisTable) {
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) dorisTable.getCatalog();
         IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
-        return ops.loadTable(currentSessionContext(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        return ops.loadTable(SessionContext.current(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
     }
 
     private static View loadIcebergViewWithSession(ExternalTable dorisTable) {
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) dorisTable.getCatalog();
         IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
-        return (View) ops.loadView(currentSessionContext(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        return (View) ops.loadView(SessionContext.current(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
     }
 
     private static boolean useSessionCatalog(ExternalTable dorisTable) {
         if (!(dorisTable.getCatalog() instanceof IcebergExternalCatalog)) {
             return false;
         }
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         return sessionContext.hasDelegatedCredential()
                 && ((IcebergExternalCatalog) dorisTable.getCatalog()).isIcebergRestUserSessionEnabled();
     }
-
-    private static SessionContext currentSessionContext() {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return SessionContext.empty();
-        }
-        SessionContext sessionContext = context.getSessionContext();
-        return sessionContext == null ? SessionContext.empty() : sessionContext;
-    }
-
 
     public static boolean isIcebergRowLineageColumn(Column column) {
         return column.nameEquals(IcebergUtils.ICEBERG_ROW_ID_COL, false)

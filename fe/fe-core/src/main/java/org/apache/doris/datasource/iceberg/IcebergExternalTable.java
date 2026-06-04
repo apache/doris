@@ -96,7 +96,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         if (!objectCreated) {
             objectCreated = true;
             isView = ((IcebergExternalCatalog) catalog)
-                    .viewExists(currentSessionContext(), getRemoteDbName(), getRemoteName());
+                    .viewExists(SessionContext.current(), getRemoteDbName(), getRemoteName());
         }
     }
 
@@ -337,15 +337,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public boolean isView() {
         makeSureInitialized();
         return isView;
-    }
-
-    private static SessionContext currentSessionContext() {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return SessionContext.empty();
-        }
-        SessionContext sessionContext = context.getSessionContext();
-        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     public String getViewText() {

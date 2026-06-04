@@ -50,7 +50,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
@@ -236,7 +235,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         try {
             return executionAuthenticator.execute(
                     () -> performCreateDb(sessionContext, dbName, ifNotExists, properties));
@@ -275,7 +274,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         try {
             executionAuthenticator.execute(() -> {
                 performDropDb(sessionContext, dbName, ifExists, force);
@@ -331,7 +330,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         try {
             return executionAuthenticator.execute(() -> performCreateTable(sessionContext, createTableInfo));
         } catch (Exception e) {
@@ -342,7 +341,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public boolean performCreateTable(CreateTableInfo createTableInfo) throws UserException {
-        return performCreateTable(currentSessionContext(), createTableInfo);
+        return performCreateTable(SessionContext.current(), createTableInfo);
     }
 
     private boolean performCreateTable(SessionContext ctx, CreateTableInfo createTableInfo) throws UserException {
@@ -416,7 +415,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException {
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         try {
             executionAuthenticator.execute(() -> {
                 if (viewExists(sessionContext, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
@@ -457,7 +456,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         try {
             executionAuthenticator.execute(() -> {
                 catalog(sessionContext).renameTable(
@@ -1252,15 +1251,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
     }
 
-    private static SessionContext currentSessionContext() {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return SessionContext.empty();
-        }
-        SessionContext sessionContext = context.getSessionContext();
-        return sessionContext == null ? SessionContext.empty() : sessionContext;
-    }
-
     private boolean isIcebergRestUserSessionEnabled() {
         if (!(dorisCatalog instanceof IcebergRestExternalCatalog)) {
             return false;
@@ -1272,7 +1262,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private static IcebergRestProperties.DelegatedTokenMode delegatedTokenMode(ExternalCatalog dorisCatalog) {
+        // This is only reached on REST user-session paths, so a non-REST catalog or non-REST
+        // metastore properties here is unexpected. Fall back to ACCESS_TOKEN but warn so that a
+        // misconfigured delegated-token-mode is not silently ignored.
         if (!(dorisCatalog instanceof IcebergRestExternalCatalog)) {
+            LOG.warn("Iceberg catalog {} is not a REST catalog; ignoring delegated-token-mode and "
+                    + "falling back to ACCESS_TOKEN.", dorisCatalog == null ? "null" : dorisCatalog.getName());
             return IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN;
         }
         MetastoreProperties metaProps =
@@ -1280,6 +1275,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (metaProps instanceof IcebergRestProperties) {
             return ((IcebergRestProperties) metaProps).getDelegatedTokenMode();
         }
+        LOG.warn("Iceberg catalog {} has no REST metastore properties; ignoring delegated-token-mode and "
+                + "falling back to ACCESS_TOKEN.", dorisCatalog.getName());
         return IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN;
     }
 

@@ -210,7 +210,13 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList) {
-        catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(SessionContext.empty()));
+        return initCatalog(catalogName, catalogProps, storagePropertiesList, SessionContext.empty());
+    }
+
+    @Override
+    protected Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+            List<StorageProperties> storagePropertiesList, SessionContext sessionContext) {
+        catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(sessionContext));
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
         // 4. Build iceberg catalog

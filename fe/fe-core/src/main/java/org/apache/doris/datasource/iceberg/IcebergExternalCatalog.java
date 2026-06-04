@@ -18,16 +18,11 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -36,14 +31,12 @@ import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -81,13 +74,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initCatalog() {
         try {
             msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
-            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList());
+            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList(),
+                    getCatalogInitializationSessionContext());
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
         } catch (ClassCastException e) {
             throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
         }
+    }
+
+    protected SessionContext getCatalogInitializationSessionContext() {
+        return SessionContext.empty();
     }
 
     @Override
@@ -141,90 +139,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         metadataOps = ops;
     }
 
-    @Override
-    protected List<String> listDatabaseNames() {
-        return super.listDatabaseNames();
-    }
-
-    protected List<String> listDatabaseNames(SessionContext ctx) {
-        if (isIcebergRestUserSessionPropertyEnabled()) {
-            return ((IcebergMetadataOps) metadataOps).listDatabaseNames(ctx);
-        }
-        return super.listDatabaseNames();
-    }
-
-    @Override
-    public List<String> getDbNames() {
-        if (isIcebergRestUserSessionPropertyEnabled()) {
-            makeSureInitialized();
-            return listDatabaseNames(currentSessionContext());
-        }
-        return super.getDbNames();
-    }
-
-    @Override
-    public List<String> getDbNamesOrEmpty() {
-        if (isIcebergRestUserSessionPropertyEnabled()) {
-            try {
-                return getDbNames();
-            } catch (Exception e) {
-                LOG.warn("failed to get db names in catalog {}", getName(), e);
-                return Collections.emptyList();
-            }
-        }
-        return super.getDbNamesOrEmpty();
-    }
-
-    @Override
-    public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
-        if (dbName == null || dbName.isEmpty() || isSystemDatabase(dbName)) {
-            return super.getDbNullable(dbName);
-        }
-        SessionContext ctx = currentSessionContext();
-        if (!ctx.hasDelegatedCredential()) {
-            return super.getDbNullable(dbName);
-        }
-        try {
-            makeSureInitialized();
-        } catch (Exception e) {
-            LOG.warn("failed to get db {} in catalog {}", dbName, getName(), e);
-            return null;
-        }
-        if (!isIcebergRestUserSessionEnabled()) {
-            return super.getDbNullable(dbName);
-        }
-        return getDbNullableWithoutCache(ctx, dbName);
-    }
-
-    private ExternalDatabase<? extends ExternalTable> getDbNullableWithoutCache(SessionContext ctx,
-            String remoteDbName) {
-        if (!databaseExists(ctx, remoteDbName)) {
-            return null;
-        }
-        String localDbName = localDatabaseName(remoteDbName);
-        return buildDbForInit(remoteDbName, localDbName, Util.genIdByName(getName(), localDbName),
-                InitCatalogLog.Type.ICEBERG, false);
-    }
-
-    private boolean isSystemDatabase(String dbName) {
-        return dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME) || dbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME);
-    }
-
-    private String localDatabaseName(String remoteDbName) {
-        String localDbName = fromRemoteDatabaseName(remoteDbName);
-        if (getLowerCaseDatabaseNames() == 1) {
-            return localDbName.toLowerCase();
-        }
-        if (getLowerCaseDatabaseNames() == 2) {
-            return remoteDbName;
-        }
-        return localDbName;
-    }
-
-    protected boolean databaseExists(SessionContext ctx, String dbName) {
-        return ((IcebergMetadataOps) metadataOps).databaseExist(ctx, dbName);
-    }
-
     /**
      * Returns the underlying {@link Catalog} instance used by this external catalog.
      *
@@ -264,29 +178,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return tableNames;
     }
 
-    @Override
-    protected boolean shouldBypassTableNameCache(SessionContext ctx) {
-        return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
-    }
-
     public boolean isIcebergRestUserSessionEnabled() {
         makeSureInitialized();
         return msProperties instanceof IcebergRestProperties
                 && ((IcebergRestProperties) msProperties).isIcebergRestUserSessionEnabled();
-    }
-
-    private boolean isIcebergRestUserSessionPropertyEnabled() {
-        return catalogProperty.getMetastoreProperties() instanceof IcebergRestProperties
-                && ((IcebergRestProperties) catalogProperty.getMetastoreProperties()).isIcebergRestUserSessionEnabled();
-    }
-
-    private static SessionContext currentSessionContext() {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return SessionContext.empty();
-        }
-        SessionContext sessionContext = context.getSessionContext();
-        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     @Override

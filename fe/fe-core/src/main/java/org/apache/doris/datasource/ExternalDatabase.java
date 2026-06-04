@@ -35,7 +35,6 @@ import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
@@ -178,7 +177,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     private List<Pair<String, String>> listTableNames() {
-        return loadTableNamePairs(currentSessionContext(), true);
+        return loadTableNamePairs(SessionContext.current(), true);
     }
 
     private List<Pair<String, String>> loadTableNamePairs(SessionContext ctx, boolean updateTableNameLookup) {
@@ -427,7 +426,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public boolean isTableExist(String tableName) {
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         String remoteTblName = tableName;
         if (this.isTableNamesCaseInsensitive()) {
             if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
@@ -452,15 +451,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }
         }
         return extCatalog.tableExist(sessionContext, remoteName, remoteTblName);
-    }
-
-    private static SessionContext currentSessionContext() {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return SessionContext.empty();
-        }
-        SessionContext sessionContext = context.getSessionContext();
-        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     // ATTN: this method only returned cached tables.
@@ -496,7 +486,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
             return loadTableNamePairs(sessionContext, false).stream()
                     .map(Pair::value)
@@ -508,7 +498,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(String tableName) {
         makeSureInitialized();
-        SessionContext sessionContext = currentSessionContext();
+        SessionContext sessionContext = SessionContext.current();
         if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
             return getTableNullableWithoutCache(sessionContext, tableName);
         }

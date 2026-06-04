@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.qe.ConnectContext;
+
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -39,6 +41,20 @@ public class SessionContext {
 
     public static SessionContext empty() {
         return EMPTY;
+    }
+
+    /**
+     * Returns the {@link SessionContext} bound to the current connection, or {@link #empty()} when
+     * there is no active connection or no session context has been set (for example background
+     * threads and internal callers). Callers can rely on a non-null result.
+     */
+    public static SessionContext current() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return empty();
+        }
+        SessionContext sessionContext = context.getSessionContext();
+        return sessionContext == null ? empty() : sessionContext;
     }
 
     public static SessionContext of(DelegatedCredential delegatedCredential) {

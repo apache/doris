@@ -29,6 +29,8 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -42,6 +44,7 @@ import java.util.Optional;
  * requests without delegated credentials and switches to Iceberg's session catalog only for user-session requests.
  */
 class IcebergSessionCatalogAdapter {
+    private static final Logger LOG = LogManager.getLogger(IcebergSessionCatalogAdapter.class);
     private static final String SESSION_CATALOG_FIELD = "sessionCatalog";
 
     private final Catalog catalog;
@@ -118,6 +121,13 @@ class IcebergSessionCatalogAdapter {
                 throw new IllegalStateException("Failed to access Iceberg REST sessionCatalog field", e);
             }
         }
+        // The reflective access to Iceberg's private "sessionCatalog" field is fragile: if a future
+        // Iceberg release renames, removes, or retypes it, we land here and user-session requests
+        // later fail with "requires a session-aware Iceberg catalog". Warn so operators can map the
+        // runtime failure back to an Iceberg upgrade incompatibility.
+        LOG.warn("Iceberg catalog {} has no accessible '{}' field; REST user-session mode will be "
+                + "unavailable. This usually indicates an incompatible Iceberg version.",
+                catalog.getClass().getName(), SESSION_CATALOG_FIELD);
         return Optional.empty();
     }
 

@@ -17,10 +17,12 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -68,9 +70,9 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
         SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog();
 
         withDelegatedToken("token_a", () -> Assertions.assertEquals(
-                Lists.newArrayList("db_a"), catalog.getDbNames()));
+                Lists.newArrayList("db_a", InfoSchemaDb.DATABASE_NAME, MysqlDb.DATABASE_NAME), catalog.getDbNames()));
         withDelegatedToken("token_b", () -> Assertions.assertEquals(
-                Lists.newArrayList("db_b"), catalog.getDbNames()));
+                Lists.newArrayList("db_b", InfoSchemaDb.DATABASE_NAME, MysqlDb.DATABASE_NAME), catalog.getDbNames()));
         Assertions.assertEquals(Lists.newArrayList("token_a", "token_b"), catalog.tokensUsedToListDatabases);
 
         withDelegatedToken("token_a", () -> {
@@ -79,6 +81,23 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
             Assertions.assertFalse(sharedDatabaseNames.contains("db_a"));
         });
         Assertions.assertEquals(Lists.newArrayList("token_a", "token_b", "bootstrap"),
+                catalog.tokensUsedToListDatabases);
+    }
+
+    @Test
+    public void testDelegatedSessionDatabaseLookupUsesLocalNameMapping() {
+        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog(
+                Collections.singletonMap("lower_case_database_names", "1"));
+
+        withDelegatedToken("token_upper", () -> {
+            Assertions.assertEquals(Lists.newArrayList("salesdb", InfoSchemaDb.DATABASE_NAME, MysqlDb.DATABASE_NAME),
+                    catalog.getDbNames());
+            ExternalDatabase<?> db = catalog.getDbNullable("salesdb");
+            Assertions.assertNotNull(db);
+            Assertions.assertEquals("salesdb", db.getFullName());
+            Assertions.assertEquals("SalesDB", db.getRemoteName());
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_upper", "token_upper"),
                 catalog.tokensUsedToListDatabases);
     }
 
@@ -94,12 +113,19 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
         }
     }
 
-    private static class SessionAwareIcebergCatalog extends IcebergExternalCatalog {
+    private static class SessionAwareIcebergCatalog extends IcebergRestExternalCatalog {
         private final List<String> tokensUsedToListTables = Lists.newArrayList();
         private final List<String> tokensUsedToListDatabases = Lists.newArrayList();
 
         private SessionAwareIcebergCatalog() {
-            super(1L, "session_catalog", "");
+            this(Collections.emptyMap());
+        }
+
+        private SessionAwareIcebergCatalog(Map<String, String> overrideProps) {
+            super(1L, "session_catalog", null, catalogProperties(overrideProps), "");
+        }
+
+        private static Map<String, String> catalogProperties(Map<String, String> overrideProps) {
             Map<String, String> props = new HashMap<>();
             props.put("type", "iceberg");
             props.put("iceberg.catalog.type", "rest");
@@ -108,7 +134,8 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
             props.put("iceberg.rest.session", "user");
             props.put("iceberg.rest.oauth2.credential", "client_credentials");
             props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
-            catalogProperty = new CatalogProperty(null, props);
+            props.putAll(overrideProps);
+            return props;
         }
 
         @Override
@@ -130,19 +157,15 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
             return databaseNamesForToken(token);
         }
 
-        @Override
-        protected boolean databaseExists(SessionContext ctx, String dbName) {
-            String token = token(ctx);
-            tokensUsedToListDatabases.add(token);
-            return databaseNamesForToken(token).contains(dbName);
-        }
-
         private List<String> databaseNamesForToken(String token) {
             if ("token_a".equals(token)) {
                 return Lists.newArrayList("db_a");
             }
             if ("token_b".equals(token)) {
                 return Lists.newArrayList("db_b");
+            }
+            if ("token_upper".equals(token)) {
+                return Lists.newArrayList("SalesDB");
             }
             return Lists.newArrayList("db1");
         }
