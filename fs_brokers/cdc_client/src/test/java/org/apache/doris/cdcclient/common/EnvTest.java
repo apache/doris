@@ -15,20 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc.request;
+package org.apache.doris.cdcclient.common;
 
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-import java.util.Map;
+import org.junit.jupiter.api.Test;
 
-@Data
-@EqualsAndHashCode(callSuper = true)
-public class WriteRecordRequest extends JobBaseRecordRequest {
-    private long maxInterval;
-    private long taskTimeoutMs;
-    private String targetDb;
-    private String token;
-    private String taskId;
-    private Map<String, String> streamLoadProps;
+class EnvTest {
+
+    @Test
+    void getReaderIfPresentReturnsNullForUnknownJob() {
+        // An off-target releaseReader RPC must be a no-op, never create a reader -> peek returns null.
+        assertNull(Env.getCurrentEnv().getReaderIfPresent("no-such-job-id"));
+    }
+
+    @Test
+    void detachReaderIfOwnerReturnsNullForUnknownJob() {
+        // Stale release for an unknown job (no lock/context) must be a no-op.
+        assertNull(Env.getCurrentEnv().detachReaderIfOwner("no-such-job-id", "t1"));
+    }
 }
