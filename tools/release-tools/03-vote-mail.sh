@@ -62,6 +62,17 @@ The artifacts (source, signature and checksum) corresponding to this release
 candidate can be found here:
 ${DEV_SVN_DIR}/
 
+The convenience binaries can be downloaded here:
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64.tar.gz
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64.tar.gz.asc
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64.tar.gz.sha512
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64-noavx2.tar.gz
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64-noavx2.tar.gz.asc
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-x64-noavx2.tar.gz.sha512
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-arm64.tar.gz
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-arm64.tar.gz.asc
+https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${VERSION}-bin-arm64.tar.gz.sha512
+
 This has been signed with PGP key ${FPR}, corresponding to ${APACHE_EMAIL}.
 KEYS file is available here:
 ${KEYS_URL}
