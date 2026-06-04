@@ -17,13 +17,9 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.trees.ChangeScanInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,14 +36,11 @@ import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
