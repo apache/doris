@@ -350,44 +350,18 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      */
     public Plan pushPartitionLimitThroughWindow(WindowExpression windowFunc,
             long partitionLimit, boolean hasGlobalLimit) {
-        List<OrderExpression> orderKeys = prunePartitionKeys(windowFunc.getPartitionKeys(), windowFunc.getOrderKeys());
-        LogicalPartitionTopN<Plan> partitionTopN = new LogicalPartitionTopN<>(windowFunc.getFunction(),
-                windowFunc.getPartitionKeys(), orderKeys, hasGlobalLimit, partitionLimit, Optional.empty(),
-                Optional.empty(), child(0));
-        // Keep the window's order keys consistent with the generated PartitionTopN. An order key that repeats a
-        // partition key is constant inside each partition, so dropping it changes neither the window function
-        // result nor the required order. Pruning the window here (not only on the PartitionTopN) avoids an
-        // inconsistent state where the window keeps [partitionKey, ...orderKeys] while its PartitionTopN child
-        // only provides [...orderKeys].
-        return withExpressionsAndChild(pruneWindowOrderKeys(windowExpressions), partitionTopN);
-    }
-
-    private static List<NamedExpression> pruneWindowOrderKeys(List<NamedExpression> windowExpressions) {
-        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
-        for (NamedExpression expr : windowExpressions) {
-            if (!(expr instanceof Alias) || !(expr.child(0) instanceof WindowExpression)) {
-                builder.add(expr);
-                continue;
-            }
-            Alias alias = (Alias) expr;
-            WindowExpression windowExpression = (WindowExpression) alias.child();
-            List<OrderExpression> prunedOrderKeys =
-                    prunePartitionKeys(windowExpression.getPartitionKeys(), windowExpression.getOrderKeys());
-            if (prunedOrderKeys.size() == windowExpression.getOrderKeys().size()) {
-                builder.add(expr);
-            } else {
-                builder.add(new Alias(alias.getExprId(), windowExpression.withOrderKeys(prunedOrderKeys),
-                        alias.getName()));
-            }
-        }
-        return builder.build();
-    }
-
-    private static List<OrderExpression> prunePartitionKeys(List<Expression> partitionKeys,
-            List<OrderExpression> orderKeys) {
-        return orderKeys.stream()
-                .filter(orderKey -> !partitionKeys.contains(orderKey.getOrderKey().getExpr()))
+        // Prune order keys that repeat a partition key from the generated PartitionTopN: they are constant within
+        // each partition, so BE does not need to sort by them. The window above is pruned independently by the
+        // EliminateOrderByKey rule (which also benefits windows that never become a PartitionTopN); doing the
+        // PartitionTopN side here makes it robust to rewrite ordering (the topn may be created before the window
+        // is pruned), and both ends up consistent on the partition-key dimension.
+        List<OrderExpression> orderKeys = windowFunc.getOrderKeys().stream()
+                .filter(orderKey -> !windowFunc.getPartitionKeys().contains(orderKey.getOrderKey().getExpr()))
                 .collect(ImmutableList.toImmutableList());
+        LogicalPartitionTopN<Plan> partitionTopN = new LogicalPartitionTopN<>(windowFunc.getFunction(),
+                windowFunc.getPartitionKeys(), orderKeys, hasGlobalLimit, partitionLimit,
+                Optional.empty(), Optional.empty(), child(0));
+        return withExpressionsAndChild(windowExpressions, partitionTopN);
     }
 
     private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {

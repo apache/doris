@@ -145,7 +145,10 @@ public class GeneratePartitionTopnFromWindowTest implements MemoPatternMatchSupp
                 .project(ImmutableList.of(0))
                 .build();
 
+        // EliminateOrderByKey prunes the order key that repeats the partition key (gender) from the window;
+        // CreatePartitionTopNFromWindow then generates a PartitionTopN that inherits the pruned order keys.
         PlanChecker.from(context, plan)
+                .applyTopDown(new EliminateOrderByKey())
                 .applyTopDown(new CreatePartitionTopNFromWindow())
                 .matches(
                     logicalProject(
