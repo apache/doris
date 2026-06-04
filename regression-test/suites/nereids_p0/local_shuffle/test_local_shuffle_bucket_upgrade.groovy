@@ -153,6 +153,18 @@ suite("test_local_shuffle_bucket_upgrade") {
     assertTrue(stackedUpgradedText.contains("LOCAL_EXECUTION_HASH_SHUFFLE"),
         "ratio=1.1 must upgrade the stacked bucket chain to LOCAL hash")
 
+    // Forced-RF killer case: with the upgrade, the join build is hash-sliced; the
+    // per-instance IN/MIN_MAX partial filters MUST be merged before application
+    // (TRuntimeFilterDesc.force_local_merge). Before that fix this query silently
+    // lost up to 96% of its rows.
+    def rfHints = { ratio ->
+        hints('true', ratio).replace(")*/",
+            ", enable_runtime_filter_prune=false, runtime_filter_type='IN,MIN_MAX')*/")
+    }
+    def single_up_rf = sql "SELECT ${rfHints('1.1')} p.pk % 10 AS g, COUNT(*) c, SUM(f.v) sv, SUM(p.w) sw FROM lsbu_fact f JOIN lsbu_probe p ON p.k = f.k GROUP BY g ORDER BY g"
+    assertEquals(single_baseline, single_up_rf,
+        "upgraded bucket join with forced IN/MIN_MAX runtime filters must stay correct")
+
     def stacked_baseline = sql stackedJoin(hints('false', '0'))
     def stacked_bucket = sql stackedJoin(hints('true', '0'))
     def stacked_upgraded = sql stackedJoin(hints('true', '1.1'))
