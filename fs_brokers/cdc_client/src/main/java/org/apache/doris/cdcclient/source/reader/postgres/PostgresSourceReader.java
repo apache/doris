@@ -83,6 +83,8 @@ import io.debezium.relational.history.TableChanges;
 import io.debezium.time.Conversions;
 import lombok.Data;
 import org.postgresql.Driver;
+import org.postgresql.core.BaseConnection;
+import org.postgresql.core.ServerVersion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -101,7 +103,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        // Doris-owned publication: pre-create it covering all include_tables (autocreate is DISABLED).
+        // Doris-owned publication: pre-create it covering all include_tables (autocreate is
+        // DISABLED).
         if (isPublicationDorisOwned(config, jobId)) {
             createPublicationForDorisOwned(dialect, config, jobId);
         }
@@ -157,7 +160,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
-    /** Create/ensure the Doris-owned publication for all include_tables (idempotent, multi-BE safe). */
+    /**
+     * Create/ensure the Doris-owned publication for all include_tables (idempotent, multi-BE safe).
+     */
     private void createPublicationForDorisOwned(
             PostgresDialect dialect, Map<String, String> config, String jobId) {
         String pubName = resolvePublicationName(config, jobId);
@@ -168,8 +173,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
         String tableList =
                 Arrays.stream(qualified)
-                        .map(q -> new TableId(null, schema, q.substring(q.indexOf('.') + 1))
-                                .toDoubleQuotedString())
+                        .map(
+                                q ->
+                                        new TableId(null, schema, q.substring(q.indexOf('.') + 1))
+                                                .toDoubleQuotedString())
                         .collect(Collectors.joining(", "));
         // Mirrors debezium PostgresReplicationConnection#initPublication: check existence, then
         // CREATE ... FOR TABLE / ALTER ... SET TABLE (here always the full include_tables set).
@@ -178,12 +185,26 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             long count;
             try (ResultSet rs =
                     stmt.executeQuery(
-                            "SELECT COUNT(1) FROM pg_publication WHERE pubname = '" + pubName + "'")) {
+                            "SELECT COUNT(1) FROM pg_publication WHERE pubname = '"
+                                    + pubName
+                                    + "'")) {
                 rs.next();
                 count = rs.getLong(1);
             }
             if (count == 0) {
-                stmt.execute("CREATE PUBLICATION " + pubName + " FOR TABLE " + tableList);
+                // Preserve debezium FILTERED behavior: on PG 13+ publish partitioned-root changes
+                // as the root table, matching configFactory.setIncludePartitionedTables(true).
+                String pubViaRootSuffix =
+                        ((BaseConnection) conn.connection())
+                                        .haveMinimumServerVersion(ServerVersion.v13)
+                                ? " WITH (publish_via_partition_root = true)"
+                                : "";
+                stmt.execute(
+                        "CREATE PUBLICATION "
+                                + pubName
+                                + " FOR TABLE "
+                                + tableList
+                                + pubViaRootSuffix);
             } else {
                 stmt.execute("ALTER PUBLICATION " + pubName + " SET TABLE " + tableList);
             }
@@ -286,9 +307,11 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
 
-        // Always DISABLED; the publication always pre-exists: Doris creates it for all include_tables
+        // Always DISABLED; the publication always pre-exists: Doris creates it for all
+        // include_tables
         // in initialize(); user-provided / legacy (dbz_publication) ones are already present on PG.
-        // FILTERED would make each split SET TABLE its single table -> flip publication -> data loss.
+        // FILTERED would make each split SET TABLE its single table -> flip publication -> data
+        // loss.
         String publicationName = resolvePublicationName(cdcConfig, jobId);
         String slotName = resolveSlotName(cdcConfig, jobId);
         dbzProps.put(PostgresConnectorConfig.PUBLICATION_NAME.name(), publicationName);
@@ -320,7 +343,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         // support scan partition table
         configFactory.setIncludePartitionedTables(true);
 
-        // from-to: FE forces "true" (at-least-once, skip backfill); TVF: absent → false (exactly-once needs backfill).
+        // from-to: FE forces "true" (at-least-once, skip backfill); TVF: absent → false
+        // (exactly-once needs backfill).
         configFactory.skipSnapshotBackfill(
                 Boolean.parseBoolean(cdcConfig.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)));
 
@@ -360,6 +384,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         PostgresSourceFetchTaskContext taskContext =
                 new PostgresSourceFetchTaskContext(sourceConfig, dialect);
+        LOG.info(
+                "create snapshot reader for job {}, thread tag = debezium-snapshot-reader-{}",
+                config.getJobId(),
+                subtaskId);
         IncrementalSourceScanFetcher snapshotReader =
                 new IncrementalSourceScanFetcher(taskContext, subtaskId);
         return snapshotReader;
@@ -371,9 +399,13 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         PostgresSourceFetchTaskContext taskContext =
                 new PostgresSourceFetchTaskContext(sourceConfig, dialect);
-        // subTaskId maybe add jobId?
+        int readerTag = Math.abs(config.getJobId().hashCode());
+        LOG.info(
+                "create binlog reader for job {}, thread tag = debezium-reader-{}",
+                config.getJobId(),
+                readerTag);
         IncrementalSourceStreamFetcher binlogReader =
-                new IncrementalSourceStreamFetcher(taskContext, 0);
+                new IncrementalSourceStreamFetcher(taskContext, readerTag);
         return binlogReader;
     }
 
