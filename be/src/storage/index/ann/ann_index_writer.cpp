@@ -19,7 +19,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <limits>
 #include <memory>
 #include <string>
 
@@ -52,6 +51,7 @@ Status AnnIndexColumnWriter::init() {
 
     _dir = compound_dir.value();
 
+    _min_segment_rows = AnnIndexColumnWriter::min_segment_rows();
     _vector_index = nullptr;
     const auto& properties = _index_meta->properties();
     const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
@@ -90,21 +90,6 @@ void AnnIndexColumnWriter::close_on_error() {
     _release_buffered_vectors();
 }
 
-size_t AnnIndexColumnWriter::_add_chunk_rows_by_bytes(size_t dim) const {
-    DCHECK(dim > 0);
-    static constexpr Int64 FLOAT_BYTES = static_cast<Int64>(sizeof(float));
-    DORIS_CHECK(dim <= static_cast<size_t>(std::numeric_limits<Int64>::max() / FLOAT_BYTES));
-    const Int64 vector_bytes = cast_set<Int64>(dim) * FLOAT_BYTES;
-    return cast_set<size_t>(
-            std::max<Int64>(1, AnnIndexColumnWriter::add_chunk_bytes() / vector_bytes));
-}
-
-size_t AnnIndexColumnWriter::_add_chunk_rows(size_t dim) const {
-    return cast_set<size_t>(
-            std::max<Int64>(1, std::min<Int64>(AnnIndexColumnWriter::add_chunk_size(),
-                                               cast_set<Int64>(_add_chunk_rows_by_bytes(dim)))));
-}
-
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
                                               const uint8_t* null_map, const uint8_t* offsets_ptr,
                                               size_t num_rows) {
@@ -125,12 +110,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    const Int64 min_train_rows = _vector_index->get_min_train_rows();
-    if (min_train_rows == 0) {
-        RETURN_IF_ERROR(_add_vectors_in_chunks(p, num_rows));
-    } else {
-        RETURN_IF_ERROR(_append_vectors_need_train(p, num_rows));
-    }
+    RETURN_IF_ERROR(_append_vectors_to_buffer(p, num_rows));
     _total_rows += cast_set<int64_t>(num_rows);
 
     return Status::OK();
@@ -155,26 +135,24 @@ Status AnnIndexColumnWriter::finish() {
     }
 
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
-    return min_train_rows == 0 ? _vector_index->save(_dir.get()) : _train_and_add(min_train_rows);
-}
-
-Status AnnIndexColumnWriter::_add_vectors_in_chunks(const float* vectors, size_t num_rows) {
-    DCHECK(vectors != nullptr);
-    DCHECK(num_rows > 0);
-
-    const size_t dim = _vector_index->get_dimension();
-    const size_t chunk_rows = _add_chunk_rows(dim);
-    size_t row_offset = 0;
-    while (row_offset < num_rows) {
-        const size_t rows_to_add = std::min(chunk_rows, num_rows - row_offset);
-        RETURN_IF_ERROR(
-                _vector_index->add(cast_set<Int64>(rows_to_add), vectors + row_offset * dim));
-        row_offset += rows_to_add;
+    const Int64 effective_min_rows = _effective_min_rows(min_train_rows);
+    if (_total_rows < effective_min_rows) {
+        LOG_INFO(
+                "Total data size {} is less than minimum {} rows required for ANN index build. "
+                "Skipping index building for this segment.",
+                _total_rows, effective_min_rows);
+        _release_buffered_vectors();
+        return _index_file_writer->delete_index(_index_meta);
     }
-    return Status::OK();
+
+    return _build_and_save(min_train_rows, effective_min_rows);
 }
 
-Status AnnIndexColumnWriter::_append_vectors_need_train(const float* vectors, size_t num_rows) {
+Int64 AnnIndexColumnWriter::_effective_min_rows(Int64 min_train_rows) const {
+    return std::max(min_train_rows, cast_set<Int64>(_min_segment_rows));
+}
+
+Status AnnIndexColumnWriter::_append_vectors_to_buffer(const float* vectors, size_t num_rows) {
     DCHECK(vectors != nullptr);
     DCHECK(num_rows > 0);
 
@@ -183,29 +161,23 @@ Status AnnIndexColumnWriter::_append_vectors_need_train(const float* vectors, si
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::_train_and_add(Int64 min_train_rows) {
-    if (_total_rows < min_train_rows) {
-        LOG_INFO(
-                "Total data size {} is less than minimum {} rows required for ANN index training. "
-                "Skipping index building for this segment.",
-                _total_rows, min_train_rows);
-        _release_buffered_vectors();
-        return _index_file_writer->delete_index(_index_meta);
-    }
-
+Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effective_min_rows) {
     const size_t dim = _vector_index->get_dimension();
     DCHECK(_buffered_vectors.size() % dim == 0);
     const Int64 train_rows = cast_set<Int64>(_buffered_vectors.size() / dim);
-    DORIS_CHECK(train_rows >= min_train_rows);
-    RETURN_IF_ERROR(_vector_index->train(train_rows, _buffered_vectors.data()));
-    RETURN_IF_ERROR(_add_vectors_in_chunks(_buffered_vectors.data(), train_rows));
+    DORIS_CHECK(train_rows == _total_rows);
+    DORIS_CHECK(train_rows >= effective_min_rows);
+    if (min_train_rows > 0) {
+        RETURN_IF_ERROR(_vector_index->train(train_rows, _buffered_vectors.data()));
+    }
+    RETURN_IF_ERROR(_vector_index->add(train_rows, _buffered_vectors.data()));
     _release_buffered_vectors();
     return _vector_index->save(_dir.get());
 }
 
 void AnnIndexColumnWriter::_release_buffered_vectors() {
     // PODArray::clear() keeps the allocated capacity. Swap with an empty array so the
-    // full-segment training buffer is released before saving the index.
+    // full-segment build buffer is released before saving the index.
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
 }

@@ -20,53 +20,49 @@ suite("ivf_pq_full_buffer_train_recall", "nonConcurrent") {
     sql "set enable_ann_index_result_cache=false;"
     sql "set ivf_nprobe=8;"
 
-    setBeConfigTemporary([ann_index_build_add_chunk_size: 200]) {
-        // pq_nbits=1 needs 200 train rows. Setting the add chunk size to 200
-        // verifies that add batching does not cap the rows used for training.
-        sql "drop table if exists tbl_ivf_pq_full_buffer_train_recall"
-        sql """
-        CREATE TABLE tbl_ivf_pq_full_buffer_train_recall (
-            id INT NOT NULL,
-            embedding ARRAY<FLOAT> NOT NULL,
-            INDEX idx_emb (`embedding`) USING ANN PROPERTIES(
-                    "index_type"="ivf",
-                    "metric_type"="l2_distance",
-                    "nlist"="8",
-                    "dim"="4",
-                    "quantizer"="pq",
-                    "pq_m"="2",
-                    "pq_nbits"="1"
-            )
-        ) ENGINE=OLAP
-        DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES ("replication_num" = "1");
-        """
+    sql "drop table if exists tbl_ivf_pq_full_buffer_train_recall"
+    sql """
+    CREATE TABLE tbl_ivf_pq_full_buffer_train_recall (
+        id INT NOT NULL,
+        embedding ARRAY<FLOAT> NOT NULL,
+        INDEX idx_emb (`embedding`) USING ANN PROPERTIES(
+                "index_type"="ivf",
+                "metric_type"="l2_distance",
+                "nlist"="8",
+                "dim"="4",
+                "quantizer"="pq",
+                "pq_m"="2",
+                "pq_nbits"="1"
+        )
+    ) ENGINE=OLAP
+    DUPLICATE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num" = "1");
+    """
 
-        def insertData = []
-        for (int i = 1; i <= 400; i++) {
-            if (i == 250) {
-                insertData.add("(${i}, [0.0, 0.0, 0.0, 0.0])")
-            } else if (i <= 200) {
-                insertData.add("(${i}, [1000.0, ${i}.0, ${(i % 17)}.0, ${(i % 19)}.0])")
-            } else {
-                insertData.add(
-                        "(${i}, [${(i - 250) / 50.0}, ${(250 - i) / 50.0}, "
-                                + "${(i % 7 - 3) / 10.0}, ${(i % 5 - 2) / 10.0}])")
-            }
+    def insertData = []
+    for (int i = 1; i <= 400; i++) {
+        if (i == 250) {
+            insertData.add("(${i}, [0.0, 0.0, 0.0, 0.0])")
+        } else if (i <= 200) {
+            insertData.add("(${i}, [1000.0, ${i}.0, ${(i % 17)}.0, ${(i % 19)}.0])")
+        } else {
+            insertData.add(
+                    "(${i}, [${(i - 250) / 50.0}, ${(250 - i) / 50.0}, "
+                            + "${(i % 7 - 3) / 10.0}, ${(i % 5 - 2) / 10.0}])")
         }
-        sql "INSERT INTO tbl_ivf_pq_full_buffer_train_recall VALUES ${insertData.join(', ')};"
-        sql "sync"
-
-        qt_target_in_top20 """
-            select count(*)
-            from (
-                select id
-                from tbl_ivf_pq_full_buffer_train_recall
-                order by l2_distance_approximate(embedding, [0.0, 0.0, 0.0, 0.0]), id
-                limit 20
-            ) t
-            where id = 250;
-        """
     }
+    sql "INSERT INTO tbl_ivf_pq_full_buffer_train_recall VALUES ${insertData.join(', ')};"
+    sql "sync"
+
+    qt_target_in_top20 """
+        select count(*)
+        from (
+            select id
+            from tbl_ivf_pq_full_buffer_train_recall
+            order by l2_distance_approximate(embedding, [0.0, 0.0, 0.0, 0.0]), id
+            limit 20
+        ) t
+        where id = 250;
+    """
 }
