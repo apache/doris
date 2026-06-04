@@ -397,7 +397,7 @@ void write_list_struct_parquet_file(const std::string& file_path) {
     field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(b_array_builder)));
     auto struct_builder = std::make_shared<arrow::StructBuilder>(
             struct_type, arrow::default_memory_pool(), std::move(field_builders));
-    auto list_type = arrow::list(arrow::field("element", struct_type, false));
+    auto list_type = arrow::list(arrow::field("element", struct_type, true));
     arrow::ListBuilder builder(arrow::default_memory_pool(), struct_builder, list_type);
     auto* a_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(0));
     auto* b_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(1));
@@ -1038,7 +1038,12 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     EXPECT_EQ(array_result.get_offsets()[0], 2);
     EXPECT_EQ(array_result.get_offsets()[1], 3);
     EXPECT_EQ(array_result.get_offsets()[2], 4);
-    const auto& element_struct = assert_cast<const ColumnStruct&>(array_result.get_data());
+    const auto& nullable_elements = assert_cast<const ColumnNullable&>(array_result.get_data());
+    for (const auto is_null : nullable_elements.get_null_map_data()) {
+        EXPECT_EQ(is_null, 0);
+    }
+    const auto& element_struct =
+            assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 2);
     const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
     EXPECT_EQ(a_values.get_element(0), 10);
