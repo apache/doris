@@ -258,13 +258,15 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             // blocked set. Without this, outer join condition slots would
             // not block pull-up from projects under the inner TopN.
             context.outerBlockedByTopN.put(inner, new HashSet<>(blockedExprIds));
-            // TopN preserves all input columns, so it doesn't block by itself.
-            // However, its order keys consume slots, so add them to blocked set.
-            // Do NOT reset blockedExprIds — intermediate operators between the
-            // outer and inner TopN must still block expressions.
-            Set<ExprId> newBlocked = new HashSet<>(blockedExprIds);
-            newBlocked.addAll(buildOrderKeyExprIds(inner));
-            collectFromNode((Plan) inner.child(0), info, newBlocked, context);
+            // Stop traversal here — do NOT collect expressions from under
+            // the inner TopN using the outer TopN's PullUpInfo. The inner
+            // TopN has its own visitLogicalTopN which will handle its subtree
+            // independently. If the outer TopN were to collect expressions
+            // from under the inner TopN, dedup would move them to the outer
+            // TopN and the inner TopN would only see passThroughExprs. The
+            // passThrough mechanism only propagates base slots, which breaks
+            // downstream Projects that reference the original expression slot
+            // by ExprId (e.g. a "c1 AS c2" rename between the two TopNs).
             return;
         }
 

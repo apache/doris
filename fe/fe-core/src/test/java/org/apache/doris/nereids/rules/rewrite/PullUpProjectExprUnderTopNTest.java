@@ -22,7 +22,6 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -35,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -54,7 +54,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
 
 class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -185,10 +184,9 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     @Test
     void testDeduplicatePullUpToOutermostTopN() {
         // topn1(order by id) -> filter(x>1) -> topn2(order by id) -> project(id, x, y) -> scan
-        // topn2 can pull up both x and y (order key does not reference them).
-        // topn1 can only pull up y (x is blocked by filter).
-        // After deduplication, y should only be pulled up to topn1 (outermost),
-        // and x should only be pulled up to topn2.
+        // With the stop-at-inner-TopN change, outer TopN no longer collects expressions
+        // from under the inner TopN. topn2 handles its own subtree: pulls up both x and y.
+        // topn1 has no pullable expressions between itself and topn2 (Filter is not a Project).
         Slot id = scan1.getOutput().get(0);
         Slot a = scan1.getOutput().get(1);
         Slot b = scan1.getOutput().get(0);
@@ -206,23 +204,22 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
-                // Verify the overall shape: project -> topn1 -> filter -> project -> topn2 -> project -> scan
+                // Root: topn(3) -> filter -> project -> topn(10) -> project -> scan
+                // No addUpperProject for topn(3) — no pullable expressions between it and topn(10)
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalTopN(
-                                        logicalFilter(
-                                                logicalProject(
-                                                        logicalTopN(
-                                                                logicalProject(
-                                                                        logicalOlapScan()
-                                                                )
+                        logicalTopN(
+                                logicalFilter(
+                                        logicalProject(
+                                                logicalTopN(
+                                                        logicalProject(
+                                                                logicalOlapScan()
                                                         )
                                                 )
                                         )
                                 )
                         )
                 )
-                // Verify inner topn2 has an upper project (x pulled up)
+                // Inner topn(10) has an upper project with x and y pulled up
                 .matches(
                         logicalProject(
                                 logicalTopN(
@@ -230,7 +227,18 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                                 logicalOlapScan()
                                         )
                                 )
-                        )
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "x".equals(e.getName())))
+                )
+                .matches(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        )
+                                )
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "y".equals(e.getName())))
                 )
                 .getPlan();
     }
@@ -600,6 +608,11 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
     @Test
     void testDeduplicatedPullUpDoesNotExposePassThroughInputSlots() {
+        // topn(3) -> filter(x>1) -> topn(10) -> project(x=a+1, y=b+1, id) -> scan
+        // With stop-at-inner-TopN, topn(10) handles its own subtree:
+        // pulls up x and y, restores them above itself.
+        // topn(3) has no pullable expressions → no addUpperProject.
+        // Root is topn(3), not a Project.
         LogicalOlapScan scan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
         Slot id = scan.getOutput().get(0);
@@ -620,19 +633,29 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .applyCustom(new PullUpProjectExprUnderTopN())
                 .getPlan();
 
-        LogicalProject<?> topProject = (LogicalProject<?>) rewritten;
-        Assertions.assertEquals(3, topProject.getProjects().size());
-        Assertions.assertEquals(x.getExprId(), topProject.getProjects().get(0).getExprId());
-        Assertions.assertEquals(y.getExprId(), topProject.getProjects().get(1).getExprId());
-        Assertions.assertEquals(id.getExprId(), topProject.getProjects().get(2).getExprId());
+        // Root is topn(3) — no addUpperProject (no pullable expressions)
+        LogicalTopN<?> rootTopN = (LogicalTopN<?>) rewritten;
+        LogicalFilter<?> midFilter = (LogicalFilter<?>) rootTopN.child(0);
+        LogicalProject<?> topN10UpperProject = (LogicalProject<?>) midFilter.child(0);
+        Assertions.assertEquals(3, topN10UpperProject.getProjects().size());
+        Assertions.assertEquals(x.getExprId(), topN10UpperProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(y.getExprId(), topN10UpperProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(id.getExprId(), topN10UpperProject.getProjects().get(2).getExprId());
 
-        LogicalTopN<?> topN = (LogicalTopN<?>) topProject.child(0);
-        Assertions.assertTrue(topN.getOutput().stream()
+        LogicalTopN<?> topN10 = (LogicalTopN<?>) topN10UpperProject.child(0);
+        // topN(10)'s output is [x, y, id]; base slot b is inside x and y expressions
+        Assertions.assertTrue(topN10.getOutput().stream()
                 .anyMatch(slot -> slot.getExprId().equals(b.getExprId())));
     }
 
     @Test
     void testDeduplicatedPullUpPassesThroughTransitiveInputSlots() {
+        // topn(10) -> topn(20) -> project(y, id) -> topn(30) -> project(x, id) -> scan
+        // Each TopN handles its own subtree independently.
+        // topn(30): pulls up x from project(x, id), restores above itself
+        // topn(20): has project(y=x+1, id) between it and topn(30), y is pullable,
+        //           restores y above itself
+        // topn(10): no pullable expressions → no addUpperProject
         LogicalOlapScan scan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
         Slot id = scan.getOutput().get(0);
@@ -649,34 +672,60 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .topN(10, 0, ImmutableList.of(1))
                 .build();
 
-        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
-                .getPlan();
-
-        LogicalProject<?> topN1UpperProject = (LogicalProject<?>) rewritten;
-        Assertions.assertEquals(y.getExprId(), topN1UpperProject.getProjects().get(0).getExprId());
-        Set<ExprId> topN1InputExprIds = topN1UpperProject.getProjects().get(0).child(0).getInputSlotExprIds();
-        Assertions.assertTrue(topN1InputExprIds.contains(a.getExprId()));
-        Assertions.assertTrue(topN1InputExprIds.contains(b.getExprId()));
-        Assertions.assertFalse(topN1InputExprIds.contains(x.getExprId()));
-
-        LogicalTopN<?> topN1 = (LogicalTopN<?>) topN1UpperProject.child(0);
-        LogicalProject<?> topN2UpperProject = (LogicalProject<?>) topN1.child(0);
-        Assertions.assertEquals(3, topN2UpperProject.getProjects().size());
-        Assertions.assertEquals(a.getExprId(), topN2UpperProject.getProjects().get(0).getExprId());
-        Assertions.assertEquals(b.getExprId(), topN2UpperProject.getProjects().get(1).getExprId());
-        Assertions.assertEquals(id.getExprId(), topN2UpperProject.getProjects().get(2).getExprId());
-
-        LogicalTopN<?> topN2 = (LogicalTopN<?>) topN2UpperProject.child(0);
-        LogicalProject<?> yProject = (LogicalProject<?>) topN2.child(0);
-        Assertions.assertEquals(3, yProject.getProjects().size());
-        Assertions.assertEquals(id.getExprId(), yProject.getProjects().get(0).getExprId());
-        Assertions.assertEquals(a.getExprId(), yProject.getProjects().get(1).getExprId());
-        Assertions.assertEquals(b.getExprId(), yProject.getProjects().get(2).getExprId());
+                // Root: topn(10) → project(y, id) → topn(20) → project(x, id) → project(x) → topn(30) → project → scan
+                .matchesFromRoot(
+                        logicalTopN(
+                                logicalProject(
+                                        logicalTopN(
+                                                logicalProject(
+                                                        logicalProject(
+                                                                logicalTopN(
+                                                                        logicalProject(
+                                                                                logicalOlapScan()
+                                                                        )
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                )
+                        )
+                )
+                // topn(20)'s upper project contains y
+                .matches(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(
+                                                logicalProject(
+                                                        logicalTopN(
+                                                                logicalProject(logicalOlapScan())
+                                                        )
+                                                )
+                                        )
+                                )
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "y".equals(e.getName())))
+                )
+                // topn(30)'s upper project contains x
+                .matches(
+                        logicalProject(
+                                logicalTopN(
+                                        logicalProject(logicalOlapScan())
+                                )
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "x".equals(e.getName())))
+                );
     }
 
     @Test
     void testDeduplicatedPullUpKeepsInputSlotRestoredByLowerTopN() {
+        // topn(10) -> topn(20) -> project(y, id, x) -> topn(30) -> project(x, id) -> scan
+        // Each TopN handles its own subtree independently.
+        // topn(30): pulls up x from project(x, id), restores above itself
+        // topn(20): has project(y, id, x) between it and topn(30), but x is a Slot (no pullup),
+        //           y=x+1 is pullable, restores above itself
+        // topn(10): no pullable expressions → no addUpperProject
         LogicalOlapScan scan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
         Slot id = scan.getOutput().get(0);
@@ -693,28 +742,24 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .topN(10, 0, ImmutableList.of(1))
                 .build();
 
-        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
-                .getPlan();
-
-        LogicalProject<?> topN1UpperProject = (LogicalProject<?>) rewritten;
-        Assertions.assertEquals(y.getExprId(), topN1UpperProject.getProjects().get(0).getExprId());
-        Set<ExprId> topN1InputExprIds = topN1UpperProject.getProjects().get(0).child(0).getInputSlotExprIds();
-        Assertions.assertTrue(topN1InputExprIds.contains(x.getExprId()));
-        Assertions.assertFalse(topN1InputExprIds.contains(a.getExprId()));
-        Assertions.assertFalse(topN1InputExprIds.contains(b.getExprId()));
-
-        LogicalTopN<?> topN1 = (LogicalTopN<?>) topN1UpperProject.child(0);
-        LogicalProject<?> topN2UpperProject = (LogicalProject<?>) topN1.child(0);
-        Assertions.assertEquals(2, topN2UpperProject.getProjects().size());
-        Assertions.assertEquals(x.getExprId(), topN2UpperProject.getProjects().get(0).getExprId());
-        Assertions.assertEquals(id.getExprId(), topN2UpperProject.getProjects().get(1).getExprId());
-
-        LogicalTopN<?> topN2 = (LogicalTopN<?>) topN2UpperProject.child(0);
-        LogicalProject<?> yProject = (LogicalProject<?>) topN2.child(0);
-        Assertions.assertEquals(2, yProject.getProjects().size());
-        Assertions.assertEquals(id.getExprId(), yProject.getProjects().get(0).getExprId());
-        Assertions.assertEquals(x.getExprId(), yProject.getProjects().get(1).getExprId());
+                // Root: topn(10) — no addUpperProject (no pullable expressions)
+                .matchesFromRoot(logicalTopN().when(t -> t.getLimit() == 10))
+                // topn(20)'s upper project contains y
+                .matches(
+                        logicalProject(
+                                logicalTopN(logicalProject())
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "y".equals(e.getName())))
+                )
+                // topn(30)'s upper project contains x
+                .matches(
+                        logicalProject(
+                                logicalTopN(logicalProject(logicalOlapScan()))
+                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "x".equals(e.getName())))
+                );
     }
 
     @Test
@@ -963,15 +1008,12 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
     @Test
     void testDeduplicatePullUpEffect() {
-        // Verifies that deduplicatePullUps() correctly removes y from the
-        // inner TopN's PullUpInfo, so y appears ONLY in the outer TopN's
-        // upper project.
+        // Each TopN independently handles its own subtree — no cross-TopN dedup.
+        // topn(10) pulls up both x and y from the Project below it.
+        // topn(3) has no pullable expressions (stops at topn(10) boundary,
+        // Filter is not a Project). No addUpperProject for topn(3).
         //
-        // Plan: topn1(order by id, limit 10) -> filter(x>1)
-        //         -> topn2(order by id, limit 3) -> project(id, x, y) -> scan
-        //
-        // Without dedup: y would be pulled up to BOTH topn1 and topn2.
-        // With dedup:    y is only above topn1, x is only above topn2.
+        // Plan: topn(3) -> filter(x>1) -> topn(10) -> project(id, x, y) -> scan
         Slot id = scan1.getOutput().get(0);
         Slot a = scan1.getOutput().get(1);
         Slot b = scan1.getOutput().get(0); // b == id, so y = id + 1
@@ -989,56 +1031,29 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
-                // Root shape: project -> topn1 -> filter -> project -> topn2 -> project -> scan
+                // Root shape: topn(3) -> filter -> project -> topn(10) -> project -> scan
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalTopN(
-                                        logicalFilter(
-                                                logicalProject(
-                                                        logicalTopN(
-                                                                logicalProject(
-                                                                        logicalOlapScan()
-                                                                )
+                        logicalTopN(
+                                logicalFilter(
+                                        logicalProject(
+                                                logicalTopN(
+                                                        logicalProject(
+                                                                logicalOlapScan()
                                                         )
                                                 )
                                         )
                                 )
                         )
                 )
-                // Inner project (above topn2): must contain "x"
+                // Inner project (above topn(10)): must contain both x and y
                 .matches(
                         logicalProject(
                                 logicalTopN(
                                         logicalProject(logicalOlapScan())
                                 )
                         ).when(proj -> proj.getProjects().stream()
-                                .anyMatch(e -> "x".equals(e.getName())))
-                )
-                // Inner project (above topn2): must NOT contain "y"
-                // (this is the core dedup verification)
-                .nonMatch(
-                        logicalProject(
-                                logicalTopN(
-                                        logicalProject(logicalOlapScan())
-                                )
-                        ).when(proj -> proj.getProjects().stream()
-                                .anyMatch(e -> "y".equals(e.getName())))
-                )
-                // Outer project (above topn1): must contain "y"
-                .matches(
-                        logicalProject(
-                                logicalTopN(
-                                        logicalFilter(
-                                                logicalProject(
-                                                        logicalTopN(
-                                                                logicalProject(
-                                                                        logicalOlapScan()
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        ).when(proj -> proj.getProjects().stream()
+                                .anyMatch(e -> "x".equals(e.getName()))
+                                && proj.getProjects().stream()
                                 .anyMatch(e -> "y".equals(e.getName())))
                 );
     }
