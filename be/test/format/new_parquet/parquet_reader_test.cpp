@@ -705,7 +705,7 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     reader::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
-            .slot_ids = {100},
+            .column_unique_ids = {table_column},
     };
 
     reader::TableColumnMapperOptions options;
@@ -770,7 +770,7 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     filter_expr->add_child(TableLiteral::create_shared(id_type, Field::create_field<TYPE_INT>(5)));
     reader::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
-            .slot_ids = {100},
+            .column_unique_ids = {table_column},
     };
 
     reader::TableColumnMapperOptions options;
@@ -832,7 +832,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
             a_type, {Field::create_field<TYPE_INT>(5), Field::create_field<TYPE_INT>(7)});
     reader::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
-            .slot_ids = {100},
+            .column_unique_ids = {table_column},
     };
 
     reader::TableColumnMapperOptions options;
@@ -887,7 +887,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseCompariso
             TableSlotRef::create_shared(100, 100, -1, full_table_struct_type, "s"), a_type, "a"));
     reader::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
-            .slot_ids = {100},
+            .column_unique_ids = {table_column},
     };
 
     reader::TableColumnMapperOptions options;
@@ -956,7 +956,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
                               {Field::create_field<TYPE_INT>(5), Field::create_field<TYPE_INT>(7)});
     reader::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
-            .slot_ids = {100},
+            .column_unique_ids = {table_column},
     };
 
     reader::TableColumnMapperOptions options;
@@ -1012,7 +1012,7 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
     filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     reader::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
-            .slot_ids = {100},
+            .column_unique_ids = {table_column},
     };
 
     reader::TableColumnMapperOptions options;
@@ -1073,7 +1073,7 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterFromOr) {
     filter_expr->add_child(right);
     reader::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
-            .slot_ids = {100},
+            .column_unique_ids = {table_column},
     };
 
     reader::TableColumnMapperOptions options;
