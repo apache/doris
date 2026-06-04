@@ -87,6 +87,10 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
             *rows_read = 0;
             return Status::OK();
         }
+        std::vector<NestedScalarValueCursor> value_cursors(child_batches.size());
+        for (size_t child_idx = 0; child_idx < child_batches.size(); ++child_idx) {
+            value_cursors[child_idx].reset(&child_batches[child_idx]);
+        }
 
         std::vector<MutableColumnPtr> child_columns;
         child_columns.reserve(struct_column->get_columns().size());
@@ -129,7 +133,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                             _name, "STRUCT", scalar_children[child_idx]->name(),
                             *scalar_children[child_idx], child_batches[child_idx], row_idx,
                             scalar_children[child_idx]->descriptor()->max_definition_level(),
-                            child_columns[output_idx]));
+                            &value_cursors[child_idx], child_columns[output_idx]));
                 }
             }
         }
@@ -177,6 +181,10 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         if (expected_rows <= 0) {
             *rows_read = 0;
             return Status::OK();
+        }
+        std::vector<NestedScalarValueCursor> value_cursors(child_batches.size());
+        for (size_t scalar_idx = 0; scalar_idx < child_batches.size(); ++scalar_idx) {
+            value_cursors[scalar_idx].reset(&child_batches[scalar_idx]);
         }
 
         std::vector<MutableColumnPtr> child_columns;
@@ -236,7 +244,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                         *scalar_children[scalar_idx], child_batches[scalar_idx],
                         level_indices[scalar_idx],
                         scalar_children[scalar_idx]->descriptor()->max_definition_level(),
-                        child_columns[output_idx]));
+                        &value_cursors[scalar_idx], child_columns[output_idx]));
             }
             RETURN_IF_ERROR(
                     advance_non_scalar_struct_children(*this, parent_is_null, child_columns));

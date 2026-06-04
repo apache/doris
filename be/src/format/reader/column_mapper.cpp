@@ -25,16 +25,13 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "core/assert_cast.h"
 #include "core/data_type/convert_field_to_type.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
 #include "format/reader/expr/cast.h"
 #include "format/reader/expr/literal.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
+#include "format/reader/schema_projection.h"
 #include "format/reader/table_reader.h"
 
 namespace doris::reader {
@@ -361,9 +358,11 @@ static bool complex_projection_has_pruned_children(const ColumnMapping& mapping)
     return false;
 }
 
-static DataTypePtr build_projected_child_type(const DataTypePtr& file_type,
-                                              const std::vector<ColumnMapping>& child_mappings) {
+static Status build_projected_child_type(const DataTypePtr& file_type,
+                                         const std::vector<ColumnMapping>& child_mappings,
+                                         DataTypePtr* projected_type) {
     DORIS_CHECK(file_type != nullptr);
+    DORIS_CHECK(projected_type != nullptr);
     DataTypes child_types;
     Strings child_names;
     child_types.reserve(child_mappings.size());
@@ -375,35 +374,7 @@ static DataTypePtr build_projected_child_type(const DataTypePtr& file_type,
         child_types.push_back(child_mapping.file_type);
         child_names.push_back(child_mapping.file_column_name);
     }
-    const auto primitive_type = remove_nullable(file_type)->get_primitive_type();
-    DataTypePtr projected_type;
-    switch (primitive_type) {
-    case TYPE_STRUCT:
-        projected_type = std::make_shared<DataTypeStruct>(child_types, child_names);
-        break;
-    case TYPE_ARRAY:
-        DORIS_CHECK(child_types.size() == 1);
-        projected_type = std::make_shared<DataTypeArray>(child_types[0]);
-        break;
-    case TYPE_MAP:
-        DORIS_CHECK(child_types.size() == 1);
-        DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
-        {
-            const auto* entry_type =
-                    assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
-            DORIS_CHECK(entry_type->get_elements().size() == 1 ||
-                        entry_type->get_elements().size() == 2);
-            const auto value_idx = entry_type->get_elements().size() == 1 ? 0 : 1;
-            projected_type = std::make_shared<DataTypeMap>(
-                    assert_cast<const DataTypeMap*>(remove_nullable(file_type).get())
-                            ->get_key_type(),
-                    entry_type->get_element(value_idx));
-        }
-        break;
-    default:
-        DORIS_CHECK(false);
-    }
-    return file_type->is_nullable() ? make_nullable(projected_type) : projected_type;
+    return rebuild_projected_type(file_type, child_types, child_names, projected_type);
 }
 
 static Status build_complex_projection(const ColumnMapping& mapping, FieldProjection* projection) {
@@ -452,7 +423,8 @@ static Status rebuild_projected_file_type(ColumnMapping* mapping) {
         return Status::NotSupported("Projection for complex column {} contains no file children",
                                     mapping->file_column_name);
     }
-    mapping->file_type = build_projected_child_type(mapping->file_type, mapping->child_mappings);
+    RETURN_IF_ERROR(build_projected_child_type(mapping->file_type, mapping->child_mappings,
+                                               &mapping->file_type));
     mapping->is_trivial =
             mapping->table_type != nullptr && mapping->table_type->equals(*mapping->file_type);
     mapping->has_complex_projection = true;
@@ -790,8 +762,8 @@ Status TableColumnMapper::_create_direct_mapping(const TableColumn& table_column
         }
         if (complex_projection_has_pruned_children(*mapping)) {
             mapping->has_complex_projection = true;
-            mapping->file_type =
-                    build_projected_child_type(mapping->file_type, mapping->child_mappings);
+            RETURN_IF_ERROR(build_projected_child_type(mapping->file_type, mapping->child_mappings,
+                                                       &mapping->file_type));
             mapping->is_trivial = mapping->table_type != nullptr &&
                                   mapping->table_type->equals(*mapping->file_type);
         }

@@ -18,31 +18,11 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <string>
 
-#include "common/status.h"
 #include "format/new_parquet/reader/column_reader.h"
 
 namespace doris::parquet {
-
-class ShapeOnlyColumnReader final : public ParquetColumnReader {
-public:
-    explicit ShapeOnlyColumnReader(std::unique_ptr<ParquetColumnReader> source);
-
-    int file_column_id() const override;
-    int parquet_leaf_column_id() const override;
-    const DataTypePtr& type() const override;
-    const std::string& name() const override;
-
-    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
-    Status skip(int64_t rows) override;
-    Status select(const SelectionVector& sel, uint16_t selected_rows, int64_t batch_rows,
-                  MutableColumnPtr& column) override;
-
-private:
-    std::unique_ptr<ParquetColumnReader> _source;
-};
 
 class RowPositionColumnReader final : public ParquetColumnReader {
 public:

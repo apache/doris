@@ -25,10 +25,6 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_file_context.h"
 #include "format/new_parquet/parquet_scan.h"
@@ -91,96 +87,6 @@ void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
         _fill_schema_field(*child, &child_field);
         field->children.push_back(std::move(child_field));
     }
-}
-
-Status ParquetReader::_fill_projected_schema_field(const ParquetColumnSchema& column_schema,
-                                                   const reader::FieldProjection* projection,
-                                                   reader::SchemaField* field) const {
-    if (field == nullptr) {
-        return Status::InvalidArgument("projected schema field is null");
-    }
-    _fill_schema_field(column_schema, field);
-    if (projection == nullptr || projection->project_all_children ||
-        column_schema.children.empty()) {
-        return Status::OK();
-    }
-
-    field->children.clear();
-    std::map<int32_t, const reader::FieldProjection*> child_projection_by_idx;
-    for (const auto& child_projection : projection->children) {
-        child_projection_by_idx.emplace(child_projection.field_id, &child_projection);
-    }
-
-    DataTypes child_types;
-    Strings child_names;
-    for (size_t child_idx = 0; child_idx < column_schema.children.size(); ++child_idx) {
-        auto it = child_projection_by_idx.find(static_cast<int32_t>(child_idx));
-        if (it == child_projection_by_idx.end()) {
-            continue;
-        }
-        if (it->second->field_id != column_schema.children[child_idx]->field_id) {
-            return Status::InvalidArgument("Invalid parquet projection field_id for column {}",
-                                           column_schema.children[child_idx]->name);
-        }
-        reader::SchemaField child_field;
-        RETURN_IF_ERROR(_fill_projected_schema_field(*column_schema.children[child_idx], it->second,
-                                                     &child_field));
-        child_types.push_back(child_field.type);
-        child_names.push_back(child_field.name);
-        field->children.push_back(std::move(child_field));
-    }
-
-    if (field->children.empty()) {
-        return Status::NotSupported("Parquet projection for column {} contains no children",
-                                    column_schema.name);
-    }
-
-    const auto primitive_type = remove_nullable(column_schema.type)->get_primitive_type();
-    DataTypePtr projected_type;
-    switch (primitive_type) {
-    case TYPE_STRUCT:
-        projected_type = std::make_shared<DataTypeStruct>(child_types, child_names);
-        break;
-    case TYPE_ARRAY:
-        DORIS_CHECK(child_types.size() == 1);
-        projected_type = std::make_shared<DataTypeArray>(child_types[0]);
-        break;
-    case TYPE_MAP:
-        DORIS_CHECK(child_types.size() == 1);
-        DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
-        DORIS_CHECK(remove_nullable(column_schema.type)->get_primitive_type() == TYPE_MAP);
-        {
-            const auto* entry_type =
-                    assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
-            DORIS_CHECK(entry_type->get_elements().size() == 1 ||
-                        entry_type->get_elements().size() == 2);
-            const auto value_idx = entry_type->get_elements().size() == 1 ? 0 : 1;
-            projected_type = std::make_shared<DataTypeMap>(
-                    assert_cast<const DataTypeMap*>(remove_nullable(column_schema.type).get())
-                            ->get_key_type(),
-                    entry_type->get_element(value_idx));
-        }
-        break;
-    default:
-        return Status::InvalidArgument("Cannot project children from non-complex parquet column {}",
-                                       column_schema.name);
-    }
-    field->type =
-            column_schema.type->is_nullable() ? make_nullable(projected_type) : projected_type;
-    return Status::OK();
-}
-
-Status ParquetReader::_get_projected_schema_field(reader::ColumnId file_column_id,
-                                                  const reader::FieldProjection* projection,
-                                                  reader::SchemaField* field) const {
-    if (file_column_id < 0 ||
-        file_column_id >= static_cast<reader::ColumnId>(_state->file_schema.size())) {
-        return Status::InvalidArgument("Invalid parquet field id {}", file_column_id);
-    }
-    RETURN_IF_ERROR(
-            _fill_projected_schema_field(*_state->file_schema[file_column_id], projection, field));
-    field->id = file_column_id;
-    return Status::OK();
 }
 
 ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
