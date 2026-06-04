@@ -1005,14 +1005,9 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     write_list_struct_parquet_file(file_path);
 
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto a_child = make_table_column(0, "a", int_type);
-    auto b_child = make_table_column(1, "b", int_type);
     auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-    auto element_child = make_table_column(0, "element", element_type);
-    element_child.children = {a_child, b_child};
     auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
-    list_column.children = {element_child};
     const std::vector<TableColumn> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -1035,7 +1030,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
 
     Block block = build_table_block(projected_columns);
     bool eos = false;
-    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
     const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
