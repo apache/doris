@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -43,9 +44,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -54,6 +55,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
+
 class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     private static final class TestableIvmLinearDeltaHandler {
@@ -155,6 +157,31 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
                 new LogicalFilter<>(com.google.common.collect.ImmutableSet.of(predicate), scan), dummyCtx());
         Assertions.assertInstanceOf(LogicalFilter.class, result.plan);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+    }
+
+    @Test
+    void testVisitLogicalRepeatPreservesDmlFactorAsPassThrough() {
+        LogicalOlapScan scan = buildScan();
+        Slot id = scan.getOutput().get(0);
+        Slot name = scan.getOutput().get(1);
+        LogicalRepeat<LogicalOlapScan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id), ImmutableList.of()),
+                ImmutableList.of(id, name),
+                RepeatType.GROUPING_SETS,
+                scan);
+        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
+
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(repeat, dummyCtx());
+
+        Assertions.assertInstanceOf(LogicalRepeat.class, result.plan);
+        LogicalRepeat<?> rewrittenRepeat = (LogicalRepeat<?>) result.plan;
+        Assertions.assertEquals(repeat.getGroupingSets(), rewrittenRepeat.getGroupingSets());
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertEquals(1, rewrittenRepeat.getPassThroughSlots().stream()
+                .filter(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())).count());
+        Assertions.assertFalse(rewrittenRepeat.toShapes().flattenGroupingSetExpression.stream()
+                .anyMatch(expr -> expr instanceof Slot
+                        && Column.IVM_DML_FACTOR_COL.equals(((Slot) expr).getName())));
     }
 
     @Test
