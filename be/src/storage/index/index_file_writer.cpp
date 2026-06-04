@@ -155,6 +155,20 @@ Status IndexFileWriter::add_into_searcher_cache() {
         if (is_ann_index) {
             continue;
         }
+        // Skip an index that has no searchable segment. A flush where every row of an
+        // analyzed column is NULL or empty-string ('') indexes no terms, so the SPIMI V4
+        // writer emits NO index segment (SpimiIndexWriter early-returns on zero records) and
+        // the directory holds only the null_bitmap. Building a searcher over a segment-less
+        // directory throws INVERTED_INDEX_CLUCENE_ERROR (no segments_N), so warming it is
+        // both pointless and fatal. The query path serves `IS NULL` from the null bitmap
+        // directly and builds the inverted searcher lazily, so skipping the warmup is safe.
+        bool has_index_data =
+                std::any_of(file_names.begin(), file_names.end(), [](const std::string& f) {
+                    return f != InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
+                });
+        if (!has_index_data) {
+            continue;
+        }
         auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(
                 _index_path_prefix, index_meta.first, index_meta.second);
         InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
@@ -189,6 +203,13 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexFileWriter::_construct_index_
     });
     if (found_bkd) {
         reader_type = InvertedIndexReaderType::BKD;
+    } else if (_storage_format == InvertedIndexStorageFormatPB::V4) {
+        // V4 text/string indexes are written in the SPIMI format, so the warmup must build
+        // a SpimiSearcherBuilder (SPIMI_FULLTEXT) — mirroring the query-path dispatch — not a
+        // CLucene FulltextIndexSearcherBuilder. The CLucene builder only happens to open a
+        // small SPIMI segment because its slim .frq is CLucene-compatible; it would misread a
+        // windowed-PFOR .frq. Numeric (BKD) indexes are CLucene even under V4, handled above.
+        reader_type = InvertedIndexReaderType::SPIMI_FULLTEXT;
     }
     return IndexSearcherBuilder::create_index_searcher_builder(reader_type);
 }
