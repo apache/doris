@@ -24,7 +24,12 @@ import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.pushdown.ConnectorAnd;
+import org.apache.doris.connector.api.pushdown.ConnectorComparison;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.api.pushdown.ConnectorIn;
+import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
@@ -39,10 +44,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -150,17 +157,38 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
 
-        // List all partition names from HMS (e.g. "year=2024/month=01")
-        // These are relative paths that double as partition identifiers
-        List<String> partitionNames = hmsClient.listPartitionNames(
-                hudiHandle.getDbName(), hudiHandle.getTableName(), -1);
-        if (partitionNames == null || partitionNames.isEmpty()) {
+        // Extract equality/IN predicates on partition columns from the expression.
+        // No partition predicate -> leave the handle untouched so resolvePartitions
+        // falls back to Hudi's own metadata listing (HoodieTableMetadata.getAllPartitionPaths).
+        Map<String, List<String>> partitionPredicates = extractPartitionPredicates(
+                constraint.getExpression(), partKeyNames);
+        if (partitionPredicates.isEmpty()) {
             return Optional.empty();
         }
 
-        // Build updated handle with partition paths for scan planning
+        // List candidate partition names from HMS (e.g. "year=2024/month=01"). These
+        // relative paths double as partition identifiers consumed by HudiScanPlanProvider.
+        // Keep maxParts=-1 (unlimited): no silent partition truncation.
+        List<String> allPartNames = hmsClient.listPartitionNames(
+                hudiHandle.getDbName(), hudiHandle.getTableName(), -1);
+        if (allPartNames == null || allPartNames.isEmpty()) {
+            return Optional.empty();
+        }
+
+        List<String> matchedPartNames = prunePartitionNames(
+                allPartNames, partKeyNames, partitionPredicates);
+        if (matchedPartNames.size() == allPartNames.size()) {
+            // No pruning effect
+            return Optional.empty();
+        }
+
+        LOG.info("Partition pruning: {}.{} all={} pruned={}",
+                hudiHandle.getDbName(), hudiHandle.getTableName(),
+                allPartNames.size(), matchedPartNames.size());
+
+        // Build updated handle carrying only the matched partition paths for scan planning.
         HudiTableHandle updatedHandle = hudiHandle.toBuilder()
-                .prunedPartitionPaths(partitionNames)
+                .prunedPartitionPaths(matchedPartNames)
                 .build();
 
         return Optional.of(new FilterApplicationResult<>(updatedHandle, constraint.getExpression(), false));
@@ -302,5 +330,114 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             }
         }
         return conf;
+    }
+
+    // ========== Partition pruning helpers ==========
+    // Mirrors HiveConnectorMetadata's EQ/IN partition pruning. Duplicated rather than
+    // shared because fe-connector-hudi depends on fe-connector-hms, not fe-connector-hive;
+    // consolidate during the Hive (P7) migration. See P3-T05 design.
+
+    /**
+     * Extracts equality predicates on partition columns from the expression tree.
+     * Supports: col = 'value', col IN ('v1', 'v2', ...), AND combinations.
+     */
+    private Map<String, List<String>> extractPartitionPredicates(
+            ConnectorExpression expr, List<String> partKeyNames) {
+        Set<String> partKeySet = partKeyNames.stream().collect(Collectors.toSet());
+        Map<String, List<String>> result = new HashMap<>();
+        extractPredicatesRecursive(expr, partKeySet, result);
+        return result;
+    }
+
+    private void extractPredicatesRecursive(ConnectorExpression expr,
+            Set<String> partKeySet, Map<String, List<String>> result) {
+        if (expr instanceof ConnectorAnd) {
+            for (ConnectorExpression child : ((ConnectorAnd) expr).getConjuncts()) {
+                extractPredicatesRecursive(child, partKeySet, result);
+            }
+        } else if (expr instanceof ConnectorComparison) {
+            ConnectorComparison cmp = (ConnectorComparison) expr;
+            if (cmp.getOperator() == ConnectorComparison.Operator.EQ) {
+                String colName = extractColumnName(cmp.getLeft());
+                String value = extractLiteralValue(cmp.getRight());
+                if (colName != null && value != null && partKeySet.contains(colName)) {
+                    result.computeIfAbsent(colName, k -> new ArrayList<>()).add(value);
+                }
+            }
+        } else if (expr instanceof ConnectorIn) {
+            ConnectorIn inExpr = (ConnectorIn) expr;
+            if (!inExpr.isNegated()) {
+                String colName = extractColumnName(inExpr.getValue());
+                if (colName != null && partKeySet.contains(colName)) {
+                    List<String> values = new ArrayList<>();
+                    for (ConnectorExpression item : inExpr.getInList()) {
+                        String val = extractLiteralValue(item);
+                        if (val != null) {
+                            values.add(val);
+                        }
+                    }
+                    if (!values.isEmpty()) {
+                        result.computeIfAbsent(colName, k -> new ArrayList<>()).addAll(values);
+                    }
+                }
+            }
+        }
+    }
+
+    private String extractColumnName(ConnectorExpression expr) {
+        if (expr instanceof org.apache.doris.connector.api.pushdown.ConnectorColumnRef) {
+            return ((org.apache.doris.connector.api.pushdown.ConnectorColumnRef) expr).getColumnName();
+        }
+        return null;
+    }
+
+    private String extractLiteralValue(ConnectorExpression expr) {
+        if (expr instanceof ConnectorLiteral) {
+            Object val = ((ConnectorLiteral) expr).getValue();
+            return val != null ? String.valueOf(val) : null;
+        }
+        return null;
+    }
+
+    /**
+     * Prunes partition names based on extracted equality predicates.
+     * Partition names follow the Hive convention: key1=val1/key2=val2
+     */
+    private List<String> prunePartitionNames(List<String> allPartNames,
+            List<String> partKeyNames, Map<String, List<String>> predicates) {
+        List<String> matched = new ArrayList<>();
+        for (String partName : allPartNames) {
+            Map<String, String> partValues = parsePartitionName(partName, partKeyNames);
+            if (matchesPredicates(partValues, predicates)) {
+                matched.add(partName);
+            }
+        }
+        return matched;
+    }
+
+    private Map<String, String> parsePartitionName(String partName,
+            List<String> partKeyNames) {
+        Map<String, String> values = new HashMap<>();
+        String[] parts = partName.split("/");
+        for (String part : parts) {
+            int eq = part.indexOf('=');
+            if (eq > 0) {
+                values.put(part.substring(0, eq), part.substring(eq + 1));
+            }
+        }
+        return values;
+    }
+
+    private boolean matchesPredicates(Map<String, String> partValues,
+            Map<String, List<String>> predicates) {
+        for (Map.Entry<String, List<String>> entry : predicates.entrySet()) {
+            String colName = entry.getKey();
+            List<String> allowedValues = entry.getValue();
+            String actualValue = partValues.get(colName);
+            if (actualValue == null || !allowedValues.contains(actualValue)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
