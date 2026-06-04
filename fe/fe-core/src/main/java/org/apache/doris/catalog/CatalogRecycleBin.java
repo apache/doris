@@ -1044,7 +1044,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // Recovering a partition restores visible rows from recycle metadata without row binlog entries.
             Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
-                    new BaseTableInfo(table), "Base table partition was recovered without row binlog");
+                    new BaseTableInfo(table, dbId), "Base table partition was recovered without row binlog");
             // recover partition
             table.addPartition(recoverPartition);
 
