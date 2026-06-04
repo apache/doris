@@ -120,6 +120,10 @@ public class DefaultConnectorContext implements ConnectorContext {
         env.put("force_sqlserver_jdbc_encrypt_false",
                 String.valueOf(Config.force_sqlserver_jdbc_encrypt_false));
         env.put("jdbc_driver_secure_path", Config.jdbc_driver_secure_path);
+        // The trino-connector plugin runs in an isolated classloader and cannot read FE
+        // Config (it would see its own bundled copy with default values). Pass the
+        // configured plugin dir through the engine environment instead.
+        env.put("trino_connector_plugin_dir", Config.trino_connector_plugin_dir);
         return Collections.unmodifiableMap(env);
     }
 }
