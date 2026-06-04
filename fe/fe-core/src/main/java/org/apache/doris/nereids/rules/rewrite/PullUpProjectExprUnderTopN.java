@@ -131,7 +131,19 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
 
     /** Context shared between collector and replacer passes. */
     static class CollectorContext {
-        final Map<LogicalTopN, PullUpInfo> topNToPullUpInfo = new LinkedHashMap<>();
+        /**
+         * Use IdentityHashMap so that two different TopN nodes with the same
+         * content (orderKeys, limit, offset) are treated as distinct keys.
+         * LogicalTopN.equals() is content-based, which would cause unrelated
+         * TopN nodes to collide in a regular HashMap/LinkedHashMap.
+         */
+        final Map<LogicalTopN, PullUpInfo> topNToPullUpInfo = new IdentityHashMap<>();
+        /**
+         * Maintain insertion order for deterministic outer-to-inner iteration
+         * in dedup and other passes. The Collector visits the plan top-down,
+         * so the order is naturally outer-before-inner.
+         */
+        final List<LogicalTopN> topNOrder = new ArrayList<>();
         final Map<Slot, Expression> pullUpExprReplaceMap = new LinkedHashMap<>();
         /**
          * When collectFromNode encounters a nested TopN, it saves the current
@@ -147,6 +159,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
 
         PullUpInfo getPullUpInfo(LogicalTopN topN) {
             return topNToPullUpInfo.get(topN);
+        }
+
+        void addPullUpInfo(LogicalTopN topN, PullUpInfo info) {
+            topNToPullUpInfo.put(topN, info);
+            topNOrder.add(topN);
         }
 
         void addPullUpExprReplace(NamedExpression expr) {
@@ -206,7 +223,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 for (NamedExpression expr : info.allPulledUpExprs) {
                     context.addPullUpExprReplace(expr);
                 }
-                context.topNToPullUpInfo.put(topN, info);
+                context.addPullUpInfo(topN, info);
             }
             return visit(topN, context);
         }
@@ -373,17 +390,18 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
      * Deduplicate pull-up expressions so that each expression in a Project is only
      * pulled up to the outermost TopN that collects it.
      *
-     * <p>Since {@link CollectorContext#topNToPullUpInfo} is a {@link LinkedHashMap}
-     * and the Collector visits the plan top-down, iteration order is outer-to-inner.
-     * We keep the first occurrence of each (project-reference, exprId) pair and
-     * remove duplicates from inner TopNs.
+     * <p>Iteration uses {@link CollectorContext#topNOrder} which preserves the
+     * Collector's top-down visit order (outer-to-inner). We keep the first
+     * occurrence of each (project-reference, exprId) pair and remove duplicates
+     * from inner TopNs.
      */
     private static void deduplicatePullUps(CollectorContext context) {
         // Use IdentityHashMap because we need to distinguish Project nodes by object
         // reference, not by content equality.
         Map<LogicalProject<? extends Plan>, Set<ExprId>> handled = new IdentityHashMap<>();
 
-        for (PullUpInfo info : context.topNToPullUpInfo.values()) {
+        for (LogicalTopN topN : context.topNOrder) {
+            PullUpInfo info = context.topNToPullUpInfo.get(topN);
             List<NamedExpression> toRemove = new ArrayList<>();
             for (Map.Entry<LogicalProject<? extends Plan>, List<NamedExpression>> entry
                     : info.projectToPulledUpExprs.entrySet()) {
@@ -434,12 +452,19 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         @Override
         public Plan visitLogicalTopN(LogicalTopN topN, CollectorContext context) {
             LogicalTopN rewritten = (LogicalTopN) visit(topN, context);
-            PullUpInfo info = context.getPullUpInfo(topN);
-            if (info == null && rewritten != topN) {
-                info = context.getPullUpInfo(topN);
+            // If the subtree was not modified by the replacer, no Projects
+            // below were simplified, so the pulled-up expressions' base
+            // slots may not be exposed.  Skip addUpperProject to avoid
+            // computing the expression redundantly above AND below.
+            if (rewritten == topN) {
+                return rewritten;
             }
-            if (info == null || (info.allPulledUpExprs.isEmpty()
-                    && info.passThroughExprByDeduplicatedExpr.isEmpty())) {
+            PullUpInfo info = context.getPullUpInfo(topN);
+            if (info == null) {
+                return rewritten;
+            }
+            if (info.allPulledUpExprs.isEmpty()
+                    && info.passThroughExprByDeduplicatedExpr.isEmpty()) {
                 return rewritten;
             }
             return addUpperProject(rewritten, info, context);
@@ -454,7 +479,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     private static List<NamedExpression> collectAllPulledUpExprs(
             CollectorContext context, LogicalProject<?> project) {
         List<NamedExpression> result = new ArrayList<>();
-        for (PullUpInfo info : context.topNToPullUpInfo.values()) {
+        for (LogicalTopN topN : context.topNOrder) {
+            PullUpInfo info = context.topNToPullUpInfo.get(topN);
             List<NamedExpression> exprs = info.projectToPulledUpExprs.get(project);
             if (exprs != null) {
                 result.addAll(exprs);
