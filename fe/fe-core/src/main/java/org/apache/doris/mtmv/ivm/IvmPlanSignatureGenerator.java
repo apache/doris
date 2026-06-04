@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -52,6 +53,12 @@ import java.util.List;
 
 /**
  * Builds the stable IVM maintenance-layout signature.
+ *
+ * <p>The signature is determined only by the normalized MV plan. It is unrelated to delta rewrite: once the
+ * normalized plan is fixed, the row-id computation is fixed, so the signature is fixed as well. The signature only
+ * tracks the row-id generation path because row-id is used to locate existing MV rows when incremental refresh
+ * retracts or merges data. Delta rewrite may evolve independently; its generated row-id must adapt to the normalized
+ * plan instead of changing the normalized-plan signature.
  */
 public class IvmPlanSignatureGenerator {
     public static final int CURRENT_VERSION = 1;
@@ -429,6 +436,13 @@ public class IvmPlanSignatureGenerator {
         public CanonicalNode visitLogicalAggregate(LogicalAggregate<? extends Plan> agg,
                 IvmNormalizeResult normalizeResult) {
             return canonicalAggregate(agg, normalizeResult);
+        }
+
+        @Override
+        public CanonicalNode visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat,
+                IvmNormalizeResult normalizeResult) {
+            return CanonicalNode.node("REPEAT")
+                    .field("child", canonicalPlan(repeat.child(), normalizeResult));
         }
     }
 

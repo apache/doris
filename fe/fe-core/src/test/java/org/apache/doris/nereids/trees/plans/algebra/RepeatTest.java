@@ -203,4 +203,29 @@ public class RepeatTest {
         // (id) -> index {0} -> slot id {3}
         Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(3)), result.get(1));
     }
+
+    @Test
+    public void testPassThroughSlotPreservedForEmptyGroupingSetWithoutChangingGroupingShape() {
+        List<List<Expression>> groupingSets = ImmutableList.of(
+                ImmutableList.of(id, name),
+                ImmutableList.of(id),
+                ImmutableList.of()
+        );
+        LogicalRepeat<?> repeat = new LogicalRepeat<>(
+                groupingSets,
+                ImmutableList.of(id, name, age),
+                RepeatType.GROUPING_SETS,
+                scan
+        ).withPassThroughSlots(ImmutableList.of(age));
+        List<Slot> outputSlots = ImmutableList.of(id, name, age);
+        List<Integer> slotIdList = ImmutableList.of(3, 4, 5);
+
+        List<Set<Integer>> repeatSlotIds = repeat.computeRepeatSlotIdList(slotIdList, outputSlots);
+        Repeat.GroupingSetShapes shapes = repeat.toShapes();
+
+        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(4, 3, 5)), repeatSlotIds.get(0));
+        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(3, 5)), repeatSlotIds.get(1));
+        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(5)), repeatSlotIds.get(2));
+        Assertions.assertFalse(shapes.flattenGroupingSetExpression.contains(age));
+    }
 }
