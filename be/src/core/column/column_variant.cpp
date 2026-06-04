@@ -313,10 +313,11 @@ static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column,
                                                      size_t num_dimensions) {
     const auto* column_array = check_and_get_column<ColumnArray>(remove_nullable(column).get());
     if (column_array != nullptr && num_dimensions != 0) {
-        return make_nullable(ColumnArray::create(
+        ColumnPtr array_column = ColumnArray::create(
                 recreate_column_with_default_values(column_array->get_data_ptr(), scalar_type,
                                                     num_dimensions - 1),
-                IColumn::mutate(column_array->get_offsets_ptr())));
+                IColumn::mutate(column_array->get_offsets_ptr()));
+        return make_nullable(array_column);
     }
 
     return create_array(scalar_type, num_dimensions)

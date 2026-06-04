@@ -214,9 +214,9 @@ struct ArrayAggregateImpl {
             return false;
         }
 
-        ColumnPtr res_column = create_column_func(column);
-        res_column = make_nullable(res_column);
-        assert_cast<ColumnNullable&>(res_column->assert_mutable_ref()).reserve(offsets.size());
+        MutableColumnPtr res_column = create_column_func(column);
+        res_column = make_nullable(std::move(res_column));
+        assert_cast<ColumnNullable&>(*res_column).reserve(offsets.size());
 
         auto function = Function::create(type, {.is_window_function = false, .column_names = {}});
         auto guard = AggregateFunctionGuard(function.get());
@@ -228,13 +228,13 @@ struct ArrayAggregateImpl {
             auto end = offsets[i];
             bool is_empty = (start == end);
             if (is_empty) {
-                res_column->assert_mutable()->insert_default();
+                res_column->insert_default();
                 continue;
             }
             function->reset(guard.data());
             function->add_batch_range(start, end - 1, guard.data(), columns, arena,
                                       data->is_nullable());
-            function->insert_result_into(guard.data(), res_column->assert_mutable_ref());
+            function->insert_result_into(guard.data(), *res_column);
         }
         res_ptr = std::move(res_column);
         return true;
@@ -249,7 +249,7 @@ struct ArrayAggregateImpl {
                 return false;
             }
 
-            auto create_column = [](const ColumnString*) -> ColumnPtr {
+            auto create_column = [](const ColumnString*) -> MutableColumnPtr {
                 return ColumnString::create();
             };
 
@@ -268,7 +268,7 @@ struct ArrayAggregateImpl {
                         operation>::template TypeTraits<Element>::ResultType;
                 using ColVecResultType = typename PrimitiveTypeTraits<ResultType>::ColumnType;
 
-                auto create_column = [](const ColVecType* column) -> ColumnPtr {
+                auto create_column = [](const ColVecType* column) -> MutableColumnPtr {
                     if constexpr (is_decimal(Element)) {
                         return ColVecResultType::create(0, column->get_scale());
                     } else {
@@ -438,9 +438,9 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
             return false;
         }
 
-        ColumnPtr res_column = create_column_func(column);
-        res_column = make_nullable(res_column);
-        assert_cast<ColumnNullable&>(res_column->assert_mutable_ref()).reserve(offsets.size());
+        MutableColumnPtr res_column = create_column_func(column);
+        res_column = make_nullable(std::move(res_column));
+        assert_cast<ColumnNullable&>(*res_column).reserve(offsets.size());
 
         auto function = Function::create(type, result_type,
                                          {.is_window_function = false, .column_names = {}});
@@ -453,13 +453,13 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
             auto end = offsets[i];
             bool is_empty = (start == end);
             if (is_empty) {
-                res_column->assert_mutable()->insert_default();
+                res_column->insert_default();
                 continue;
             }
             function->reset(guard.data());
             function->add_batch_range(start, end - 1, guard.data(), columns, arena,
                                       data->is_nullable());
-            function->insert_result_into(guard.data(), res_column->assert_mutable_ref());
+            function->insert_result_into(guard.data(), *res_column);
         }
         res_ptr = std::move(res_column);
         return true;
@@ -472,7 +472,7 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
         using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
         using ColVecResultType = typename PrimitiveTypeTraits<ResultType>::ColumnType;
 
-        auto create_column = [](const ColVecType* column) -> ColumnPtr {
+        auto create_column = [](const ColVecType* column) -> MutableColumnPtr {
             return ColVecResultType::create(0, column->get_scale());
         };
 

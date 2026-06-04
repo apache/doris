@@ -212,9 +212,8 @@ public:
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (result_is_nullable) {
             auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
-            auto& nested_col = nullable_col.get_nested_column();
             auto& null_map = nullable_col.get_null_map_data();
-            MutableColumnPtr nested_col_ptr = nested_col.assert_mutable();
+            MutableColumnPtr nested_col_ptr = nullable_col.get_nested_column_ptr();
 
             null_map.resize(num_rows);
             uint8_t* __restrict null_map_data = null_map.data();
@@ -273,7 +272,7 @@ public:
 
         if constexpr (result_is_nullable) {
             auto& dst_nullable_col = assert_cast<ColumnNullable&>(*dst);
-            MutableColumnPtr nested_col_ptr = dst_nullable_col.get_nested_column().assert_mutable();
+            MutableColumnPtr nested_col_ptr = dst_nullable_col.get_nested_column_ptr();
             dst_nullable_col.get_null_map_column().insert_range_from(
                     src_nullable_col->get_null_map_column(), 0, num_rows);
             nested_function->serialize_to_column(nested_places, 0, nested_col_ptr, num_rows);

@@ -59,19 +59,19 @@ public:
         ToDataType to_type;
         auto column = to_type.create_column();
         column->reserve(input_rows_count);
+        auto& result_column = *column;
 
         if (arguments.empty()) {
-            RETURN_IF_ERROR(Impl::empty_apply(column->assert_mutable_ref(), input_rows_count));
+            RETURN_IF_ERROR(Impl::empty_apply(result_column, input_rows_count));
         } else {
             const ColumnWithTypeAndName& first_col = block.get_by_position(arguments[0]);
             RETURN_IF_ERROR(Impl::first_apply(first_col.type.get(), first_col.column.get(),
-                                              input_rows_count, column->assert_mutable_ref()));
+                                              input_rows_count, result_column));
 
             for (size_t i = 1; i < arguments.size(); ++i) {
                 const ColumnWithTypeAndName& col = block.get_by_position(arguments[i]);
                 RETURN_IF_ERROR(Impl::combine_apply(col.type.get(), col.column.get(),
-                                                    input_rows_count,
-                                                    column->assert_mutable_ref()));
+                                                    input_rows_count, result_column));
             }
         }
 
