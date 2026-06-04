@@ -305,12 +305,14 @@ Status build_struct_children_from_access_node(reader::TableColumn* column,
                                               const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     for (const auto& [child_path, child_node] : node.children) {
+        // Currently we do not support accessing struct children by position (e.g. "col.0") because it can be ambiguous and error-prone when the struct schema evolves. We only support accessing struct children by name (e.g. "col.child"). If needed, we can consider adding support for position-based access in the future with careful design and consideration.
         if (child_path == "OFFSET" || child_path == "*" || child_path == "KEYS" ||
             child_path == "VALUES") {
             return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
                                         path + "." + child_path, column->name);
         }
 
+        // Try to find the child field in the schema column first. If not found, fallback to find the child field in the struct type by name (case-insensitive).
         const auto* schema_child = find_schema_child_by_path(schema_column, child_path);
         int32_t field_id = schema_child == nullptr ? -1 : schema_child->id;
         std::string field_name = schema_child == nullptr ? child_path : schema_child->name;
@@ -423,6 +425,7 @@ Status build_nested_children_from_access_node(reader::TableColumn* column, const
                                               const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (node.project_all || node.children.empty()) {
+        // If project_all is true or there is no specific child path, we need to project all children of the complex type.
         return Status::OK();
     }
 
@@ -464,6 +467,13 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
     }
 
     AccessPathNode root;
+    // Build tree for AccessPathNode.
+    // For example, for access paths ["a.b", "a.c", "d"], the tree will be:
+    // root
+    // ├── a
+    // │   ├── b
+    // │   └── c
+    // └── d
     for (const auto& access_path : access_paths) {
         // TODO: Support META access paths if needed. Currently FileScannerV2 only supports DATA access paths.
         if (access_path.type != TAccessPathType::DATA || !access_path.__isset.data_access_path) {
@@ -483,6 +493,7 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
         }
         insert_access_path(&root, path, 1);
     }
+    // Recursively build nested children for the column based on the AccessPathNode tree.
     return build_nested_children_from_access_node(column, column->type, root, column->name,
                                                   schema_column);
 }
@@ -736,6 +747,7 @@ Status FileScannerV2::_build_projected_columns() {
         std::optional<reader::TableColumn> schema_column;
         if (const auto* schema_field = find_external_root_field(_params, column);
             schema_field != nullptr) {
+            // If the column has a matching root field in the schema, use the schema field to build the column's nested children.
             schema_column = build_schema_column_from_external_field(*schema_field, column.type);
         }
         RETURN_IF_ERROR(build_nested_children_from_access_paths(
