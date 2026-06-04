@@ -175,7 +175,8 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
     // skipped writing the prox slice-chain, so a SegmentWriter built with omit=false here would try to
     // read a chain that was never written (desync). All production callers single-source both from the
     // field's support_phrase; this guard catches a future caller that does not.
-    DCHECK_EQ(buffer.OmitTfap(), omit_term_freq_and_positions) << "SPIMI buffer/emit omit_tfap drift";
+    DCHECK_EQ(buffer.OmitTfap(), omit_term_freq_and_positions)
+            << "SPIMI buffer/emit omit_tfap drift";
 
     // Norms (.nrm) are derived from per-doc token lengths via
     // ComputeDocLengths(), which iterates buffer.records(). When norms will
