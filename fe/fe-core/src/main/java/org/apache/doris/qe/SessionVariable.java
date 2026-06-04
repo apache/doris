@@ -341,6 +341,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String LOCAL_SHUFFLE_BUCKET_UPGRADE_RATIO = "local_shuffle_bucket_upgrade_ratio";
 
+    public static final String BUCKET_SHUFFLE_DOWNGRADE_RATIO = "bucket_shuffle_downgrade_ratio";
+
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
     public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
@@ -1653,6 +1655,15 @@ public class SessionVariable implements Serializable, Writable {
                     + " capped at bucket count. Only takes effect when > 1; values <= 1 (including 0"
                     + " and negatives) disable the upgrade."}, needForward = true)
     private double localShuffleBucketUpgradeRatio = 1.5;
+
+    @VarAttrDef.VarAttr(
+            name = BUCKET_SHUFFLE_DOWNGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"当一侧基表总桶数小于总实例数的该倍数时, 放弃bucket shuffle join降级为shuffle join。"
+                    + "小于等于0时永不降级。默认0.8保持原有行为",
+                    "Downgrade bucket shuffle join to shuffle join when the base table side's total"
+                    + " bucket count is less than total instance count times this ratio. Values <= 0"
+                    + " never downgrade. Default 0.8 keeps the original behavior."}, needForward = true)
+    private double bucketShuffleDowngradeRatio = 0.8;
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
     private boolean enableLocalMergeSort = true;
@@ -4816,6 +4827,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setLocalShuffleBucketUpgradeRatio(double localShuffleBucketUpgradeRatio) {
         this.localShuffleBucketUpgradeRatio = localShuffleBucketUpgradeRatio;
+    }
+
+    public double getBucketShuffleDowngradeRatio() {
+        return bucketShuffleDowngradeRatio;
+    }
+
+    public void setBucketShuffleDowngradeRatio(double bucketShuffleDowngradeRatio) {
+        this.bucketShuffleDowngradeRatio = bucketShuffleDowngradeRatio;
     }
 
     public boolean enablePushDownNoGroupAgg() {
