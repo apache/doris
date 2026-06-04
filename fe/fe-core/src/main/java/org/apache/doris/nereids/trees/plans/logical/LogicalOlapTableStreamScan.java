@@ -46,6 +46,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Pair;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -130,14 +131,18 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         if (cachedOutput.isPresent()) {
             return cachedOutput.get();
         }
-        List<Column> baseSchema = table.getBaseSchema(false);
+        List<Column> baseSchema = table.getBaseSchema(changeScanInfo.isPresent());
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < baseSchema.size(); i++) {
+            // skip binlog before column
             final int index = i;
             Column col = baseSchema.get(i);
+            if (col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+                continue;
+            }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
             Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> slotFromColumn.get(index));
             slots.add(slot);
@@ -371,5 +376,21 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) o;
         return Objects.equals(isNormalized, that.isNormalized)
                 && Objects.equals(isIncrementalScan, that.isIncrementalScan);
+    }
+
+    @Override
+    protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
+        List<String> qualified = qualified();
+        SlotReference[] slots = new SlotReference[columns.size()];
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
+        for (int i = 0; i < columns.size(); i++) {
+            // skip binlog before column
+            if (columns.get(i).getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+                continue;
+            }
+            ExprId nextId = exprIdGenerator.getNextId();
+            slots[i] = SlotReference.fromColumn(nextId, table, columns.get(i), qualified);
+        }
+        return Arrays.asList(slots);
     }
 }

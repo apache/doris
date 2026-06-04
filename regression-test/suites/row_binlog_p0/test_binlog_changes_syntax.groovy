@@ -635,6 +635,6 @@ suite("test_binlog_changes_syntax") {
         """
         assertEquals(0, partAppend.size())
     } finally {
-        // sql "DROP DATABASE IF EXISTS test_binlog_changes_syntax_db"
+        sql "DROP DATABASE IF EXISTS test_binlog_changes_syntax_db"
     }
 }
