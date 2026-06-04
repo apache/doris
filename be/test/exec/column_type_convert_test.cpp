@@ -1569,7 +1569,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-date", 8);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assert_mutable();
+        auto mutable_dst = std::move(dst_col);
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDate&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -1597,7 +1597,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-datev2", 10);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assert_mutable();
+        auto mutable_dst = std::move(dst_col);
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDateV2&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -1623,7 +1623,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-datetime", 12);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assert_mutable();
+        auto mutable_dst = std::move(dst_col);
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDateTime&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
@@ -1651,7 +1651,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToDateLikeConversions) {
         src_col->insert_data("bad-datetimev2", 14);
 
         auto dst_col = nullable_dst_type->create_column();
-        auto mutable_dst = dst_col->assert_mutable();
+        auto mutable_dst = std::move(dst_col);
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
         auto& nested_col = static_cast<ColumnDateTimeV2&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();

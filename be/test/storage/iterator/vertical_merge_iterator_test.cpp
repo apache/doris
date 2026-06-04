@@ -83,7 +83,7 @@ protected:
     // Simulate copy_rows logic for nullable columns with sparse optimization
     static void copy_rows_with_optimization(const ColumnNullable* src, size_t start, size_t count,
                                             IColumn* dst_col) {
-        auto* dst_mut = dst_col->assert_mutable().get();
+        auto* dst_mut = dst_col;
 
         const size_t non_null_count = count_non_null(src, start, count);
 
@@ -112,7 +112,7 @@ protected:
     // Original copy_rows logic (direct copy)
     static void copy_rows_original(const IColumn* src, size_t start, size_t count,
                                    IColumn* dst_col) {
-        dst_col->assert_mutable()->insert_range_from(*src, start, count);
+        dst_col->insert_range_from(*src, start, count);
     }
 
     // Helper to compare two nullable columns

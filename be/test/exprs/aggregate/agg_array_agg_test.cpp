@@ -70,8 +70,8 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64) {
     for (auto& v : vals) {
         data_column->insert_data((const char*)(&v), 0);
     }
-    auto array_column =
-            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
+    auto array_column = ColumnArray::create(make_nullable(MutableColumnPtr(std::move(data_column))),
+                                            std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));

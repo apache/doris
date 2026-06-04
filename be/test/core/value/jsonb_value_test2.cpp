@@ -73,7 +73,7 @@ TEST(JsonbValueConvertorTest, JsonbValueValid) {
     ASSERT_EQ(input->size(), 5);
 
     // 2. put column into block
-    ColumnWithTypeAndName argument(input->assert_mutable(), dataTypeJsonb, "jsonb_column");
+    ColumnWithTypeAndName argument(std::move(input), dataTypeJsonb, "jsonb_column");
     Block block;
     block.insert(argument);
 
@@ -115,7 +115,7 @@ TEST(JsonbValueConvertorTest, JsonbValueValid) {
     ASSERT_EQ(5, nullable_col->size());
 
     // 2. put column into block
-    ColumnWithTypeAndName argument1(nullable_col->assert_mutable(), nullable_dataTypeJsonb,
+    ColumnWithTypeAndName argument1(std::move(nullable_col), nullable_dataTypeJsonb,
                                     "jsonb_column_null");
     block.clear();
     block.insert(argument1);
@@ -175,7 +175,7 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     ASSERT_EQ(input->size(), 5);
 
     // 2. put column into block
-    ColumnWithTypeAndName argument(input->assert_mutable(), dataTypeJsonb, "jsonb_column");
+    ColumnWithTypeAndName argument(std::move(input), dataTypeJsonb, "jsonb_column");
     Block block;
     block.insert(argument);
 
@@ -224,7 +224,7 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     ASSERT_EQ(5, nullable_col->size());
 
     // 2. put column into block
-    ColumnWithTypeAndName argument1(nullable_col->assert_mutable(), nullable_dataTypeJsonb,
+    ColumnWithTypeAndName argument1(std::move(nullable_col), nullable_dataTypeJsonb,
                                     "jsonb_column_null");
     block.clear();
     block.insert(argument1);

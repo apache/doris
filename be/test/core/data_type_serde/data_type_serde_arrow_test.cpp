@@ -125,7 +125,8 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             if (is_nullable) {
                 {
                     auto column_vector_int32 = ColumnVector<TYPE_INT>::create();
-                    auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
+                    auto column_nullable_vector =
+                            make_nullable(MutableColumnPtr(std::move(column_vector_int32)));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
                         if (i % 2 == 0) {

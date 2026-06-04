@@ -43,11 +43,9 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
     variant_ptr->get_doc_value_column_mutable().resize(1);
 
     ColumnPtr result;
-    ColumnPtr index_column_ptr = ColumnString::create();
-    auto* index_column_ptr_mutable =
-            assert_cast<ColumnString*>(index_column_ptr->assert_mutable().get());
-    index_column_ptr_mutable->insert_data("profile", 7);
-    ColumnPtr index_column = ColumnConst::create(index_column_ptr, 1);
+    auto index_column_ptr = ColumnString::create();
+    index_column_ptr->insert_data("profile", 7);
+    ColumnPtr index_column = ColumnConst::create(std::move(index_column_ptr), 1);
     auto status =
             FunctionVariantElement::get_element_column(*variant_column, index_column, &result);
     EXPECT_TRUE(status.ok());

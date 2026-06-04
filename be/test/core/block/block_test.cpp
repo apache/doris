@@ -147,8 +147,9 @@ static void fill_block_with_array_int(Block& block) {
         data_column->insert_data((const char*)(&v), 0);
     }
 
-    auto column_array_ptr =
-            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
+    MutableColumnPtr nullable_data_column = std::move(data_column);
+    auto column_array_ptr = ColumnArray::create(make_nullable(std::move(nullable_data_column)),
+                                                std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeInt32>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
     ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type, "test_array_int");
@@ -168,8 +169,9 @@ static void fill_block_with_array_string(Block& block) {
         data_column->insert_data(v.data(), v.size());
     }
 
-    auto column_array_ptr =
-            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
+    MutableColumnPtr nullable_data_column = std::move(data_column);
+    auto column_array_ptr = ColumnArray::create(make_nullable(std::move(nullable_data_column)),
+                                                std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeString>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
     ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
@@ -326,7 +328,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     // int with 4096 batch size
     {
         auto column_vector_int32 = ColumnInt32::create();
-        auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
+        MutableColumnPtr mutable_column_vector_int32 = std::move(column_vector_int32);
+        auto column_nullable_vector = make_nullable(std::move(mutable_column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 4096; i++) {
             mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));
@@ -560,7 +563,8 @@ void serialize_and_deserialize_test_nullable() {
         auto& data = vec->get_data();
         data.push_back(111);
         auto nullable_column = make_nullable(vec->get_ptr());
-        auto const_column = ColumnConst::create(nullable_column, 10);
+        auto const_column =
+                ColumnConst::create(static_cast<const IColumn&>(*nullable_column).get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeInt32>());
         auto nullable_data_type = make_nullable(data_type);
         ColumnWithTypeAndName type_and_name(const_column->get_ptr(), nullable_data_type,
@@ -840,7 +844,8 @@ TEST(BlockTest, dump_data) {
                                        "test_decimal");
 
     auto column_vector_int32 = ColumnInt32::create();
-    auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
+    MutableColumnPtr mutable_column_vector_int32 = std::move(column_vector_int32);
+    auto column_nullable_vector = make_nullable(std::move(mutable_column_vector_int32));
     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
     for (int i = 0; i < 4096; i++) {
         mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));

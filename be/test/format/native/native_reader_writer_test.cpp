@@ -98,7 +98,7 @@ static void fill_array_column(Block& block, size_t rows) {
         auto& array_col = assert_cast<ColumnArray&>(nested);
         auto& offsets = array_col.get_offsets();
         auto& data = array_col.get_data();
-        auto mutable_data = data.assert_mutable();
+        auto* mutable_data = &data;
 
         for (size_t i = 0; i < rows; ++i) {
             if (i % 5 == 0) {
@@ -144,8 +144,8 @@ static void fill_map_column(Block& block, size_t rows) {
                 auto& keys = assert_cast<ColumnMap&>(nested).get_keys();
                 auto& values = assert_cast<ColumnMap&>(nested).get_values();
 
-                auto mutable_keys = keys.assert_mutable();
-                auto mutable_values = values.assert_mutable();
+                auto* mutable_keys = &keys;
+                auto* mutable_values = &values;
 
                 std::string k1 = "k" + std::to_string(i);
                 std::string k2 = "k" + std::to_string(i + 1);
@@ -180,21 +180,20 @@ static void fill_struct_column(Block& block, size_t rows) {
         auto& null_map = nullable_col->get_null_map_data();
 
         auto& struct_col = assert_cast<ColumnStruct&>(nested);
-        const auto& fields = struct_col.get_columns();
 
         for (size_t i = 0; i < rows; ++i) {
             if (i % 6 == 0) {
                 nullable_col->insert_default();
             } else {
                 null_map.push_back(0);
-                auto mutable_field0 = fields[0]->assert_mutable();
-                auto mutable_field1 = fields[1]->assert_mutable();
+                auto& field0 = struct_col.get_column(0);
+                auto& field1 = struct_col.get_column(1);
                 // int field
-                mutable_field0->insert(Field::create_field<PrimitiveType::TYPE_INT>(
+                field0.insert(Field::create_field<PrimitiveType::TYPE_INT>(
                         static_cast<int32_t>(i * 100)));
                 // string field
                 std::string vs = "ss" + std::to_string(i);
-                mutable_field1->insert(Field::create_field<PrimitiveType::TYPE_VARCHAR>(vs));
+                field1.insert(Field::create_field<PrimitiveType::TYPE_VARCHAR>(vs));
             }
         }
         block.insert(ColumnWithTypeAndName(std::move(col), struct_type, "struct_col"));
@@ -1069,7 +1068,7 @@ static Block create_all_types_test_block() {
         auto& array_col = assert_cast<ColumnArray&>(nested);
         auto& offsets = array_col.get_offsets();
         auto& data = array_col.get_data();
-        auto mutable_data = data.assert_mutable();
+        auto* mutable_data = &data;
 
         mutable_data->insert(
                 Field::create_field<PrimitiveType::TYPE_INT>(static_cast<int32_t>(10)));
@@ -1098,8 +1097,8 @@ static Block create_all_types_test_block() {
         auto& keys = assert_cast<ColumnMap&>(nested).get_keys();
         auto& values = assert_cast<ColumnMap&>(nested).get_values();
 
-        auto mutable_keys = keys.assert_mutable();
-        auto mutable_values = values.assert_mutable();
+        auto* mutable_keys = &keys;
+        auto* mutable_values = &values;
 
         mutable_keys->insert(Field::create_field<PrimitiveType::TYPE_VARCHAR>(std::string("key1")));
         mutable_values->insert(
@@ -1129,14 +1128,11 @@ static Block create_all_types_test_block() {
         null_map.push_back(0); // non-null
 
         auto& struct_col = assert_cast<ColumnStruct&>(nested);
-        const auto& fields = struct_col.get_columns();
-        auto mutable_field0 = fields[0]->assert_mutable();
-        auto mutable_field1 = fields[1]->assert_mutable();
+        auto& field0 = struct_col.get_column(0);
+        auto& field1 = struct_col.get_column(1);
 
-        mutable_field0->insert(
-                Field::create_field<PrimitiveType::TYPE_INT>(static_cast<int32_t>(999)));
-        mutable_field1->insert(
-                Field::create_field<PrimitiveType::TYPE_VARCHAR>(std::string("struct_val")));
+        field0.insert(Field::create_field<PrimitiveType::TYPE_INT>(static_cast<int32_t>(999)));
+        field1.insert(Field::create_field<PrimitiveType::TYPE_VARCHAR>(std::string("struct_val")));
         block.insert(ColumnWithTypeAndName(std::move(col), struct_type, "col_struct"));
     }
 
