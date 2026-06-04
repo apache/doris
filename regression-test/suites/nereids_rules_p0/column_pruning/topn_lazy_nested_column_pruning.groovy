@@ -17,9 +17,9 @@
 
 suite("topn_lazy_nested_column_pruning") {
     sql """ set topn_lazy_materialization_threshold=1024; """
-    sql """ DROP TABLE IF EXISTS ncp_tbl """
+    sql """ DROP TABLE IF EXISTS tlncp_tbl """
     sql """
-        CREATE TABLE ncp_tbl (
+        CREATE TABLE tlncp_tbl (
             id          INT,
             str_col     STRING NULL,
             struct_col  STRUCT<city: STRING, zip: INT> NULL,
@@ -33,7 +33,7 @@ suite("topn_lazy_nested_column_pruning") {
     """
 
     sql """
-        INSERT INTO ncp_tbl VALUES
+        INSERT INTO tlncp_tbl VALUES
             (1, 'hello', named_struct('city', null, 'zip', 10001), [1, 2, 3], {'a': 1, 'b': 2 }, 1)
     """
 
@@ -68,17 +68,17 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select id, substring(struct_element(struct_col, 'city'), 1) as city
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
         // struct_col lazy, scan only outputs id + rowId
-        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__ncp_tbl[#6]")
+        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__tlncp_tbl[#6]")
         // nested column pruning: struct_col pruned to city only
         contains("nested columns:")
         contains("pruned type: struct<city:text>")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
 
     // =============================================
@@ -87,12 +87,12 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select *, substring(struct_element(struct_col, 'city'), 1) as city
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
 
     // =============================================
@@ -119,7 +119,7 @@ suite("topn_lazy_nested_column_pruning") {
     // =============================================
     qt_struct_result """
         select id, substring(struct_element(struct_col, 'city'), 1) as city
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
@@ -140,14 +140,14 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select id, element_at(map_col, 'a') as val
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
         // map_col lazy, scan only outputs id + rowId
-        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__ncp_tbl[#6]")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__tlncp_tbl[#6]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
 
     // =============================================
@@ -155,7 +155,7 @@ suite("topn_lazy_nested_column_pruning") {
     // =============================================
     qt_map_result """
         select id, element_at(map_col, 'a') as val
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
@@ -166,14 +166,14 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select id, element_at(arr_col, 1) as val
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
         // arr_col lazy, scan only outputs id + rowId
-        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__ncp_tbl[#6]")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("final projections: id[#0], __DORIS_GLOBAL_ROWID_COL__tlncp_tbl[#6]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
 
     // =============================================
@@ -181,7 +181,7 @@ suite("topn_lazy_nested_column_pruning") {
     // =============================================
     qt_array_result """
         select id, element_at(arr_col, 1) as val
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
@@ -242,16 +242,16 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select id, element_at(map_col, 'a') as val
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_map_using_index_result """
         select id, element_at(map_col, 'a') as val
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
@@ -264,16 +264,16 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select id, element_at(arr_col, 1) as val
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_array_using_index_result """
         select id, element_at(arr_col, 1) as val
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
@@ -286,16 +286,16 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select substring(struct_element(struct_col, 'city'), 1) as city, id
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_struct_col_order_result """
         select substring(struct_element(struct_col, 'city'), 1) as city, id
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
@@ -326,16 +326,16 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select element_at(map_col, 'a') as val, id
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_map_col_order_result """
         select element_at(map_col, 'a') as val, id
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
@@ -347,17 +347,17 @@ suite("topn_lazy_nested_column_pruning") {
     explain {
         sql """
             select *, substring(struct_element(struct_col, 'city'), 1) as city
-            from ncp_tbl
+            from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
         contains("final projections: id[#0], struct_col[#2], substring(struct_element(struct_col[#2]")
-        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__ncp_tbl]")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_project_under_topn_consumed_slot """
         select *, substring(struct_element(struct_col, 'city'), 1) as city
-        from ncp_tbl
+        from tlncp_tbl
         order by id
         limit 3
     """
