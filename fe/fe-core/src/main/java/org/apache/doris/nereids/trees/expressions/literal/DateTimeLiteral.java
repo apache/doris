@@ -320,6 +320,10 @@ public class DateTimeLiteral extends DateLiteral {
         return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
     }
 
+    public long timePartToMicroSecond() {
+        return ((hour * 60L + minute) * 60L + second) * 1000L * 1000L + microSecond;
+    }
+
     @Override
     public double getDouble() {
         return (double) getValue();
