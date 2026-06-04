@@ -311,16 +311,16 @@ ORC_SOURCE=orc-1.9.0
 ORC_MD5SUM="5dc1c91c4867e4519aab531ffc30fab7"
 
 # jemalloc for arrow
-JEMALLOC_ARROW_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2"
-JEMALLOC_ARROW_NAME="jemalloc-5.3.0.tar.bz2"
-JEMALLOC_ARROW_SOURCE="jemalloc-5.3.0"
-JEMALLOC_ARROW_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
+JEMALLOC_ARROW_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.1/jemalloc-5.3.1.tar.bz2"
+JEMALLOC_ARROW_NAME="jemalloc-5.3.1.tar.bz2"
+JEMALLOC_ARROW_SOURCE="jemalloc-5.3.1"
+JEMALLOC_ARROW_MD5SUM="2b183326fcff2c087efd7efc0a808ba2"
 
 # jemalloc for doris
-JEMALLOC_DORIS_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2"
-JEMALLOC_DORIS_NAME="jemalloc-5.3.0.tar.bz2"
-JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
-JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
+JEMALLOC_DORIS_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.1/jemalloc-5.3.1.tar.bz2"
+JEMALLOC_DORIS_NAME="jemalloc-5.3.1.tar.bz2"
+JEMALLOC_DORIS_SOURCE="jemalloc-5.3.1"
+JEMALLOC_DORIS_MD5SUM="2b183326fcff2c087efd7efc0a808ba2"
 
 # libunwind
 LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
