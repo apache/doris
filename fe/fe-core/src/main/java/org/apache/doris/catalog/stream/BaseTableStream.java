@@ -52,6 +52,8 @@ public abstract class BaseTableStream extends Table {
                     return APPEND_ONLY;
                 case "min_delta":
                     return MIN_DELTA;
+                case "detail":
+                    return DETAIL;
                 default:
                     return UNKNOWN;
             }
