@@ -706,7 +706,7 @@ ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
 
 MutableColumnPtr make_nullable(MutableColumnPtr&& column, bool is_nullable) {
     if (is_column_nullable(*column)) {
-        return column;
+        return std::move(column);
     }
 
     if (is_column_const(*column)) {
@@ -716,8 +716,9 @@ MutableColumnPtr make_nullable(MutableColumnPtr&& column, bool is_nullable) {
                 column->size());
     }
 
+    const auto size = column->size();
     return ColumnNullable::create(std::move(column),
-                                  ColumnUInt8::create(column->size(), is_nullable ? 1 : 0));
+                                  ColumnUInt8::create(size, is_nullable ? 1 : 0));
 }
 
 ColumnPtr remove_nullable(const ColumnPtr& column) {
