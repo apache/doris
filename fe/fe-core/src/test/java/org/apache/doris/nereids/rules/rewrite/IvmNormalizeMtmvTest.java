@@ -48,10 +48,13 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -707,6 +710,42 @@ class IvmNormalizeMtmvTest {
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
+    }
+
+    @Test
+    void testBitmapAggProducesBitmapHiddenColumns() {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Expression bitmapExpr = new BitmapFromString(nameSlot);
+        Alias bitmapUnionAlias = new Alias(new BitmapUnion(bitmapExpr), "bu");
+        Alias bitmapUnionCountAlias = new Alias(new BitmapUnionCount(bitmapExpr), "buc");
+        List<Expression> groupBy = ImmutableList.of(idSlot);
+        List<NamedExpression> outputs = ImmutableList.of(idSlot, bitmapUnionAlias, bitmapUnionCountAlias);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                groupBy, outputs, true, java.util.Optional.empty(), scan);
+
+        JobContext jobContext = newJobContextForRoot(agg, true);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(2, aggMeta.getAggTargets().size());
+
+        IvmAggTarget unionTarget = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(IvmAggFunctionKind.BITMAP_UNION, unionTarget.getFunctionKind());
+        Assertions.assertTrue(unionTarget.getHiddenStateSlots().isEmpty());
+
+        IvmAggTarget countTarget = aggMeta.getAggTargets().get(1);
+        Assertions.assertEquals(IvmAggFunctionKind.BITMAP_UNION_COUNT, countTarget.getFunctionKind());
+        Assertions.assertEquals(1, countTarget.getHiddenStateSlots().size());
+        Assertions.assertNotNull(countTarget.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION));
+
+        LogicalProject<?> topProject = (LogicalProject<?>) result;
+        Set<String> outputNames = topProject.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toSet());
+        Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "BITMAP_UNION")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(1, "BITMAP_UNION")));
     }
 
     @Test
