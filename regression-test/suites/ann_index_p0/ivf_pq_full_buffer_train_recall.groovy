@@ -58,13 +58,15 @@ suite("ivf_pq_full_buffer_train_recall", "nonConcurrent") {
         sql "INSERT INTO tbl_ivf_pq_full_buffer_train_recall VALUES ${insertData.join(', ')};"
         sql "sync"
 
-        def hits = sql """
-            select id
-            from tbl_ivf_pq_full_buffer_train_recall
-            order by l2_distance_approximate(embedding, [0.0, 0.0, 0.0, 0.0]), id
-            limit 20;
+        qt_target_in_top20 """
+            select count(*)
+            from (
+                select id
+                from tbl_ivf_pq_full_buffer_train_recall
+                order by l2_distance_approximate(embedding, [0.0, 0.0, 0.0, 0.0]), id
+                limit 20
+            ) t
+            where id = 250;
         """
-        assertTrue(hits.any { row -> row[0] == 250 },
-                "Expected id 250 in ANN top 20, but got ${hits}")
     }
 }
