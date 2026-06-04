@@ -34,6 +34,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
@@ -104,6 +105,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected TableScanParams scanParams;
 
     protected FileSplitter fileSplitter;
+    protected SummaryProfile summaryProfile;
 
     // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
     // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
@@ -130,11 +132,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
     public void init() throws UserException {
         super.init();
         if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
+            summaryProfile = ConnectContext.get().getExecutor().getSummaryProfile();
+            summaryProfile.setInitScanNodeStartTime();
         }
         doInitialize();
         if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
+            summaryProfile.setInitScanNodeFinishTime();
         }
     }
 
@@ -153,6 +156,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
         initSchemaParams();
         fileSplitter = new FileSplitter(sessionVariable.maxInitialSplitSize, sessionVariable.maxSplitSize,
                 sessionVariable.maxInitialSplitNum);
+    }
+
+    protected SummaryProfile getSummaryProfile() {
+        if (summaryProfile == null) {
+            summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        }
+        return summaryProfile;
     }
 
     // Init schema (Tuple/Slot) related params.
@@ -456,11 +466,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
             HiveSplit hiveSplit = (HiveSplit) fileSplit;
             isACID = hiveSplit.isACID();
         }
-        List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                ? FilePartitionUtils.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
-                false, isACID) : fileSplit.getPartitionValues();
+        FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
+                fileSplit.getPartitionValues() == null
+                        ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                        : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
-        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
+        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),
+                pathPartitionKeys, partitionValuesFromPath.getIsNull());
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
         // set file format type, and the type might fall back to native format in setScanParams
@@ -537,7 +550,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-                                               List<String> columnsFromPathKeys) {
+                                               List<String> columnsFromPathKeys,
+                                               List<Boolean> columnsFromPathIsNull) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
@@ -547,6 +561,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (!columnsFromPathKeys.isEmpty()) {
             rangeDesc.setColumnsFromPath(columnsFromPath);
             rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+            rangeDesc.setColumnsFromPathIsNull(columnsFromPathIsNull);
         }
 
         rangeDesc.setFileType(fileSplit.getLocationType());

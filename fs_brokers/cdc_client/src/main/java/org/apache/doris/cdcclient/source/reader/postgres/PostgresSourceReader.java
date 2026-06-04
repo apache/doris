@@ -49,10 +49,13 @@ import org.apache.flink.cdc.connectors.postgres.source.fetch.PostgresStreamFetch
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffset;
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffsetFactory;
 import org.apache.flink.cdc.connectors.postgres.source.utils.CustomPostgresSchema;
+import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresQueryUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
 
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -276,6 +279,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         // support scan partition table
         configFactory.setIncludePartitionedTables(true);
 
+        // FE injects "true" on TVF path; from-to leaves it absent → default false.
+        configFactory.skipSnapshotBackfill(
+                Boolean.parseBoolean(cdcConfig.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)));
+
         // subtaskId use pg create slot in snapshot phase, slotname is slot_name_subtaskId
         return configFactory.create(subtaskId);
     }
@@ -364,6 +371,26 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     protected DataType fromDbzColumn(Column splitColumn) {
         return PostgresTypeUtils.fromDbzColumn(splitColumn);
+    }
+
+    @Override
+    protected Class<?> probeSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig) {
+        PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
+        String sql =
+                String.format(
+                        "SELECT %s FROM %s WHERE 1=0",
+                        PostgresQueryUtils.quote(splitColumn.name()),
+                        PostgresQueryUtils.quote(tableId));
+        try (JdbcConnection jdbc =
+                        new PostgresDialect(sourceConfig).openJdbcConnection(sourceConfig);
+                Statement st = jdbc.connection().createStatement();
+                ResultSet rs = st.executeQuery(sql)) {
+            return Class.forName(rs.getMetaData().getColumnClassName(1));
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Probe split key class failed for " + tableId + "." + splitColumn.name(), e);
+        }
     }
 
     /**

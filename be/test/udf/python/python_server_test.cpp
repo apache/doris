@@ -21,21 +21,22 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+#include <boost/process.hpp>
 #include <filesystem>
 #include <fstream>
-#include <future>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "udf/python/python_env.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
-#include "udf/python/python_udf_runtime.h"
 
 namespace doris {
 
 namespace fs = std::filesystem;
+namespace bp = boost::process;
 
 class PythonServerTest : public ::testing::Test {
 protected:
@@ -135,6 +136,13 @@ protected:
         std::ofstream ofs(plugin_dir + "/python_server.py");
         ofs << "# fake server\n";
         ofs.close();
+    }
+
+    ProcessPtr create_sleep_process() {
+        bp::ipstream output_stream;
+        std::string sleep_path = fs::exists("/bin/sleep") ? "/bin/sleep" : "/usr/bin/sleep";
+        bp::child child(sleep_path, "60", bp::std_out > output_stream, bp::std_err > bp::null);
+        return std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
     }
 };
 
@@ -304,6 +312,39 @@ TEST_F(PythonServerTest, ShutdownAfterFailedInitializationDoesNotCrash) {
     EXPECT_NO_THROW(mgr.shutdown());
 }
 
+TEST_F(PythonServerTest, ClearUdafStateCacheWithoutProcessesIsNoOp) {
+    PythonServerManager mgr;
+
+    EXPECT_NO_THROW(mgr.clear_udaf_state_cache(12345));
+}
+
+TEST_F(PythonServerTest, ClearModuleCacheWithoutProcessesIsNoOp) {
+    PythonServerManager mgr;
+
+    auto status = mgr.clear_module_cache("/tmp/python_udf_cache");
+    EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST_F(PythonServerTest, BroadcastActionWithInvalidProcessUriReturnsError) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/bin/python3");
+    ProcessPtr process = create_sleep_process();
+    ASSERT_NE(process, nullptr);
+    ASSERT_TRUE(process->is_alive());
+    process->set_uri_for_test("invalid-python-flight-uri");
+
+    mgr.set_process_pool_for_test(version, {process});
+    auto status = mgr.broadcast_action_to_processes_for_test(
+            "clear_udaf_state_cache", R"({"function_id": 12345})", "function_id=12345");
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("clear_udaf_state_cache failed for function_id=12345"),
+              std::string::npos);
+    EXPECT_NE(status.to_string().find("success=0, failed=1"), std::string::npos);
+
+    mgr.shutdown();
+}
+
 // ============================================================================
 // PythonServerManager::get_client() - client retrieval test
 // ============================================================================
@@ -400,6 +441,23 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSuccess) {
     EXPECT_TRUE(result.has_value()) << result.error().to_string();
 
     // Cleanup
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, EnsurePoolInitializedLogsProgressWhileWaitingForSlowProcess) {
+    setup_doris_home();
+    std::string python_path =
+            create_fake_python_with_delay_and_socket_creation("python3.delayed", "3.9.16", 200);
+
+    config::max_python_process_num = 1;
+
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, python_path);
+
+    auto result = mgr._ensure_pool_initialized(version);
+
+    EXPECT_TRUE(result.has_value()) << result.error().to_string();
+
     mgr.shutdown();
 }
 

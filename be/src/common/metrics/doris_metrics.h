@@ -88,9 +88,6 @@ public:
     IntCounter* base_compaction_request_failed = nullptr;
     IntCounter* cumulative_compaction_request_total = nullptr;
     IntCounter* cumulative_compaction_request_failed = nullptr;
-    IntCounter* single_compaction_request_total = nullptr;
-    IntCounter* single_compaction_request_failed = nullptr;
-    IntCounter* single_compaction_request_cancelled = nullptr;
 
     IntCounter* local_compaction_read_rows_total = nullptr;
     IntCounter* local_compaction_read_bytes_total = nullptr;
@@ -110,6 +107,8 @@ public:
 
     IntCounter* base_compaction_task_running_total = nullptr;
     IntCounter* base_compaction_task_pending_total = nullptr;
+    IntCounter* binlog_compaction_task_running_total = nullptr;
+    IntCounter* binlog_compaction_task_pending_total = nullptr;
     IntCounter* cumulative_compaction_task_running_total = nullptr;
     IntCounter* cumulative_compaction_task_pending_total = nullptr;
 
@@ -139,6 +138,11 @@ public:
     IntCounter* routine_load_get_msg_count = nullptr;
     IntCounter* routine_load_consume_bytes = nullptr;
     IntCounter* routine_load_consume_rows = nullptr;
+    IntCounter* routine_load_kinesis_get_records_latency = nullptr;
+    IntCounter* routine_load_kinesis_get_records_count = nullptr;
+    IntCounter* routine_load_kinesis_throttle_count = nullptr;
+    IntCounter* routine_load_kinesis_retriable_error_count = nullptr;
+    IntCounter* routine_load_kinesis_closed_shard_count = nullptr;
 
     IntCounter* memtable_flush_total = nullptr;
     IntCounter* memtable_flush_duration_us = nullptr;
@@ -154,12 +158,14 @@ public:
     // we need to get the larger of the two.
     IntGauge* tablet_cumulative_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
+    IntGauge* tablet_binlog_max_compaction_score = nullptr;
 
     IntGauge* all_rowsets_num = nullptr;
     IntGauge* all_segments_num = nullptr;
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits = nullptr;
+    IntGauge* binlog_compaction_used_permits = nullptr;
     // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits = nullptr;
 

@@ -37,6 +37,7 @@
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/scan/scanner_context.h"
 #include "exprs/function/in.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -44,7 +45,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/virtual_slot_ref.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
@@ -73,7 +73,8 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
+    size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
@@ -81,15 +82,54 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
             return a->execute_cost() < b->execute_cost();
         });
     };
+    // Only re-run partition pruning when try_append_late_arrival_runtime_filter
+    // actually appended new conjuncts. Otherwise this hook would re-scan all
+    // partition boundaries on every scheduler pass while there are still
+    // unapplied RFs (Scanner::_applied_rf_num is not advanced here), wasting
+    // CPU re-evaluating the same set of RFs against the same boundaries.
+    if (_conjuncts.size() > conjuncts_before) {
+        RETURN_IF_ERROR(_on_runtime_filter_update());
+    }
     return Status::OK();
 }
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
     scanner_conjuncts.resize(_conjuncts.size());
     for (size_t i = 0; i != _conjuncts.size(); ++i) {
         RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
+    }
+    return Status::OK();
+}
+
+bool ScanLocalStateBase::is_partition_pruned(int64_t partition_id) const {
+    return _rf_partition_pruner.is_partition_pruned(partition_id);
+}
+
+Status ScanLocalStateBase::_on_runtime_filter_update() {
+    const auto* parsed = _parent->parsed_partition_boundaries();
+    if (parsed != nullptr && !parsed->empty()) {
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
+    }
+    return Status::OK();
+}
+
+Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
+    if (!_state->query_options().enable_runtime_filter_partition_prune) {
+        return Status::OK();
+    }
+    const auto* parsed = _parent->parsed_partition_boundaries();
+    if (parsed == nullptr || parsed->empty()) {
+        return Status::OK();
+    }
+    int64_t newly_pruned = 0;
+    RETURN_IF_ERROR(_rf_partition_pruner.prune_by_runtime_filters(
+            *parsed, _conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            &newly_pruned));
+    if (newly_pruned > 0) {
+        COUNTER_SET(_partitions_pruned_by_rf_counter,
+                    _rf_partition_pruner.pruned_partition_count());
     }
     return Status::OK();
 }
@@ -190,7 +230,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
+    size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
+    if (_conjuncts.size() > conjuncts_before) {
+        RETURN_IF_ERROR(_on_runtime_filter_update());
+    }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
     if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
@@ -310,8 +354,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), conjunct->root(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr() &&
-                    VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
+                if (_should_push_down_common_expr(conjunct->root())) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);
                     continue;
@@ -387,7 +430,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                     {
                         Defer attach_defer = [&]() {
                             if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
-                                auto* rf_expr = assert_cast<VRuntimeFilterWrapper*>(root.get());
+                                auto* rf_expr = assert_cast<RuntimeFilterExpr*>(root.get());
                                 _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
                                         rf_expr->filter_id(),
                                         rf_expr->predicate_filtered_rows_counter(),
@@ -609,7 +652,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const VExprSPtrs& chi
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
-    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
+    if (!_parent->cast<typename Derived::Parent>().can_push_down_column_predicate(*slot_desc)) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -1042,6 +1085,14 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 }
 
 template <typename Derived>
+std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
+    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
+    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
+    // all limit logic.
+    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
+}
+
+template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
     _rows_read_counter = ADD_COUNTER(custom_profile(), profile::ROWS_READ, TUnit::UNIT);
@@ -1072,6 +1123,11 @@ Status ScanLocalState<Derived>::_init_profile() {
     _condition_cache_hit_counter = ADD_COUNTER(_scanner_profile, "ConditionCacheHit", TUnit::UNIT);
     _condition_cache_filtered_rows_counter =
             ADD_COUNTER(_scanner_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
+
+    _partitions_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "PartitionsPrunedByRuntimeFilter", TUnit::UNIT);
+    _total_partitions_rf_counter =
+            ADD_COUNTER(custom_profile(), "TotalPartitionsForRFPruning", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
@@ -1243,11 +1299,6 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         _slot_id_to_slot_desc[slot->id()] = slot;
     }
     for (auto id : _topn_filter_source_node_ids) {
-        if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-            // compatible with older versions fe
-            continue;
-        }
-
         int cid = -1;
         if (state->get_query_ctx()->get_runtime_predicate(id).target_is_slot(node_id())) {
             auto s = _slot_id_to_slot_desc[state->get_query_ctx()
@@ -1256,11 +1307,10 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
-            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
-                continue;
+            if (can_push_down_column_predicate(s)) {
+                auto col_name = s->col_name();
+                cid = get_column_id(col_name);
             }
-            auto col_name = s->col_name();
-            cid = get_column_id(col_name);
         }
         RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(
                 node_id(), _slot_id_to_slot_desc, cid));

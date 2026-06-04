@@ -64,9 +64,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalC
 import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumerToPhysicalCTEConsumer;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEProducerToPhysicalCTEProducer;
 import org.apache.doris.nereids.rules.implementation.LogicalConnectorTableSinkToPhysicalConnectorTableSink;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalDictionarySinkToPhysicalDictionarySink;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
@@ -204,7 +201,6 @@ public class RuleSet {
             .add(new LogicalJoinToHashJoin())
             .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
-            .add(new LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
@@ -215,7 +211,6 @@ public class RuleSet {
             .add(new LogicalWindowToPhysicalWindow())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
-            .add(new LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN())
             .add(new LogicalPartitionTopNToPhysicalPartitionTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
@@ -241,7 +236,6 @@ public class RuleSet {
             .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
-            .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
             .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
             .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())
@@ -256,7 +250,6 @@ public class RuleSet {
             .add(new LogicalJoinToHashJoin())
             .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
-            .add(new LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
@@ -267,7 +260,6 @@ public class RuleSet {
             .add(new LogicalWindowToPhysicalWindow())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
-            .add(new LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN())
             .add(new LogicalPartitionTopNToPhysicalPartitionTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
@@ -292,7 +284,6 @@ public class RuleSet {
             .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
-            .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
             .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
             .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())

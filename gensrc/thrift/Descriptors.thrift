@@ -219,6 +219,7 @@ enum TSchemaTableType {
     SCH_TABLE_STREAM_CONSUMPTION = 69;
     SCH_BE_COMPACTION_TASKS = 70;
     SCH_ROLE_MAPPINGS = 71;
+    SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 72;
 }
 
 enum THdfsCompression {
@@ -331,6 +332,7 @@ struct TOlapTableIndexSchema {
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
     6: optional Exprs.TExpr where_clause
+    7: optional i64 row_binlog_id
 }
 
 struct TOlapTableSchemaParam {
@@ -352,6 +354,7 @@ struct TOlapTableSchemaParam {
     14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
+    17: optional TOlapTableIndexSchema row_binlog_index_schema
 }
 
 struct TTabletLocation {

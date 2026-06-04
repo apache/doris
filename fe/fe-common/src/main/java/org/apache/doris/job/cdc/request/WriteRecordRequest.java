@@ -26,6 +26,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 public class WriteRecordRequest extends JobBaseRecordRequest {
     private long maxInterval;
+    private long taskTimeoutMs;
     private String targetDb;
     private String token;
     private String taskId;

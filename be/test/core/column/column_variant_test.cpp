@@ -474,22 +474,6 @@ doris::Field get_jsonb_field(std::string_view type) {
     return field_map[type];
 }
 
-// std::string convert_jsonb_field_to_string(doris::Field jsonb) {
-//     const auto& val = jsonb.get<JsonbField>();
-//     const JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
-
-//     rapidjson::Document doc;
-//     doc.SetObject();
-//     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-//     rapidjson::Value json_value;
-//     convert_jsonb_to_rapidjson(*json_val, json_value, allocator);
-//     doc.AddMember("value", json_value, allocator);
-//     rapidjson::StringBuffer buffer;
-//     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
-//     doc.Accept(writer);
-//     return std::string(buffer.GetString());
-// }
-
 std::string convert_field_to_string(doris::Field array) {
     rapidjson::Document doc;
     doc.SetObject();
@@ -1178,9 +1162,11 @@ TEST_F(ColumnVariantTest, field_test) {
     ColumnVariant::MutablePtr obj;
     obj = ColumnVariant::create(1, false);
     MutableColumns cols;
-    cols.push_back(obj->get_ptr());
+    cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
+    cols.clear();
     EXPECT_TRUE(!obj->empty());
     test_func(obj);
 }
@@ -1199,7 +1185,7 @@ TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
     {
-        const auto* variant = assert_cast<const ColumnVariant*>(column_variant.get());
+        const auto* variant = column_variant.get();
         // Serialize hierarchy types to json format
         std::string buffer;
         for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
@@ -1280,7 +1266,7 @@ TEST_F(ColumnVariantTest, get_data_at) {
 
 TEST_F(ColumnVariantTest, replace_column_data) {
     EXPECT_ANY_THROW(
-            column_variant->replace_column_data(column_variant->assume_mutable_ref(), 0, 0));
+            column_variant->replace_column_data(column_variant->assert_mutable_ref(), 0, 0));
 }
 
 TEST_F(ColumnVariantTest, serialize_value_into_arena) {
@@ -2082,7 +2068,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
     auto test_func = [](const auto& source_column) {
         auto src_size = source_column->size();
         EXPECT_TRUE(src_size > 0);
-        auto* mutable_ptr = assert_cast<ColumnVariant*>(source_column.get());
+        auto* mutable_ptr = source_column.get();
         //        auto [sparse_data_paths, sparse_data_values] = mutable_ptr->get_sparse_data_paths_and_values();
         // forloop
         PathInData pat("object.array");
@@ -2122,13 +2108,16 @@ TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     ColumnVariant::MutablePtr obj;
     obj = ColumnVariant::create(1, false);
     MutableColumns cols;
-    cols.push_back(obj->get_ptr());
+    cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
+    cols.clear();
     EXPECT_TRUE(!obj->empty());
     auto sparse_col = obj->get_sparse_column();
     auto cloned_sparse = sparse_col->clone_empty();
-    auto& offsets = obj->serialized_sparse_column_offsets();
+    const auto& offsets =
+            static_cast<const ColumnVariant&>(*obj).serialized_sparse_column_offsets();
     for (size_t i = 0; i != offsets.size(); ++i) {
         auto start = offsets[i - 1];
         auto end = offsets[i];
@@ -2767,9 +2756,9 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
     }
 
-    // Test Tuple
+    // Test Struct
     {
-        Tuple t1;
+        Struct t1;
         t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
         t1.push_back(Field::create_field<TYPE_BIGINT>(Int64(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
@@ -3129,21 +3118,21 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         col_arr->insert(an);
         MutableColumnPtr nested_object = ColumnVariant::create(
                 container_variant.max_subcolumns_count(), false, col_arr->get_data().size());
-        MutableColumnPtr offset = col_arr->get_offsets_ptr()->assume_mutable(); // [3, 3, 4]
+        MutableColumnPtr offset = col_arr->get_offsets_ptr()->assert_mutable(); // [3, 3, 4]
         auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
-        MutableColumnPtr flattend_column = col_arr->get_data_ptr()->assume_mutable();
+        MutableColumnPtr flattend_column = col_arr->get_data_ptr()->assert_mutable();
         DataTypePtr flattend_type = DataTypeFactory::instance().create_data_type(
                 FieldType::OLAP_FIELD_TYPE_BIGINT, 0, 0);
         // add sub path without parent prefix
         PathInData sub_path("k");
         nested_object_ptr->add_sub_column(sub_path, std::move(flattend_column),
                                           std::move(flattend_type));
-        nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
+        nested_object = make_nullable(nested_object->get_ptr())->assert_mutable();
         auto array =
                 make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
         PathInData path("v.k");
-        container_variant.add_sub_column(path, array->assume_mutable(),
+        container_variant.add_sub_column(path, array->assert_mutable(),
                                          container_variant.NESTED_TYPE);
         container_variant.set_num_rows(3);
         for (auto subcolumn : container_variant.get_subcolumns()) {

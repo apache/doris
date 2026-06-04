@@ -262,6 +262,10 @@ suite("test_doris_jdbc_catalog", "p0,external") {
 
     order_qt_keywork_table_name """ select * from `order` order by test_col; """
 
+    // cleanup reserved-keyword table so downstream infra suites (e.g. check_hash_bucket_table)
+    // do not trip over an unquoted `order` table name
+    sql """ drop table if exists internal.regression_test_jdbc_catalog_p0.`order` """
+
     // //clean
     // qt_sql """select current_catalog()"""
     // sql "switch internal"

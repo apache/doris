@@ -47,6 +47,25 @@ public:
     }
 };
 
+template <typename CheckField>
+void expect_from_storage_string_paths(const DataTypePtr& data_type, const std::string& input,
+                                      CheckField&& check_field) {
+    auto serde = data_type->get_serde();
+    for (int path = 0; path < 3; ++path) {
+        Field field;
+        const char* path_name = path == 0   ? "from_olap_string"
+                                : path == 1 ? "from_fe_string"
+                                            : "from_zonemap_string";
+        auto status =
+                path == 0   ? serde->from_olap_string(input, field, DataTypeSerDe::FormatOptions())
+                : path == 1 ? serde->from_fe_string(input, field)
+                            : serde->from_zonemap_string(input, field);
+        ASSERT_TRUE(status.ok()) << data_type->get_name() << " " << path_name
+                                 << " failed: " << status.to_string();
+        check_field(field);
+    }
+}
+
 // deserialize float string serialized by old version of Doris
 TEST_F(OlapTypeTest, deser_float_old) {
     std::vector<float> normal_input_values = {
@@ -605,6 +624,47 @@ TEST_F(OlapTypeTest, ser_deser_double) {
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
                 << ", diff_ratio: " << fmt::format("{:.17g}", diff_ratio);
     }
+}
+
+TEST_F(OlapTypeTest, datelike_storage_string_parse_failure_defaults) {
+    const std::string invalid = "not-a-valid-value";
+
+    VecDateTimeValue datev1_default = VecDateTimeValue::FIRST_DAY;
+    datev1_default.cast_to_date();
+    const auto expected_datev1 = Field::create_field<TYPE_DATE>(datev1_default);
+    expect_from_storage_string_paths(DataTypeFactory::instance().create_data_type(TYPE_DATE, false),
+                                     invalid, [&](const Field& field) {
+                                         ASSERT_EQ(field.get_type(), TYPE_DATE);
+                                         EXPECT_TRUE(field == expected_datev1);
+                                     });
+
+    VecDateTimeValue datetimev1_default = VecDateTimeValue::FIRST_DAY;
+    datetimev1_default.to_datetime();
+    const auto expected_datetimev1 = Field::create_field<TYPE_DATETIME>(datetimev1_default);
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATETIME);
+                EXPECT_TRUE(field == expected_datetimev1);
+            });
+
+    const auto expected_datev2 =
+            Field::create_field<TYPE_DATEV2>(DateV2Value<DateV2ValueType>(MIN_DATE_V2));
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATEV2);
+                EXPECT_TRUE(field == expected_datev2);
+            });
+
+    const auto expected_datetimev2 =
+            Field::create_field<TYPE_DATETIMEV2>(DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2));
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATETIMEV2);
+                EXPECT_TRUE(field == expected_datetimev2);
+            });
 }
 
 // =============================================================================
@@ -2022,5 +2082,53 @@ TEST_F(OlapTypeTest, timestamptz_type) {
         EXPECT_EQ(tc.expected_serde, serde_str)
                 << "serde mismatch for TIMESTAMPTZ expected=" << tc.expected;
     }
+}
+
+// from_olap_string for string types (CHAR / VARCHAR / STRING) strnlens the
+// input so any trailing '\0' bytes that came from a fixed-width CHAR write
+// are dropped before the value lands in the Field. VARCHAR / STRING ZoneMap
+// values do not normally carry trailing '\0' (the writers store the natural
+// byte length), so strnlen is a no-op for them.
+TEST_F(OlapTypeTest, from_olap_string_strings) {
+    struct Case {
+        PrimitiveType type;
+        std::string input;
+        std::string expected;
+    };
+    std::vector<Case> cases = {
+            // CHAR(N) ZoneMap min/max from the convertor is padded with '\0'
+            // — strnlen recovers the logical content.
+            {TYPE_CHAR, std::string("abc", 3) + std::string(7, '\0'), "abc"},
+            {TYPE_CHAR, std::string(10, '\0'), ""},
+            {TYPE_CHAR, "alpha", "alpha"},
+            // VARCHAR / STRING never carry trailing '\0' in their ZoneMap
+            // representation, so the helper is a transparent pass-through
+            // for the typical case.
+            {TYPE_VARCHAR, "hello", "hello"},
+            {TYPE_STRING, "world\nline2", "world\nline2"},
+            {TYPE_STRING, "", ""},
+    };
+
+    for (const auto& tc : cases) {
+        auto data_type = DataTypeFactory::instance().create_data_type(
+                tc.type, /*is_nullable=*/false, /*precision=*/0, /*scale=*/0,
+                /*length=*/static_cast<int>(tc.input.size()));
+        expect_from_storage_string_paths(data_type, tc.input, [&](const Field& field) {
+            EXPECT_EQ(field.get<TYPE_STRING>(), tc.expected)
+                    << "type=" << static_cast<int>(tc.type) << " input.size=" << tc.input.size();
+        });
+    }
+}
+
+// VARCHAR / STRING values containing an embedded '\0' are truncated at the
+// first '\0' — the same strnlen behaviour applies to all string types. This
+// is acceptable in practice because Doris string columns do not store
+// embedded NULs in their ZoneMap representation; the test pins the contract.
+TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null_truncates) {
+    auto data_type = DataTypeFactory::instance().create_data_type(
+            TYPE_VARCHAR, /*is_nullable=*/false, 0, 0, /*length=*/32);
+    expect_from_storage_string_paths(data_type, std::string("ab\0cd", 5), [](const Field& field) {
+        EXPECT_EQ(field.get<TYPE_STRING>(), "ab");
+    });
 }
 } // namespace doris

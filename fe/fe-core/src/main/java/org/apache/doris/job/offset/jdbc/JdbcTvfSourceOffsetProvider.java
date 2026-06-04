@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -77,6 +78,9 @@ import java.util.stream.Collectors;
  *       chunkHighWatermarkMap is always updated unconditionally to support recovery</li>
  *   <li>replayIfNeed: checks currentOffset directly — snapshot triggers remainingSplits rebuild
  *       from meta + chunkHighWatermarkMap; binlog needs no action (currentOffset already set)</li>
+ *   <li>image persistence: chw/bop/ts also flow through getPersistInfo (inherited) so state
+ *       survives FE checkpoint after pre-checkpoint journal is GC'd; restoreFromPersistInfo
+ *       reads them back on startup</li>
  * </ul>
  */
 @Log4j2
@@ -91,11 +95,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         super();
     }
 
-    /**
-     * Initializes provider state and fetches snapshot splits from BE.
-     * splitChunks is called here (rather than in StreamingInsertJob) to keep
-     * all cdc_stream-specific init logic inside the provider.
-     */
+    /** Initializes provider state from TVF properties; called every schedule tick. */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
         String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
@@ -115,23 +115,10 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         if (this.jobId != null) {
             return;
         }
-        // One-time initialization below — safe to skip on FE restart because the provider
-        // is reconstructed fresh (getPersistInfo returns null), so jobId is null then too.
         this.jobId = jobId;
-        this.chunkHighWatermarkMap = new HashMap<>();
         this.sourceType = resolvedType;
         String table = originTvfProps.get(DataSourceConfigKeys.TABLE);
         Preconditions.checkArgument(table != null, "table is required for cdc_stream TVF");
-    }
-
-    /**
-     * Called once on fresh job creation (not on FE restart).
-     * Fetches snapshot splits from BE and persists them to the meta table.
-     */
-    @Override
-    public void initOnCreate() throws JobException {
-        String table = sourceProperties.get(DataSourceConfigKeys.TABLE);
-        splitChunks(Collections.singletonList(table));
     }
 
     /**
@@ -273,37 +260,47 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      * adds it to finishedSplits. During txn replay remainingSplits is empty so removeIf returns
      * false naturally — chunkHighWatermarkMap is still updated for replayIfNeed to use later.
      *
-     * <p>Binlog: currentOffset is set above; no extra state needed for TVF recovery path.
+     * <p>Binlog: mirror startingOffset into binlogOffsetPersist so it survives FE checkpoint via
+     * image (currentOffset has no @SerializedName).
      */
     @Override
     public void updateOffset(Offset offset) {
-        this.currentOffset = (JdbcOffset) offset;
-        if (currentOffset.snapshotSplit()) {
-            for (AbstractSourceSplit split : currentOffset.getSplits()) {
-                SnapshotSplit ss = (SnapshotSplit) split;
-                boolean removed = remainingSplits.removeIf(v -> {
-                    if (v.getSplitId().equals(ss.getSplitId())) {
-                        ss.setTableId(v.getTableId());
-                        ss.setSplitKey(v.getSplitKey());
-                        ss.setSplitStart(v.getSplitStart());
-                        ss.setSplitEnd(v.getSplitEnd());
-                        return true;
+        JdbcOffset newOffset = (JdbcOffset) offset;
+        if (newOffset.snapshotSplit()) {
+            synchronized (splitsLock) {
+                for (AbstractSourceSplit split : newOffset.getSplits()) {
+                    SnapshotSplit ss = (SnapshotSplit) split;
+                    boolean removed = remainingSplits.removeIf(v -> {
+                        if (v.getSplitId().equals(ss.getSplitId())) {
+                            ss.setTableId(v.getTableId());
+                            ss.setSplitKey(v.getSplitKey());
+                            ss.setSplitStart(v.getSplitStart());
+                            ss.setSplitEnd(v.getSplitEnd());
+                            return true;
+                        }
+                        return false;
+                    });
+                    if (removed) {
+                        finishedSplits.add(ss);
                     }
-                    return false;
-                });
-                if (removed) {
-                    finishedSplits.add(ss);
+                    chunkHighWatermarkMap.computeIfAbsent(buildTableKey(), k -> new HashMap<>())
+                            .put(ss.getSplitId(), ss.getHighWatermark());
                 }
-                chunkHighWatermarkMap.computeIfAbsent(buildTableKey(), k -> new HashMap<>())
-                        .put(ss.getSplitId(), ss.getHighWatermark());
+            }
+        } else {
+            // Mirror binlog offset into bop so it survives FE checkpoint
+            BinlogSplit bs = (BinlogSplit) newOffset.getSplits().get(0);
+            if (MapUtils.isNotEmpty(bs.getStartingOffset())) {
+                binlogOffsetPersist = new HashMap<>(bs.getStartingOffset());
+                binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
             }
         }
-        // Binlog: currentOffset is already set; no binlogOffsetPersist needed for TVF path.
+        this.currentOffset = newOffset;
     }
 
     /**
-     * TVF path recovery: offsetProviderPersist is always null (no EditLog write).
-     * currentOffset is set by replayOnCommitted/replayOnCloudMode -> updateOffset before this runs.
+     * TVF path recovery. After FE checkpoint the pre-checkpoint journal is GC'd, so currentOffset
+     * (no @SerializedName) may be null with prior commits — fall back to bop/chw restored from image.
      *
      * <ul>
      *   <li>snapshot: mid-snapshot restart — rebuild remainingSplits from meta + chunkHighWatermarkMap</li>
@@ -312,22 +309,38 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
+        synchronized (splitsLock) {
+            this.cachedSyncTables = job.getSyncTables();
+        }
         if (currentOffset == null) {
-            // No committed txn yet. If snapshot splits exist in the meta table (written by
-            // initOnCreate), restore remainingSplits so getNextOffset() returns snapshot splits
-            // instead of a BinlogSplit (which would incorrectly skip the snapshot phase).
+            // Post-checkpoint binlog: rebuild from bop persisted in image
+            if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
+                currentOffset = new JdbcOffset(
+                        Collections.singletonList(new BinlogSplit(binlogOffsetPersist)));
+                log.info("Replaying TVF offset provider for job {}: restored binlog offset from persist",
+                        job.getJobId());
+                return;
+            }
+            // Fresh-create or post-checkpoint mid-snapshot: restore remainingSplits from meta
+            // so getNextOffset() returns snapshot splits instead of an empty BinlogSplit.
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
             if (MapUtils.isNotEmpty(snapshotSplits)) {
-                recalculateRemainingSplits(new HashMap<>(), snapshotSplits);
-                log.info("Replaying TVF offset provider for job {}: no committed txn,"
-                        + " restored {} remaining splits from meta", job.getJobId(), remainingSplits.size());
+                // chw outer key may be "null.null" during journal replay (sourceProperties uninitialized); remap
+                Map<String, Map<String, Map<String, String>>> effective =
+                        MapUtils.isNotEmpty(chunkHighWatermarkMap)
+                                ? remapChunkHighWatermarkMap(snapshotSplits)
+                                : new HashMap<>();
+                recalculateRemainingSplits(effective, snapshotSplits);
+                resumeCdcSplitProgressFromSplits();
+                log.info("Replaying TVF offset provider for job {}: no current offset,"
+                        + " restored {} remaining splits from meta (chw size={})",
+                        job.getJobId(), remainingSplits.size(),
+                        chunkHighWatermarkMap == null ? 0 : chunkHighWatermarkMap.size());
             } else {
                 log.info("Replaying TVF offset provider for job {}: no committed txn,"
                         + " no snapshot splits in meta", job.getJobId());
             }
-            return;
-        }
-        if (currentOffset.snapshotSplit()) {
+        } else if (currentOffset.snapshotSplit()) {
             log.info("Replaying TVF offset provider for job {}: restoring snapshot state from txn replay",
                     job.getJobId());
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
@@ -339,10 +352,12 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                         remapChunkHighWatermarkMap(snapshotSplits);
                 List<SnapshotSplit> lastSnapshotSplits =
                         recalculateRemainingSplits(effectiveMap, snapshotSplits);
+                // Rebuild first so noMoreSplits() can read splitter state from last.splitEnd.
+                resumeCdcSplitProgressFromSplits();
                 if (remainingSplits.isEmpty()) {
                     if (!lastSnapshotSplits.isEmpty()) {
                         currentOffset = new JdbcOffset(lastSnapshotSplits);
-                    } else if (!isSnapshotOnlyMode()) {
+                    } else if (!isSnapshotOnlyMode() && noMoreSplits()) {
                         BinlogSplit binlogSplit = new BinlogSplit();
                         binlogSplit.setFinishedSplits(finishedSplits);
                         currentOffset = new JdbcOffset(Collections.singletonList(binlogSplit));
@@ -406,13 +421,26 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     }
 
     /**
-     * TVF path does not persist to EditLog; state is recovered via txn replay.
-     * This override is defensive — the persistOffsetProviderIfNeed() call path
-     * only runs in the non-TVF commitOffset flow and won't reach here.
+     * Restore chw/bop/ts from the image-persisted JSON. Called by gsonPostProcess on FE startup
+     * before any journal replay; recovers state lost when pre-checkpoint journal is GC'd.
      */
     @Override
-    public String getPersistInfo() {
-        return null;
+    public void restoreFromPersistInfo(String persistInfo) {
+        if (persistInfo == null) {
+            return;
+        }
+        try {
+            JdbcSourceOffsetProvider tmp = GsonUtils.GSON.fromJson(persistInfo, JdbcSourceOffsetProvider.class);
+            this.chunkHighWatermarkMap = tmp.getChunkHighWatermarkMap();
+            this.binlogOffsetPersist = tmp.getBinlogOffsetPersist();
+            this.tableSchemas = tmp.getTableSchemas();
+            log.info("Restored TVF offset provider from persist: chw={}, bop={}, ts.len={}",
+                    chunkHighWatermarkMap == null ? 0 : chunkHighWatermarkMap.size(),
+                    binlogOffsetPersist == null ? 0 : binlogOffsetPersist.size(),
+                    tableSchemas == null ? 0 : tableSchemas.length());
+        } catch (Exception e) {
+            log.warn("Failed to restore TVF offset provider from persistInfo", e);
+        }
     }
 
     @Override

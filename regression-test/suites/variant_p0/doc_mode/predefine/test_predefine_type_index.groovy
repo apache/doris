@@ -89,7 +89,6 @@ suite("variant_predefine_index_doc_value", "p0"){
         "storage_format" = "V2",
         "inverted_index_storage_format" = "V2",
         "light_schema_change" = "true",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "disable_auto_compaction" = "true"

@@ -32,10 +32,10 @@ jobs:
         with:
           ref: ${{ inputs.head_sha }}
 
-      - name: Install ripgrep
+      - name: Install runner utilities
         run: |
           sudo apt-get update
-          sudo apt-get install -y ripgrep
+          sudo apt-get install -y ripgrep unzip
 
       - name: Install OpenCode
         run: |
@@ -50,21 +50,26 @@ jobs:
           echo "All install attempts failed"
           exit 1
 
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
       - name: Configure OpenCode auth
+        id: configure-auth
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
         run: |
           mkdir -p ~/.local/share/opencode
-          cat > ~/.local/share/opencode/auth.json <<EOF
-          {
-            "github-copilot": {
-              "type": "oauth",
-              "refresh": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
-              "access": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
-              "expires": 0
-            }
-          }
-          EOF
-        env:
-          CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY }}
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_AUTH_OBJECT" ~/.local/share/opencode/auth.json
+          chmod 600 ~/.local/share/opencode/auth.json
+          test -s ~/.local/share/opencode/auth.json
 
       - name: Prepare review context directory
         run: |
@@ -172,6 +177,7 @@ jobs:
           ## Final response format
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
           - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
+              - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
           - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
               - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
               - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
@@ -202,11 +208,14 @@ jobs:
           PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
 
           set +e
-          opencode run "$PROMPT" -m "github-copilot/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
+          opencode run "$PROMPT" -m "openai/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
           status=${PIPESTATUS[0]}
           set -e
 
-          last_log_line=$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log")
+          last_log_line=$(
+            awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log" \
+              | perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g'
+          )
 
           failure_reason=""
           if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then
@@ -222,6 +231,23 @@ jobs:
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
             exit 1
+          fi
+
+      - name: Persist OpenCode auth
+        if: ${{ always() && steps.configure-auth.outcome == 'success' }}
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
+        run: |
+          if [ ! -s ~/.local/share/opencode/auth.json ]; then
+            echo "::warning::OpenCode auth file is missing or empty; skip OSS auth persistence."
+            exit 0
+          fi
+
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f ~/.local/share/opencode/auth.json "$OSS_AUTH_OBJECT"; then
+            echo "::warning::Failed to persist OpenCode auth to OSS; continue because review already finished."
           fi
 
       - name: Comment PR on review failure

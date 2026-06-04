@@ -41,6 +41,19 @@ TEST(ColumnConstTest, TestCreate) {
     EXPECT_TRUE(!is_column_const(column_const2->get_data_column()));
 }
 
+TEST(ColumnConstTest, clone_resized_clones_nested_data) {
+    auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
+    auto column_const = ColumnConst::create(column_data, 3);
+
+    auto cloned = column_const->clone_resized(5);
+    const auto& cloned_const = assert_cast<const ColumnConst&>(*cloned);
+
+    EXPECT_EQ(cloned_const.size(), 5);
+    EXPECT_EQ(cloned_const.get_data_column_ptr()->size(), 1);
+    EXPECT_EQ(cloned_const.get_data_column().get_int(0), 7);
+    EXPECT_NE(column_const->get_data_column_ptr().get(), cloned_const.get_data_column_ptr().get());
+}
+
 TEST(ColumnConstTest, TestFilter) {
     {
         auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
@@ -48,9 +61,10 @@ TEST(ColumnConstTest, TestFilter) {
         IColumn::Filter filter = {1, 0, 1};
 
         auto res = column_const->filter(filter, 2);
+        const auto& res_column = assert_cast<const ColumnConst&>(*res);
         EXPECT_EQ(res->size(), 2);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*res).get_data_column_ptr()->size(), 1);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*res).get_data_column_ptr()->get_int(0), 7);
+        EXPECT_EQ(res_column.get_data_column_ptr()->size(), 1);
+        EXPECT_EQ(res_column.get_data_column_ptr()->get_int(0), 7);
     }
 
     {
@@ -60,9 +74,8 @@ TEST(ColumnConstTest, TestFilter) {
 
         auto size = column_const->filter(filter);
         EXPECT_EQ(size, 2);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*column_const).get_data_column_ptr()->size(), 1);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*column_const).get_data_column_ptr()->get_int(0),
-                  7);
+        EXPECT_EQ(column_const->get_data_column_ptr()->size(), 1);
+        EXPECT_EQ(column_const->get_data_column_ptr()->get_int(0), 7);
     }
 }
 

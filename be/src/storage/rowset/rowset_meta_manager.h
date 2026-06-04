@@ -22,6 +22,9 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
+#include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -55,7 +58,18 @@ public:
                                   RowsetMetaSharedPtr rowset_meta);
     // TODO(Drogon): refactor save && _save_with_binlog to one, adapt to ut temperately
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                       const RowsetMetaPB& rowset_meta_pb, bool enable_binlog);
+                       const RowsetMetaPB& rowset_meta_pb,
+                       std::optional<BinlogFormatPB> binlog_format = std::nullopt,
+                       const std::map<RowsetId, RowsetMetaPB>* attach_rowset_map = nullptr);
+
+    // STATEMENT_AND_SNAPSHOT
+    static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+                       const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
+        return save(meta, tablet_uid, rowset_id, rowset_meta_pb,
+                    enable_binlog
+                            ? std::optional<BinlogFormatPB>(BinlogFormatPB::STATEMENT_AND_SNAPSHOT)
+                            : std::nullopt);
+    }
 
     static std::vector<std::string> get_binlog_filenames(OlapMeta* meta, TabletUid tablet_uid,
                                                          std::string_view binlog_version,
@@ -74,6 +88,21 @@ public:
     static Status remove_binlog(OlapMeta* meta, const std::string& suffix);
     static Status ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
                                       RowsetBinlogMetasPB* metas_pb);
+
+    static Status remove_row_binlog(OlapMeta* meta, TabletUid tablet_uid,
+                                    const RowsetId& base_rowset_id,
+                                    const RowsetId& row_binlog_rowset_id);
+    static Status remove_row_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
+                                          const std::set<RowsetId>& row_binlog_rowset_ids);
+    static bool row_binlog_meta_exists(OlapMeta* meta, TabletUid tablet_uid,
+                                       const RowsetId& row_binlog_rowset_id);
+    static Status get_row_binlog_base_rowset_ids(
+            OlapMeta* meta, TabletUid tablet_uid,
+            std::map<RowsetId, RowsetId>& base_rowset_id_to_row_binlog,
+            const std::set<RowsetId>& row_binlog_rowset_ids);
+    static Status traverse_row_binlog_metas(
+            OlapMeta* meta, std::function<bool(const TabletUid&, const RowsetId&, const RowsetId&,
+                                               const std::string&)> const& func);
     static Status traverse_rowset_metas(OlapMeta* meta,
                                         std::function<bool(const TabletUid&, const RowsetId&,
                                                            std::string_view)> const& collector);
@@ -101,8 +130,13 @@ public:
 private:
     static Status _save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                         const RowsetMetaPB& rowset_meta_pb);
-    static Status _save_with_binlog(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                                    const RowsetMetaPB& rowset_meta_pb);
+    static Status _save_with_ccr_binlog(OlapMeta* meta, TabletUid tablet_uid,
+                                        const RowsetId& rowset_id,
+                                        const RowsetMetaPB& rowset_meta_pb);
+    static Status _save_with_row_binlog(OlapMeta* meta, TabletUid tablet_uid,
+                                        const RowsetId& rowset_id,
+                                        const RowsetMetaPB& rowset_meta_pb,
+                                        const std::map<RowsetId, RowsetMetaPB>& attach_rowset_map);
     static Status _get_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
                                            const std::vector<int64_t>& binlog_versions,
                                            RowsetBinlogMetasPB* metas_pb);

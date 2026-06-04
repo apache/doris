@@ -34,7 +34,6 @@
 
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
-#include "storage/field.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
@@ -116,9 +115,8 @@ std::unique_ptr<ZoneMapIndexWriter> make_writer() {
         col = make_column(FieldType::OLAP_FIELD_TYPE_VARCHAR, 64, 1);
         dtype = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false, 0, 0, 64);
     }
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(*col));
     std::unique_ptr<ZoneMapIndexWriter> w;
-    (void)ZoneMapIndexWriter::create(dtype, field.get(), w);
+    (void)ZoneMapIndexWriter::create(dtype, col.get(), w);
     return w;
 }
 

@@ -164,6 +164,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
         break;
     }
+    case TYPE_VARBINARY: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(data, &node));
+        break;
+    }
     case TYPE_IPV4: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(data, &node));
         break;
@@ -338,20 +342,6 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
 } // namespace doris
 
 namespace doris {
-
-bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
-    if (expr.node_type() == TExprNodeType::SEARCH_EXPR) {
-        return true;
-    }
-    const auto& children = expr.children();
-
-    auto is_a_slot = std::any_of(children.begin(), children.end(),
-                                 [](const auto& child) { return is_acting_on_a_slot(*child); });
-
-    return is_a_slot ? true
-                     : (expr.node_type() == TExprNodeType::SLOT_REF ||
-                        expr.node_type() == TExprNodeType::VIRTUAL_SLOT_REF);
-}
 
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
@@ -1052,7 +1042,9 @@ Status VExpr::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats, bool enable_result_cache,
+        AnnRangeSearchEvaluationResult& result) {
+    result = {};
     return Status::OK();
 }
 
@@ -1068,14 +1060,6 @@ void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params
             return;
         }
     }
-}
-
-bool VExpr::ann_range_search_executedd() {
-    return _has_been_executed;
-}
-
-bool VExpr::ann_dist_is_fulfilled() const {
-    return _virtual_column_is_fulfilled;
 }
 
 Status VExpr::execute_filter(VExprContext* context, const Block* block,

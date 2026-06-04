@@ -16,6 +16,7 @@
 // under the License.
 
 suite("agg_optimize_when_uniform") {
+    sql "set parallel_pipeline_task_num=2"
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"

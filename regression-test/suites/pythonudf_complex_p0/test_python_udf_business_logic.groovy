@@ -144,9 +144,9 @@ suite("test_python_udf_business_logic") {
         // ========================================
         // Test 6: Comprehensive Statistics
         // ========================================
-        sql """ DROP FUNCTION IF EXISTS py_statistics(STRING); """
+        sql """ DROP FUNCTION IF EXISTS py_statistics_complex(STRING); """
         sql """
-        CREATE FUNCTION py_statistics(STRING)
+        CREATE FUNCTION py_statistics_complex(STRING)
         RETURNS STRING
         PROPERTIES (
             "file" = "file://${pyPath}",
@@ -157,7 +157,7 @@ suite("test_python_udf_business_logic") {
         """
 
         qt_statistics """
-            SELECT py_statistics('[10, 20, 30, 40, 50, 60, 70, 80, 90, 100]') AS stats;
+            SELECT py_statistics_complex('[10, 20, 30, 40, 50, 60, 70, 80, 90, 100]') AS stats;
         """
 
         // ========================================
@@ -402,7 +402,7 @@ suite("test_python_udf_business_logic") {
         try_sql("DROP FUNCTION IF EXISTS py_detect_anomalies(STRING, DOUBLE);")
         try_sql("DROP FUNCTION IF EXISTS py_calculate_trend(STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_percentiles(STRING, STRING);")
-        try_sql("DROP FUNCTION IF EXISTS py_statistics(STRING);")
+        try_sql("DROP FUNCTION IF EXISTS py_statistics_complex(STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_correlation(STRING, STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_rfm_score(INT, INT, DOUBLE);")
         try_sql("DROP FUNCTION IF EXISTS py_calculate_ltv(DOUBLE, DOUBLE, DOUBLE, DOUBLE);")

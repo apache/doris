@@ -42,7 +42,7 @@ struct TTabletSchema {
     14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false // deprecated
     16: optional bool store_row_column = false
-    17: optional bool enable_single_replica_compaction = false
+    // 17: deprecated enable_single_replica_compaction
     18: optional bool skip_write_index_on_load = false
     19: optional list<i32> cluster_key_uids
     // col unique id for row store column
@@ -71,6 +71,14 @@ enum TEncryptionAlgorithm {
     SM4 = 2
 }
 
+// Bit flags used by clone/snapshot to describe which tablet files must be copied.
+// Request fields use i32 bitmasks of TTabletCopyType values.
+enum TTabletCopyType {
+    DATA = 1,
+    ROW_BINLOG = 2,
+    CCR_BINLOG = 4
+}
+
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
@@ -92,7 +100,12 @@ enum TCredProviderType {
     // used for creating different credentials provider when creating s3client
     DEFAULT = 0,  // DefaultAWSCredentialsProviderChain
     SIMPLE = 1,  // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
-    INSTANCE_PROFILE = 2  // InstanceProfileCredentialsProvider
+    INSTANCE_PROFILE = 2,  // InstanceProfileCredentialsProvider
+    ENV = 3,  // EnvironmentAWSCredentialsProvider
+    SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
+    WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
+    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 
 struct TS3StorageParam {
@@ -370,6 +383,7 @@ struct TCloneReq {
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
     13: optional i64 table_id = -1
+    14: optional i32 copy_type = 5 // bitmask of TTabletCopyType, DATA | CCR_BINLOG by default
 }
 
 struct TCompactionReq {
@@ -449,6 +463,7 @@ struct TSnapshotRequest {
     12: optional Types.TVersion end_version
     13: optional bool is_copy_binlog
     14: optional Types.TTabletId ref_tablet_id
+    15: optional i32 copy_type = 1 // bitmask of TTabletCopyType, DATA by default
 }
 
 struct TReleaseSnapshotRequest {
@@ -548,7 +563,7 @@ struct TTabletMetaInfo {
     11: optional i64 time_series_compaction_goal_size_mbytes
     12: optional i64 time_series_compaction_file_count_threshold
     13: optional i64 time_series_compaction_time_threshold_seconds
-    14: optional bool enable_single_replica_compaction
+    // 14: deprecated enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
     16: optional bool disable_auto_compaction
     17: optional i64 time_series_compaction_empty_rowsets_threshold

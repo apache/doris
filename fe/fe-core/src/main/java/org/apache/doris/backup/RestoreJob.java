@@ -109,6 +109,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1464,7 +1465,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
                             localTbl.disableAutoCompaction(),
-                            localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
                             localTbl.getCompactionPolicy(),
                             localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
@@ -1553,12 +1553,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
+            // Collect locally and bulk-publish to keep copy-on-write O(n) for the whole index.
+            List<Tablet> newTablets = new ArrayList<>(remotetabletSize);
             for (int i = 0; i < remotetabletSize; i++) {
                 // generate new tablet id
                 long newTabletId = env.getNextId();
                 Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
-                // add tablet to index, but not add to TabletInvertedIndex
-                remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
+                newTablets.add(newTablet);
                 // replicas
                 try {
                     Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
@@ -1577,6 +1578,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     return null;
                 }
             }
+            // add tablets to index in one batch; TabletInvertedIndex registration
+            // is intentionally skipped on the restore path (rebuilt separately).
+            remoteIdx.appendTablets(newTablets);
         }
         return remotePart;
     }
@@ -2195,7 +2199,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        updateOlapTablesVersion(db);
+        updateOlapTablesVersion(db, isReplay);
 
         if (!isReplay) {
             restoredPartitions.clear();
@@ -2222,7 +2226,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return Status.OK;
     }
 
-    private void updateOlapTablesVersion(Database db) {
+    protected void updateOlapTablesVersion(Database db, boolean isReplay) {
         if (Env.getCurrentEnv().invalidCacheForCloud()) {
             return;
         }

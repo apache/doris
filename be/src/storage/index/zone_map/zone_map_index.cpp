@@ -32,11 +32,11 @@
 #include "core/string_ref.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
-#include "storage/field.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/slice.h"
 #include "util/unaligned.h"
@@ -278,14 +278,15 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _data_type);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_BITMAP;
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), {}, false);
+    // Zone map page always uses PLAIN_ENCODING. Do not change.
+    options.encoding = PLAIN_ENCODING;
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, type_info, file_writer);
+    IndexedColumnWriter writer(options, type, file_writer);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {
@@ -365,9 +366,9 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DECIMAL128I)          \
     M(TYPE_DECIMAL256)
 
-Status ZoneMapIndexWriter::create(DataTypePtr data_type, StorageField* field,
+Status ZoneMapIndexWriter::create(DataTypePtr data_type, const TabletColumn* column,
                                   std::unique_ptr<ZoneMapIndexWriter>& res) {
-    switch (field->type()) {
+    switch (column->type()) {
 #define M(NAME)                                                             \
     case FieldType::OLAP_FIELD_##NAME: {                                    \
         res.reset(new TypedZoneMapIndexWriter<NAME>(std::move(data_type))); \

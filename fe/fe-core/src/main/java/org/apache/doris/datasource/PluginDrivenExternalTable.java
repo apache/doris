@@ -125,7 +125,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return -1;
         }
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache()
-                .getCachedRowCount(catalog.getId(), dbId, id);
+                .getCachedRowCount(catalog.getId(), dbId, id, false);
     }
 
     @Override

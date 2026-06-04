@@ -144,8 +144,8 @@ TEST_F(PrimaryKeyIndexTest, builder) {
             EXPECT_TRUE(index_reader.new_iterator(&iter, nullptr).ok());
 
             size_t num_to_read = std::min(batch_size, remaining);
-            auto index_type = DataTypeFactory::instance().create_data_type(
-                    index_reader.type_info()->type(), 1, 0);
+            auto index_type =
+                    DataTypeFactory::instance().create_data_type(index_reader.type(), 1, 0);
             auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
             EXPECT_TRUE(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());

@@ -23,7 +23,7 @@ namespace doris {
 
 TEST(function_variant_element_test, extract_from_sparse_column) {
     auto variant_column = ColumnVariant::create(1 /*max_subcolumns_count*/, false);
-    auto* variant_ptr = assert_cast<ColumnVariant*>(variant_column.get());
+    auto* variant_ptr = variant_column.get();
 
     ColumnVariant::Subcolumn subcolumn(0, true, false);
     Field field = Field::create_field<TYPE_STRING>("John");
@@ -40,12 +40,12 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
     sparse_column_offsets.push_back(sparse_column_keys->size());
     variant_ptr->get_subcolumn({})->insert_default();
     variant_ptr->set_num_rows(1);
-    variant_ptr->get_doc_value_column()->assume_mutable()->resize(1);
+    variant_ptr->get_doc_value_column_mutable().resize(1);
 
     ColumnPtr result;
     ColumnPtr index_column_ptr = ColumnString::create();
     auto* index_column_ptr_mutable =
-            assert_cast<ColumnString*>(index_column_ptr->assume_mutable().get());
+            assert_cast<ColumnString*>(index_column_ptr->assert_mutable().get());
     index_column_ptr_mutable->insert_data("profile", 7);
     ColumnPtr index_column = ColumnConst::create(index_column_ptr, 1);
     auto status =

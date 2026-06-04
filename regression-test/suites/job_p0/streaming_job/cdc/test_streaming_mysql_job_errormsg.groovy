@@ -102,6 +102,8 @@ suite("test_streaming_mysql_job_errormsg", "p0,external,mysql,external_docker,ex
         log.info("jobFailMsg: " + jobFailMsg)
         // stream load error: [DATA_QUALITY_ERROR]too many filtered rows
         assert jobFailMsg.get(0).get(0).contains("stream load error")
+        // FirstErrorMsg (first rejected row detail) must be surfaced to the user, not just an URL
+        assert jobFailMsg.get(0).get(0).contains("first_error_msg")
 
 
         // add max_filter_ratio to 1

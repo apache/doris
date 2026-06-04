@@ -318,6 +318,18 @@ public:
                                           std::shared_ptr<TableSchemaChangeHelper::Node>& node,
                                           bool& exist_field_id);
 
+        // for iceberg parquet: when old files miss field ids, fall back to Iceberg
+        // schema.name-mapping.default before name-based matching.
+        static Status by_parquet_field_id_with_name_mapping(
+                const schema::external::TStructField& table_schema,
+                const FieldDescriptor& parquet_field_desc,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+
+        // for iceberg parquet
+        static Status by_parquet_field_id_with_name_mapping(
+                const schema::external::TField& table_schema, const FieldSchema& parquet_field,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+
         // for iceberg orc : Use the field id in the `table schema` and the orc file to match columns.
         static Status by_orc_field_id(const schema::external::TStructField& table_schema,
                                       const orc::Type* orc_root,
@@ -331,6 +343,19 @@ public:
                                       const std::string& field_id_attribute_key,
                                       std::shared_ptr<TableSchemaChangeHelper::Node>& node,
                                       bool& exist_field_id);
+
+        // for iceberg orc: when old files miss field ids, fall back to Iceberg
+        // schema.name-mapping.default before name-based matching.
+        static Status by_orc_field_id_with_name_mapping(
+                const schema::external::TStructField& table_schema, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+
+        // for iceberg orc
+        static Status by_orc_field_id_with_name_mapping(
+                const schema::external::TField& table_schema, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node);
     };
 };
 

@@ -158,7 +158,7 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     const auto& rowset_writer = res.value();
 
     Block block = _tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
 
     Field key = Field::create_field<TYPE_INT>(10);
     Field v1 = Field::create_field<TYPE_STRING>("v1");
@@ -323,7 +323,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
     const auto& rowset_writer = res.value();
 
     Block block = _tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
 
     // Create block with NO null values to test the scenario where
     // iterator might not have null bitmap or it's nullptr

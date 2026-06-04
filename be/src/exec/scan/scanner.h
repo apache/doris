@@ -115,8 +115,9 @@ protected:
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         } else if (_origin_block.rows()) {
-            RETURN_IF_ERROR(
-                    MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block));
+            ScopedMutableBlock scoped_mutable_block(&_padding_block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
+            RETURN_IF_ERROR(mutable_block.merge(_origin_block));
         }
         return Status::OK();
     }
@@ -185,6 +186,10 @@ public:
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
+    // Returns true if this scanner's partition has been pruned by a runtime filter.
+    // Overridden by OlapScanner to check partition pruning state.
+    virtual bool check_partition_pruned() const { return false; }
+
     bool need_to_close() const { return _need_to_close; }
 
     void mark_to_need_to_close() {
@@ -239,7 +244,6 @@ protected:
     std::vector<VExprContextSPtrs> _intermediate_projections;
     Block _origin_block;
     Block _padding_block;
-    bool _alreay_eos = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
@@ -274,6 +278,10 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    // Cached pointer to ScanOperator's remaining-limit counter. Null when
+    // this scanner is on the topn path or the query has no LIMIT.
+    std::atomic<int64_t>* _shared_scan_limit = nullptr;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;

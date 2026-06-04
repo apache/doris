@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.utils;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -43,11 +44,29 @@ public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
-    public static String getServerId(String jobId) {
-        // Use bitwise AND with Integer.MAX_VALUE to strip the sign bit,
-        // which avoids the edge case where Math.abs(Integer.MIN_VALUE) returns MIN_VALUE
-        // (negative).
-        return String.valueOf(jobId.hashCode() & Integer.MAX_VALUE);
+    // Resolve user-configured range, or derive from jobId hash with width = parallelism.
+    // Value validation lives in FE DataSourceConfigValidator; here we trust the input.
+    public static ServerIdRange resolveServerIdRange(
+            String jobId, int snapshotParallelism, String userInput) {
+        ServerIdRange userRange = userInput == null ? null : ServerIdRange.from(userInput.trim());
+        if (userRange != null) {
+            if (userRange.getNumberOfServerIds() < snapshotParallelism) {
+                throw new IllegalArgumentException(
+                        "server_id range size "
+                                + userRange.getNumberOfServerIds()
+                                + " must be >= snapshot_parallelism "
+                                + snapshotParallelism);
+            }
+            return userRange;
+        }
+        int hash = jobId.hashCode() & Integer.MAX_VALUE;
+        int safeMax = Integer.MAX_VALUE - snapshotParallelism + 1;
+        // Use `>` (not `>=`) so parallelism=1 preserves hash==MAX_VALUE for back-compat.
+        int base = hash > safeMax ? hash % safeMax : hash;
+        if (base == 0) {
+            base = 1;
+        }
+        return new ServerIdRange(base, base + snapshotParallelism - 1);
     }
 
     public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {

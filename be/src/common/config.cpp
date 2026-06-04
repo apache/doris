@@ -73,6 +73,8 @@ DEFINE_Int32(arrow_flight_sql_port, "8050");
 
 DEFINE_Int32(cdc_client_port, "9096");
 
+DEFINE_String(cdc_client_java_opts, "");
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -469,7 +471,18 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "-1");
-DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
+
+// Binlog Compaction
+DEFINE_mInt64(binlog_compaction_wait_timesec_after_visible, "600");
+DEFINE_mInt64(binlog_compaction_goal_size_mbytes, "128");
+DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
+DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
+DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
+DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
+DEFINE_mInt32(binlog_compaction_permits_percent, "30");
+DEFINE_Validator(binlog_compaction_permits_percent,
+                 [](const int config) -> bool { return config >= 1 && config <= 80; });
+DEFINE_mInt32(max_binlog_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -517,9 +530,6 @@ DEFINE_mInt64(total_permits_for_compaction_score, "1000000");
 
 // sleep interval in ms after generated compaction tasks
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");
-
-// sleep interval in second after update replica infos
-DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -590,6 +600,26 @@ DEFINE_Int64(migration_lock_timeout_ms, "1000");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
+// TLS module enable flag
+DEFINE_Bool(enable_tls, "false");
+// Path of TLS certificate
+DEFINE_String(tls_certificate_path, "");
+// Path of TLS private key
+DEFINE_String(tls_private_key_path, "");
+// Password for encrypted TLS private key
+DEFINE_String(tls_private_key_password, "");
+// TLS peer verification mode
+DEFINE_String(tls_verify_mode, "verify_peer");
+// Path of TLS CA certificate
+DEFINE_String(tls_ca_certificate_path, "");
+// TLS certificate reload interval, in seconds
+DEFINE_Int32(tls_cert_refresh_interval_seconds, "3600");
+// Comma-separated excluded server protocols: brpc,thrift,http,arrowflight
+DEFINE_String(tls_excluded_protocols, "");
+// Required peer certificate DNS SAN allowlist for private protocols, syntax: brpc=a.com;thrift=b.com.
+// Empty means allow all peers. Once configured, the list acts as an allowlist and only peers whose
+// DNS SAN matches at least one configured entry for that protocol are allowed.
+DEFINE_String(tls_peer_cert_required_san_dns, "");
 // Https enable flag
 DEFINE_Bool(enable_https, "false");
 // Path of certificate
@@ -1164,6 +1194,7 @@ DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
+DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 // Maximum depth of nested arrays to track with NestedGroup
@@ -1204,7 +1235,7 @@ DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
 DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
 
-DEFINE_mBool(enable_read_cache_file_directly, "false");
+DEFINE_mBool(enable_read_cache_file_directly, "true");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
@@ -1234,6 +1265,7 @@ DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
+DEFINE_mBool(enable_file_cache_async_touch_on_get_or_set, "false");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
@@ -1267,6 +1299,11 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
+
+// ANN index topn result cache
+DEFINE_String(ann_index_result_cache_limit, "10%");
+DEFINE_Int32(ann_index_result_cache_shards, "16");
+DEFINE_Int32(ann_index_result_cache_stale_sweep_time_sec, "1800");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
@@ -1581,8 +1618,6 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 });
 
 DEFINE_mBool(ignore_schema_change_check, "false");
-
-DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
 
 // The min thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
@@ -2253,8 +2288,6 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_shrink_memory"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
-    fuzzy_field_and_value["string_overflow_size"] =
-            ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_packed_file"] =

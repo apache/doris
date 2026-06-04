@@ -55,6 +55,7 @@ class TDataSink;
 class AsyncResultWriter;
 class ScoreRuntime;
 class AnnTopNRuntime;
+class ParsedPartitionBoundaries;
 } // namespace doris
 
 namespace doris {
@@ -187,6 +188,9 @@ public:
             RuntimeState* /*state*/) const;
 
 protected:
+    [[nodiscard]] static bool is_hash_shuffle(ExchangeType exchange_type);
+    [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
+
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
@@ -855,6 +859,15 @@ public:
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
+
+    // Per-fragment shared partition-boundary parse result, used for
+    // runtime-filter partition pruning. Returns nullptr for operators that
+    // don't support this feature (default). Scan operators override to expose
+    // their parsed boundaries; the per-instance pruning state lives on the
+    // ScanLocalState. This sits on the generic OperatorXBase so non-templated
+    // ScanLocalStateBase methods can fetch it without down-casting `_parent`
+    // to a specific scan type.
+    virtual const ParsedPartitionBoundaries* parsed_partition_boundaries() const { return nullptr; }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     bool is_blockable(RuntimeState* state) const override {

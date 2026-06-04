@@ -95,17 +95,14 @@ public:
                             argument_columns[0].get()),
                     assert_cast<const ColumnInt8*>(argument_columns[1].get())->get_element(0),
                     assert_cast<const ColumnInt8*>(argument_columns[2].get())->get_element(0),
-                    assert_cast<ColumnString*>(result_column.get()),
-                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                    input_rows_count);
+                    result_column.get(), result_null_map_column->get_data(), input_rows_count);
         } else {
             execute_straight(context,
                              assert_cast<const typename Impl::DataType::ColumnType*>(
                                      argument_columns[0].get()),
                              assert_cast<const ColumnInt8*>(argument_columns[1].get()),
                              assert_cast<const ColumnInt8*>(argument_columns[2].get()),
-                             assert_cast<ColumnString*>(result_column.get()),
-                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                             result_column.get(), result_null_map_column->get_data(),
                              input_rows_count);
         }
 

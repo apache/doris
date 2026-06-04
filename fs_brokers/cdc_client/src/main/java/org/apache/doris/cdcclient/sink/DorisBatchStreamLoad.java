@@ -417,7 +417,7 @@ public class DorisBatchStreamLoad implements Serializable {
                                     OBJECT_MAPPER.readValue(loadResult, RespContent.class);
                             if (DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
                                 long cacheByteBeforeFlush =
-                                        currentCacheBytes.getAndAdd(-respContent.getLoadBytes());
+                                        currentCacheBytes.getAndAdd(-buffer.getBufferSizeBytes());
                                 LOG.info(
                                         "load success, cacheBeforeFlushBytes: {}, currentCacheBytes : {}",
                                         cacheByteBeforeFlush,
@@ -441,11 +441,16 @@ public class DorisBatchStreamLoad implements Serializable {
                                                     loadResult);
                                     throw new StreamLoadException(errMsg);
                                 } else {
-                                    errMsg =
-                                            String.format(
-                                                    "stream load error: %s, see more in %s",
-                                                    respContent.getMessage(),
-                                                    respContent.getErrorURL());
+                                    // Carry FirstErrorMsg (the first rejected row detail) so the
+                                    // task error surfaced to FE is actionable, not just an URL.
+                                    StringBuilder msg = new StringBuilder("stream load error: ");
+                                    msg.append(respContent.getMessage());
+                                    if (StringUtils.isNotBlank(respContent.getFirstErrorMsg())) {
+                                        msg.append(", first_error_msg: ")
+                                                .append(respContent.getFirstErrorMsg());
+                                    }
+                                    msg.append(", see more in ").append(respContent.getErrorURL());
+                                    errMsg = msg.toString();
                                 }
                                 throw new StreamLoadException(errMsg);
                             }

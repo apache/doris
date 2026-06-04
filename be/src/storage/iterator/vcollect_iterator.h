@@ -92,7 +92,8 @@ public:
     inline bool use_topn_next() const { return _topn_limit > 0; }
 
 private:
-    // next for topn query
+    // Scanner-local TopN merge. SegmentIterator has already applied all pushed filters and its
+    // per-segment row budget; this path only keeps the best local rows across rowsets.
     Status _topn_next(Block* block);
 
     class BlockRowPosComparator {
@@ -164,8 +165,10 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(int sequence, bool is_reverse)
-                : _sequence(sequence), _is_reverse(is_reverse) {}
+        LevelIteratorComparator(int sequence, bool is_reverse, bool use_insert_order_when_same)
+                : _sequence(sequence),
+                  _is_reverse(is_reverse),
+                  _use_insert_order_when_same(use_insert_order_when_same) {}
 
         bool operator()(LevelIterator* lhs, LevelIterator* rhs);
 
@@ -173,6 +176,8 @@ private:
         int _sequence;
         // reverse the compare order
         bool _is_reverse = false;
+        // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+        bool _use_insert_order_when_same = false;
     };
 
 #ifdef USE_LIBCPP
@@ -356,16 +361,9 @@ private:
     // for topn next
     size_t _topn_limit = 0;
     bool _topn_eof = false;
-    // For chunked topN output when result exceeds byte budget.
-    Block _topn_result_block;
-    size_t _topn_result_offset = 0;
+    // for forwarding general LIMIT to SegmentIterator
+    size_t _general_read_limit = 0;
     std::vector<RowSetSplits> _rs_splits;
-
-    // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW (non-merge path).
-    // When > 0, VCollectIterator will stop reading after returning this many rows.
-    int64_t _general_read_limit = -1;
-    // Number of rows already returned to the caller.
-    int64_t _general_rows_returned = 0;
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

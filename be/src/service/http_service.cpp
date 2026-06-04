@@ -113,6 +113,11 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
           _ev_http_server(new EvHttpServer(port, num_threads)),
           _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
+HttpService::HttpService(ExecEnv* env, std::unique_ptr<EvHttpServer> http_server)
+        : _env(env),
+          _ev_http_server(std::move(http_server)),
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
+
 HttpService::~HttpService() {
     stop();
 }
