@@ -32,6 +32,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/table_reader.h"
+#include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
@@ -51,6 +52,10 @@ public:
     static constexpr const char* NAME = "FileScannerV2";
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+#ifdef BE_TEST
+    static Status TEST_build_nested_children_from_access_paths(
+            reader::TableColumn* column, const std::vector<TColumnAccessPath>& access_paths);
+#endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
                   std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
