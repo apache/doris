@@ -57,6 +57,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     private final List<List<Expression>> groupingSets;
     private final Optional<List<Long>> groupingIdValues;
     private final List<NamedExpression> outputExpressions;
+    private final List<Slot> passThroughSlots;
     private final Optional<SlotReference> groupingId;
     private final boolean withInProjection;
     private final RepeatType type;
@@ -109,17 +110,23 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<SlotReference> groupingId,
             RepeatType type,
             CHILD_TYPE child) {
-        this(groupingSets, outputExpressions, Optional.empty(), Optional.empty(), groupingId, Optional.empty(),
-                true, type, child);
+        this(groupingSets, outputExpressions, ImmutableList.of(), Optional.empty(), Optional.empty(),
+                groupingId, Optional.empty(), true, type, child);
     }
 
     /**
-     * Desc: Constructor for LogicalRepeat.
+     * Desc: Constructor for LogicalRepeat (passThroughSlots version, delegates to full constructor).
      */
     private LogicalRepeat(List<List<Expression>> groupingSets, List<NamedExpression> outputExpressions,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            Optional<SlotReference> groupingId, Optional<List<Long>> groupingIdValues,
-            boolean withInProjection, RepeatType type, CHILD_TYPE child) {
+            Optional<SlotReference> groupingId, boolean withInProjection, RepeatType type, CHILD_TYPE child) {
+        this(groupingSets, outputExpressions, ImmutableList.of(), Optional.empty(), Optional.empty(),
+                groupingId, Optional.empty(), withInProjection, type, child);
+    }
+
+    private LogicalRepeat(List<List<Expression>> groupingSets, List<NamedExpression> outputExpressions,
+            List<Slot> passThroughSlots, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Optional<SlotReference> groupingId,
+            Optional<List<Long>> groupingIdValues, boolean withInProjection, RepeatType type, CHILD_TYPE child) {
         super(PlanType.LOGICAL_REPEAT, groupExpression, logicalProperties, child);
         this.groupingSets = Objects.requireNonNull(groupingSets, "groupingSets can not be null")
                 .stream()
@@ -127,6 +134,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 .collect(ImmutableList.toImmutableList());
         this.outputExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(outputExpressions, "outputExpressions can not be null"));
+        this.passThroughSlots = ImmutableList.copyOf(
+                Objects.requireNonNull(passThroughSlots, "passThroughSlots can not be null"));
         this.groupingId = groupingId;
         this.groupingIdValues = groupingIdValues.map(ImmutableList::copyOf);
         Preconditions.checkArgument(!this.groupingIdValues.isPresent()
@@ -144,6 +153,11 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
+    }
+
+    @Override
+    public List<Slot> getPassThroughSlots() {
+        return passThroughSlots;
     }
 
     public Optional<SlotReference> getGroupingId() {
@@ -182,6 +196,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return Utils.toSqlString("LogicalRepeat",
                 "groupingSets", groupingSets,
                 "outputExpressions", outputExpressions,
+                "passThroughSlots", passThroughSlots,
                 "groupingId", groupingId,
                 "groupingIdValues", groupingIdValues
         );
@@ -233,6 +248,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public List<? extends Expression> getExpressions() {
         ImmutableList.Builder<Expression> builder = ImmutableList.builder();
         builder.addAll(ExpressionUtils.flatExpressions(groupingSets)).addAll(outputExpressions);
+        builder.addAll(passThroughSlots);
         groupingId.ifPresent(builder::add);
         return builder.build();
     }
@@ -244,27 +260,28 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         }
         LogicalRepeat<?> that = (LogicalRepeat<?>) o;
         return Objects.equals(groupingSets, that.groupingSets) && Objects.equals(outputExpressions,
-                that.outputExpressions) && Objects.equals(groupingId, that.groupingId)
+                that.outputExpressions) && Objects.equals(passThroughSlots, that.passThroughSlots)
+                && Objects.equals(groupingId, that.groupingId)
                 && Objects.equals(groupingIdValues, that.groupingIdValues);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupingSets, outputExpressions, groupingId, groupingIdValues);
+        return Objects.hash(groupingSets, outputExpressions, passThroughSlots, groupingId, groupingIdValues);
     }
 
     @Override
     public LogicalRepeat<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(), Optional.empty(),
-                        groupingId, groupingIdValues, true, type, children.get(0)));
+                new LogicalRepeat<>(groupingSets, outputExpressions, passThroughSlots, Optional.empty(),
+                        Optional.empty(), groupingId, groupingIdValues, withInProjection, type, children.get(0)));
     }
 
     @Override
     public LogicalRepeat<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression,
+                new LogicalRepeat<>(groupingSets, outputExpressions, passThroughSlots, groupExpression,
                 Optional.of(getLogicalProperties()), groupingId, groupingIdValues, withInProjection, type, child()));
     }
 
@@ -273,36 +290,41 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
-                groupingId, groupingIdValues, withInProjection, type, children.get(0)));
+                new LogicalRepeat<>(groupingSets, outputExpressions, passThroughSlots, groupExpression,
+                logicalProperties, groupingId, groupingIdValues, withInProjection, type, children.get(0)));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSets(List<List<Expression>> groupingSets) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(), Optional.empty(), groupingId,
-                        groupingIdValues.filter(values -> values.size() == groupingSets.size()), true, type, child()));
+                new LogicalRepeat<>(groupingSets, outputExpressions, passThroughSlots, Optional.empty(),
+                        Optional.empty(), groupingId,
+                        groupingIdValues.filter(values -> values.size() == groupingSets.size()),
+                        withInProjection, type, child()));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressionList, Optional.empty(), Optional.empty(), groupingId,
-                        groupingIdValues.filter(values -> values.size() == groupingSets.size()), true, type, child()));
+                new LogicalRepeat<>(groupingSets, outputExpressionList, filterPassThroughSlots(outputExpressionList),
+                        Optional.empty(), Optional.empty(), groupingId,
+                        groupingIdValues.filter(values -> values.size() == groupingSets.size()),
+                        withInProjection, type, child()));
     }
 
     @Override
     public LogicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, newOutput, Optional.empty(), Optional.empty(), groupingId,
-                        groupingIdValues, true, type, child()));
+                new LogicalRepeat<>(groupingSets, newOutput, filterPassThroughSlots(newOutput), Optional.empty(),
+                        Optional.empty(), groupingId, groupingIdValues, withInProjection, type, child()));
     }
 
     public LogicalRepeat<Plan> withGroupingIdValues(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList, SlotReference groupingId, Plan child) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressionList, Optional.empty(), Optional.empty(),
-                        Optional.ofNullable(groupingId),
-                        groupingIdValues.filter(values -> values.size() == groupingSets.size()), true, type, child));
+                new LogicalRepeat<>(groupingSets, outputExpressionList, filterPassThroughSlots(outputExpressionList),
+                        Optional.empty(), Optional.empty(), Optional.ofNullable(groupingId),
+                        groupingIdValues.filter(values -> values.size() == groupingSets.size()),
+                        withInProjection, type, child));
     }
 
     /**
@@ -312,13 +334,30 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             List<NamedExpression> outputExpressionList, SlotReference groupingId, List<Long> groupingIdValues,
             Plan child) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, groupingIdValues, type, child));
+                new LogicalRepeat<>(groupingSets, outputExpressionList, filterPassThroughSlots(outputExpressionList),
+                        Optional.empty(), Optional.empty(), Optional.ofNullable(groupingId),
+                        Optional.ofNullable(groupingIdValues), withInProjection, type, child));
+    }
+
+    public LogicalRepeat<CHILD_TYPE> withPassThroughSlots(List<Slot> passThroughSlots) {
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressions, passThroughSlots, Optional.empty(),
+                        Optional.empty(), groupingId, groupingIdValues, withInProjection, type, child()));
     }
 
     public LogicalRepeat<CHILD_TYPE> withInProjection(boolean withInProjection) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions,
+                new LogicalRepeat<>(groupingSets, outputExpressions, passThroughSlots,
                 Optional.empty(), Optional.empty(), groupingId, groupingIdValues, withInProjection, type, child()));
+    }
+
+    private List<Slot> filterPassThroughSlots(List<NamedExpression> outputs) {
+        Set<Slot> outputSlots = outputs.stream()
+                .map(NamedExpression::toSlot)
+                .collect(Collectors.toSet());
+        return passThroughSlots.stream()
+                .filter(outputSlots::contains)
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override

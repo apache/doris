@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
@@ -153,6 +154,24 @@ class IvmLinearDeltaHandler {
         LogicalProject<Plan> mappedProject = new LogicalProject<>(projections.build(), deltaChild.plan);
         Slot newDmlFactor = mappedProject.getOutput().get(mappedProject.getOutput().size() - 1);
         return new IvmDeltaRewriteResult(mappedProject, newDmlFactor);
+    }
+
+    IvmDeltaRewriteResult rewriteRepeat(LogicalRepeat<? extends Plan> repeat,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+        IvmDeltaRewriteResult childResult = repeat.child().accept(visitor, ctx);
+        if (childResult.dmlFactorSlot == null) {
+            return new IvmDeltaRewriteResult(repeat.withChildren(ImmutableList.of(childResult.plan)), null);
+        }
+
+        List<NamedExpression> newOutputs = new ArrayList<>(repeat.getOutputExpressions());
+        newOutputs.add(childResult.dmlFactorSlot);
+        LogicalRepeat<Plan> newRepeat = repeat.withAggOutputAndChild(newOutputs, childResult.plan);
+        Slot repeatDmlFactorSlot = helper.findSlotByName(newRepeat.getOutput(), Column.IVM_DML_FACTOR_COL);
+
+        List<Slot> passThroughSlots = new ArrayList<>(newRepeat.getPassThroughSlots());
+        passThroughSlots.add(repeatDmlFactorSlot);
+        newRepeat = newRepeat.withPassThroughSlots(passThroughSlots);
+        return new IvmDeltaRewriteResult(newRepeat, repeatDmlFactorSlot);
     }
 
 }

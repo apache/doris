@@ -35,11 +35,13 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
@@ -247,6 +249,26 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
         Assertions.assertFalse(signature.getCanonicalString().contains("aggType="));
         Assertions.assertTrue(signature.getCanonicalString().contains(Column.IVM_AGG_COUNT_COL));
         Assertions.assertTrue(signature.getCanonicalString().contains("__DORIS_IVM_AGG_2_SUM_COL__"));
+    }
+
+    @Test
+    void testRepeatSignatureDoesNotRecordHiddenOutputs() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        LogicalRepeat<LogicalOlapScan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(
+                        ImmutableList.of(idSlot, nameSlot),
+                        ImmutableList.of(idSlot),
+                        ImmutableList.of()),
+                ImmutableList.of(idSlot, nameSlot),
+                RepeatType.GROUPING_SETS,
+                scan);
+
+        IvmPlanSignature signature = signatureForNormalizedPlan(repeat);
+
+        Assertions.assertTrue(signature.getCanonicalString().contains("plan=REPEAT[child=SCAN"));
+        Assertions.assertFalse(signature.getCanonicalString().contains("REPEAT[hiddenOutputs"));
     }
 
     @Test
