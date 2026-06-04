@@ -80,7 +80,7 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
     }
 
-    public void removeStaleDbAndStream(BaseTableStream stream) {
+    public void removeStaleStream(BaseTableStream stream) {
         rwLock.writeLock().lock();
         try {
             Optional.ofNullable(dbStreamMap.get(stream.getDatabase().getId()))

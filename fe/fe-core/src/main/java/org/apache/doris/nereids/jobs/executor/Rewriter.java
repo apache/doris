@@ -898,8 +898,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
                     if (Config.enable_table_stream) {
-                        // todo(TuskiokaKogane): add rule to split increment scan and base scan
-                        // normalize olap table stream scan after partition prune
                         rewriteJobs.addAll(jobs(
                                         topic("normalize olap table stream scan",
                                                 custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,

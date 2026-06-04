@@ -279,7 +279,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             scan.setChangeScanInfo(unboundRelation.getChangeScanInfo());
             return scan;
         }
-        if (needGenerateLogicalAggForRandomDistAggTable(scan) && !unboundRelation.getChangeScanInfo().isPresent()) {
+        if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
             // add agg on olap scan
             return preAggForRandomDistribution(scan);

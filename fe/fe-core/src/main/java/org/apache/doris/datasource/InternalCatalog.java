@@ -1018,7 +1018,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         }
         if (table instanceof BaseTableStream) {
-            Env.getCurrentEnv().getTableStreamManager().removeStaleDbAndStream((BaseTableStream) table);
+            Env.getCurrentEnv().getTableStreamManager().removeStaleStream((BaseTableStream) table);
         }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
@@ -1049,7 +1049,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
         if (table instanceof BaseTableStream) {
-            Env.getCurrentEnv().getTableStreamManager().removeStaleDbAndStream((BaseTableStream) table);
+            Env.getCurrentEnv().getTableStreamManager().removeStaleStream((BaseTableStream) table);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());

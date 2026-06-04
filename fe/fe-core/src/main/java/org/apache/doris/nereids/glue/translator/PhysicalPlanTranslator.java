@@ -957,10 +957,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
         }
 
-        // TODO:  remove this switch?
         if (olapScan.isIncrementalScan()) {
             olapScanNode.setSelectedIndexInfo(olapTable.getBaseIndexId(), false, "binlog<row> read");
         } else {
+            // TODO:  remove this switch?
             switch (olapScan.getTable().getKeysType()) {
                 case AGG_KEYS:
                 case UNIQUE_KEYS:
@@ -2975,6 +2975,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toSet());
             requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
         }
+        // Find the smallest column, for count(*) or other situation that slot is empty after prune
         SlotDescriptor smallest = getSmallestSlot(scanNode.getTupleDesc().getSlots());
         scanNode.getTupleDesc().getSlots().removeIf(s -> !requiredWithVirtualColumns.contains(s.getId()));
         if (scanNode.getTupleDesc().getSlots().isEmpty()) {
