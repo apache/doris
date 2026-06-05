@@ -27,7 +27,6 @@
 #include <roaring/roaring.hh>
 #include <string>
 
-#include "common/config.h"
 #include "core/pod_array.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/index_file_writer.h"
@@ -64,11 +63,7 @@ public:
     Status finish() override;
 
 private:
-    static inline int64_t min_segment_rows() { return config::ann_index_build_min_segment_rows; }
-
-    Status _append_vectors_to_buffer(const float* vectors, size_t num_rows);
     Status _build_and_save(Int64 min_train_rows, Int64 effective_min_rows);
-    void _release_buffered_vectors();
 
 #ifdef BE_TEST
     friend class TestAnnIndexColumnWriter;
@@ -80,7 +75,6 @@ private:
     std::shared_ptr<VectorIndex> _vector_index;
     PODArray<float> _buffered_vectors;
     int64_t _total_rows = 0;
-    int64_t _min_segment_rows = 0;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;

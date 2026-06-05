@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 
@@ -51,7 +52,6 @@ Status AnnIndexColumnWriter::init() {
 
     _dir = compound_dir.value();
 
-    _min_segment_rows = AnnIndexColumnWriter::min_segment_rows();
     _vector_index = nullptr;
     const auto& properties = _index_meta->properties();
     const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
@@ -87,7 +87,8 @@ Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values
 }
 
 void AnnIndexColumnWriter::close_on_error() {
-    _release_buffered_vectors();
+    PODArray<float> empty_buffered_vectors;
+    _buffered_vectors.swap(empty_buffered_vectors);
 }
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
@@ -111,7 +112,8 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
     // The offsets check above guarantees every array row matches the ANN index dimension.
-    RETURN_IF_ERROR(_append_vectors_to_buffer(p, num_rows));
+    DCHECK(p != nullptr);
+    _buffered_vectors.insert(_buffered_vectors.end(), p, p + num_rows * dim);
     _total_rows += cast_set<int64_t>(num_rows);
 
     return Status::OK();
@@ -137,26 +139,18 @@ Status AnnIndexColumnWriter::finish() {
 
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
     const Int64 effective_min_rows =
-            std::max(min_train_rows, cast_set<Int64>(_min_segment_rows));
+            std::max(min_train_rows, cast_set<Int64>(config::ann_index_build_min_segment_rows));
     if (_total_rows < effective_min_rows) {
         LOG_INFO(
                 "Total data size {} is less than minimum {} rows required for ANN index build. "
                 "Skipping index building for this segment.",
                 _total_rows, effective_min_rows);
-        _release_buffered_vectors();
+        PODArray<float> empty_buffered_vectors;
+        _buffered_vectors.swap(empty_buffered_vectors);
         return _index_file_writer->delete_index(_index_meta);
     }
 
     return _build_and_save(min_train_rows, effective_min_rows);
-}
-
-Status AnnIndexColumnWriter::_append_vectors_to_buffer(const float* vectors, size_t num_rows) {
-    DCHECK(vectors != nullptr);
-    DCHECK(num_rows > 0);
-
-    const size_t dim = _vector_index->get_dimension();
-    _buffered_vectors.insert(_buffered_vectors.end(), vectors, vectors + num_rows * dim);
-    return Status::OK();
 }
 
 Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effective_min_rows) {
@@ -169,14 +163,10 @@ Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effecti
         RETURN_IF_ERROR(_vector_index->train(train_rows, _buffered_vectors.data()));
     }
     RETURN_IF_ERROR(_vector_index->add(train_rows, _buffered_vectors.data()));
-    _release_buffered_vectors();
-    return _vector_index->save(_dir.get());
-}
-
-void AnnIndexColumnWriter::_release_buffered_vectors() {
     // PODArray::clear() keeps the allocated capacity. Swap with an empty array so the
     // full-segment build buffer is released before saving the index.
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
+    return _vector_index->save(_dir.get());
 }
 } // namespace doris::segment_v2
