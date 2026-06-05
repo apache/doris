@@ -28,6 +28,10 @@ public:
     ~HiveReader() final = default;
 
     Status init(reader::TableReadOptions&& options) override;
+    reader::TableColumnMappingMode default_mapping_mode() const override { return _mode; }
+
+private:
+    reader::TableColumnMappingMode _mode = reader::TableColumnMappingMode::BY_NAME;
 };
 
 } // namespace doris::hive

@@ -241,6 +241,9 @@ protected:
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos);
+    virtual TableColumnMappingMode default_mapping_mode() const {
+        return TableColumnMappingMode::BY_NAME;
+    }
 
     // 打开当前具体 reader。
     // 子类在这里基于当前 split/task 初始化底层 FileReader。
@@ -248,7 +251,14 @@ protected:
         // 1. Get file schema and create column mapping.
         std::vector<SchemaField> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        // TODO: It's different for paimon/hudi/iceberg
+        bool has_field_id = !file_schema.empty() && file_schema.front().id >= 0;
         _data_reader.file_schema = file_schema;
+        _mapper_options.mode = default_mapping_mode() == TableColumnMappingMode::BY_FIELD_ID
+                                       ? (has_field_id ? TableColumnMappingMode::BY_FIELD_ID
+                                                       : TableColumnMappingMode::BY_NAME)
+                                       : default_mapping_mode();
+
         _data_reader.column_mapper = TableColumnMapper(_mapper_options);
         RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_projected_columns,
                                                                   _partition_values, file_schema));
@@ -272,17 +282,17 @@ protected:
 
         // 4. Build file block layout from file schema and column mapping. The layout describes
         // the block returned by file reader before table-column materialization.
-        for (const auto& [file_column_id, block_position] : file_request->column_positions) {
+        for (const auto& [field_id, block_position] : file_request->column_positions) {
             DORIS_CHECK(block_position < _data_reader.file_block_layout.size());
-            const auto* field = _find_schema_field(_data_reader.file_schema, file_column_id);
-            DORIS_CHECK(field != nullptr);
+            const auto* field = _find_schema_field(_data_reader.file_schema, field_id);
+            DORIS_CHECK(field != nullptr) << field_id << " " << debug_string();
 
             SchemaField projected_field;
             {
                 auto it = std::find_if(
                         file_request->non_predicate_columns.begin(),
                         file_request->non_predicate_columns.end(),
-                        [&](const FieldProjection& p) { return p.field_id == file_column_id; });
+                        [&](const FieldProjection& p) { return p.field_id == field_id; });
                 if (it != file_request->non_predicate_columns.end()) {
                     RETURN_IF_ERROR(_project_schema_field(*field, *it, &projected_field));
                 }
@@ -291,13 +301,13 @@ protected:
                 auto it = std::find_if(
                         file_request->predicate_columns.begin(),
                         file_request->predicate_columns.end(),
-                        [&](const FieldProjection& p) { return p.field_id == file_column_id; });
+                        [&](const FieldProjection& p) { return p.field_id == field_id; });
                 if (it != file_request->predicate_columns.end()) {
                     RETURN_IF_ERROR(_project_schema_field(*field, *it, &projected_field));
                 }
             }
             _data_reader.file_block_layout[block_position] = {
-                    .file_column_id = file_column_id,
+                    .file_column_id = field_id,
                     .name = projected_field.name,
                     .type = projected_field.type,
             };
@@ -812,9 +822,9 @@ protected:
 
 private:
     static const SchemaField* _find_schema_field(const std::vector<SchemaField>& schema,
-                                                 ColumnId column_id) {
+                                                 ColumnId field_id) {
         for (const auto& field : schema) {
-            if (field.id == column_id) {
+            if (field.id == field_id) {
                 return &field;
             }
         }
