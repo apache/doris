@@ -38,17 +38,18 @@ class ColumnPredicate;
 
 namespace doris::reader {
 
-struct TableColumnDefinition;
+struct ColumnDefinition;
 struct TableFilter;
 
-// Table-level simple predicates grouped by FE column unique id. The key is not LocalColumnId:
-// TableColumnMapper resolves it through TableColumnDefinition before creating file pruning hints.
-using TableColumnPredicates = std::map<int32_t, std::vector<std::shared_ptr<ColumnPredicate>>>;
+// Table-level simple predicates grouped by table/global output position. The key is not
+// LocalColumnId: TableColumnMapper resolves it through ColumnMapping before creating file pruning
+// hints.
+using TableColumnPredicates = std::map<GlobalIndex, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
-    // Match by TableColumnIdentifier::FIELD_ID against SchemaField::id.
+    // Match by ColumnDefinition::Identifier::FIELD_ID against SchemaField::id.
     BY_FIELD_ID,
-    // Match by TableColumnIdentifier::NAME / logical name against SchemaField::name.
+    // Match by ColumnDefinition::Identifier::NAME / logical name against SchemaField::name.
     BY_NAME,
     // Match top-level columns by file position. This mainly serves Hive1 ORC style files whose
     // column names are placeholder values such as `_col0` / `_col1`, where position is the only
@@ -65,9 +66,10 @@ enum TableVirtualColumnType {
 // 单个 table column 到 file column 的映射结果。
 // 这是 table 层和 file 层的核心边界对象。
 struct ColumnMapping {
-    // Table/global column id used by SlotRef and table-level predicates. It is intentionally not a
-    // LocalColumnId.
-    int32_t table_column_id = -1;
+    // Position of the top-level projected column in the table/global output block. Table-level
+    // filters and column predicates refer to this index after FileScannerV2 translates FE ids at
+    // the scanner boundary.
+    GlobalIndex global_index;
     std::string table_column_name;
     // File-local field id for the mapped node. For a root mapping it is convertible to
     // LocalColumnId; for a nested child mapping it is the child id under its parent projection.
@@ -132,11 +134,7 @@ public:
     // 建立 table schema 到 file schema 的列映射。
     // 输出的 ColumnMapping 描述 table column 如何从 file column、常量列或表达式得到；
     // 后续 projection、filter localization 和 table block finalize 都应复用这份映射。
-    virtual Status create_mapping(const std::vector<TableColumnDefinition>& projected_columns,
-                                  const std::map<std::string, Field>& partition_values,
-                                  const std::vector<SchemaField>& file_schema);
-    virtual Status create_mapping(const std::vector<TableColumnDefinition>& projected_columns,
-                                  const std::vector<int32_t>& projected_column_unique_ids,
+    virtual Status create_mapping(const std::vector<ColumnDefinition>& projected_columns,
                                   const std::map<std::string, Field>& partition_values,
                                   const std::vector<SchemaField>& file_schema);
 
@@ -145,12 +143,7 @@ public:
     // pruning hints，不参与 batch row filtering。
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const TableColumnPredicates& table_column_predicates,
-                                       const std::vector<TableColumnDefinition>& projected_columns,
-                                       FileScanRequest* file_request);
-    virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
-                                       const TableColumnPredicates& table_column_predicates,
-                                       const std::vector<TableColumnDefinition>& projected_columns,
-                                       const std::vector<int32_t>& projected_column_unique_ids,
+                                       const std::vector<ColumnDefinition>& projected_columns,
                                        FileScanRequest* file_request);
 
     // 将 table-level filter 定位到文件 schema。
@@ -163,26 +156,24 @@ public:
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
     std::string debug_string() const;
 
-    static std::string debug_string(const TableColumn& column);
+    static std::string debug_string(const ColumnDefinition& column);
     static std::string debug_string(const SchemaField& field);
     static std::string debug_string(const FieldProjection& projection);
     static std::string debug_string(const FileColumnPredicateFilter& filter);
     static std::string debug_string(const FileScanRequest& request);
 
 private:
-    const SchemaField* _find_file_field(const TableColumnDefinition& table_column,
+    const SchemaField* _find_file_field(const ColumnDefinition& table_column,
                                         const std::vector<SchemaField>& file_schema) const;
-    Status _create_direct_mapping(const TableColumnDefinition& table_column,
+    Status _create_direct_mapping(const ColumnDefinition& table_column,
                                   const SchemaField& file_field, ColumnMapping* mapping) const;
 
-    Status _create_by_index_mapping(const TableColumnDefinition& table_column,
+    Status _create_by_index_mapping(const ColumnDefinition& table_column,
                                     const std::vector<SchemaField>& file_schema,
                                     ColumnMapping* mapping) const;
 
-    ColumnMapping* _find_mapping(int32_t table_column_id);
-    const ColumnMapping* _find_mapping(int32_t table_column_id) const;
-    ColumnMapping* _find_mapping(const TableColumnDefinition& table_column);
-    const ColumnMapping* _find_mapping(const TableColumnDefinition& table_column) const;
+    ColumnMapping* _find_mapping(GlobalIndex global_index);
+    const ColumnMapping* _find_mapping(GlobalIndex global_index) const;
 
     bool _is_same_type(const DataTypePtr& table_type, const DataTypePtr& file_type) const {
         DORIS_CHECK(table_type != nullptr);

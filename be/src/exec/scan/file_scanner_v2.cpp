@@ -48,7 +48,9 @@
 #include "exec/operator/scan_operator.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "format/format_common.h"
+#include "format/reader/expr/slot_ref.h"
 #include "format/reader/table/hive_reader.h"
 #include "format/reader/table/paimon_reader.h"
 #include "format/reader/table_reader.h"
@@ -98,8 +100,8 @@ std::string access_path_to_string(const std::vector<std::string>& path) {
     return fmt::format("{}", fmt::join(path, "."));
 }
 
-reader::TableColumnDefinition* find_or_add_child(reader::TableColumnDefinition* parent, int32_t id,
-                                                 std::string name, DataTypePtr type) {
+reader::ColumnDefinition* find_or_add_child(reader::ColumnDefinition* parent, int32_t id,
+                                            std::string name, DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
     for (auto& child : parent->children) {
         if ((child.identifier.has_field_id() && child.identifier.field_id == id) ||
@@ -108,7 +110,7 @@ reader::TableColumnDefinition* find_or_add_child(reader::TableColumnDefinition* 
         }
     }
     parent->children.push_back({
-            .identifier = reader::TableColumnIdentifier::by_field_id(id),
+            .identifier = reader::ColumnDefinition::Identifier::by_field_id(id),
             .name = std::move(name),
             .type = std::move(type),
             .children = {},
@@ -135,11 +137,12 @@ DataTypePtr find_struct_child_type_by_name(const DataTypeStruct& struct_type,
     return nullptr;
 }
 
-reader::TableColumnDefinition build_schema_column_from_external_field(
+reader::ColumnDefinition build_schema_column_from_external_field(
         const schema::external::TField& field, DataTypePtr type) {
-    reader::TableColumnDefinition column {
-            .identifier = field.__isset.id ? reader::TableColumnIdentifier::by_field_id(field.id)
-                                           : reader::TableColumnIdentifier {},
+    reader::ColumnDefinition column {
+            .identifier = field.__isset.id
+                                  ? reader::ColumnDefinition::Identifier::by_field_id(field.id)
+                                  : reader::ColumnDefinition::Identifier {},
             .name = field.__isset.name ? field.name : "",
             .type = std::move(type),
             .children = {},
@@ -211,15 +214,15 @@ reader::TableColumnDefinition build_schema_column_from_external_field(
     return column;
 }
 
-const reader::TableColumnDefinition* find_schema_child_by_path(
-        const reader::TableColumnDefinition* schema_column, const std::string& child_path) {
+const reader::ColumnDefinition* find_schema_child_by_path(
+        const reader::ColumnDefinition* schema_column, const std::string& child_path) {
     if (schema_column == nullptr) {
         return nullptr;
     }
     int32_t parsed_field_id = -1;
     if (parse_non_negative_int(child_path, &parsed_field_id)) {
         const auto child_it = std::ranges::find_if(
-                schema_column->children, [&](const reader::TableColumnDefinition& child) {
+                schema_column->children, [&](const reader::ColumnDefinition& child) {
                     return child.identifier.has_field_id() &&
                            child.identifier.field_id == parsed_field_id;
                 });
@@ -231,8 +234,15 @@ const reader::TableColumnDefinition* find_schema_child_by_path(
     return child_it == schema_column->children.end() ? nullptr : &*child_it;
 }
 
-const schema::external::TField* find_external_root_field(
-        const TFileScanRangeParams* params, const reader::TableColumnDefinition& column) {
+int32_t schema_field_id(const reader::ColumnDefinition* schema_column) {
+    if (schema_column == nullptr || !schema_column->identifier.has_field_id()) {
+        return -1;
+    }
+    return schema_column->identifier.field_id;
+}
+
+const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
+                                                         const reader::ColumnDefinition& column) {
     if (params == nullptr || !params->__isset.history_schema_info ||
         params->history_schema_info.empty()) {
         return nullptr;
@@ -254,10 +264,6 @@ const schema::external::TField* find_external_root_field(
         const auto* field = get_field_ptr(field_ptr);
         if (field == nullptr) {
             continue;
-        }
-        if (field->__isset.id && column.identifier.has_field_id() &&
-            field->id == column.identifier.field_id) {
-            return field;
         }
         if (field->__isset.name && to_lower(field->name) == to_lower(column.name)) {
             return field;
@@ -300,15 +306,15 @@ void insert_access_path(AccessPathNode* root, const std::vector<std::string>& pa
     insert_access_path(&root->children[path[path_idx]], path, path_idx + 1);
 }
 
-Status build_nested_children_from_access_node(reader::TableColumnDefinition* column,
+Status build_nested_children_from_access_node(reader::ColumnDefinition* column,
                                               const DataTypePtr& type, const AccessPathNode& node,
                                               const std::string& path,
-                                              const reader::TableColumnDefinition* schema_column);
+                                              const reader::ColumnDefinition* schema_column);
 
-Status build_struct_children_from_access_node(reader::TableColumnDefinition* column,
+Status build_struct_children_from_access_node(reader::ColumnDefinition* column,
                                               const DataTypeStruct& struct_type,
                                               const AccessPathNode& node, const std::string& path,
-                                              const reader::TableColumnDefinition* schema_column) {
+                                              const reader::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     for (const auto& [child_path, child_node] : node.children) {
         // Currently we do not support accessing struct children by position (e.g. "col.0") because it can be ambiguous and error-prone when the struct schema evolves. We only support accessing struct children by name (e.g. "col.child"). If needed, we can consider adding support for position-based access in the future with careful design and consideration.
@@ -320,10 +326,10 @@ Status build_struct_children_from_access_node(reader::TableColumnDefinition* col
 
         // Try to find the child field in the schema column first. If not found, fallback to find the child field in the struct type by name (case-insensitive).
         const auto* schema_child = find_schema_child_by_path(schema_column, child_path);
-        int32_t field_id = schema_child == nullptr ? -1 : schema_child->id;
+        int32_t field_id = schema_field_id(schema_child);
         std::string field_name = schema_child == nullptr ? child_path : schema_child->name;
         DataTypePtr field_type = schema_child == nullptr ? nullptr : schema_child->type;
-        if (schema_child == nullptr) {
+        if (field_id < 0 || field_type == nullptr) {
             for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
                 if (to_lower(struct_type.get_element_name(field_idx)) == to_lower(field_name)) {
                     field_id = cast_set<int32_t>(field_idx);
@@ -345,10 +351,10 @@ Status build_struct_children_from_access_node(reader::TableColumnDefinition* col
     return Status::OK();
 }
 
-Status build_map_children_from_access_node(reader::TableColumnDefinition* column,
+Status build_map_children_from_access_node(reader::ColumnDefinition* column,
                                            const DataTypeMap& map_type, const AccessPathNode& node,
                                            const std::string& path,
-                                           const reader::TableColumnDefinition* schema_column) {
+                                           const reader::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     AccessPathNode key_node;
     AccessPathNode value_node;
@@ -427,10 +433,10 @@ Status build_map_children_from_access_node(reader::TableColumnDefinition* column
     return Status::OK();
 }
 
-Status build_nested_children_from_access_node(reader::TableColumnDefinition* column,
+Status build_nested_children_from_access_node(reader::ColumnDefinition* column,
                                               const DataTypePtr& type, const AccessPathNode& node,
                                               const std::string& path,
-                                              const reader::TableColumnDefinition* schema_column) {
+                                              const reader::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (node.project_all || node.children.empty()) {
         // If project_all is true or there is no specific child path, we need to project all children of the complex type.
@@ -465,9 +471,9 @@ Status build_nested_children_from_access_node(reader::TableColumnDefinition* col
     }
 }
 
-Status build_nested_children_from_access_paths(reader::TableColumnDefinition* column,
+Status build_nested_children_from_access_paths(reader::ColumnDefinition* column,
                                                const TColumnAccessPaths& access_paths,
-                                               const reader::TableColumnDefinition* schema_column) {
+                                               const reader::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (!is_complex_type(remove_nullable(column->type)->get_primitive_type())) {
         return Status::OK();
@@ -494,7 +500,8 @@ Status build_nested_children_from_access_paths(reader::TableColumnDefinition* co
         }
         int32_t top_level_id = -1;
         if (to_lower(path.front()) != to_lower(column->name) &&
-            (!parse_non_negative_int(path.front(), &top_level_id) || top_level_id != column->id)) {
+            (!parse_non_negative_int(path.front(), &top_level_id) ||
+             !column->identifier.has_field_id() || top_level_id != column->identifier.field_id)) {
             return Status::NotSupported("FileScannerV2 access path {} does not match slot {}",
                                         access_path_to_string(path), column->name);
         }
@@ -505,26 +512,67 @@ Status build_nested_children_from_access_paths(reader::TableColumnDefinition* co
                                                   schema_column);
 }
 
-Status build_nested_children_from_access_paths(reader::TableColumnDefinition* column,
+Status build_nested_children_from_access_paths(reader::ColumnDefinition* column,
                                                const SlotDescriptor* slot_desc,
-                                               const reader::TableColumnDefinition* schema_column) {
+                                               const reader::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
     return build_nested_children_from_access_paths(column, slot_desc->all_access_paths(),
                                                    schema_column);
 }
 
+Status rewrite_slot_refs_to_global_index(
+        VExprSPtr* expr,
+        const std::unordered_map<int32_t, reader::GlobalIndex>& column_unique_id_to_global_index) {
+    DORIS_CHECK(expr != nullptr);
+    if (*expr == nullptr) {
+        return Status::OK();
+    }
+    if ((*expr)->is_slot_ref()) {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(expr->get());
+        const auto global_index_it =
+                column_unique_id_to_global_index.find(slot_ref->column_uniq_id());
+        if (global_index_it == column_unique_id_to_global_index.end()) {
+            if (slot_ref->column_uniq_id() >= 0) {
+                return Status::InternalError("Unknown projected column unique id {} in conjunct",
+                                             slot_ref->column_uniq_id());
+            }
+            DORIS_CHECK(slot_ref->slot_id() >= 0);
+            const auto global_index = reader::GlobalIndex(cast_set<size_t>(slot_ref->slot_id()));
+            *expr = TableSlotRef::create_shared(cast_set<int>(global_index.value()),
+                                                cast_set<int>(global_index.value()), -1,
+                                                slot_ref->data_type(), slot_ref->column_name());
+            return Status::OK();
+        }
+        const auto global_index = global_index_it->second;
+        *expr = TableSlotRef::create_shared(cast_set<int>(global_index.value()),
+                                            cast_set<int>(global_index.value()), -1,
+                                            slot_ref->data_type(), slot_ref->column_name());
+        return Status::OK();
+    }
+    auto children = (*expr)->children();
+    for (auto& child : children) {
+        if (child == nullptr) {
+            continue;
+        }
+        RETURN_IF_ERROR(
+                rewrite_slot_refs_to_global_index(&child, column_unique_id_to_global_index));
+    }
+    (*expr)->set_children(std::move(children));
+    return Status::OK();
+}
+
 } // namespace
 
 #ifdef BE_TEST
 Status FileScannerV2::TEST_build_nested_children_from_access_paths(
-        reader::TableColumnDefinition* column, const TColumnAccessPaths& access_paths) {
+        reader::ColumnDefinition* column, const TColumnAccessPaths& access_paths) {
     return build_nested_children_from_access_paths(column, access_paths, nullptr);
 }
 
 Status FileScannerV2::TEST_build_nested_children_from_access_paths(
-        reader::TableColumnDefinition* column, const TColumnAccessPaths& access_paths,
-        const reader::TableColumnDefinition* schema_column) {
+        reader::ColumnDefinition* column, const TColumnAccessPaths& access_paths,
+        const reader::ColumnDefinition* schema_column) {
     return build_nested_children_from_access_paths(column, access_paths, schema_column);
 }
 #endif
@@ -640,11 +688,12 @@ Status FileScannerV2::_create_table_reader(const TFileRangeDesc& range) {
 
     reader::TableColumnPredicates table_column_predicates;
     RETURN_IF_ERROR(_build_table_column_predicates(&table_column_predicates));
+    VExprContextSPtrs table_conjuncts;
+    RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
-            .projected_column_unique_ids = _projected_column_unique_ids,
             .column_predicates = std::move(table_column_predicates),
-            .conjuncts = _conjuncts,
+            .conjuncts = std::move(table_conjuncts),
             .format = format,
             .scan_params = const_cast<TFileScanRangeParams*>(_params),
             .io_ctx = _io_ctx,
@@ -732,6 +781,8 @@ Status FileScannerV2::_parse_partition_value(const SlotDescriptor* slot_desc,
 
 Status FileScannerV2::_init_expr_ctxes() {
     _slot_id_to_desc.clear();
+    _slot_id_to_global_index.clear();
+    _column_unique_id_to_global_index.clear();
     _partition_slot_descs.clear();
     for (const auto* slot_desc : _output_tuple_desc->slots()) {
         _slot_id_to_desc.emplace(slot_desc->id(), slot_desc);
@@ -742,11 +793,10 @@ Status FileScannerV2::_init_expr_ctxes() {
 
 Status FileScannerV2::_build_projected_columns() {
     _projected_columns.clear();
-    _projected_column_unique_ids.clear();
     _projected_columns.reserve(_params->required_slots.size());
-    _projected_column_unique_ids.reserve(_params->required_slots.size());
 
-    for (const auto& slot_info : _params->required_slots) {
+    for (size_t slot_idx = 0; slot_idx < _params->required_slots.size(); ++slot_idx) {
+        const auto& slot_info = _params->required_slots[slot_idx];
         const auto it = _slot_id_to_desc.find(slot_info.slot_id);
         if (it == _slot_id_to_desc.end()) {
             return Status::InternalError("Unknown source slot descriptor, slot_id={}",
@@ -754,11 +804,12 @@ Status FileScannerV2::_build_projected_columns() {
         }
         auto column = _build_table_column(it->second);
         RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
-        std::optional<reader::TableColumnDefinition> schema_column;
+        std::optional<reader::ColumnDefinition> schema_column;
         if (const auto* schema_field = find_external_root_field(_params, column);
             schema_field != nullptr) {
             // If the column has a matching root field in the schema, use the schema field to build the column's nested children.
             schema_column = build_schema_column_from_external_field(*schema_field, column.type);
+            column.identifier = schema_column->identifier;
         }
         RETURN_IF_ERROR(build_nested_children_from_access_paths(
                 &column, it->second, schema_column.has_value() ? &*schema_column : nullptr));
@@ -766,7 +817,9 @@ Status FileScannerV2::_build_projected_columns() {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(column.name, it->second);
         }
-        _projected_column_unique_ids.push_back(it->second->col_unique_id());
+        const auto global_index = reader::GlobalIndex(slot_idx);
+        _slot_id_to_global_index.emplace(slot_info.slot_id, global_index);
+        _column_unique_id_to_global_index.emplace(it->second->col_unique_id(), global_index);
         _projected_columns.push_back(std::move(column));
     }
     return Status::OK();
@@ -788,10 +841,10 @@ Status FileScannerV2::_build_default_expr(const TFileScanSlotInfo& slot_info,
     return Status::OK();
 }
 
-reader::TableColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor* slot_desc) {
+reader::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor* slot_desc) {
     DORIS_CHECK(slot_desc != nullptr);
-    reader::TableColumnDefinition column;
-    column.identifier = reader::TableColumnIdentifier::by_field_id(slot_desc->col_unique_id());
+    reader::ColumnDefinition column;
+    column.identifier = reader::ColumnDefinition::Identifier::by_name(slot_desc->col_name());
     column.name = slot_desc->col_name();
     column.type = slot_desc->get_data_type_ptr();
     return column;
@@ -807,7 +860,27 @@ Status FileScannerV2::_build_table_column_predicates(
         if (it == _slot_id_to_desc.end()) {
             continue;
         }
-        (*predicates)[it->second->col_unique_id()] = slot_predicate_list;
+        const auto global_index_it = _slot_id_to_global_index.find(slot_id);
+        if (global_index_it == _slot_id_to_global_index.end()) {
+            continue;
+        }
+        (*predicates)[global_index_it->second] = slot_predicate_list;
+    }
+    return Status::OK();
+}
+
+Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
+    DORIS_CHECK(conjuncts != nullptr);
+    conjuncts->clear();
+    conjuncts->reserve(_conjuncts.size());
+    for (const auto& conjunct : _conjuncts) {
+        VExprContextSPtr table_conjunct;
+        RETURN_IF_ERROR(conjunct->clone(_state, table_conjunct));
+        auto root = table_conjunct->root();
+        RETURN_IF_ERROR(
+                rewrite_slot_refs_to_global_index(&root, _column_unique_id_to_global_index));
+        table_conjunct->set_root(root);
+        conjuncts->push_back(std::move(table_conjunct));
     }
     return Status::OK();
 }

@@ -402,8 +402,8 @@ TEST(FileScannerV2Test, BuildNestedChildrenFromAccessPaths) {
     const auto key_type = std::make_shared<DataTypeString>();
     const auto value_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"b", "c"});
-    reader::TableColumnDefinition column {
-            .identifier = reader::TableColumnIdentifier::by_field_id(100),
+    reader::ColumnDefinition column {
+            .identifier = reader::ColumnDefinition::Identifier::by_field_id(100),
             .name = "m",
             .type = std::make_shared<DataTypeMap>(key_type, value_type)};
 
@@ -433,8 +433,8 @@ TEST(FileScannerV2Test, BuildArrayStructChildrenFromAccessPaths) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-    reader::TableColumnDefinition column {
-            .identifier = reader::TableColumnIdentifier::by_field_id(100),
+    reader::ColumnDefinition column {
+            .identifier = reader::ColumnDefinition::Identifier::by_field_id(100),
             .name = "arr",
             .type = std::make_shared<DataTypeArray>(element_type),
     };
@@ -460,21 +460,21 @@ TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto struct_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-    reader::TableColumnDefinition column {
-            .identifier = reader::TableColumnIdentifier::by_field_id(100),
+    reader::ColumnDefinition column {
+            .identifier = reader::ColumnDefinition::Identifier::by_field_id(100),
             .name = "s",
             .type = struct_type,
     };
-    reader::TableColumnDefinition schema_column {
-            .identifier = reader::TableColumnIdentifier::by_field_id(100),
+    reader::ColumnDefinition schema_column {
+            .identifier = reader::ColumnDefinition::Identifier::by_field_id(100),
             .name = "s",
             .type = struct_type,
             .children =
                     {
-                            {.identifier = reader::TableColumnIdentifier::by_field_id(101),
+                            {.identifier = reader::ColumnDefinition::Identifier::by_field_id(101),
                              .name = "a",
                              .type = int_type},
-                            {.identifier = reader::TableColumnIdentifier::by_field_id(205),
+                            {.identifier = reader::ColumnDefinition::Identifier::by_field_id(205),
                              .name = "b",
                              .type = int_type},
                     },
@@ -494,8 +494,8 @@ TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
 
 TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    reader::TableColumnDefinition column {
-            .identifier = reader::TableColumnIdentifier::by_field_id(100),
+    reader::ColumnDefinition column {
+            .identifier = reader::ColumnDefinition::Identifier::by_field_id(100),
             .name = "s",
             .type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
                                                      Strings {"a", "b"}),

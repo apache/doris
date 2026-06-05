@@ -111,9 +111,10 @@ std::string partition_values_debug_string(const std::map<std::string, Field>& pa
 
 std::string table_filter_debug_string(const TableFilter& filter) {
     std::ostringstream out;
-    out << "TableFilter{has_conjunct=" << (filter.conjunct != nullptr) << ", column_unique_ids="
-        << join_table_reader_debug_strings(filter.column_unique_ids,
-                                           [](int32_t column_id) { return std::to_string(column_id); })
+    out << "TableFilter{has_conjunct=" << (filter.conjunct != nullptr) << ", global_indices="
+        << join_table_reader_debug_strings(
+                   filter.global_indices,
+                   [](GlobalIndex global_index) { return std::to_string(global_index.value()); })
         << "}";
     return out.str();
 }
@@ -122,26 +123,26 @@ std::string table_column_predicates_debug_string(const TableColumnPredicates& pr
     std::ostringstream out;
     out << "{";
     size_t idx = 0;
-    for (const auto& [slot_id, column_predicates] : predicates) {
+    for (const auto& [global_index, column_predicates] : predicates) {
         if (idx++ > 0) {
             out << ", ";
         }
-        out << slot_id << ":{predicate_count=" << column_predicates.size() << "}";
+        out << global_index.value() << ":{predicate_count=" << column_predicates.size() << "}";
     }
     out << "}";
     return out.str();
 }
 
-void collect_table_column_unique_ids(const VExprSPtr& expr, std::set<int32_t>* column_unique_ids) {
+void collect_global_indices(const VExprSPtr& expr, std::set<GlobalIndex>* global_indices) {
     if (expr == nullptr) {
         return;
     }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        column_unique_ids->insert(slot_ref->column_uniq_id());
+        global_indices->insert(GlobalIndex(cast_set<size_t>(slot_ref->slot_id())));
     }
     for (const auto& child : expr->children()) {
-        collect_table_column_unique_ids(child, column_unique_ids);
+        collect_global_indices(child, global_indices);
     }
 }
 
@@ -150,14 +151,14 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
     if (conjunct == nullptr) {
         return Status::OK();
     }
-    std::set<int32_t> columns;
-    collect_table_column_unique_ids(conjunct->root(), &columns);
-    if (!columns.empty()) {
+    std::set<GlobalIndex> global_indices;
+    collect_global_indices(conjunct->root(), &global_indices);
+    if (!global_indices.empty()) {
         TableFilter table_filter;
         table_filter.conjunct = nullptr;
         RETURN_IF_ERROR(conjunct->clone(state, table_filter.conjunct));
-        for (const auto column_id : columns) {
-            table_filter.column_unique_ids.push_back(column_id);
+        for (const auto global_index : global_indices) {
+            table_filter.global_indices.push_back(global_index);
         }
         table_filters->push_back(std::move(table_filter));
     }
@@ -257,7 +258,7 @@ std::string TableReader::debug_string() const {
         << ", has_scanner_profile=" << (_scanner_profile != nullptr)
         << ", mapper_options=" << _mapper_options.debug_string() << ", projected_columns="
         << join_table_reader_debug_strings(_projected_columns,
-                                           [](const TableColumn& column) {
+                                           [](const ColumnDefinition& column) {
                                                return TableColumnMapper::debug_string(column);
                                            })
         << ", partition_values=" << partition_values_debug_string(_partition_values)
@@ -295,9 +296,6 @@ Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
     _push_down_agg_type = options.push_down_agg_type;
     _projected_columns = std::move(options.projected_columns);
-    _projected_column_unique_ids = std::move(options.projected_column_unique_ids);
-    DORIS_CHECK(_projected_column_unique_ids.empty() ||
-                _projected_column_unique_ids.size() == _projected_columns.size());
     _system_properties = create_system_properties(_scan_params);
     _profile = std::move(options.profile);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;

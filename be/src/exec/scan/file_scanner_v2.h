@@ -54,12 +54,10 @@ public:
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
     static Status TEST_build_nested_children_from_access_paths(
-            reader::TableColumnDefinition* column,
-            const std::vector<TColumnAccessPath>& access_paths);
+            reader::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths);
     static Status TEST_build_nested_children_from_access_paths(
-            reader::TableColumnDefinition* column,
-            const std::vector<TColumnAccessPath>& access_paths,
-            const reader::TableColumnDefinition* schema_column);
+            reader::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths,
+            const reader::ColumnDefinition* schema_column);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -92,8 +90,9 @@ private:
                                   bool is_null, Field* field) const;
     Status _build_projected_columns();
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
-    static reader::TableColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
+    static reader::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
     Status _build_table_column_predicates(reader::TableColumnPredicates* predicates) const;
+    Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
     static Status _to_file_format(TFileFormatType::type format_type, reader::FileFormat* format);
 
     const TFileScanRangeParams* _params = nullptr;
@@ -103,9 +102,10 @@ private:
     std::string _current_range_path;
 
     std::unique_ptr<reader::TableReader> _table_reader;
-    std::vector<reader::TableColumnDefinition> _projected_columns;
-    std::vector<int32_t> _projected_column_unique_ids;
+    std::vector<reader::ColumnDefinition> _projected_columns;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
+    std::unordered_map<int32_t, reader::GlobalIndex> _slot_id_to_global_index;
+    std::unordered_map<int32_t, reader::GlobalIndex> _column_unique_id_to_global_index;
     std::unordered_map<std::string, const SlotDescriptor*> _partition_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
