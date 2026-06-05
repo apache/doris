@@ -66,10 +66,12 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
                 column_schema.name);
     }
     const auto& child_projection = projection.children[0];
-    for (const auto& child_schema : column_schema.children) {
-        if (child_schema->field_id == child_projection.field_id()) {
-            return find_projected_minmax_leaf(*child_schema, child_projection, leaf_schema);
-        }
+    const auto child_schema_it =
+            std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
+                return child_schema->field_id == child_projection.field_id();
+            });
+    if (child_schema_it != column_schema.children.end()) {
+        return find_projected_minmax_leaf(**child_schema_it, child_projection, leaf_schema);
     }
     return Status::InvalidArgument("Invalid parquet aggregate projection field id {} for column {}",
                                    child_projection.field_id(), column_schema.name);

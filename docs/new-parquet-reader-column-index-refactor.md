@@ -222,9 +222,15 @@ leaf file column name 和 leaf file type 生成。
 file child。该 child 不会塞进 `ColumnMapping::child_mappings`，因为 `child_mappings` 还参与
 TableReader 输出 struct/list/map 的 materialization，混入非输出 child 会改变最终输出 shape。
 
-new parquet reader 使用 `LocalColumnIndex` 创建 column reader。`STRUCT` 已按 projection
-裁剪 child reader：full projection 读取全部 children，partial projection 只为选中的 child
-创建 reader。`LIST` 和 `MAP` 已有 projection 校验和部分递归传递，但支持范围更保守。
+new parquet reader 使用 `LocalColumnIndex` 创建 column reader。reader 侧已经沉淀了通用
+projection helper，用于判断 full/partial projection、查找 child projection、判断 child 是否
+被选中。`STRUCT`、`LIST` 和 `MAP` 都复用这套 helper 做 nested projection：
+
+- `STRUCT` partial projection 只为选中的 child 创建 reader。
+- `LIST` element 是 struct/list 时，会把 element projection 继续递归传给 element reader；
+  scalar element 不允许继续带 partial child projection。
+- `MAP` 总是读取 key，并把 value projection 递归传给 value reader；value 是 scalar 时不允许
+  继续带 partial child projection。
 
 `TableReader` 仍负责把 file-local block 转成 table/global block，包括 projected
 struct/list/map child remap、missing/default/partition/generated/virtual column materialization
@@ -297,46 +303,5 @@ file reader。
 
 ## TODO
 
-### TODO 1：收紧 LocalColumnIndex 类型
-
-当前 `LocalColumnIndex::index` 同时表示 top-level file column id 和 nested child id。
-
-如果后续误用风险继续增加，可以拆成：
-
-```cpp
-struct LocalChildIndex {
-    int32_t index = -1;
-    bool project_all_children = true;
-    std::vector<LocalChildIndex> children;
-};
-
-struct LocalColumnIndex {
-    LocalColumnId root;
-    bool project_all_children = true;
-    std::vector<LocalChildIndex> children;
-};
-```
-
-这样能在类型层面阻止 top-level id 和 child id 混用，但迁移成本更高。
-
-### TODO 2：沉淀 reader projection helper
-
-new parquet reader 中 struct/list/map child projection 查找和校验逻辑仍分散在 column
-reader factory 内部。
-
-后续可以继续沉淀公共 helper：
-
-- 根据 parent projection 查找指定 child projection。
-- 统一 full projection、partial projection、empty projection 的判断。
-- 统一 struct/list/map 对 unsupported nested projection 的校验和错误信息。
-
-### TODO 3：继续完善 LIST/MAP nested projection
-
-当前 `STRUCT` reader 裁剪收益最明确。`LIST` 和 `MAP` 的复杂 nested projection 仍偏保守。
-
-后续可以继续优化：
-
-- list element 是 struct 时，只读取被投影的 struct children。
-- map value 是 struct 时，只读取被投影的 value children。
-- 统一 key/value/list element projection 的错误信息和 schema validation。
-- 增加针对 list/map partial projection 的单测。
+暂无新的 reader column index 重构 TODO。后续如果发现 `LocalColumnIndex::index` 的 root/child
+语义仍有误用，再考虑拆出更强的 root/child projection 类型。

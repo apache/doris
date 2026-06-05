@@ -97,6 +97,22 @@ TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates)
     ASSERT_TRUE(target.children.empty());
 }
 
+TEST(LocalColumnIndexTest, FindsProjectedChildren) {
+    LocalColumnIndex projection {.index = 10, .project_all_children = false};
+    projection.children.push_back({.index = 1});
+    projection.children.push_back({.index = 2});
+
+    EXPECT_TRUE(is_full_projection(nullptr));
+    EXPECT_FALSE(is_full_projection(&projection));
+    EXPECT_TRUE(is_partial_projection(&projection));
+    ASSERT_NE(find_child_projection(&projection, 2), nullptr);
+    EXPECT_EQ(find_child_projection(&projection, 2)->field_id(), 2);
+    EXPECT_EQ(find_child_projection(&projection, 3), nullptr);
+    EXPECT_TRUE(is_child_projected(nullptr, 3));
+    EXPECT_TRUE(is_child_projected(&projection, 1));
+    EXPECT_FALSE(is_child_projected(&projection, 3));
+}
+
 TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByFieldId) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto string_type = std::make_shared<DataTypeString>();
@@ -1116,6 +1132,64 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     EXPECT_EQ(b_values.get_element(1), 21);
     EXPECT_EQ(b_values.get_element(2), 31);
     EXPECT_EQ(b_values.get_element(3), 41);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_list_projection_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_list_struct_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto a_child = make_table_column(0, "a", int_type);
+    auto element_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
+    auto element_child = make_table_column(0, "element", element_type);
+    element_child.children = {a_child};
+    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    list_column.children = {element_child};
+    const std::vector<ColumnDefinition> projected_columns = {list_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    EXPECT_EQ(array_result.get_offsets()[0], 2);
+    EXPECT_EQ(array_result.get_offsets()[1], 3);
+    EXPECT_EQ(array_result.get_offsets()[2], 4);
+    const auto& nullable_elements = assert_cast<const ColumnNullable&>(array_result.get_data());
+    const auto& element_struct =
+            assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
+    ASSERT_EQ(element_struct.get_columns().size(), 1);
+    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    EXPECT_EQ(a_values.get_element(0), 10);
+    EXPECT_EQ(a_values.get_element(1), 20);
+    EXPECT_EQ(a_values.get_element(2), 30);
+    EXPECT_EQ(a_values.get_element(3), 40);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

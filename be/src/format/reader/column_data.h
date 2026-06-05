@@ -312,6 +312,29 @@ struct LocalColumnIndex {
     int32_t field_id() const { return index; }
 };
 
+inline bool is_full_projection(const LocalColumnIndex* projection) {
+    return projection == nullptr || projection->project_all_children;
+}
+
+inline bool is_partial_projection(const LocalColumnIndex* projection) {
+    return projection != nullptr && !projection->project_all_children;
+}
+
+inline const LocalColumnIndex* find_child_projection(const LocalColumnIndex* projection,
+                                                     int32_t field_id) {
+    if (is_full_projection(projection)) {
+        return nullptr;
+    }
+    const auto child_it = std::find_if(
+            projection->children.begin(), projection->children.end(),
+            [&](const LocalColumnIndex& child) { return child.field_id() == field_id; });
+    return child_it == projection->children.end() ? nullptr : &*child_it;
+}
+
+inline bool is_child_projected(const LocalColumnIndex* projection, int32_t field_id) {
+    return is_full_projection(projection) || find_child_projection(projection, field_id) != nullptr;
+}
+
 // Merge two projection trees that point to the same file-local node.
 //
 // A full projection dominates a partial projection. Two partial projections are merged by child id
