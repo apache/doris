@@ -27,7 +27,6 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
-#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -416,8 +415,6 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     rows_stat_val -= new_bt_rows - old_bt_rows;
     _state->update_num_rows_load_total(old_bt_rows - new_bt_rows);
     _state->update_num_bytes_load_total(old_bt_bytes - new_bt_bytes);
-    DorisMetrics::instance()->load_rows->increment(old_bt_rows - new_bt_rows);
-    DorisMetrics::instance()->load_bytes->increment(old_bt_bytes - new_bt_bytes);
 
     return Status::OK();
 }
