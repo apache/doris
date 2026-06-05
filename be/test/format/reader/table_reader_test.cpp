@@ -1709,6 +1709,13 @@ TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
     ASSERT_TRUE(id_result.mapping.has_value());
     EXPECT_EQ(id_result.mapping->index, 1);
 
+    const auto& filter_entries = mapper.filter_entries();
+    ASSERT_EQ(filter_entries.size(), 2);
+    ASSERT_TRUE(filter_entries.at(GlobalIndex(0)).is_local());
+    EXPECT_EQ(filter_entries.at(GlobalIndex(0)).local_index().value(), 1);
+    ASSERT_TRUE(filter_entries.at(GlobalIndex(1)).is_local());
+    EXPECT_EQ(filter_entries.at(GlobalIndex(1)).local_index().value(), 0);
+
     const auto& result_mapping = mapper.result_mapping();
     ASSERT_FALSE(result_mapping.has_error());
     ASSERT_EQ(result_mapping.global_to_local.size(), 2);
@@ -1716,6 +1723,37 @@ TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
     EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(1)).mapping.index, 0);
     EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).filter_conversion,
               FilterConversionType::COPY_DIRECTLY);
+}
+
+TEST(TableReaderTest, CreateScanRequestBuildsConstantFilterEntry) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto partition_column = make_table_column(0, "part", int_type);
+    partition_column.is_partition_key = true;
+    const std::vector<ColumnDefinition> projected_columns = {partition_column};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns,
+                                      {{"part", Field::create_field<TYPE_INT>(7)}}, {})
+                        .ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(
+                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    const auto& filter_entries = mapper.filter_entries();
+    ASSERT_EQ(filter_entries.size(), 1);
+    ASSERT_TRUE(filter_entries.at(GlobalIndex(0)).is_constant());
+    EXPECT_EQ(filter_entries.at(GlobalIndex(0)).constant_index().value(), 0);
+    EXPECT_TRUE(file_request.local_positions.empty());
+    EXPECT_TRUE(file_request.predicate_columns.empty());
+    EXPECT_TRUE(file_request.non_predicate_columns.empty());
+    EXPECT_TRUE(file_request.conjuncts.empty());
 }
 
 TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) {

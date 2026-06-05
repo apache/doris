@@ -407,6 +407,43 @@ static const FileSlotRewriteInfo* find_slot_rewrite_info(
     return &rewrite_it->second;
 }
 
+static bool filter_conversion_has_local_source(FilterConversionType conversion) {
+    switch (conversion) {
+    case FilterConversionType::COPY_DIRECTLY:
+    case FilterConversionType::CAST_FILTER:
+    case FilterConversionType::READER_EXPRESSION:
+        return true;
+    case FilterConversionType::FINALIZE_ONLY:
+    case FilterConversionType::CONSTANT:
+        return false;
+    }
+    return false;
+}
+
+static bool column_predicate_can_use_local_source(FilterConversionType conversion) {
+    switch (conversion) {
+    case FilterConversionType::COPY_DIRECTLY:
+        return true;
+    case FilterConversionType::CAST_FILTER:
+    case FilterConversionType::READER_EXPRESSION:
+    case FilterConversionType::FINALIZE_ONLY:
+    case FilterConversionType::CONSTANT:
+        return false;
+    }
+    return false;
+}
+
+static bool table_filter_has_only_local_entries(
+        const TableFilter& table_filter, const std::map<GlobalIndex, FilterEntry>& filter_entries) {
+    for (const auto global_index : table_filter.global_indices) {
+        const auto entry_it = filter_entries.find(global_index);
+        if (entry_it == filter_entries.end() || !entry_it->second.is_local()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr,
                                               const DataTypePtr& table_type) {
     if (expr == nullptr) {
@@ -1519,25 +1556,24 @@ static Status build_column_map_result(const ColumnMapping& mapping,
     return Status::OK();
 }
 
-// Build a map from global output index to file slot rewrite info for all columns in the given
-// mappings that have a file column id and are present in the file request.
+// Build file slot rewrite info from the localized filter targets. Only local targets can enter
+// file-reader expressions; constant and unset targets stay above the file reader.
 static std::map<GlobalIndex, FileSlotRewriteInfo> build_file_slot_rewrite_map(
-        const std::vector<ColumnMapping>& mappings, const FileScanRequest& file_request) {
+        const std::vector<ColumnMapping>& mappings,
+        const std::map<GlobalIndex, FilterEntry>& filter_entries) {
     std::map<GlobalIndex, FileSlotRewriteInfo> global_to_file_slot;
     for (const auto& mapping : mappings) {
-        if (!mapping.field_id.has_value()) {
+        const auto entry_it = filter_entries.find(mapping.global_index);
+        if (entry_it == filter_entries.end() || !entry_it->second.is_local()) {
             continue;
         }
-        const auto position_it =
-                file_request.local_positions.find(LocalColumnId(*mapping.field_id));
-        if (position_it != file_request.local_positions.end()) {
-            global_to_file_slot.emplace(
-                    mapping.global_index,
-                    FileSlotRewriteInfo {.block_position = position_it->second.value(),
-                                         .file_type = mapping.file_type,
-                                         .table_type = mapping.table_type,
-                                         .file_column_name = mapping.file_column_name});
-        }
+        DORIS_CHECK(mapping.field_id.has_value());
+        global_to_file_slot.emplace(
+                mapping.global_index,
+                FileSlotRewriteInfo {.block_position = entry_it->second.local_index().value(),
+                                     .file_type = mapping.file_type,
+                                     .table_type = mapping.table_type,
+                                     .file_column_name = mapping.file_column_name});
     }
     return global_to_file_slot;
 }
@@ -1665,6 +1701,25 @@ void TableColumnMapper::_set_constant_mapping(ColumnMapping* mapping, VExprConte
     mapping->filter_conversion = FilterConversionType::CONSTANT;
 }
 
+Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_request) {
+    _filter_entries.clear();
+    for (const auto& mapping : _mappings) {
+        FilterEntry entry;
+        if (mapping.constant_index.has_value()) {
+            entry = FilterEntry::constant(*mapping.constant_index);
+        } else if (mapping.field_id.has_value() &&
+                   filter_conversion_has_local_source(mapping.filter_conversion)) {
+            const auto local_position_it =
+                    file_request.local_positions.find(LocalColumnId(*mapping.field_id));
+            if (local_position_it != file_request.local_positions.end()) {
+                entry = FilterEntry::local(local_position_it->second);
+            }
+        }
+        _filter_entries.emplace(mapping.global_index, entry);
+    }
+    return Status::OK();
+}
+
 Status TableColumnMapper::_build_result_column_mapping(const FileScanRequest& file_request) {
     _column_map_results.clear();
     _result_mapping = {};
@@ -1697,6 +1752,7 @@ Status TableColumnMapper::create_scan_request(
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
     file_request->column_predicate_filters.clear();
+    _filter_entries.clear();
     // 1. Build referenced non-predicate columns
     for (size_t column_idx = 0; column_idx < projected_columns.size(); ++column_idx) {
         const auto global_index = GlobalIndex(column_idx);
@@ -1709,7 +1765,8 @@ Status TableColumnMapper::create_scan_request(
             for (const auto& table_filter : table_filters) {
                 const auto& global_indices = table_filter.global_indices;
                 if (std::find(global_indices.begin(), global_indices.end(), global_index) !=
-                    global_indices.end()) {
+                            global_indices.end() &&
+                    filter_conversion_has_local_source(mapping->filter_conversion)) {
                     used_by_filter = true;
                     break;
                 }
@@ -1757,26 +1814,27 @@ const ColumnMapping* TableColumnMapper::_find_mapping(GlobalIndex global_index) 
 Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
                                            const TableColumnPredicates& table_column_predicates,
                                            FileScanRequest* file_request) {
-    // 真实实现会处理 trivial mapping、safe cast、reader expression fallback 和
-    // finalize-only filter。stub 只复制能够直接定位到 file column 的谓词。
     FilterProjectionMap filter_projections;
     RETURN_IF_ERROR(build_filter_projection_map(table_filters, &_mappings, &filter_projections));
     for (const auto& table_filter : table_filters) {
         for (const auto& global_index : table_filter.global_indices) {
             auto* mapping = _find_mapping(global_index);
-            if (mapping == nullptr || !mapping->field_id.has_value()) {
+            if (mapping == nullptr || !mapping->field_id.has_value() ||
+                !filter_conversion_has_local_source(mapping->filter_conversion)) {
                 continue;
             }
             RETURN_IF_ERROR(add_scan_column(file_request, mapping, &file_request->predicate_columns,
                                             &filter_projections));
         }
     }
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
 
     // Build the complete table-slot rewrite map after all predicate columns have been assigned.
     // This keeps expression localization independent from filter iteration order.
-    const auto global_to_file_slot = build_file_slot_rewrite_map(_mappings, *file_request);
+    const auto global_to_file_slot = build_file_slot_rewrite_map(_mappings, _filter_entries);
     for (const auto& table_filter : table_filters) {
-        if (table_filter.conjunct != nullptr) {
+        if (table_filter.conjunct != nullptr &&
+            table_filter_has_only_local_entries(table_filter, _filter_entries)) {
             file_request->conjuncts.push_back(
                     VExprContext::create_shared(rewrite_table_expr_to_file_expr(
                             table_filter.conjunct->root(), global_to_file_slot)));
@@ -1785,7 +1843,10 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     }
     for (const auto& [global_index, predicates] : table_column_predicates) {
         const auto* mapping = _find_mapping(global_index);
-        if (mapping == nullptr || !mapping->field_id.has_value() || predicates.empty()) {
+        const auto entry_it = _filter_entries.find(global_index);
+        if (mapping == nullptr || !mapping->field_id.has_value() || predicates.empty() ||
+            entry_it == _filter_entries.end() || !entry_it->second.is_local() ||
+            !column_predicate_can_use_local_source(mapping->filter_conversion)) {
             continue;
         }
         FileColumnPredicateFilter column_predicate_filter;
@@ -1794,7 +1855,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
     }
     for (const auto& table_filter : table_filters) {
-        if (table_filter.conjunct == nullptr) {
+        if (table_filter.conjunct == nullptr ||
+            !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
             continue;
         }
         std::vector<FileColumnPredicateFilter> nested_column_predicate_filters;

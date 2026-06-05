@@ -195,10 +195,12 @@ public:
     void clear() {
         _mappings.clear();
         _constant_map.clear();
+        _filter_entries.clear();
         _column_map_results.clear();
         _result_mapping = {};
     }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
+    const std::map<GlobalIndex, FilterEntry>& filter_entries() const { return _filter_entries; }
     const std::map<GlobalIndex, ColumnMapResult>& column_map_results() const {
         return _column_map_results;
     }
@@ -221,6 +223,7 @@ private:
     Status _create_by_index_mapping(const ColumnDefinition& table_column,
                                     const std::vector<ColumnDefinition>& file_schema,
                                     ColumnMapping* mapping);
+    Status _build_filter_entries(const FileScanRequest& file_request);
     Status _build_result_column_mapping(const FileScanRequest& file_request);
 
     void _set_constant_mapping(ColumnMapping* mapping, VExprContextSPtr expr);
@@ -236,6 +239,7 @@ private:
 
     TableColumnMapperOptions _options;
     std::vector<ColumnMapping> _mappings;
+    std::map<GlobalIndex, FilterEntry> _filter_entries;
     std::map<GlobalIndex, ColumnMapResult> _column_map_results;
     ResultColumnMapping _result_mapping;
     ConstantMap _constant_map;
