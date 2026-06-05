@@ -9,7 +9,7 @@
 
 ## 元信息
 
-- **状态**：🚧 进行中（批 0 ✅；批 A 编码完成 T02 ✅/T04 ✅/T03→批 E；批 B 编码完成 T05 ✅/T06 决策 ✅（[DV-007]）；**批 C 编码完成**：T07 三模块测试基线 + COW/MOR schema parity ✅（[DV-008]，列名 casing 当场修、meta-field→批 E）；下一步批 D：T08 `tableFormatType` 分流设计备忘 design-only）
+- **状态**：🚧 进行中（批 0 ✅；批 A 编码完成 T02 ✅/T04 ✅/T03→批 E；批 B 编码完成 T05 ✅/T06 决策 ✅（[DV-007]）；批 C 编码完成 T07 三模块测试基线 + COW/MOR schema parity ✅（[DV-008]）；**批 D 设计完成**：T08 `tableFormatType` 分流消费设计备忘 ✅（[D-020]，M2=方案 B per-table SPI provider，design-only）。**批 A–D（P3 hybrid 全部 in-scope）完成**，剩批 E（deferred，并入 P7/hive·HMS migration））
 - **启动日期**：2026-06-04
 - **目标完成**：—（hybrid 范围，估时按批 A–C 约 1–1.5 周；批 D 设计 0.5 周；批 E deferred 不计入 P3）
 - **实际完成**：—
@@ -45,7 +45,7 @@
 - [x] **批 B / T05**：真实 `applyFilter` EQ/IN 约束裁剪 ✅（`10b72d4`，镜像 Hive）；`listPartitions*` override **推迟批 E**（[DV-007]，零 live caller、Hive 不 override）
 - [x] **批 B / T06**：MVCC/snapshot SPI **保持 default opt-out + 文档化** ✅（[DV-007]，非抛异常 override——破 opt-out 约定/不可达；T04 已 fail-loud time-travel）；完整 MVCC 入批 E
 - [x] **批 C / T07**：fe-connector-hms/hive/hudi 测试基线 ✅（hms 12 + hive 14 + hudi +18=33 全绿，golden-value）；**parity 测试** ✅——COW/MOR schema **type-agnostic**（差异只在 scan planning），SPI avro→column 变换 golden 对标 legacy `getHudiTableSchema`/`initHudiSchema`（列名/序/类型/Hive 串/casing）+ `detectHudiTableType` COW/MOR 分类。列名 casing 当场修（[DV-008]）；meta-field 纳入推迟批 E
-- [ ] **批 D**：`tableFormatType` 分流消费设计备忘（design-only，**不动 fe-core live 路径**）
+- [x] **批 D / T08**：`tableFormatType` 分流消费设计备忘 ✅（design-only，零代码，**未动 fe-core live 路径**）——M1（fe-core opaque-串身份消费）⊥ M2（scan 路由）拆解；M2=**方案 B** per-table SPI provider（[D-020]，用户签字），细化 D-005；实现登记批 E/P7。设计：[`designs/P3-T08-tableformat-dispatch-design.md`](./designs/P3-T08-tableformat-dispatch-design.md)
 - [ ] 全程 fe-connector 编译 + checkstyle 0 + import-gate 通过；新增单测全绿
 - [ ] gate 保持关闭（`SPI_READY_TYPES` 不含 hms/hudi）；legacy `datasource/hudi/` 不删（批 A–D 内）
 - [ ] 批 E 各项作为 deferred 明确登记，不在 P3 PR 内编码
@@ -66,7 +66,7 @@
 | P3-T05 | 真实 `applyFilter` EQ/IN 分区裁剪 + 单测（`listPartitions*` override 推迟批 E）| 批 B | @me | ✅ | `10b72d4` | 2026-06-05 | 2026-06-05 | applyFilter 原是占位（列全部分区不裁剪 + 无条件设 `prunedPartitionPaths` → 静默把分区来源从 Hudi-metadata 切到 HMS）。重写为**忠实镜像 `HiveConnectorMetadata`**：抽取 partition 列 EQ/IN 谓词 → 列候选 → 裁剪 → 仅在有效果时回传 pruned handle，否则 `Optional.empty()`（handle 不变，回落 Hudi-metadata listing）。保留 `List<String>` 路径表示 + `-1` 上限（不静默截断）；7 helper duplicate from Hive（hudi 仅依赖 fe-connector-hms）。`HudiPartitionPruningTest` 8 测全绿、checkstyle 0、import-gate 通过。**`listPartitions*` override 推迟批 E**（[DV-007]：零 live caller、Hive 不 override）。设计：[`designs/P3-T05-partition-pruning-design.md`](./designs/P3-T05-partition-pruning-design.md) |
 | P3-T06 | MVCC/snapshot SPI：保持 default opt-out + 文档化（完整 MVCC→批 E）| 批 B | @me | ✅ | — | 2026-06-05 | 2026-06-05 | **决策（[DV-007]，用户签字「Keep defaults + document」）**：不 override `beginQuerySnapshot/getSnapshotAt/getSnapshotById`，保持 SPI default `Optional.empty()`（= opt-out）。recon 证「显式抛异常 override」错——破 SPI opt-out 约定（全体连接器含 Iceberg/Paimon/Hive/Trino 均依赖 default，`FakeConnectorPluginTest` 断言）、不可达死代码（MVCC 无 production caller）、且 T04 已在唯一可触发点（time-travel）fail-loud。**零代码**。完整 MVCC（`HudiMvccSnapshot`+snapshot 透传+增量时序）入批 E。设计：[`designs/P3-T06-mvcc-design.md`](./designs/P3-T06-mvcc-design.md) |
 | P3-T07 | 三模块测试基线 + parity 测试 | 批 C | @me | ✅ | — | 2026-06-05 | 2026-06-05 | golden-value parity（无跨模块编译路径：fe-core 不依赖具体连接器模块）。**hudi**：`avroSchemaToColumns` 列名 `toLowerCase` 修（gap-1）+ package-private static；`HudiTypeMappingTest`+`fromAvroSchema` golden；新 `HudiSchemaParityTest`（列集合/序/类型/Hive 串/casing 边界）+ `HudiTableTypeTest`（COW/MOR/UNKNOWN）。**hms**：新 `HmsTypeMappingTest`（共享解析器）。**hive**：新 `HiveFileFormatTest`+`HiveConnectorMetadataPartitionPruningTest`（镜像 T05）。33 测全绿、checkstyle 0、import-gate 通过。COW/MOR schema **type-agnostic**。gap-2 meta-field→批 E（[DV-008]）。设计 [`designs/P3-T07-test-baseline-design.md`](./designs/P3-T07-test-baseline-design.md) |
-| P3-T08 | `tableFormatType` 分流消费设计备忘（design-only） | 批 D | @me | ⏳ | — | — | — | 写清 `PluginDrivenExternalTable` 如何按 `ConnectorTableSchema.tableFormatType`（现 fe-core 从不消费）把一个 `"hms"` catalog 的 per-table 路由到 HUDI/HIVE/ICEBERG。**不实现 fe-core 消费**（那是批 E）。作为 (a) 落地入口设计，可催生 D-NNN |
+| P3-T08 | `tableFormatType` 分流消费设计备忘（design-only） | 批 D | @me | ✅ | — | 2026-06-05 | 2026-06-05 | 设计备忘落地（零代码，未动 fe-core）。核心拆解 **M1 身份消费 ⊥ M2 scan 路由**（M1 三方案通用）。M2 三方案（A 连接器内 router / B per-table SPI provider / C fe-core 发现期分派）评估后用户签字 **方案 B**（[D-020]）：新增向后兼容 default `ConnectorMetadata.getScanPlanProvider(handle)`，fe-core 优先 per-table、回落 per-catalog。**细化 D-005**（区分符沿用；"PhysicalXxxScan" 措辞早于 P1 统一，由 per-table provider seam 取代）。Iceberg-on-hms 依赖 P6/M3。实现登记批 E/P7。设计：[`designs/P3-T08-tableformat-dispatch-design.md`](./designs/P3-T08-tableformat-dispatch-design.md) |
 | P3-T09 | [deferred] fe-core 消费 `tableFormatType` + hudi 表产出为 `PluginDrivenExternalTable` | 批 E | TBD | ⏳ | — | — | — | **不在 P3 hybrid 编码范围**；并入 hive/HMS migration（D-019）。catalog 模型落地 |
 | P3-T10 | [deferred] gate flip（`SPI_READY_TYPES` 加 hms/hudi）+ live cutover + 删 legacy `datasource/hudi/` | 批 E | TBD | ⏳ | — | — | — | **不在 P3 hybrid 编码范围**。15 文件 ~2403 LOC + `HudiDlaTable`(在 hive/)，live caller 仅 7 个 fe-core 文件。cutover 经验证后再删 |
 | P3-T11 | [deferred] 集群/runtime 验证 + 完整增量/time-travel + image 兼容 | 批 E | TBD | ⏳ | — | — | — | **不在 P3 hybrid 编码范围**。混合格式 MOR regression、BE JNI parse parity、name-match 精确性、image 反序列化兼容（R-001） |
@@ -76,6 +76,15 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-05（批 D：T08 ✅ `tableFormatType` 分流消费设计备忘，批 D 完成 = P3 hybrid in-scope 全完成）
+- **P3-T08 ✅**（design-only，零代码，[D-020]，用户签字 AskUserQuestion「M2=方案 B per-table SPI provider」）：
+  - **直接输入** `research/spi-multi-format-hms-catalog-analysis.md`（上 session 6-reader recon）；本场**不重复 recon**，只 firsthand 核读 load-bearing 锚点（避免按 research 的近似行号误设计）：keystone gap 确认（`PluginDrivenExternalTable.initSchema:79-109` 只读 `getColumns()`、丢 `getTableFormatType()`）；新增第二缺口（`getEngine:195-215`/`getEngineTableTypeName:217-231` switch catalog type 非 per-table format）；`ConnectorScanPlanProvider.planScan:62-66` 入参带 per-table handle（三方案落脚前提）；`ConnectorMetadata:37-44` 无 per-table provider（B 的新增点）。
+  - **核心分析贡献**：把 keystone 拆成**可分离**两子问题——**M1 身份消费**（fe-core 读 `tableFormatType` 做 per-table 引擎名/身份，opaque 串、热路径不读）**⊥ M2 scan 路由**（单 hms connector 产 Hudi/Iceberg scan plan）。**M1 三方案通用**；A/B/C 只在 M2 分歧 → keystone 可控化。
+  - **M2 决策 = 方案 B**（[D-020]）：新增向后兼容 default `ConnectorMetadata.getScanPlanProvider(handle)`（默认 null→回落 per-catalog），fe-core `PluginDrivenScanNode.getSplits` 优先 per-table、回落 per-catalog；hms 网关按 `handle.getTableType()` 委派。把 per-table 选 provider 升为一等 SPI 契约，满足 D-009（default-only）。A（连接器内 router，零 SPI churn）列备选；C（fe-core 发现期分派）否决（违瘦 fe-core）。
+  - **细化 D-005**（留痕，非偏差）：tableFormatType 区分符沿用；"fe-core→PhysicalXxxScan"措辞早于 P1 scan-node 统一，由 per-table provider seam 取代。
+  - **缩界（R12 不静默）**：本场零代码、gate 不动；Iceberg-on-hms 经 SPI 依赖 **P6/M3**（iceberg 现无 ScanPlanProvider、pom 未依赖 api），P6 前 ICEBERG 表回落 legacy 或 fail-loud（不误扫 Hive）；探测共享化（M5）留 P7；M1+M2 实现登记批 E。设计：[`designs/P3-T08-tableformat-dispatch-design.md`](./designs/P3-T08-tableformat-dispatch-design.md)。
+- **批 D 小结**：T08 设计备忘落地 + D-020。**P3 hybrid 全部 in-scope（批 A–D）完成**：2 正确性修（T02/T05）+ 2 fail-loud/决策（T04/T06）+ 测试网零→59 测（T07）+ 模型 dispatch 设计（T08）。剩批 E（T03/T09–T11 + 各 deferred）并入 P7/hive·HMS migration，不在 P3 PR 编码。
 
 ### 2026-06-05（批 C：T07 ✅ 三模块测试基线 + COW/MOR schema parity，批 C 编码完成）
 - **P3-T07 ✅**（测试 + gap-1 修，[DV-008]，用户签字 AskUserQuestion「Also fix casing now」+「Focused baseline」）：

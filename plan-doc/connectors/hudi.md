@@ -70,13 +70,16 @@
 ## 关联
 
 - 阶段 task：P3（待启动时建）
-- 决策：D-005（DLA 模型方案 A）
+- 决策：D-005（DLA 区分符方案 A）、D-020（多格式 scan 路由=方案 B per-table SPI provider，细化 D-005；T08 设计）
 - 偏差：（暂无）
 - 风险：（暂无独立的）
 
 ---
 
 ## 进度日志
+
+### 2026-06-05（批 D）
+- **P3-T08 ✅**（批 D，design-only 零代码，[D-020](../decisions-log.md)，用户签字）：`tableFormatType` 分流消费设计备忘。直接输入上 session recon `research/spi-multi-format-hms-catalog-analysis.md`；本场 firsthand 核读 keystone gap（`PluginDrivenExternalTable.initSchema` 只读 columns、丢 `getTableFormatType()`）。**核心拆解 M1 身份消费 ⊥ M2 scan 路由**（M1 三方案通用）。M2=**方案 B**（新增向后兼容 default `ConnectorMetadata.getScanPlanProvider(handle)`，fe-core 优先 per-table、回落 per-catalog；hms 网关按 `handle.getTableType()` 委派 Hudi/Iceberg provider），把 per-table 选 provider 升为一等 SPI 契约（满足 D-009）。**细化 D-005**（区分符沿用；"PhysicalXxxScan" 措辞早于 P1 统一，由 per-table provider seam 取代）。Iceberg-on-hms 经 SPI 依赖 P6/M3；M1+M2 实现登记批 E/P7。**批 A–D（P3 hybrid in-scope）全部完成**。设计 [`../tasks/designs/P3-T08-tableformat-dispatch-design.md`](../tasks/designs/P3-T08-tableformat-dispatch-design.md)。
 
 ### 2026-06-05（批 C）
 - **P3-T07 ✅**（批 C，测试 + gap-1 修，[DV-008](../deviations-log.md)，用户签字）：三模块测试基线 + COW/MOR schema parity。feasibility = **golden-value**（fe-core 不依赖具体连接器模块，无跨模块编译路径）；关键结论 **COW/MOR schema type-agnostic**（两侧 schema 推导都不按表型分支，差异只在 scan planning）。**hudi** `avroSchemaToColumns` 顶层列名 `toLowerCase` 修（gap-1，镜像 legacy `HMSExternalTable:745`）+ package-private static 可测；`HudiTypeMappingTest` 补 `fromAvroSchema` golden（原零覆盖）；新 `HudiSchemaParityTest`（列名/序/类型/Hive 串/casing 边界）+ `HudiTableTypeTest`（COW/MOR/UNKNOWN）。**hms** 新 `HmsTypeMappingTest`（共享 Hive 类型串解析器，原零测试）。**hive** 新 `HiveFileFormatTest` + `HiveConnectorMetadataPartitionPruningTest`（镜像 T05 裁剪网）。三模块 59 测全绿（hudi 33 + hms 12 + hive 14）；checkstyle 0；import-gate 通过；gate 保持关闭。gap-2 Hudi meta-field 纳入（`getTableAvroSchema(true)` vs 无参）推迟批 E。设计 [`../tasks/designs/P3-T07-test-baseline-design.md`](../tasks/designs/P3-T07-test-baseline-design.md)。

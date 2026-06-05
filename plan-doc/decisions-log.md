@@ -15,6 +15,7 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-020 | — | 单 `hms` catalog 多格式 scan 路由 = 方案 B（`ConnectorMetadata.getScanPlanProvider(handle)` per-table default）；细化 D-005（design-only，实现批 E/P7）| 2026-06-05 | ✅ |
 | D-019 | — | P3 hudi 采用 hybrid：现做 model-agnostic 连接器硬化+测试（behind gate），推迟 catalog 模型落地+cutover 到 hive/HMS migration | 2026-06-04 | ✅ |
 | D-018 | U6 | `ConnectorColumnStatistics` 用 javadoc 类型映射表 + IAE 保证类型安全 | 2026-05-24 | ✅ |
 | D-017 | U5 | sys-table 命名统一 `$suffix`，别名机制留待未来 | 2026-05-24 | ✅ |
@@ -38,6 +39,18 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-020 — 单 `hms` catalog 多格式 scan 路由 = 方案 B（per-table SPI provider）
+
+- **日期**：2026-06-05
+- **状态**：✅ 生效
+- **关联**：[D-005](#d-005)（被细化）、[D-009](#d-009)（default-only 约束）、[D-019](#d-019)（hybrid）、[tasks/P3 T08](./tasks/P3-hudi-migration.md)、[designs/P3-T08-tableformat-dispatch-design.md](./tasks/designs/P3-T08-tableformat-dispatch-design.md)、[research/spi-multi-format-hms-catalog-analysis.md](./research/spi-multi-format-hms-catalog-analysis.md)
+- **背景**：legacy 单 `hms` catalog 靠 `HMSExternalTable.dlaType` per-table tag + 处处 `switch(dlaType)` 同时暴露 Hive/Hudi/Iceberg。SPI 侧 `ConnectorTableSchema.tableFormatType` **产而不用**——`PluginDrivenExternalTable.initSchema:79-109` 只读 columns、`Connector.getScanPlanProvider:40-42` per-catalog 单点、`HiveScanPlanProvider` 硬编码 `tableFormatType="hive"`（research §6①②③ + 本场 firsthand 核读）。T08（批 D，design-only）须定 per-table 路由 seam；研究浮现三互斥方案（A 连接器内 router / B per-table SPI provider / C fe-core 发现期分派）。
+- **决策**：M2 scan 路由采 **方案 B**——在 `ConnectorMetadata` 新增**向后兼容 default** `getScanPlanProvider(ConnectorTableHandle handle)`（默认返 null → fe-core 回落 per-catalog `Connector.getScanPlanProvider()`）；fe-core `PluginDrivenScanNode.getSplits` 优先 per-table provider、回落 per-catalog；注册 `"hms"` 的连接器 override 之、按 `handle.getTableType()` 委派 Hudi/Iceberg provider。把"per-table 选 provider"升为一等 SPI 契约。配套 **M1**（fe-core 按缓存的 `tableFormatType` 做 per-table 引擎名/身份，作 opaque 串逐字上报、热路径不读）三方案通用。**design-only，实现 = 批 E/P7**。
+- **替代方案**：**A 连接器内 router**（`Connector.getScanPlanProvider()` 返回一个 `planScan` 按 `handle.getTableType()` 委派的 router）——零 SPI churn（`planScan` 已带 handle，本场核实），但路由藏进连接器、per-table 语义非一等契约；列为备选，批 E 实现期可据 iceberg 接入复杂度复核。**C fe-core 发现期分派**（fe-core 读 `tableFormatType` 建 format-specific 表对象，≈legacy DLAType→多态 DlaTable）——**否决**：fe-core 回退到 per-format 分派，违背瘦 fe-core 北极星（import-gate / D-003 / D-006）。
+- **影响**：**细化 [D-005]**——D-005 的"`tableFormatType` 区分符"结论沿用；但其"fe-core dispatch 到对应 `PhysicalXxxScan`"措辞（2026-05-24，**早于 P1 scan-node 统一**为单 `PluginDrivenScanNode` + per-range format）由 per-table provider seam 取代（SPI 路径已无 per-format `PhysicalXxxScan`）。批 E/P7 据此实现 M1+M2；新 default 方法满足 [D-009]（不破签名）。Iceberg-on-hms 经 SPI 依赖 **P6** 先补 `IcebergScanPlanProvider`（M3）；hms 网关引入对 `-hudi`/`-iceberg` 模块依赖边（A/B 同担）。**本场无代码改动**。
+
+---
 
 ### D-019 — P3 hudi 采用 hybrid 推进策略
 
