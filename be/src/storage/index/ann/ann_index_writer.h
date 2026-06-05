@@ -66,7 +66,6 @@ public:
 private:
     static inline int64_t min_segment_rows() { return config::ann_index_build_min_segment_rows; }
 
-    Int64 _effective_min_rows(Int64 min_train_rows) const;
     Status _append_vectors_to_buffer(const float* vectors, size_t num_rows);
     Status _build_and_save(Int64 min_train_rows, Int64 effective_min_rows);
     void _release_buffered_vectors();

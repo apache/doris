@@ -136,7 +136,8 @@ Status AnnIndexColumnWriter::finish() {
     }
 
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
-    const Int64 effective_min_rows = _effective_min_rows(min_train_rows);
+    const Int64 effective_min_rows =
+            std::max(min_train_rows, cast_set<Int64>(_min_segment_rows));
     if (_total_rows < effective_min_rows) {
         LOG_INFO(
                 "Total data size {} is less than minimum {} rows required for ANN index build. "
@@ -147,10 +148,6 @@ Status AnnIndexColumnWriter::finish() {
     }
 
     return _build_and_save(min_train_rows, effective_min_rows);
-}
-
-Int64 AnnIndexColumnWriter::_effective_min_rows(Int64 min_train_rows) const {
-    return std::max(min_train_rows, cast_set<Int64>(_min_segment_rows));
 }
 
 Status AnnIndexColumnWriter::_append_vectors_to_buffer(const float* vectors, size_t num_rows) {
