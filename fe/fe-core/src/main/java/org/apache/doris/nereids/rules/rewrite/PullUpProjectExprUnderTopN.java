@@ -311,12 +311,14 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 }
             }
             // block all output slots from the nullable side(s)
-            if (joinType.isLeftOuterJoin() || joinType.isFullOuterJoin()) {
+            if (joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin()
+                    || joinType.isFullOuterJoin()) {
                 for (Slot s : join.right().getOutput()) {
                     newBlocked.add(s.getExprId());
                 }
             }
-            if (joinType.isRightOuterJoin() || joinType.isFullOuterJoin()) {
+            if (joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin()
+                    || joinType.isFullOuterJoin()) {
                 for (Slot s : join.left().getOutput()) {
                     newBlocked.add(s.getExprId());
                 }
