@@ -39,6 +39,9 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${revision}</version>
+            <!-- SPI/API (and its transitive fe-extension-spi) live on the fe-core host classpath
+                 and are loaded parent-first; provided so they are not bundled into the plugin lib/. -->
+            <scope>provided</scope>
         </dependency>
 
         <dependency>

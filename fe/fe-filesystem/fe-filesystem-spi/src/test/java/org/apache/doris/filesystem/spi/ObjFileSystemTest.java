@@ -241,7 +241,7 @@ class ObjFileSystemTest {
     private static class TestObjFileSystem extends ObjFileSystem {
 
         TestObjFileSystem(ObjStorage<?> storage) {
-            super("test", storage);
+            super(storage);
         }
 
         // Expose the protected method for white-box testing.

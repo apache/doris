@@ -33,12 +33,12 @@ public class S3FileSystem extends ObjectStorageFileSystem {
     }
 
     S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
-        super("S3", objStorage, objStorage.isUsePathStyle());
+        super(objStorage, objStorage.isUsePathStyle());
         this.properties = properties;
     }
 
     public S3FileSystem(S3ObjStorage objStorage) {
-        super("S3", objStorage, objStorage.isUsePathStyle());
+        super(objStorage, objStorage.isUsePathStyle());
         this.properties = null;
     }
 

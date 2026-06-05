@@ -25,6 +25,6 @@ import org.apache.doris.filesystem.spi.ObjectStorageFileSystem;
 public class OssFileSystem extends ObjectStorageFileSystem {
 
     public OssFileSystem(OssObjStorage objStorage) {
-        super("OSS", objStorage, objStorage.isUsePathStyle());
+        super(objStorage, objStorage.isUsePathStyle());
     }
 }

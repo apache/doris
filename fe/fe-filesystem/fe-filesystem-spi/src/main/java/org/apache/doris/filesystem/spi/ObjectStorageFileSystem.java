@@ -47,8 +47,8 @@ public class ObjectStorageFileSystem extends ObjFileSystem {
 
     private final boolean usePathStyle;
 
-    protected ObjectStorageFileSystem(String name, ObjStorage<?> objStorage, boolean usePathStyle) {
-        super(name, objStorage);
+    protected ObjectStorageFileSystem(ObjStorage<?> objStorage, boolean usePathStyle) {
+        super(objStorage);
         this.usePathStyle = usePathStyle;
     }
 

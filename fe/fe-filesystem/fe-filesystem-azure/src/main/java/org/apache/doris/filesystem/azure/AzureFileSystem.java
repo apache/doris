@@ -57,7 +57,7 @@ public class AzureFileSystem extends ObjFileSystem {
     private static final String DIR_MARKER_SUFFIX = "/";
 
     public AzureFileSystem(AzureObjStorage objStorage) {
-        super("AZURE", objStorage);
+        super(objStorage);
     }
 
     /**

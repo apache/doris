@@ -27,8 +27,8 @@ under the License.
   only root-level jars. Provider runtime dependencies land in lib/ and are available for
   class loading but are NOT scanned for FileSystemProvider registrations.
 
-  Jars already present in fe-core classpath are excluded from lib/:
-    fe-filesystem-api, fe-filesystem-spi, fe-extension-spi
+  SPI/API jars shared with the fe-core host (fe-filesystem-api, fe-filesystem-spi,
+  fe-extension-spi) are declared <scope>provided</scope> and therefore not bundled here.
 -->
 <assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -54,11 +54,6 @@ under the License.
             <outputDirectory>/lib</outputDirectory>
             <useProjectArtifact>false</useProjectArtifact>
             <scope>runtime</scope>
-            <excludes>
-                <exclude>org.apache.doris:fe-filesystem-api</exclude>
-                <exclude>org.apache.doris:fe-filesystem-spi</exclude>
-                <exclude>org.apache.doris:fe-extension-spi</exclude>
-            </excludes>
         </dependencySet>
     </dependencySets>
 </assembly>

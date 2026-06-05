@@ -25,6 +25,6 @@ import org.apache.doris.filesystem.spi.ObjectStorageFileSystem;
 public class CosFileSystem extends ObjectStorageFileSystem {
 
     public CosFileSystem(CosObjStorage objStorage) {
-        super("COS", objStorage, objStorage.isUsePathStyle());
+        super(objStorage, objStorage.isUsePathStyle());
     }
 }

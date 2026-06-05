@@ -34,10 +34,8 @@ import java.util.stream.Collectors;
 public abstract class ObjFileSystem implements FileSystem {
 
     protected final ObjStorage<?> objStorage;
-    protected final String name;
 
-    protected ObjFileSystem(String name, ObjStorage<?> objStorage) {
-        this.name = name;
+    protected ObjFileSystem(ObjStorage<?> objStorage) {
         this.objStorage = objStorage;
     }
 
