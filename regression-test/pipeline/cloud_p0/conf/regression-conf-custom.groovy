@@ -84,6 +84,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "nereids_rules_p0/mv/increment_create," + // run only in p0 is enough
     "nereids_rules_p0/mv/genera_constant_sql," + // run only in p0 is enough
     "workload_manager_p1," +
+    "mtmv_p0/ivm," + // IVM depends on binlog, which is not supported in cloud mode now.
     "nereids_rules_p0/subquery," +
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
