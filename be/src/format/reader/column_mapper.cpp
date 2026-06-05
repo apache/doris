@@ -68,16 +68,6 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
     return "UNKNOWN";
 }
 
-std::string column_type_to_string(ColumnType type) {
-    switch (type) {
-    case ColumnType::DATA_COLUMN:
-        return "DATA_COLUMN";
-    case ColumnType::ROW_NUMBER:
-        return "ROW_NUMBER";
-    }
-    return "UNKNOWN";
-}
-
 std::string data_type_debug_string(const DataTypePtr& type) {
     return type == nullptr ? "null" : type->get_name();
 }
@@ -211,23 +201,12 @@ std::string TableColumnMapper::debug_string(const ColumnDefinition& column) {
     return out.str();
 }
 
-std::string TableColumnMapper::debug_string(const SchemaField& field) {
+std::string TableColumnMapper::debug_string(const LocalColumnIndex& projection) {
     std::ostringstream out;
-    out << "SchemaField{id=" << field.id << ", name=" << field.name
-        << ", type=" << data_type_debug_string(field.type) << ", children="
-        << join_debug_strings(
-                   field.children,
-                   [](const SchemaField& child) { return TableColumnMapper::debug_string(child); })
-        << ", column_type=" << column_type_to_string(field.column_type) << "}";
-    return out.str();
-}
-
-std::string TableColumnMapper::debug_string(const FieldProjection& projection) {
-    std::ostringstream out;
-    out << "FieldProjection{field_id=" << projection.field_id
+    out << "LocalColumnIndex{index=" << projection.index
         << ", project_all_children=" << projection.project_all_children << ", children="
         << join_debug_strings(projection.children,
-                              [](const FieldProjection& child) {
+                              [](const LocalColumnIndex& child) {
                                   return TableColumnMapper::debug_string(child);
                               })
         << "}";
@@ -246,17 +225,17 @@ std::string TableColumnMapper::debug_string(const FileScanRequest& request) {
     std::ostringstream out;
     out << "FileScanRequest{predicate_columns="
         << join_debug_strings(request.predicate_columns,
-                              [](const FieldProjection& projection) {
+                              [](const LocalColumnIndex& projection) {
                                   return TableColumnMapper::debug_string(projection);
                               })
         << ", non_predicate_columns="
         << join_debug_strings(request.non_predicate_columns,
-                              [](const FieldProjection& projection) {
+                              [](const LocalColumnIndex& projection) {
                                   return TableColumnMapper::debug_string(projection);
                               })
-        << ", column_positions={";
+        << ", local_positions={";
     size_t position_idx = 0;
-    for (const auto& [column_id, block_position] : request.column_positions) {
+    for (const auto& [column_id, block_position] : request.local_positions) {
         if (position_idx++ > 0) {
             out << ", ";
         }
@@ -285,9 +264,10 @@ std::string ColumnMapping::debug_string() const {
     out << ", file_column_name=" << file_column_name
         << ", original_file_type=" << data_type_debug_string(original_file_type)
         << ", original_file_children="
-        << join_debug_strings(
-                   original_file_children,
-                   [](const SchemaField& child) { return TableColumnMapper::debug_string(child); })
+        << join_debug_strings(original_file_children,
+                              [](const ColumnDefinition& child) {
+                                  return TableColumnMapper::debug_string(child);
+                              })
         << ", file_path=" << int_vector_debug_string(file_path)
         << ", file_type=" << data_type_debug_string(file_type)
         << ", table_type=" << data_type_debug_string(table_type)

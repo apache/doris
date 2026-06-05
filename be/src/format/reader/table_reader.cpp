@@ -269,9 +269,10 @@ std::string TableReader::debug_string() const {
         << ", table_column_predicates="
         << table_column_predicates_debug_string(_table_column_predicates)
         << ", conjunct_count=" << _conjuncts.size() << ", file_schema="
-        << join_table_reader_debug_strings(
-                   _data_reader.file_schema,
-                   [](const SchemaField& field) { return TableColumnMapper::debug_string(field); })
+        << join_table_reader_debug_strings(_data_reader.file_schema,
+                                           [](const ColumnDefinition& field) {
+                                               return TableColumnMapper::debug_string(field);
+                                           })
         << ", file_block_layout="
         << join_table_reader_debug_strings(
                    _data_reader.file_block_layout,

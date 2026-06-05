@@ -293,12 +293,11 @@ Status ParquetScanScheduler::open_next_row_group(
                 continue;
             }
 
-            const auto column_schema =
-                    std::find_if(file_schema.begin(), file_schema.end(),
-                                 [field_id = col.index](
-                                         const std::unique_ptr<ParquetColumnSchema>& col_schema) {
-                                     return col_schema->field_id == field_id;
-                                 });
+            const auto column_schema = std::find_if(
+                    file_schema.begin(), file_schema.end(),
+                    [field_id = col.index](const std::unique_ptr<ParquetColumnSchema>& col_schema) {
+                        return col_schema->field_id == field_id;
+                    });
             DORIS_CHECK(column_schema != file_schema.end());
             std::unique_ptr<ParquetColumnReader> column_reader;
             RETURN_IF_ERROR(
@@ -312,12 +311,11 @@ Status ParquetScanScheduler::open_next_row_group(
                                 _current_row_group_first_row);
                 continue;
             }
-            const auto column_schema =
-                    std::find_if(file_schema.begin(), file_schema.end(),
-                                 [field_id = col.index](
-                                         const std::unique_ptr<ParquetColumnSchema>& col_schema) {
-                                     return col_schema->field_id == field_id;
-                                 });
+            const auto column_schema = std::find_if(
+                    file_schema.begin(), file_schema.end(),
+                    [field_id = col.index](const std::unique_ptr<ParquetColumnSchema>& col_schema) {
+                        return col_schema->field_id == field_id;
+                    });
             DORIS_CHECK(column_schema != file_schema.end());
             std::unique_ptr<ParquetColumnReader> column_reader;
             RETURN_IF_ERROR(

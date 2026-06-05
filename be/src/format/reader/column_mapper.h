@@ -157,8 +157,7 @@ public:
     std::string debug_string() const;
 
     static std::string debug_string(const ColumnDefinition& column);
-    static std::string debug_string(const SchemaField& field);
-    static std::string debug_string(const FieldProjection& projection);
+    static std::string debug_string(const LocalColumnIndex& projection);
     static std::string debug_string(const FileColumnPredicateFilter& filter);
     static std::string debug_string(const FileScanRequest& request);
 
