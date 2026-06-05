@@ -115,7 +115,7 @@ struct ColumnMapping {
     // field_id or column name.
     //
     // Empty means the table column is constant, missing, partition-only, or virtual.
-    std::optional<int32_t> field_id;
+    std::optional<int32_t> file_local_id;
     std::string file_column_name;
     // Full file type/children before nested projection pruning. Used to rebuild projected types
     // and to localize nested filters that reference children not present in the output projection.

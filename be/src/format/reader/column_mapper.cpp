@@ -330,9 +330,9 @@ std::string TableColumnMapper::debug_string(const FileScanRequest& request) {
 std::string ColumnMapping::debug_string() const {
     std::ostringstream out;
     out << "ColumnMapping{global_index=" << global_index
-        << ", table_column_name=" << table_column_name << ", local_id=";
-    if (field_id.has_value()) {
-        out << *field_id;
+        << ", table_column_name=" << table_column_name << ", file_local_id=";
+    if (file_local_id.has_value()) {
+        out << *file_local_id;
     } else {
         out << "null";
     }
@@ -650,12 +650,12 @@ static const ColumnMapping* resolve_mapped_child(const ColumnMapping& mapping,
 }
 
 static std::shared_ptr<IndexMapping> build_child_index_mapping(const ColumnMapping& mapping) {
-    DORIS_CHECK(mapping.field_id.has_value());
+    DORIS_CHECK(mapping.file_local_id.has_value());
     auto result = std::make_shared<IndexMapping>();
-    result->index = *mapping.field_id;
+    result->index = *mapping.file_local_id;
     for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
         const auto& child_mapping = mapping.child_mappings[child_idx];
-        if (!child_mapping.field_id.has_value()) {
+        if (!child_mapping.file_local_id.has_value()) {
             continue;
         }
         result->child_mapping.emplace(child_mapping_global_index(mapping, child_mapping, child_idx),
@@ -665,12 +665,12 @@ static std::shared_ptr<IndexMapping> build_child_index_mapping(const ColumnMappi
 }
 
 static IndexMapping build_index_mapping(const ColumnMapping& mapping, LocalIndex block_position) {
-    DORIS_CHECK(mapping.field_id.has_value());
+    DORIS_CHECK(mapping.file_local_id.has_value());
     IndexMapping result;
     result.index = cast_set<int32_t>(block_position.value());
     for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
         const auto& child_mapping = mapping.child_mappings[child_idx];
-        if (!child_mapping.field_id.has_value()) {
+        if (!child_mapping.file_local_id.has_value()) {
             continue;
         }
         result.child_mapping.emplace(child_mapping_global_index(mapping, child_mapping, child_idx),
@@ -693,12 +693,12 @@ static bool resolve_nested_projection_with_index_mapping(const NestedStructPath&
     const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
         return mapping.global_index == path.root_global_index;
     });
-    if (mapping_it == mappings.end() || !mapping_it->field_id.has_value()) {
+    if (mapping_it == mappings.end() || !mapping_it->file_local_id.has_value()) {
         return false;
     }
 
     const auto root_index_mapping = build_index_mapping(*mapping_it, LocalIndex(0));
-    *root_projection = LocalColumnIndex::partial_field(*mapping_it->field_id);
+    *root_projection = LocalColumnIndex::partial_field(*mapping_it->file_local_id);
     auto* current_projection = root_projection;
     const auto* current_mapping = &*mapping_it;
     const auto* current_index_mapping = &root_index_mapping;
@@ -717,7 +717,7 @@ static bool resolve_nested_projection_with_index_mapping(const NestedStructPath&
         }
         const auto* child_mapping = resolve_mapped_child(*current_mapping, *global_child_index);
         DORIS_CHECK(child_mapping != nullptr);
-        DORIS_CHECK(child_mapping->field_id.has_value());
+        DORIS_CHECK(child_mapping->file_local_id.has_value());
 
         auto child_projection = LocalColumnIndex::partial_field(index_mapping_it->second->index);
         child_projection.project_all_children = selector_idx + 1 == path.selectors.size();
@@ -778,11 +778,11 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
     if (child_mapping == nullptr) {
         return build_filter_projection_path(mapping.original_file_children, selectors, projection);
     }
-    if (!child_mapping->field_id.has_value()) {
+    if (!child_mapping->file_local_id.has_value()) {
         *projection = LocalColumnIndex {};
         return Status::OK();
     }
-    *projection = LocalColumnIndex::field(*child_mapping->field_id);
+    *projection = LocalColumnIndex::field(*child_mapping->file_local_id);
     projection->project_all_children = selectors.size() == 1;
     projection->children.clear();
     if (selectors.size() == 1) {
@@ -1310,7 +1310,7 @@ static bool complex_projection_has_pruned_children(const ColumnMapping& mapping)
     }
     for (const auto& child_mapping : mapping.child_mappings) {
         if (child_mapping.table_column_name != child_mapping.file_column_name ||
-            !child_mapping.field_id.has_value() ||
+            !child_mapping.file_local_id.has_value() ||
             complex_projection_has_pruned_children(child_mapping)) {
             return true;
         }
@@ -1328,7 +1328,7 @@ static Status build_projected_child_type(const DataTypePtr& file_type,
     child_types.reserve(child_mappings.size());
     child_names.reserve(child_mappings.size());
     for (const auto& child_mapping : child_mappings) {
-        if (!child_mapping.field_id.has_value()) {
+        if (!child_mapping.file_local_id.has_value()) {
             continue;
         }
         child_types.push_back(child_mapping.file_type);
@@ -1341,12 +1341,12 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     if (projection == nullptr) {
         return Status::InvalidArgument("projection is null");
     }
-    DORIS_CHECK(mapping.field_id.has_value());
-    *projection = LocalColumnIndex::field(*mapping.field_id);
+    DORIS_CHECK(mapping.file_local_id.has_value());
+    *projection = LocalColumnIndex::field(*mapping.file_local_id);
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     for (const auto& child_mapping : mapping.child_mappings) {
-        if (!child_mapping.field_id.has_value()) {
+        if (!child_mapping.file_local_id.has_value()) {
             continue;
         }
         LocalColumnIndex child_projection;
@@ -1374,7 +1374,7 @@ static Status rebuild_projected_file_type(ColumnMapping* mapping) {
     child_types.reserve(mapping->child_mappings.size());
     child_names.reserve(mapping->child_mappings.size());
     for (auto& child_mapping : mapping->child_mappings) {
-        if (!child_mapping.field_id.has_value()) {
+        if (!child_mapping.file_local_id.has_value()) {
             continue;
         }
         if (complex_projection_has_pruned_children(child_mapping)) {
@@ -1435,7 +1435,7 @@ static Status merge_filter_projection(const FilterProjectionMap* filter_projecti
 static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
                               std::vector<LocalColumnIndex>* scan_columns,
                               const FilterProjectionMap* filter_projections = nullptr) {
-    const auto file_column_id = LocalColumnId(mapping->field_id.value());
+    const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
     if (scan_columns == &file_request->non_predicate_columns &&
         std::ranges::find_if(file_request->predicate_columns, [&](const LocalColumnIndex& p) {
             return p.column_id() == file_column_id;
@@ -1496,7 +1496,7 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
             auto mapping_it = std::ranges::find_if(*mappings, [&](const ColumnMapping& mapping) {
                 return mapping.global_index == path.root_global_index;
             });
-            if (mapping_it == mappings->end() || !mapping_it->field_id.has_value() ||
+            if (mapping_it == mappings->end() || !mapping_it->file_local_id.has_value() ||
                 path.selectors.empty()) {
                 continue;
             }
@@ -1511,7 +1511,7 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
                 if (child_projection.field_id() < 0) {
                     continue;
                 }
-                root_projection = LocalColumnIndex::partial_field(*mapping_it->field_id);
+                root_projection = LocalColumnIndex::partial_field(*mapping_it->file_local_id);
                 root_projection.children.push_back(std::move(child_projection));
             }
             auto filter_projection_it = filter_projections->find(root_projection.column_id());
@@ -1528,7 +1528,7 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
 }
 
 static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position) {
-    DORIS_CHECK(mapping->field_id.has_value());
+    DORIS_CHECK(mapping->file_local_id.has_value());
     if (mapping->is_trivial || mapping->has_complex_projection) {
         mapping->projection = VExprContext::create_shared(TableSlotRef::create_shared(
                 cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
@@ -1548,11 +1548,11 @@ static Status build_column_map_result(const ColumnMapping& mapping,
                                       ColumnMapResult* result) {
     DORIS_CHECK(result != nullptr);
     *result = {};
-    if (!mapping.field_id.has_value()) {
+    if (!mapping.file_local_id.has_value()) {
         return Status::OK();
     }
 
-    const auto local_column_id = LocalColumnId(*mapping.field_id);
+    const auto local_column_id = LocalColumnId(*mapping.file_local_id);
     result->local_column_id = local_column_id;
     LocalColumnIndex column_index = LocalColumnIndex::top_level(local_column_id);
     if (mapping.has_complex_projection || complex_projection_has_pruned_children(mapping)) {
@@ -1562,7 +1562,7 @@ static Status build_column_map_result(const ColumnMapping& mapping,
 
     const auto position_it = file_request.local_positions.find(local_column_id);
     DORIS_CHECK(position_it != file_request.local_positions.end())
-            << file_request.local_positions.size() << " " << *mapping.field_id << " "
+            << file_request.local_positions.size() << " " << *mapping.file_local_id << " "
             << mapping.file_column_name;
     result->mapping = build_index_mapping(mapping, position_it->second);
     return Status::OK();
@@ -1579,7 +1579,7 @@ static std::map<GlobalIndex, FileSlotRewriteInfo> build_file_slot_rewrite_map(
         if (entry_it == filter_entries.end() || !entry_it->second.is_local()) {
             continue;
         }
-        DORIS_CHECK(mapping.field_id.has_value());
+        DORIS_CHECK(mapping.file_local_id.has_value());
         global_to_file_slot.emplace(
                 mapping.global_index,
                 FileSlotRewriteInfo {.block_position = entry_it->second.local_index().value(),
@@ -1719,10 +1719,10 @@ Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_requ
         FilterEntry entry;
         if (mapping.constant_index.has_value()) {
             entry = FilterEntry::constant(*mapping.constant_index);
-        } else if (mapping.field_id.has_value() &&
+        } else if (mapping.file_local_id.has_value() &&
                    filter_conversion_has_local_source(mapping.filter_conversion)) {
             const auto local_position_it =
-                    file_request.local_positions.find(LocalColumnId(*mapping.field_id));
+                    file_request.local_positions.find(LocalColumnId(*mapping.file_local_id));
             if (local_position_it != file_request.local_positions.end()) {
                 entry = FilterEntry::local(local_position_it->second);
             }
@@ -1769,7 +1769,7 @@ Status TableColumnMapper::create_scan_request(
     for (size_t column_idx = 0; column_idx < projected_columns.size(); ++column_idx) {
         const auto global_index = GlobalIndex(column_idx);
         auto* mapping = _find_mapping(global_index);
-        if (mapping != nullptr && mapping->field_id.has_value()) {
+        if (mapping != nullptr && mapping->file_local_id.has_value()) {
             // A file column can be read lazily as a non-predicate column only when it is not used
             // by row-level expression filters. Single-column ColumnPredicate filters are pruning
             // hints only and must not force row-level predicate materialization.
@@ -1793,12 +1793,13 @@ Status TableColumnMapper::create_scan_request(
     RETURN_IF_ERROR(localize_filters(table_filters, table_column_predicates, file_request));
     // 3. Re-build projections for all referenced file columns to point to the correct file-local block positions.
     for (auto& mapping : _mappings) {
-        if (!mapping.field_id.has_value()) {
+        if (!mapping.file_local_id.has_value()) {
             continue;
         }
-        auto position_it = file_request->local_positions.find(LocalColumnId(*mapping.field_id));
+        auto position_it =
+                file_request->local_positions.find(LocalColumnId(*mapping.file_local_id));
         DORIS_CHECK(position_it != file_request->local_positions.end())
-                << file_request->local_positions.size() << " " << *mapping.field_id << " "
+                << file_request->local_positions.size() << " " << *mapping.file_local_id << " "
                 << mapping.file_column_name;
         rebuild_projection(&mapping, position_it->second);
     }
@@ -1831,7 +1832,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     for (const auto& table_filter : table_filters) {
         for (const auto& global_index : table_filter.global_indices) {
             auto* mapping = _find_mapping(global_index);
-            if (mapping == nullptr || !mapping->field_id.has_value() ||
+            if (mapping == nullptr || !mapping->file_local_id.has_value() ||
                 !filter_conversion_has_local_source(mapping->filter_conversion)) {
                 continue;
             }
@@ -1856,13 +1857,13 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     for (const auto& [global_index, predicates] : table_column_predicates) {
         const auto* mapping = _find_mapping(global_index);
         const auto entry_it = _filter_entries.find(global_index);
-        if (mapping == nullptr || !mapping->field_id.has_value() || predicates.empty() ||
+        if (mapping == nullptr || !mapping->file_local_id.has_value() || predicates.empty() ||
             entry_it == _filter_entries.end() || !entry_it->second.is_local() ||
             !column_predicate_can_use_local_source(mapping->filter_conversion)) {
             continue;
         }
         FileColumnPredicateFilter column_predicate_filter;
-        column_predicate_filter.file_column_id = LocalColumnId(*mapping->field_id);
+        column_predicate_filter.file_column_id = LocalColumnId(*mapping->file_local_id);
         column_predicate_filter.predicates = predicates;
         file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
     }
@@ -1892,7 +1893,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                                                  const ColumnDefinition& file_field,
                                                  ColumnMapping* mapping) const {
     DORIS_CHECK(mapping != nullptr);
-    mapping->field_id = file_field.file_local_id();
+    mapping->file_local_id = file_field.file_local_id();
     mapping->table_column_name = table_column.name;
     mapping->file_column_name = file_field.name;
     mapping->original_file_type = file_field.type;

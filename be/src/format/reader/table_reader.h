@@ -541,7 +541,7 @@ protected:
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
         // virtual columns.
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            if (!mapping.field_id.has_value() ||
+            if (!mapping.file_local_id.has_value() ||
                 mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
                 mapping.default_expr != nullptr || mapping.file_type == nullptr ||
                 mapping.table_type == nullptr) {
@@ -556,7 +556,7 @@ protected:
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
-        if (mapping.has_complex_projection && mapping.field_id.has_value() &&
+        if (mapping.has_complex_projection && mapping.file_local_id.has_value() &&
             !mapping.child_mappings.empty()) {
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
@@ -642,7 +642,7 @@ protected:
         child_columns.reserve(mapping.child_mappings.size());
         size_t file_child_idx = 0;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.field_id.has_value()) {
+            if (!child_mapping.file_local_id.has_value()) {
                 child_columns.push_back(
                         child_mapping.table_type->create_column_const_with_default_value(rows)
                                 ->convert_to_full_column_if_const());
@@ -777,9 +777,9 @@ protected:
         }
         request->columns.reserve(_data_reader.column_mapper.mappings().size());
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            DORIS_CHECK(mapping.field_id.has_value());
+            DORIS_CHECK(mapping.file_local_id.has_value());
             FileAggregateRequest::Column column;
-            column.projection = LocalColumnIndex::top_level(LocalColumnId(*mapping.field_id));
+            column.projection = LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
             if (!mapping.child_mappings.empty()) {
                 RETURN_IF_ERROR(build_aggregate_projection(mapping, &column.projection));
             }
@@ -910,7 +910,7 @@ private:
         size_t mapped_children = 0;
         const ColumnMapping* mapped_child = nullptr;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.field_id.has_value()) {
+            if (!child_mapping.file_local_id.has_value()) {
                 continue;
             }
             ++mapped_children;
@@ -923,8 +923,8 @@ private:
     static Status build_aggregate_projection(const ColumnMapping& mapping,
                                              LocalColumnIndex* projection) {
         DORIS_CHECK(projection != nullptr);
-        DORIS_CHECK(mapping.field_id.has_value());
-        *projection = LocalColumnIndex::field(*mapping.field_id);
+        DORIS_CHECK(mapping.file_local_id.has_value());
+        *projection = LocalColumnIndex::field(*mapping.file_local_id);
         projection->children.clear();
         projection->project_all_children = true;
         if (mapping.child_mappings.empty()) {
@@ -932,7 +932,7 @@ private:
         }
         projection->project_all_children = false;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.field_id.has_value()) {
+            if (!child_mapping.file_local_id.has_value()) {
                 continue;
             }
             LocalColumnIndex child_projection;
