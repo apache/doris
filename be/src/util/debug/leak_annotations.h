@@ -38,8 +38,6 @@
 #undef ANNOTATE_LEAKING_OBJECT_PTR
 #define ANNOTATE_LEAKING_OBJECT_PTR(p) __lsan_ignore_object(p);
 
-#endif // DORIS_LSAN_ENABLED && __linux__
-
 // API definitions from LLVM lsan_interface.h
 
 extern "C" {
@@ -77,12 +75,22 @@ void __lsan_do_leak_check();
 int __lsan_do_recoverable_leak_check();
 } // extern "C"
 
+#endif // DORIS_LSAN_ENABLED && __linux__
+
 namespace doris::debug {
 
 class ScopedLSANDisabler {
 public:
-    ScopedLSANDisabler() { __lsan_disable(); }
-    ~ScopedLSANDisabler() { __lsan_enable(); }
+    ScopedLSANDisabler() {
+#if defined(DORIS_LSAN_ENABLED) && defined(__linux__)
+        __lsan_disable();
+#endif
+    }
+    ~ScopedLSANDisabler() {
+#if defined(DORIS_LSAN_ENABLED) && defined(__linux__)
+        __lsan_enable();
+#endif
+    }
 };
 
 } // namespace doris::debug
