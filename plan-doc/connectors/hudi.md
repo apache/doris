@@ -11,8 +11,8 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/hudi/` |
 | **共享依赖** | `fe-connector-hms`（通过 HMS 拿元数据） |
 | **计划迁移阶段** | **P3** |
-| **当前状态** | ⏸ 未启动 |
-| **完成度** | 20% |
+| **当前状态** | 🚧 dormant 硬化中（批 A–C；gate 关、零 live 风险）|
+| **完成度** | 25% |
 | **主 owner** | TBD |
 
 ---
@@ -31,7 +31,7 @@
 | 8-9 | 🚫 | hudi 无独立 catalog；走 D-005 的 `tableFormatType` 模型 |
 | 10 | ⏳ | 替换 `visitPhysicalHudiScan` 中 `HMSExternalTable.dlaType=HUDI` 检查 |
 | 11 | ⏳ | 删 `HudiScanNode`，由 `PluginDrivenScanNode` + `HudiScanPlanProvider` 承接 |
-| 12 | ⏳ | 0 个测试 |
+| 12 | 🟡 | 批 C/T07：三连接器模块测试基线 59 测（hudi 33 + hms 12 + hive 14；含 COW/MOR schema golden parity）；端到端/集群验证随批 E cutover |
 | 13 | ⏳ | 删 `datasource/hudi/` |
 
 ---
@@ -77,6 +77,9 @@
 ---
 
 ## 进度日志
+
+### 2026-06-05（批 C）
+- **P3-T07 ✅**（批 C，测试 + gap-1 修，[DV-008](../deviations-log.md)，用户签字）：三模块测试基线 + COW/MOR schema parity。feasibility = **golden-value**（fe-core 不依赖具体连接器模块，无跨模块编译路径）；关键结论 **COW/MOR schema type-agnostic**（两侧 schema 推导都不按表型分支，差异只在 scan planning）。**hudi** `avroSchemaToColumns` 顶层列名 `toLowerCase` 修（gap-1，镜像 legacy `HMSExternalTable:745`）+ package-private static 可测；`HudiTypeMappingTest` 补 `fromAvroSchema` golden（原零覆盖）；新 `HudiSchemaParityTest`（列名/序/类型/Hive 串/casing 边界）+ `HudiTableTypeTest`（COW/MOR/UNKNOWN）。**hms** 新 `HmsTypeMappingTest`（共享 Hive 类型串解析器，原零测试）。**hive** 新 `HiveFileFormatTest` + `HiveConnectorMetadataPartitionPruningTest`（镜像 T05 裁剪网）。三模块 59 测全绿（hudi 33 + hms 12 + hive 14）；checkstyle 0；import-gate 通过；gate 保持关闭。gap-2 Hudi meta-field 纳入（`getTableAvroSchema(true)` vs 无参）推迟批 E。设计 [`../tasks/designs/P3-T07-test-baseline-design.md`](../tasks/designs/P3-T07-test-baseline-design.md)。
 
 ### 2026-06-05（批 B）
 - **P3-T05 ✅**（批 B，commit `10b72d4`）：`HudiConnectorMetadata.applyFilter` 真实 EQ/IN 分区裁剪。原占位实现列**全部** HMS 分区不裁剪、且无条件设 `prunedPartitionPaths`（静默把分区来源从 Hudi-metadata 切到 HMS）；重写为忠实镜像 `HiveConnectorMetadata`（抽取 partition 列 EQ/IN 谓词→列候选→裁剪→仅有效果时回传 pruned handle，否则 `Optional.empty()` 回落 Hudi-metadata listing）。保留 `List<String>` 路径表示 + `-1` 上限；7 helper duplicate from Hive（仅依赖 fe-connector-hms）。`HudiPartitionPruningTest` 8 测全绿；gate 保持关闭。`listPartitions*` override 推迟批 E（[DV-007](../deviations-log.md)：零 live caller、Hive 不 override）。设计 [`../tasks/designs/P3-T05-partition-pruning-design.md`](../tasks/designs/P3-T05-partition-pruning-design.md)。

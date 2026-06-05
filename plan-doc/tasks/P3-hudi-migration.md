@@ -9,7 +9,7 @@
 
 ## 元信息
 
-- **状态**：🚧 进行中（批 0 ✅；批 A 编码完成 T02 ✅/T04 ✅/T03→批 E；**批 B 编码完成**：T05 applyFilter EQ/IN 裁剪 ✅、T06 MVCC keep-defaults 决策 ✅（[DV-007]）；下一步批 C：三模块测试基线 + COW/MOR parity）
+- **状态**：🚧 进行中（批 0 ✅；批 A 编码完成 T02 ✅/T04 ✅/T03→批 E；批 B 编码完成 T05 ✅/T06 决策 ✅（[DV-007]）；**批 C 编码完成**：T07 三模块测试基线 + COW/MOR schema parity ✅（[DV-008]，列名 casing 当场修、meta-field→批 E）；下一步批 D：T08 `tableFormatType` 分流设计备忘 design-only）
 - **启动日期**：2026-06-04
 - **目标完成**：—（hybrid 范围，估时按批 A–C 约 1–1.5 周；批 D 设计 0.5 周；批 E deferred 不计入 P3）
 - **实际完成**：—
@@ -44,7 +44,7 @@
 - [~] **批 A→E / T03**：native split `schema_id` + `params.history_schema_info` 填充 —— **推迟批 E（[DV-006]）**，非 model-agnostic SPI 修复（连接器缺 field-id/InternalSchema/type→thrift；裸基线净回归）
 - [x] **批 B / T05**：真实 `applyFilter` EQ/IN 约束裁剪 ✅（`10b72d4`，镜像 Hive）；`listPartitions*` override **推迟批 E**（[DV-007]，零 live caller、Hive 不 override）
 - [x] **批 B / T06**：MVCC/snapshot SPI **保持 default opt-out + 文档化** ✅（[DV-007]，非抛异常 override——破 opt-out 约定/不可达；T04 已 fail-loud time-travel）；完整 MVCC 入批 E
-- [ ] **批 C**：fe-connector-hms/hive/hudi 测试基线（当前零测试）；**parity 测试**——SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `HiveMetaStoreClientHelper.getHudiTableSchema`，COW & MOR 各一
+- [x] **批 C / T07**：fe-connector-hms/hive/hudi 测试基线 ✅（hms 12 + hive 14 + hudi +18=33 全绿，golden-value）；**parity 测试** ✅——COW/MOR schema **type-agnostic**（差异只在 scan planning），SPI avro→column 变换 golden 对标 legacy `getHudiTableSchema`/`initHudiSchema`（列名/序/类型/Hive 串/casing）+ `detectHudiTableType` COW/MOR 分类。列名 casing 当场修（[DV-008]）；meta-field 纳入推迟批 E
 - [ ] **批 D**：`tableFormatType` 分流消费设计备忘（design-only，**不动 fe-core live 路径**）
 - [ ] 全程 fe-connector 编译 + checkstyle 0 + import-gate 通过；新增单测全绿
 - [ ] gate 保持关闭（`SPI_READY_TYPES` 不含 hms/hudi）；legacy `datasource/hudi/` 不删（批 A–D 内）
@@ -65,7 +65,7 @@
 | P3-T04 | time-travel + 增量读 fail-loud 守卫 | 批 A | @me | ✅ | `feceabb` | 2026-06-05 | 2026-06-05 | `visitPhysicalHudiScan` SPI 分支加两守卫：`getIncrementalRelation().isPresent()` / `getTableSnapshot().isPresent()` → 抛 `AnalysisException`（不再静默返最新/全扫）。唯一同时可见 snapshot+incremental 的位置（SPI surface 拿不到 incremental）。删 dead `setQueryTableSnapshot`。dormant 分支 gate 关时不可达 → 零 live 风险。**单测推迟批 E**（dormant 不可 exercise；regression 断言 FOR TIME AS OF/增量→报错，precedent DV-003）。完整 snapshot 透传/增量 SPI/MVCC 入批 E |
 | P3-T05 | 真实 `applyFilter` EQ/IN 分区裁剪 + 单测（`listPartitions*` override 推迟批 E）| 批 B | @me | ✅ | `10b72d4` | 2026-06-05 | 2026-06-05 | applyFilter 原是占位（列全部分区不裁剪 + 无条件设 `prunedPartitionPaths` → 静默把分区来源从 Hudi-metadata 切到 HMS）。重写为**忠实镜像 `HiveConnectorMetadata`**：抽取 partition 列 EQ/IN 谓词 → 列候选 → 裁剪 → 仅在有效果时回传 pruned handle，否则 `Optional.empty()`（handle 不变，回落 Hudi-metadata listing）。保留 `List<String>` 路径表示 + `-1` 上限（不静默截断）；7 helper duplicate from Hive（hudi 仅依赖 fe-connector-hms）。`HudiPartitionPruningTest` 8 测全绿、checkstyle 0、import-gate 通过。**`listPartitions*` override 推迟批 E**（[DV-007]：零 live caller、Hive 不 override）。设计：[`designs/P3-T05-partition-pruning-design.md`](./designs/P3-T05-partition-pruning-design.md) |
 | P3-T06 | MVCC/snapshot SPI：保持 default opt-out + 文档化（完整 MVCC→批 E）| 批 B | @me | ✅ | — | 2026-06-05 | 2026-06-05 | **决策（[DV-007]，用户签字「Keep defaults + document」）**：不 override `beginQuerySnapshot/getSnapshotAt/getSnapshotById`，保持 SPI default `Optional.empty()`（= opt-out）。recon 证「显式抛异常 override」错——破 SPI opt-out 约定（全体连接器含 Iceberg/Paimon/Hive/Trino 均依赖 default，`FakeConnectorPluginTest` 断言）、不可达死代码（MVCC 无 production caller）、且 T04 已在唯一可触发点（time-travel）fail-loud。**零代码**。完整 MVCC（`HudiMvccSnapshot`+snapshot 透传+增量时序）入批 E。设计：[`designs/P3-T06-mvcc-design.md`](./designs/P3-T06-mvcc-design.md) |
-| P3-T07 | 三模块测试基线 + parity 测试 | 批 C | @me | ⏳ | — | — | — | fe-connector-hms/hive/hudi 当前**零测试**。补单测 + **parity**：SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `HiveMetaStoreClientHelper.getHudiTableSchema`（fe-core），COW & MOR 各一。Rule 9：测意图（type-string 编码、schema_id、裁剪正确） |
+| P3-T07 | 三模块测试基线 + parity 测试 | 批 C | @me | ✅ | — | 2026-06-05 | 2026-06-05 | golden-value parity（无跨模块编译路径：fe-core 不依赖具体连接器模块）。**hudi**：`avroSchemaToColumns` 列名 `toLowerCase` 修（gap-1）+ package-private static；`HudiTypeMappingTest`+`fromAvroSchema` golden；新 `HudiSchemaParityTest`（列集合/序/类型/Hive 串/casing 边界）+ `HudiTableTypeTest`（COW/MOR/UNKNOWN）。**hms**：新 `HmsTypeMappingTest`（共享解析器）。**hive**：新 `HiveFileFormatTest`+`HiveConnectorMetadataPartitionPruningTest`（镜像 T05）。33 测全绿、checkstyle 0、import-gate 通过。COW/MOR schema **type-agnostic**。gap-2 meta-field→批 E（[DV-008]）。设计 [`designs/P3-T07-test-baseline-design.md`](./designs/P3-T07-test-baseline-design.md) |
 | P3-T08 | `tableFormatType` 分流消费设计备忘（design-only） | 批 D | @me | ⏳ | — | — | — | 写清 `PluginDrivenExternalTable` 如何按 `ConnectorTableSchema.tableFormatType`（现 fe-core 从不消费）把一个 `"hms"` catalog 的 per-table 路由到 HUDI/HIVE/ICEBERG。**不实现 fe-core 消费**（那是批 E）。作为 (a) 落地入口设计，可催生 D-NNN |
 | P3-T09 | [deferred] fe-core 消费 `tableFormatType` + hudi 表产出为 `PluginDrivenExternalTable` | 批 E | TBD | ⏳ | — | — | — | **不在 P3 hybrid 编码范围**；并入 hive/HMS migration（D-019）。catalog 模型落地 |
 | P3-T10 | [deferred] gate flip（`SPI_READY_TYPES` 加 hms/hudi）+ live cutover + 删 legacy `datasource/hudi/` | 批 E | TBD | ⏳ | — | — | — | **不在 P3 hybrid 编码范围**。15 文件 ~2403 LOC + `HudiDlaTable`(在 hive/)，live caller 仅 7 个 fe-core 文件。cutover 经验证后再删 |
@@ -76,6 +76,16 @@
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-05（批 C：T07 ✅ 三模块测试基线 + COW/MOR schema parity，批 C 编码完成）
+- **P3-T07 ✅**（测试 + gap-1 修，[DV-008]，用户签字 AskUserQuestion「Also fix casing now」+「Focused baseline」）：
+  - **feasibility（golden-value）**：fe-core 只依赖 `fe-connector-api`/`-spi`、**不依赖**具体连接器模块；连接器不依赖 fe-core；import-gate 只扫 `src/main`、只禁 connector→fe-core 单向 → **无跨模块编译路径同时见 legacy `HudiUtils` 与 SPI `HudiTypeMapping`**。parity 用 golden 值（注 legacy file:line），JUnit5 + 手写替身（无 mockito，`FakeHmsClient` 先例）。
+  - **COW/MOR schema type-agnostic**（recon 关键结论）：legacy `initHudiSchema` 与 SPI `getTableSchema`→`avroSchemaToColumns` 都从同一 avro schema 推导、**零表型分支**；COW/MOR 区别只在 scan planning（split 收集 + reader 格式）。→「COW & MOR 各一」= (a) avro→column 变换 golden（COW≡MOR 恒等）+ (b) `detectHudiTableType` 分类。
+  - **gap-1 列名 casing 当场修**：`HudiConnectorMetadata.avroSchemaToColumns` 顶层列名改 `toLowerCase(Locale.ROOT)`，镜像 legacy `HMSExternalTable:745`（**仅顶层**；嵌套 struct 名两侧均保留）；改 package-private `static` 可测（零行为变更）。已核安全（HMS 自身存小写标识符 → 与小写 HMS partition key 对齐，改善 `getColumnHandles` 匹配，无回归）。`ThriftHmsClient` 源头防御降字（与 hive 共享）缩界推 P7/批 E。
+  - **gap-2 Hudi meta-field 纳入推迟批 E**（[DV-008]）：SPI 无参 `getTableAvroSchema()` vs legacy `(true)`，可能改变列集合；无真实 metaclient 不可单测，同 T03 族。
+  - **测试**：**hudi**（+18）`HudiTypeMappingTest`+7（`fromAvroSchema`→ConnectorType golden，原零覆盖）/ 新 `HudiSchemaParityTest` 3（列名小写+序+ConnectorType+nullable+Hive 串，casing 边界 pin）/ 新 `HudiTableTypeTest` 4（COW/MOR/UNKNOWN）。**hms**（+12）新 `HmsTypeMappingTest`（共享 Hive 类型串解析器：嵌套 array/map/struct、decimal 精度/scale、char/varchar 长度、Options、大小写、`findNextNestedField`）。**hive**（+14）新 `HiveFileFormatTest` 6 + `HiveConnectorMetadataPartitionPruningTest` 8（镜像 `HudiPartitionPruningTest`，含 `getPartitions` 跳；consolidation 信号注 javadoc，P7 处理）。
+  - 三模块 33 测全绿；checkstyle 0（含 test 源，`includeTestSourceDirectory=true`）；import-gate 通过。gate 保持关闭，唯一 main 改动 = hudi `avroSchemaToColumns`（dormant、零 live 风险）。设计：[`designs/P3-T07-test-baseline-design.md`](./designs/P3-T07-test-baseline-design.md)。
+- **批 C 编码小结**：T07 测试网（三模块零→33 测）+ COW/MOR schema parity + gap-1 casing 修落地；gap-2 meta-field 登记批 E。**批 A+B+C 编码完成**，下一步批 D（T08 `tableFormatType` 分流设计备忘 design-only，不动 fe-core）。
 
 ### 2026-06-05（批 B：T05 ✅ 裁剪、T06 ✅ 决策，批 B 编码完成）
 - **P3-T05 ✅**（commit `10b72d4`，feat）：`HudiConnectorMetadata.applyFilter` 真实 EQ/IN 分区裁剪。

@@ -29,6 +29,32 @@
 
 ## 详细记录（时间倒序）
 
+### DV-008 — P3-T07 parity 暴露两处 SPI↔legacy 偏差：列名 casing 当场修；Hudi meta-field 纳入推迟批 E
+
+- **发现日期**：2026-06-05
+- **发现 session / agent**：P3 批 C session（T07 启动前 5-agent code-grounded recon workflow `p3-t07-recon`：cow-mor / legacy-types / spi-types / hms-surface / hive-surface + 主线核读 `HudiConnectorMetadata`/`HudiTypeMapping`/`HMSExternalTable.initHudiSchema`/`ThriftHmsClient`）
+- **当前状态**：🟢 已修正（gap-1 casing 已修 + 测；gap-2 meta-field 推迟批 E 实证）
+- **原计划位置**：[tasks/P3 §批 C/T07](./tasks/P3-hudi-migration.md)（「parity 测试——SPI `HudiConnectorMetadata` schema/partition 输出 vs legacy `getHudiTableSchema`」）——原计划隐含假定 SPI schema 输出与 legacy parity，仅需写测试验证
+- **偏差描述**：parity recon 实证 SPI avro→column 变换与 legacy `HMSExternalTable.initHudiSchema` 有两处偏差（其余逐类型一致，见设计备忘矩阵）：
+  1. **gap-1 列名 casing**：SPI `HudiConnectorMetadata.avroSchemaToColumns` 用 `field.name()` 原样；legacy 在 `HMSExternalTable.java:745` `toLowerCase(Locale.ROOT)`（**仅顶层列名**；嵌套 struct 字段名两侧均不降）。mixed-case avro 列名时 SPI 保留原 case → 破 parity（BE name-match 大小写敏感，见 DV-006 / T03）。
+  2. **gap-2 Hudi meta-field 纳入**：SPI `getSchemaFromMetaClient` 调无参 `TableSchemaResolver.getTableAvroSchema()`；legacy `getHudiTableSchema:852` 调 `getTableAvroSchema(true)`。`true` 很可能强制纳入 `_hoodie_*` meta 列，无参默认随 Hudi 版本/表配置（`populateMetaFields`）变 → 可能改变列集合。无真实 metaclient 不可单测判定（同 T03 族）。
+- **触发场景**：T07 parity recon（golden-value 法，因 fe-core 只依赖 fe-connector-api/-spi、不依赖具体连接器模块，无跨模块编译路径）+ 用户 AskUserQuestion 签字（2026-06-05，「Also fix casing now」+「Focused baseline」）。
+- **新方案**：
+  - **gap-1 当场修**（用户签字）：`avroSchemaToColumns` 顶层列名改 `toLowerCase(Locale.ROOT)`，镜像 legacy:745（仅顶层；嵌套 struct 名保持 raw，两侧一致）。已核安全：`ThriftHmsClient.convertFieldSchemas:303` 用 `fs.getName()` 不防御降字，但 Hive Metastore 自身存小写标识符 → 降 avro 路径列名与小写 HMS partition key 对齐（改善 `getColumnHandles` 匹配），无回归。`avroSchemaToColumns` 由 `private`→package-private `static`（零行为变更，使可单测）。
+  - **gap-2 推迟批 E**（DV-006 同族）：无真实 fixture 不可判定 + 属 schema-evolution/meta-field 机制，与 hive/HMS migration 一并实证。T07 parity 测不依赖该差异（测纯 avro→column 变换）。
+  - **缩界（R12 不静默）**：`ThriftHmsClient` 源头防御性降字（与 hive 模块共享）**不在 T07 改**——触碰 hive 行为属 P7/批 E。
+- **替代方案**：(gap-1) 不修、仅 pin 现状 + 记 DV 推批 E（precedent T03/T05）——用户否决，选当场修（trivially-correct，对齐 legacy + 小写 HMS）；(gap-2) 当场加 `(true)`——否决（无真实 metaclient 不可验证语义，脆测）。
+- **影响范围**：
+  - 文档：本条 + [tasks/P3](./tasks/P3-hudi-migration.md)（T07 ✅ + 验收 + 阶段日志）+ [PROGRESS](./PROGRESS.md)（§一/二/三/四/六/七）+ [connectors/hudi.md](./connectors/hudi.md)（概况 + playbook 12 + 进度日志）+ [HANDOFF](./HANDOFF.md)。
+  - 代码：gap-1 `HudiConnectorMetadata.avroSchemaToColumns`（降字 + 可见性）+ 6 测试文件（hudi 3 改/新 + hms 1 + hive 2）；gap-2 零代码。
+  - 计划：批 C = {三模块测试基线 ✅, COW/MOR schema parity ✅, gap-1 casing 修 ✅}；gap-2 meta-field 入批 E。
+- **关联**：P3-T07、DV-006（同族 schema-evolution 推批 E）、P3-T10/T11（批 E）、[D-019](./decisions-log.md)（hybrid）、[`designs/P3-T07-test-baseline-design.md`](./tasks/designs/P3-T07-test-baseline-design.md)
+- **后续动作**：
+  - [x] gap-1 casing 修 + `HudiSchemaParityTest` casing pin（顶层降、嵌套 struct 名保留）
+  - [x] 三模块测试基线（hms `HmsTypeMappingTest` 12 / hive `HiveFileFormatTest` 6 + `HiveConnectorMetadataPartitionPruningTest` 8 / hudi `HudiTypeMappingTest`+7 + `HudiSchemaParityTest` 3 + `HudiTableTypeTest` 4 = 33 全绿）
+  - [ ] 批 E：gap-2 meta-field 纳入（`getTableAvroSchema(true)` vs 无参）真实 fixture 实证
+  - [ ] 批 E/P7：`ThriftHmsClient` 源头防御性降字（与 hive 共享）
+
 ### DV-007 — P3 批 B scope 校正：T05 `listPartitions*` override 推迟批 E；T06 MVCC 保持 default opt-out（非抛异常 override）
 
 - **发现日期**：2026-06-05
