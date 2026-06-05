@@ -26,6 +26,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -45,6 +46,18 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
             String comment) {
         super(catalogId, name, comment);
         catalogProperty = new CatalogProperty(resource, props);
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        // The underlying Catalog is RESTSessionCatalog.asCatalog(empty), which is not itself Closeable; the
+        // closeable REST client/auth lives on the RESTSessionCatalog owned by IcebergRestProperties, so close
+        // it here. super.onClose() handles the generic (non-REST) catalog-close path.
+        MetastoreProperties metaProps = catalogProperty.getMetastoreProperties();
+        if (metaProps instanceof IcebergRestProperties) {
+            ((IcebergRestProperties) metaProps).closeRestSessionCatalog();
+        }
     }
 
     @Override

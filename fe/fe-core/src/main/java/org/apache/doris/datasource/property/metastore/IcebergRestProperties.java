@@ -33,16 +33,23 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.SessionCatalog;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class IcebergRestProperties extends AbstractIcebergProperties {
+
+    private static final Logger LOG = LogManager.getLogger(IcebergRestProperties.class);
 
     // REST catalog property constants
     private static final String PREFIX_PROPERTY = "prefix";
@@ -53,6 +60,13 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
     private S3Properties s3Properties;
+
+    // The session-aware Iceberg REST catalog. We build a RESTSessionCatalog directly (instead of the
+    // all-in-one RESTCatalog) so that per-user delegated credentials can be attached per request via
+    // asCatalog(SessionContext) / asViewCatalog(SessionContext), without reflecting RESTCatalog's private
+    // sessionCatalog field. This is the single underlying catalog shared by the default and user-session
+    // paths; IcebergMetadataOps reads it via getRestSessionCatalog() and owns no other REST catalog.
+    private RESTSessionCatalog restSessionCatalog;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
@@ -220,8 +234,52 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(sessionContext));
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
-        // 4. Build iceberg catalog
-        return buildIcebergCatalog(catalogName, catalogProps, configuration);
+        // Build the REST catalog as a RESTSessionCatalog rather than the all-in-one RESTCatalog.
+        // RESTSessionCatalog is session-aware: asCatalog(ctx)/asViewCatalog(ctx) attach per-user delegated
+        // credentials per request. RESTCatalog internally does exactly this (its default delegate is
+        // sessionCatalog.asCatalog(empty)), but hides the session catalog behind a private field; building
+        // it ourselves keeps that capability without reflection. The "type" key is dropped because the
+        // Iceberg SDK rejects "type" together with a concrete catalog impl.
+        catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        this.restSessionCatalog = buildRestSessionCatalog(catalogName, catalogProps, configuration);
+        // The default (non-delegated) Catalog is asCatalog(empty), identical to what RESTCatalog exposes.
+        return restSessionCatalog.asCatalog(SessionCatalog.SessionContext.createEmpty());
+    }
+
+    /**
+     * Builds and initializes the underlying {@link RESTSessionCatalog}. Extracted as a seam so tests can
+     * capture the resolved catalog properties without performing real REST/OAuth network calls.
+     */
+    protected RESTSessionCatalog buildRestSessionCatalog(String catalogName, Map<String, String> catalogProps,
+            Configuration configuration) {
+        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
+        CatalogUtil.configureHadoopConf(sessionCatalog, configuration);
+        sessionCatalog.initialize(catalogName, catalogProps);
+        return sessionCatalog;
+    }
+
+    /**
+     * Returns the session-aware Iceberg REST catalog built by {@link #initCatalog}, or {@code null} if the
+     * catalog has not been initialized yet. Callers use it to obtain per-request catalogs via
+     * {@code asCatalog(SessionContext)} / {@code asViewCatalog(SessionContext)}.
+     */
+    public RESTSessionCatalog getRestSessionCatalog() {
+        return restSessionCatalog;
+    }
+
+    /**
+     * Closes the underlying {@link RESTSessionCatalog} and releases its REST client/auth resources.
+     * Safe to call multiple times and before initialization.
+     */
+    public void closeRestSessionCatalog() {
+        if (restSessionCatalog != null) {
+            try {
+                restSessionCatalog.close();
+            } catch (IOException e) {
+                LOG.warn("Failed to close Iceberg REST session catalog", e);
+            }
+            restSessionCatalog = null;
+        }
     }
 
     @Override

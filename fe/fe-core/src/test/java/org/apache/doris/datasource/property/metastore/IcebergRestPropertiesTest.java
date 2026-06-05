@@ -27,13 +27,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
@@ -1046,45 +1042,12 @@ public class IcebergRestPropertiesTest {
         }
 
         @Override
-        protected Catalog buildIcebergCatalog(String catalogName, Map<String, String> options, Configuration conf) {
+        protected RESTSessionCatalog buildRestSessionCatalog(String catalogName, Map<String, String> options,
+                Configuration conf) {
             capturedCatalogProps = new HashMap<>(options);
-            return new NoopCatalog();
-        }
-    }
-
-    private static class NoopCatalog implements Catalog {
-
-        @Override
-        public List<TableIdentifier> listTables(Namespace namespace) {
-            return new ArrayList<>();
-        }
-
-        @Override
-        public Table loadTable(TableIdentifier ident) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void invalidateTable(TableIdentifier ident) {
-        }
-
-        @Override
-        public Catalog.TableBuilder buildTable(TableIdentifier ident, Schema schema) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean dropTable(TableIdentifier ident) {
-            return false;
-        }
-
-        @Override
-        public boolean dropTable(TableIdentifier ident, boolean purge) {
-            return false;
-        }
-
-        @Override
-        public void renameTable(TableIdentifier from, TableIdentifier to) {
+            // Return an uninitialized RESTSessionCatalog: asCatalog(empty) on it is a cheap, lazy wrapper
+            // (no REST/OAuth network call), which is all initCatalog does with the result here.
+            return new RESTSessionCatalog();
         }
     }
 }

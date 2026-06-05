@@ -102,8 +102,8 @@ public class IcebergSessionCatalogAdapterTest {
     @Test
     public void testDelegatedCatalogUsesIcebergSessionCredentials() {
         RecordingSessionCatalog sessionCatalog = new RecordingSessionCatalog();
-        SessionBackedCatalog catalog = new SessionBackedCatalog(sessionCatalog);
-        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog);
+        SessionBackedCatalog catalog = new SessionBackedCatalog();
+        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog, sessionCatalog);
         SessionContext context = SessionContext.of(new DelegatedCredential(
                 DelegatedCredential.Type.ACCESS_TOKEN, "access-token"));
 
@@ -117,8 +117,8 @@ public class IcebergSessionCatalogAdapterTest {
     @Test
     public void testDelegatedNamespacesUseIcebergSessionCredentials() {
         RecordingSessionCatalog sessionCatalog = new RecordingSessionCatalog();
-        SessionBackedCatalog catalog = new SessionBackedCatalog(sessionCatalog);
-        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog);
+        SessionBackedCatalog catalog = new SessionBackedCatalog();
+        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog, sessionCatalog);
         SessionContext context = SessionContext.of(new DelegatedCredential(
                 DelegatedCredential.Type.ACCESS_TOKEN, "access-token"));
 
@@ -132,8 +132,8 @@ public class IcebergSessionCatalogAdapterTest {
     @Test
     public void testPlainCatalogIsUsedWithoutDelegatedCredential() {
         RecordingSessionCatalog sessionCatalog = new RecordingSessionCatalog();
-        SessionBackedCatalog catalog = new SessionBackedCatalog(sessionCatalog);
-        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog);
+        SessionBackedCatalog catalog = new SessionBackedCatalog();
+        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog, sessionCatalog);
 
         adapter.catalog(SessionContext.empty()).tableExists(TableIdentifier.of("db", "tbl"));
 
@@ -144,8 +144,8 @@ public class IcebergSessionCatalogAdapterTest {
     @Test
     public void testDelegatedCatalogRequiresDelegatedCredential() {
         RecordingSessionCatalog sessionCatalog = new RecordingSessionCatalog();
-        SessionBackedCatalog catalog = new SessionBackedCatalog(sessionCatalog);
-        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog);
+        SessionBackedCatalog catalog = new SessionBackedCatalog();
+        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog, sessionCatalog);
 
         IllegalStateException exception = Assertions.assertThrows(
                 IllegalStateException.class,
@@ -157,13 +157,8 @@ public class IcebergSessionCatalogAdapterTest {
     }
 
     private static class SessionBackedCatalog implements Catalog, SupportsNamespaces {
-        private final BaseSessionCatalog sessionCatalog;
         private boolean tableExistsCalled;
         private boolean listNamespacesCalled;
-
-        private SessionBackedCatalog(BaseSessionCatalog sessionCatalog) {
-            this.sessionCatalog = sessionCatalog;
-        }
 
         @Override
         public List<TableIdentifier> listTables(Namespace namespace) {

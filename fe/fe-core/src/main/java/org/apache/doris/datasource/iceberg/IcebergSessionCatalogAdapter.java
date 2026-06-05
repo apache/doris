@@ -29,10 +29,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.Optional;
 
@@ -42,22 +39,25 @@ import java.util.Optional;
  * <p>When Doris has a delegated credential in {@link SessionContext}, Iceberg REST user-session mode requires the
  * request to use a session-bound {@link Catalog} or {@link ViewCatalog}. This adapter keeps the plain catalog path for
  * requests without delegated credentials and switches to Iceberg's session catalog only for user-session requests.
+ *
+ * <p>The session catalog is injected directly (it is the {@code RESTSessionCatalog} built by
+ * {@code IcebergRestProperties}) rather than reflected out of {@code RESTCatalog}'s private field. Non-REST catalogs
+ * have no session catalog, so it is {@link Optional#empty()} and only the plain-catalog path is ever taken.
  */
 class IcebergSessionCatalogAdapter {
-    private static final Logger LOG = LogManager.getLogger(IcebergSessionCatalogAdapter.class);
-    private static final String SESSION_CATALOG_FIELD = "sessionCatalog";
 
     private final Catalog catalog;
     private final Optional<BaseSessionCatalog> sessionCatalog;
     private final DelegatedTokenMode delegatedTokenMode;
 
-    IcebergSessionCatalogAdapter(Catalog catalog) {
-        this(catalog, DelegatedTokenMode.ACCESS_TOKEN);
+    IcebergSessionCatalogAdapter(Catalog catalog, BaseSessionCatalog sessionCatalog) {
+        this(catalog, sessionCatalog, DelegatedTokenMode.ACCESS_TOKEN);
     }
 
-    IcebergSessionCatalogAdapter(Catalog catalog, DelegatedTokenMode delegatedTokenMode) {
+    IcebergSessionCatalogAdapter(Catalog catalog, BaseSessionCatalog sessionCatalog,
+            DelegatedTokenMode delegatedTokenMode) {
         this.catalog = catalog;
-        this.sessionCatalog = extractSessionCatalog(catalog);
+        this.sessionCatalog = Optional.ofNullable(sessionCatalog);
         this.delegatedTokenMode = delegatedTokenMode;
     }
 
@@ -101,33 +101,6 @@ class IcebergSessionCatalogAdapter {
             return Optional.of(((BaseViewSessionCatalog) sessionCatalog)
                     .asViewCatalog(toIcebergSessionContext(context, delegatedTokenMode)));
         }
-        return Optional.empty();
-    }
-
-    private Optional<BaseSessionCatalog> extractSessionCatalog(Catalog catalog) {
-        Class<?> clazz = catalog.getClass();
-        while (clazz != null && clazz != Object.class) {
-            try {
-                Field field = clazz.getDeclaredField(SESSION_CATALOG_FIELD);
-                field.setAccessible(true);
-                Object value = field.get(catalog);
-                if (value instanceof BaseSessionCatalog) {
-                    return Optional.of((BaseSessionCatalog) value);
-                }
-                throw new IllegalStateException("Iceberg REST sessionCatalog field is not a BaseSessionCatalog");
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            } catch (IllegalAccessException e) {
-                throw new IllegalStateException("Failed to access Iceberg REST sessionCatalog field", e);
-            }
-        }
-        // The reflective access to Iceberg's private "sessionCatalog" field is fragile: if a future
-        // Iceberg release renames, removes, or retypes it, we land here and user-session requests
-        // later fail with "requires a session-aware Iceberg catalog". Warn so operators can map the
-        // runtime failure back to an Iceberg upgrade incompatibility.
-        LOG.warn("Iceberg catalog {} has no accessible '{}' field; REST user-session mode will be "
-                + "unavailable. This usually indicates an incompatible Iceberg version.",
-                catalog.getClass().getName(), SESSION_CATALOG_FIELD);
         return Optional.empty();
     }
 
