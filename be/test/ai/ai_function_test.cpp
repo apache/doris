@@ -552,6 +552,108 @@ TEST(AIFunctionTest, MockResourceSendRequest) {
     ASSERT_EQ(val, "this is a mock response. test input");
 }
 
+TEST(AIFunctionTest, MockResourceBatchStringResult) {
+    setenv("AI_TEST_RESULT", R"(["first result","second result"])", 1);
+
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource"};
+    std::vector<std::string> texts = {"first input", "second input"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto sentiment_func = FunctionAISentiment::create();
+    Status exec_status =
+            sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& res_col =
+            assert_cast<const ColumnString&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 2);
+    ASSERT_EQ(res_col.get_data_at(0).to_string(), "first result");
+    ASSERT_EQ(res_col.get_data_at(1).to_string(), "second result");
+}
+
+TEST(AIFunctionTest, MockResourceBatchBoolResult) {
+    setenv("AI_TEST_RESULT", R"(["1","0"])", 1);
+
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource"};
+    std::vector<std::string> texts = {"valid input", "invalid input"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 2);
+    ASSERT_EQ(res_col.get_data()[0], 1);
+    ASSERT_EQ(res_col.get_data()[1], 0);
+}
+
+TEST(AIFunctionTest, MockResourceBatchFloatResult) {
+    setenv("AI_TEST_RESULT", R"(["0.5","1.25"])", 1);
+
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource"};
+    std::vector<std::string> text1 = {"first text", "second text"};
+    std::vector<std::string> text2 = {"first compare", "second compare"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text1 = ColumnHelper::create_column<DataTypeString>(text1);
+    auto col_text2 = ColumnHelper::create_column<DataTypeString>(text2);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text1), std::make_shared<DataTypeString>(), "text1"});
+    block.insert({std::move(col_text2), std::make_shared<DataTypeString>(), "text2"});
+    block.insert({nullptr, std::make_shared<DataTypeFloat32>(), "result"});
+
+    ColumnNumbers arguments = {0, 1, 2};
+    size_t result_idx = 3;
+
+    auto similarity_func = FunctionAISimilarity::create();
+    Status exec_status =
+            similarity_func->execute_impl(ctx.get(), block, arguments, result_idx, text1.size());
+
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& res_col =
+            assert_cast<const ColumnFloat32&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 2);
+    ASSERT_FLOAT_EQ(res_col.get_data()[0], 0.5F);
+    ASSERT_FLOAT_EQ(res_col.get_data()[1], 1.25F);
+}
+
 TEST(AIFunctionTest, MissingAIResourcesMetadataTest) {
     auto query_ctx = MockQueryContext::create();
     TQueryOptions query_options;

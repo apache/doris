@@ -953,6 +953,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
     public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
+    public static final String EMBED_MAX_BATCH_SIZE = "embed_max_batch_size";
+    public static final String AI_CONTEXT_WINDOW_SIZE = "ai_context_window_size";
     public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
@@ -1293,6 +1295,22 @@ public class SessionVariable implements Serializable, Writable {
                 "Target output block size in bytes for adaptive batch size. "
                     + "Range [1MB, 512MB]. Default 8MB."})
     public long preferredBlockSizeBytes = 8388608L; // 8MB
+
+    @VariableMgr.VarAttr(name = EMBED_MAX_BATCH_SIZE, needForward = true,
+            checker = "checkEmbedMaxBatchSize",
+            description = {
+                    "EMBED 场景中，单次批量请求允许携带的最大输入数量。",
+                    "Maximum number of inputs allowed in one EMBED batch request."
+            })
+    public int embedMaxBatchSize = 5;
+
+    @VariableMgr.VarAttr(name = AI_CONTEXT_WINDOW_SIZE, needForward = true,
+            checker = "checkAiContextWindowSize",
+            description = {
+                    "AI 函数批量请求时使用的上下文窗口字节上限。",
+                    "Context window size in bytes for AI function batching."
+            })
+    public long aiContextWindowSize = 128 * 1024;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
 
@@ -5289,6 +5307,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatchSize(batchSize);
         tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
+        tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
+        tResult.setAiContextWindowSize(aiContextWindowSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
@@ -5976,6 +5996,14 @@ public class SessionVariable implements Serializable, Writable {
                     + PREFERRED_BLOCK_SIZE_BYTES_MIN + ") and 512MB ("
                     + PREFERRED_BLOCK_SIZE_BYTES_MAX + "), got " + v);
         }
+    }
+
+    public void checkEmbedMaxBatchSize(String value) throws Exception {
+        checkFieldValue(EMBED_MAX_BATCH_SIZE, 1, value);
+    }
+
+    public void checkAiContextWindowSize(String value) throws Exception {
+        checkFieldLongValue(AI_CONTEXT_WINDOW_SIZE, 1, value);
     }
 
     public void checkSkewRewriteAggBucketNum(String bucketNumStr) {

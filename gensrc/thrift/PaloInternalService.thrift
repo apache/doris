@@ -480,6 +480,8 @@ struct TQueryOptions {
   211: optional bool enable_adaptive_scan = false;
   212: optional bool enable_local_exchange_before_agg = true;
   213: optional double max_scan_mem_ratio = 0.3;
+  214: optional i32 embed_max_batch_size = 5;
+  215: optional i64 ai_context_window_size = 131072;
 
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
   216: optional bool enable_rust_lance_reader = false;

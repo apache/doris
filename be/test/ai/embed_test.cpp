@@ -96,6 +96,45 @@ TEST(EMBED_TEST, embed_function_test) {
     }
 }
 
+TEST(EMBED_TEST, embed_function_batch_test) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource"};
+    std::vector<std::string> texts = {"first input", "second input"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status =
+            embed_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& col_array =
+            assert_cast<const ColumnArray&>(*block.get_by_position(result_idx).column);
+    const auto& offsets = col_array.get_offsets();
+    ASSERT_EQ(offsets.size(), 2U);
+    ASSERT_EQ(offsets[0], 5);
+    ASSERT_EQ(offsets[1], 10);
+    const auto& nested_nullable_col = assert_cast<const ColumnNullable&>(col_array.get_data());
+    const auto& nested_col =
+            assert_cast<const ColumnFloat32&>(*nested_nullable_col.get_nested_column_ptr());
+    ASSERT_EQ(nested_col.size(), 10U);
+    for (int row = 0; row < 2; ++row) {
+        for (int i = 0; i < 5; ++i) {
+            ASSERT_FLOAT_EQ(nested_col.get_element(row * 5 + i), static_cast<float>(i));
+        }
+    }
+}
+
 TEST(EMBED_TEST, local_adapter_embedding_request) {
     LocalAdapter adapter;
     TAIResource config;
@@ -392,18 +431,23 @@ TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
     ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
 
-    ASSERT_TRUE(doc.HasMember("model")) << "Missing model field";
-    ASSERT_TRUE(doc.HasMember("content")) << "Missing content field";
-    ASSERT_TRUE(doc["content"].IsObject()) << request_body;
+    ASSERT_TRUE(doc.HasMember("requests")) << "Missing requests field";
+    ASSERT_TRUE(doc["requests"].IsArray()) << request_body;
+    ASSERT_EQ(doc["requests"].Size(), 1);
+    const auto& request = doc["requests"][0];
+    ASSERT_TRUE(request.HasMember("model")) << "Missing request model field";
+    ASSERT_STREQ(request["model"].GetString(), "models/embedding-001");
+    ASSERT_TRUE(request.HasMember("content")) << "Missing request content field";
+    ASSERT_TRUE(request["content"].IsObject()) << request_body;
 
-    auto& content = doc["content"];
+    auto& content = request["content"];
     ASSERT_TRUE(content.HasMember("parts")) << request_body;
     ASSERT_TRUE(content["parts"].IsArray());
     ASSERT_TRUE(content["parts"][0].HasMember("text")) << request_body;
     ASSERT_STREQ(content["parts"][0]["text"].GetString(), "embed with gemini");
 
     // should not have dimension param;
-    ASSERT_FALSE(doc.HasMember("outputDimensionality"));
+    ASSERT_FALSE(request.HasMember("outputDimensionality"));
 
     config.model_name = "gemini-embedding-001";
     adapter.init(config);
@@ -412,8 +456,11 @@ TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     doc.Parse(request_body.c_str());
     ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
     ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
-    ASSERT_TRUE(doc.HasMember("outputDimensionality")) << request_body;
-    ASSERT_EQ(doc["outputDimensionality"].GetInt(), 768) << request_body;
+    ASSERT_TRUE(doc.HasMember("requests")) << request_body;
+    ASSERT_TRUE(doc["requests"].IsArray()) << request_body;
+    ASSERT_EQ(doc["requests"].Size(), 1);
+    ASSERT_TRUE(doc["requests"][0].HasMember("outputDimensionality")) << request_body;
+    ASSERT_EQ(doc["requests"][0]["outputDimensionality"].GetInt(), 768) << request_body;
 }
 
 TEST(EMBED_TEST, gemini_adapter_parse_embedding_response) {
