@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <string_view>
 #include <vector>
 
 #include "common/config.h"
@@ -49,6 +50,77 @@ TEST(JsonParserTest, ParseSimpleTypes) {
     EXPECT_EQ(parse_result_double.paths[0].get_path(), "");
     EXPECT_EQ(parse_result_double.values[0].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
 
+    // untyped high precision decimal tokens keep the regular numeric behavior
+    std::string high_precision_decimal = "999999999999999999999999999.999999999";
+    result = parser.parse(high_precision_decimal.c_str(), high_precision_decimal.size(), config);
+    ASSERT_TRUE(result.has_value());
+
+    auto parse_result_decimal = result.value();
+    EXPECT_EQ(parse_result_decimal.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_decimal.values[0].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
+
+    // typed decimal paths keep the original text for later decimal casts
+    config.preserve_decimal_number_paths.emplace("");
+    result = parser.parse(high_precision_decimal.c_str(), high_precision_decimal.size(), config);
+    ASSERT_TRUE(result.has_value());
+
+    parse_result_decimal = result.value();
+    EXPECT_EQ(parse_result_decimal.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_decimal.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_decimal.values[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              high_precision_decimal);
+
+    std::string scale_sensitive_decimal = "0.57";
+    result = parser.parse(scale_sensitive_decimal.c_str(), scale_sensitive_decimal.size(), config);
+    ASSERT_TRUE(result.has_value());
+
+    parse_result_decimal = result.value();
+    EXPECT_EQ(parse_result_decimal.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_decimal.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_decimal.values[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              scale_sensitive_decimal);
+
+    std::string high_precision_decimal_with_spaces = high_precision_decimal + " \n";
+    result = parser.parse(high_precision_decimal_with_spaces.c_str(),
+                          high_precision_decimal_with_spaces.size(), config);
+    ASSERT_TRUE(result.has_value());
+
+    parse_result_decimal = result.value();
+    EXPECT_EQ(parse_result_decimal.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_decimal.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_decimal.values[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              high_precision_decimal);
+
+    std::string high_precision_decimal_exponent = "999999999999999999999999999.999999999e0";
+    result = parser.parse(high_precision_decimal_exponent.c_str(),
+                          high_precision_decimal_exponent.size(), config);
+    ASSERT_TRUE(result.has_value());
+
+    parse_result_decimal = result.value();
+    EXPECT_EQ(parse_result_decimal.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_decimal.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_decimal.values[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              high_precision_decimal_exponent);
+
+    std::string typed_integer = "123";
+    result = parser.parse(typed_integer.c_str(), typed_integer.size(), config);
+    ASSERT_TRUE(result.has_value());
+
+    auto parse_result_typed_integer = result.value();
+    EXPECT_EQ(parse_result_typed_integer.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_typed_integer.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_typed_integer.values[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              typed_integer);
+
+    ParseConfig untyped_decimal_config;
+    result = parser.parse(high_precision_decimal_exponent.c_str(),
+                          high_precision_decimal_exponent.size(), untyped_decimal_config);
+    ASSERT_TRUE(result.has_value());
+
+    parse_result_decimal = result.value();
+    EXPECT_EQ(parse_result_decimal.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_decimal.values[0].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
+
     // bool
     result = parser.parse("true", 4, config);
     ASSERT_TRUE(result.has_value());
@@ -71,11 +143,57 @@ TEST(JsonParserTest, ParseSimpleTypes) {
     EXPECT_EQ(parse_result_string.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
 
     // largeint
-    result = parser.parse("12345678901234567890", 20, config);
+    ParseConfig untyped_integer_config;
+    result = parser.parse("12345678901234567890", 20, untyped_integer_config);
     ASSERT_TRUE(result.has_value());
     auto parse_result_bigint = result.value();
     EXPECT_EQ(parse_result_bigint.paths[0].get_path(), "");
     EXPECT_EQ(parse_result_bigint.values[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
+
+    // untyped integers beyond uint64 keep the regular numeric behavior.
+    std::string big_integer = "18446744073709551616";
+    result = parser.parse(big_integer.c_str(), big_integer.size(), untyped_integer_config);
+    ASSERT_TRUE(result.has_value());
+    auto parse_result_untyped_big_integer = result.value();
+    EXPECT_EQ(parse_result_untyped_big_integer.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_untyped_big_integer.values[0].get_type(),
+              doris::PrimitiveType::TYPE_DOUBLE);
+
+    ParseConfig typed_integer_config;
+    typed_integer_config.preserve_decimal_number_paths.emplace("");
+    result = parser.parse(big_integer.c_str(), big_integer.size(), typed_integer_config);
+    ASSERT_TRUE(result.has_value());
+    auto parse_result_big_integer = result.value();
+    EXPECT_EQ(parse_result_big_integer.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_big_integer.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_big_integer.values[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              big_integer);
+
+    std::string decimal256_integer = "99999999999999999999999999999999999999999999999999";
+    result = parser.parse(decimal256_integer.c_str(), decimal256_integer.size(),
+                          typed_integer_config);
+    ASSERT_TRUE(result.has_value());
+    auto parse_result_decimal256_integer = result.value();
+    EXPECT_EQ(parse_result_decimal256_integer.paths[0].get_path(), "");
+    EXPECT_EQ(parse_result_decimal256_integer.values[0].get_type(),
+              doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_decimal256_integer.values[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              decimal256_integer);
+
+    ParseConfig mixed_number_config;
+    mixed_number_config.preserve_decimal_number_paths.emplace("amount");
+    std::string mixed_json =
+            R"({"amount":0.57,"id":18446744073709551616,"normal":12345678901234567890})";
+    result = parser.parse(mixed_json.c_str(), mixed_json.size(), mixed_number_config);
+    ASSERT_TRUE(result.has_value());
+    auto parse_result_mixed_number = result.value();
+    ASSERT_EQ(parse_result_mixed_number.paths.size(), 3);
+    EXPECT_EQ(parse_result_mixed_number.paths[0].get_path(), "amount");
+    EXPECT_EQ(parse_result_mixed_number.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_mixed_number.paths[1].get_path(), "id");
+    EXPECT_EQ(parse_result_mixed_number.values[1].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
+    EXPECT_EQ(parse_result_mixed_number.paths[2].get_path(), "normal");
+    EXPECT_EQ(parse_result_mixed_number.values[2].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
 }
 
 TEST(JsonParserTest, ParseObjectAndArray) {
@@ -115,6 +233,69 @@ TEST(JsonParserTest, ParseObjectAndArray) {
     EXPECT_EQ(array_field[3].get_type(), doris::PrimitiveType::TYPE_BOOLEAN);
     EXPECT_EQ(array_field[4].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
     EXPECT_EQ(array_field[5].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
+}
+
+TEST(JsonParserTest, PreserveDecimalNumbersForTypedPaths) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+    config.preserve_decimal_number_paths.emplace("a");
+
+    std::string json = R"({"a":[999999999999999999999999999.999999999  ]})";
+    auto result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    auto& parse_result_decimal_array = result.value();
+    EXPECT_EQ(parse_result_decimal_array.paths[0].get_path(), "a");
+    EXPECT_EQ(parse_result_decimal_array.values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+    auto& decimal_array =
+            parse_result_decimal_array.values[0].get<doris::PrimitiveType::TYPE_ARRAY>();
+    ASSERT_EQ(decimal_array.size(), 1);
+    EXPECT_EQ(decimal_array[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(decimal_array[0].get<doris::PrimitiveType::TYPE_STRING>(),
+              "999999999999999999999999999.999999999");
+
+    ParseConfig untyped_config;
+    result = parser.parse(json.c_str(), json.size(), untyped_config);
+    ASSERT_TRUE(result.has_value());
+    auto& parse_result_untyped_decimal_array = result.value();
+    auto& untyped_decimal_array =
+            parse_result_untyped_decimal_array.values[0].get<doris::PrimitiveType::TYPE_ARRAY>();
+    ASSERT_EQ(untyped_decimal_array.size(), 1);
+    EXPECT_EQ(untyped_decimal_array[0].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
+}
+
+TEST(JsonParserTest, PreserveDecimalNumbersByPathMatcher) {
+    JSONDataParser<SimdJSONParser> parser;
+
+    ParseConfig matcher_config;
+    matcher_config.preserve_decimal_number_path_matcher = [](std::string_view path) {
+        return path.size() >= 8 && path.substr(0, 8) == "decimal_";
+    };
+
+    std::string json =
+            R"({"decimal_1":999999999999999999999999999.999999999,"other":999999999999999999999999999.999999999})";
+    auto result = parser.parse(json.c_str(), json.size(), matcher_config);
+    ASSERT_TRUE(result.has_value());
+    auto& parse_result_matcher = result.value();
+    EXPECT_EQ(parse_result_matcher.paths[0].get_path(), "decimal_1");
+    EXPECT_EQ(parse_result_matcher.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_matcher.paths[1].get_path(), "other");
+    EXPECT_EQ(parse_result_matcher.values[1].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
+}
+
+TEST(JsonParserTest, PreserveDecimalNumbersForEscapedTypedPath) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig escaped_key_config;
+    escaped_key_config.preserve_decimal_number_paths.emplace("ab.decimal");
+
+    std::string json = R"({"a\u0062":{"decimal":0.57,"nested_key":"value"}})";
+    auto result = parser.parse(json.c_str(), json.size(), escaped_key_config);
+    ASSERT_TRUE(result.has_value());
+    auto& parse_result_escaped_key = result.value();
+    ASSERT_EQ(parse_result_escaped_key.paths.size(), 2);
+    EXPECT_EQ(parse_result_escaped_key.paths[0].get_path(), "ab.decimal");
+    EXPECT_EQ(parse_result_escaped_key.values[0].get_type(), doris::PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(parse_result_escaped_key.values[0].get<doris::PrimitiveType::TYPE_STRING>(), "0.57");
+    EXPECT_EQ(parse_result_escaped_key.paths[1].get_path(), "ab.nested_key");
 }
 
 TEST(JsonParserTest, ParseMultiLevelNestedArray) {
@@ -313,6 +494,18 @@ TEST(JsonParserTest, TestNestedArrayWithDifferentConfigs) {
     // EXPECT_ANY_THROW(parser.parse(json1.c_str(), json1.size(), config2));
 }
 
+TEST(JsonParserTest, BigIntegerInJsonbKeepsNumericParse) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+    config.deprecated_enable_flatten_nested = false;
+
+    std::string json = R"({"nested": [{"big": 18446744073709551616}]})";
+    auto result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
+}
+
 // Test case for directly calling handleNewPath to cover the if (!nested_key.empty()) branch
 TEST(JsonParserTest, TestHandleNewPathDirectCall) {
     JSONDataParser<SimdJSONParser> parser;
@@ -455,11 +648,11 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
         ScopedMaxJsonKeyLength guard(10);
         std::string key11(11, 'a');
 
-        std::string obj_json = "{\"" + key11 + "\": 1}";
+        std::string obj_json = R"({")" + key11 + R"(": 1})";
         EXPECT_ANY_THROW(parser.parse(obj_json.c_str(), obj_json.size(), config));
 
         config.deprecated_enable_flatten_nested = false;
-        std::string jsonb_json = "{\"a\": [{\"" + key11 + "\": 1}]}";
+        std::string jsonb_json = R"({"a": [{")" + key11 + R"(": 1}]})";
         EXPECT_ANY_THROW(parser.parse(jsonb_json.c_str(), jsonb_json.size(), config));
     }
 
@@ -467,12 +660,12 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
         ScopedMaxJsonKeyLength guard(255);
         std::string key255(255, 'b');
 
-        std::string obj_json = "{\"" + key255 + "\": 1}";
+        std::string obj_json = R"({")" + key255 + R"(": 1})";
         auto result = parser.parse(obj_json.c_str(), obj_json.size(), config);
         ASSERT_TRUE(result.has_value());
 
         config.deprecated_enable_flatten_nested = false;
-        std::string jsonb_json = "{\"a\": [{\"" + key255 + "\": 1}]}";
+        std::string jsonb_json = R"({"a": [{")" + key255 + R"(": 1}]})";
         result = parser.parse(jsonb_json.c_str(), jsonb_json.size(), config);
         ASSERT_TRUE(result.has_value());
         ASSERT_EQ(result->values.size(), 1);

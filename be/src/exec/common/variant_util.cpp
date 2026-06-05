@@ -104,6 +104,54 @@
 
 namespace doris::variant_util {
 
+static bool is_decimal_typed_path_column(const TabletColumn& column) {
+    if (column.is_array_type()) {
+        CHECK_EQ(column.get_sub_columns().size(), 1);
+        return is_decimal_typed_path_column(*column.get_sub_columns()[0]);
+    }
+    return is_decimal(TabletColumn::get_primitive_type_by_field_type(column.type()));
+}
+
+struct DecimalNumberPreservePathRule {
+    std::string pattern;
+    PatternTypePB pattern_type;
+    bool is_decimal = false;
+};
+
+static void configure_decimal_number_preserve_paths(const TabletColumn& column,
+                                                    ParseConfig* config) {
+    std::vector<DecimalNumberPreservePathRule> path_rules;
+    bool has_decimal_path = false;
+    for (const auto& sub_column : column.get_sub_columns()) {
+        const bool is_decimal_path = is_decimal_typed_path_column(*sub_column);
+        has_decimal_path |= is_decimal_path;
+        path_rules.push_back({sub_column->name(), sub_column->pattern_type(), is_decimal_path});
+    }
+    if (has_decimal_path) {
+        config->preserve_decimal_number_path_matcher =
+                [path_rules = std::move(path_rules)](std::string_view path) {
+                    std::string candidate_path(path);
+                    for (const auto& rule : path_rules) {
+                        switch (rule.pattern_type) {
+                        case PatternTypePB::MATCH_NAME:
+                            if (rule.pattern == candidate_path) {
+                                return rule.is_decimal;
+                            }
+                            break;
+                        case PatternTypePB::MATCH_NAME_GLOB:
+                            if (glob_match_re2(rule.pattern, candidate_path)) {
+                                return rule.is_decimal;
+                            }
+                            break;
+                        default:
+                            break;
+                        }
+                    }
+                    return false;
+                };
+    }
+}
+
 inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     switch (ch) {
     case '.':
@@ -2247,6 +2295,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
+        configure_decimal_number_preserve_paths(column, &configs[i]);
         // if doc mode is not enabled, no need to parse to doc value column
         if (!column.variant_enable_doc_mode()) {
             configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
