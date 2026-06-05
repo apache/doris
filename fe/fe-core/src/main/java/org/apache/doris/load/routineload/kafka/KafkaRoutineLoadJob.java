@@ -374,10 +374,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void updateReadCommittedLagHint(RLTaskTxnCommitAttachment attachment) {
-        if (DebugPointUtil.isEnable(HAS_POSITIVE_LAG_DEBUG_POINT)
-                || (attachment.getTotalRows() == 0 && isReadCommitted() && hasPositiveLagForTask(attachment))) {
+        if (shouldDelayScheduleForReadCommittedZeroRowsWithLag(attachment)) {
             setOtherMsg(READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE);
         }
+    }
+
+    boolean shouldDelayScheduleForReadCommittedZeroRowsWithLag(RLTaskTxnCommitAttachment attachment) {
+        return DebugPointUtil.isEnable(HAS_POSITIVE_LAG_DEBUG_POINT)
+                || (attachment.getTotalRows() == 0 && isReadCommitted() && hasPositiveLagForTask(attachment));
     }
 
     private boolean isReadCommitted() {
@@ -413,7 +417,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
                 ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()), isMultiTable());
-        kafkaTaskInfo.setDelaySchedule(delaySchedule);
+        kafkaTaskInfo.setDelaySchedule(delaySchedule || oldKafkaTaskInfo.isDelaySchedule());
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
