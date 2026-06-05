@@ -110,6 +110,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
+    // The offsets check above guarantees every array row matches the ANN index dimension.
     RETURN_IF_ERROR(_append_vectors_to_buffer(p, num_rows));
     _total_rows += cast_set<int64_t>(num_rows);
 
