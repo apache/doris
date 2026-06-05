@@ -92,12 +92,33 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
     private static final Map<Class<?>, Function<String, Object>> BOUND_PARSERS =
             Map.of(
                     java.sql.Date.class, java.sql.Date::valueOf,
-                    java.sql.Timestamp.class, java.sql.Timestamp::valueOf,
+                    java.sql.Timestamp.class, AbstractCdcSourceReader::parseTimestampBound,
                     java.sql.Time.class, java.sql.Time::valueOf,
                     java.time.LocalDateTime.class, java.time.LocalDateTime::parse,
                     java.time.LocalDate.class, java.time.LocalDate::parse,
                     java.time.LocalTime.class, java.time.LocalTime::parse,
                     java.time.OffsetDateTime.class, java.time.OffsetDateTime::parse);
+
+    // Offset suffix like "+08:00" / "-05:00" ("Z" is handled separately).
+    private static final java.util.regex.Pattern OFFSET_SUFFIX =
+            java.util.regex.Pattern.compile("[+-]\\d{2}:\\d{2}$");
+
+    /**
+     * A java.sql.Timestamp bound is serialized to FE by Jackson as ISO-8601 (with a zone offset
+     * when WRITE_DATES_AS_TIMESTAMPS is off), which java.sql.Timestamp#valueOf cannot parse.
+     * Reconstruct instant-faithfully so the rebuilt bound binds back to the same value flink-cdc
+     * read.
+     */
+    private static java.sql.Timestamp parseTimestampBound(String s) {
+        try {
+            return java.sql.Timestamp.valueOf(s); // legacy SQL form "yyyy-MM-dd HH:mm:ss[.f]"
+        } catch (IllegalArgumentException notSqlForm) {
+            if (s.endsWith("Z") || OFFSET_SUFFIX.matcher(s).find()) {
+                return java.sql.Timestamp.from(java.time.OffsetDateTime.parse(s).toInstant());
+            }
+            return java.sql.Timestamp.valueOf(java.time.LocalDateTime.parse(s)); // ISO local ('T')
+        }
+    }
 
     private static Object convertBound(Object v, Class<?> target, ObjectMapper mapper) {
         if (v == null) {
