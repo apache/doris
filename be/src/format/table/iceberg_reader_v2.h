@@ -52,6 +52,9 @@ public:
     }
 
     Status prepare_split(const reader::SplitReadOptions& options) override;
+    reader::TableColumnMappingMode default_mapping_mode() const override {
+        return reader::TableColumnMappingMode::BY_FIELD_ID;
+    }
 
 protected:
     Status materialize_virtual_columns(Block* table_block) override;

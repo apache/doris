@@ -462,7 +462,6 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
                                                const reader::TableColumn* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (!is_complex_type(remove_nullable(column->type)->get_primitive_type())) {
-        DCHECK(access_paths.empty());
         return Status::OK();
     }
 
