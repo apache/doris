@@ -29,6 +29,7 @@ import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,7 +39,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
+public class IcebergRestExternalCatalog extends IcebergExternalCatalog implements IcebergUserSessionCatalog {
 
     private static final Logger LOG = LogManager.getLogger(IcebergRestExternalCatalog.class);
 
@@ -191,7 +192,42 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     private boolean shouldBypassDatabaseCache(SessionContext ctx) {
+        // Bypassing the shared cache and using a per-user session catalog are the same condition.
+        return useSessionCatalog(ctx);
+    }
+
+    /**
+     * Whether the given request should use a per-user session catalog. This is the single source of truth for
+     * that decision, shared by the cache-bypass logic above and by {@link IcebergMetadataOps} via
+     * {@link IcebergUserSessionCatalog}.
+     */
+    @Override
+    public boolean useSessionCatalog(SessionContext ctx) {
         return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
+    }
+
+    @Override
+    public RESTSessionCatalog getRestSessionCatalog() {
+        IcebergRestProperties props = restProperties();
+        return props == null ? null : props.getRestSessionCatalog();
+    }
+
+    @Override
+    public IcebergRestProperties.DelegatedTokenMode getDelegatedTokenMode() {
+        IcebergRestProperties props = restProperties();
+        return props == null ? IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN : props.getDelegatedTokenMode();
+    }
+
+    @Override
+    public boolean isViewEnabled() {
+        IcebergRestProperties props = restProperties();
+        return props != null && props.isIcebergRestViewEnabled();
+    }
+
+    @Override
+    public boolean isNestedNamespaceEnabled() {
+        IcebergRestProperties props = restProperties();
+        return props != null && props.isIcebergRestNestedNamespaceEnabled();
     }
 
     /**
@@ -205,7 +241,12 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
      * {@link #getDbNullable(String)} which runs before initialization.
      */
     public boolean isIcebergRestUserSessionEnabled() {
-        return catalogProperty.getMetastoreProperties() instanceof IcebergRestProperties
-                && ((IcebergRestProperties) catalogProperty.getMetastoreProperties()).isIcebergRestUserSessionEnabled();
+        IcebergRestProperties props = restProperties();
+        return props != null && props.isIcebergRestUserSessionEnabled();
+    }
+
+    private IcebergRestProperties restProperties() {
+        MetastoreProperties metaProps = catalogProperty.getMetastoreProperties();
+        return metaProps instanceof IcebergRestProperties ? (IcebergRestProperties) metaProps : null;
     }
 }

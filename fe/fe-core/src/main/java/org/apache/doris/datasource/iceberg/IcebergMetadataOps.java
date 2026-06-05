@@ -44,7 +44,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -104,6 +103,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     // catalog types it is the catalog itself when it implements ViewCatalog. Empty when views are unsupported
     // or disabled.
     private final Optional<ViewCatalog> defaultViewCatalog;
+    // Non-null only when the backing catalog supports per-user dynamic session (an Iceberg REST catalog with
+    // iceberg.rest.session=user). Captured once at construction; the per-request decision is delegated to it so
+    // this class never re-checks the catalog type or reads REST properties directly.
+    private final IcebergUserSessionCatalog userSessionCatalog;
     private IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
     // Generally, there should be only two levels under the catalog, namely <database>.<table>,
@@ -116,11 +119,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public IcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
-        RESTSessionCatalog restSessionCatalog = restSessionCatalog(dorisCatalog);
+        // Session-aware behavior exists only when the backing catalog advertises the IcebergUserSessionCatalog
+        // capability (an Iceberg REST catalog with dynamic identity). Capture it once and read what we need
+        // from the capability, so no call-time path has to know about the concrete REST catalog or its
+        // properties. For any other catalog type this is null (session disabled).
+        this.userSessionCatalog = dorisCatalog instanceof IcebergUserSessionCatalog
+                ? (IcebergUserSessionCatalog) dorisCatalog : null;
+        RESTSessionCatalog restSessionCatalog =
+                userSessionCatalog == null ? null : userSessionCatalog.getRestSessionCatalog();
+        IcebergRestProperties.DelegatedTokenMode delegatedTokenMode =
+                userSessionCatalog == null ? IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN
+                        : userSessionCatalog.getDelegatedTokenMode();
+        boolean viewEnabled = userSessionCatalog != null && userSessionCatalog.isViewEnabled();
+
         this.sessionCatalogAdapter =
-                new IcebergSessionCatalogAdapter(catalog, restSessionCatalog, delegatedTokenMode(dorisCatalog));
+                new IcebergSessionCatalogAdapter(catalog, restSessionCatalog, delegatedTokenMode);
         nsCatalog = (SupportsNamespaces) catalog;
-        this.defaultViewCatalog = resolveDefaultViewCatalog(catalog, restSessionCatalog);
+        this.defaultViewCatalog = resolveDefaultViewCatalog(catalog, restSessionCatalog, viewEnabled);
         this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
 
         if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
@@ -190,18 +205,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private List<String> listNestedNamespaces(SupportsNamespaces activeNsCatalog, Namespace parentNs) {
         // Handle nested namespaces for Iceberg REST catalog,
         // only if "iceberg.rest.nested-namespace-enabled" is true.
-        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
-            IcebergRestExternalCatalog restCatalog = (IcebergRestExternalCatalog) dorisCatalog;
-            MetastoreProperties metaProps = restCatalog.getCatalogProperty().getMetastoreProperties();
-            if (metaProps instanceof IcebergRestProperties
-                    && ((IcebergRestProperties) metaProps).isIcebergRestNestedNamespaceEnabled()) {
-                return activeNsCatalog.listNamespaces(parentNs)
-                        .stream()
-                        .flatMap(childNs -> Stream.concat(
-                                Stream.of(childNs.toString()),
-                                listNestedNamespaces(activeNsCatalog, childNs).stream()
-                        )).collect(Collectors.toList());
-            }
+        if (userSessionCatalog != null && userSessionCatalog.isNestedNamespaceEnabled()) {
+            return activeNsCatalog.listNamespaces(parentNs)
+                    .stream()
+                    .flatMap(childNs -> Stream.concat(
+                            Stream.of(childNs.toString()),
+                            listNestedNamespaces(activeNsCatalog, childNs).stream()
+                    )).collect(Collectors.toList());
         }
 
         return activeNsCatalog.listNamespaces(parentNs)
@@ -1258,73 +1268,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return defaultViewCatalog;
     }
 
-    /**
-     * The REST session catalog backing this catalog, or {@code null} for non-REST catalog types. It is built
-     * and owned by {@link IcebergRestProperties}; here we only borrow it to serve per-session requests.
-     */
-    private static RESTSessionCatalog restSessionCatalog(ExternalCatalog dorisCatalog) {
-        if (!(dorisCatalog instanceof IcebergRestExternalCatalog)) {
-            return null;
-        }
-        MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
-        return metaProps instanceof IcebergRestProperties
-                ? ((IcebergRestProperties) metaProps).getRestSessionCatalog()
-                : null;
-    }
-
-    private Optional<ViewCatalog> resolveDefaultViewCatalog(Catalog catalog, RESTSessionCatalog restSessionCatalog) {
+    private Optional<ViewCatalog> resolveDefaultViewCatalog(Catalog catalog, RESTSessionCatalog restSessionCatalog,
+            boolean viewEnabled) {
         if (restSessionCatalog != null) {
             // REST: views are served by the session catalog (the default Catalog from asCatalog() is not a
             // ViewCatalog). Gate on the REST view-enabled flag to preserve the prior behavior.
-            return isIcebergRestViewEnabled()
+            return viewEnabled
                     ? Optional.of(restSessionCatalog.asViewCatalog(SessionCatalog.SessionContext.createEmpty()))
                     : Optional.empty();
         }
         return catalog instanceof ViewCatalog ? Optional.of((ViewCatalog) catalog) : Optional.empty();
     }
 
-    private boolean isIcebergRestViewEnabled() {
-        MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
-        return metaProps instanceof IcebergRestProperties
-                && ((IcebergRestProperties) metaProps).isIcebergRestViewEnabled();
-    }
-
     /**
-     * Iceberg REST user-session auth needs both Doris user credential material and an Iceberg SessionCatalog.
-     * The delegated credential provides the user token; the SessionCatalog is the Iceberg API that attaches it
-     * to metadata requests.
+     * Whether the current request should use a per-user session catalog. The decision (delegated credential
+     * present + dynamic identity enabled) is owned by the catalog via {@link IcebergUserSessionCatalog}; non
+     * session-aware catalogs never take this path.
      */
     private boolean useSessionCatalog(SessionContext ctx) {
-        return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
-    }
-
-    private boolean isIcebergRestUserSessionEnabled() {
-        if (!(dorisCatalog instanceof IcebergRestExternalCatalog)) {
-            return false;
-        }
-        MetastoreProperties metaProps =
-                ((IcebergRestExternalCatalog) dorisCatalog).getCatalogProperty().getMetastoreProperties();
-        return metaProps instanceof IcebergRestProperties
-                && ((IcebergRestProperties) metaProps).isIcebergRestUserSessionEnabled();
-    }
-
-    private static IcebergRestProperties.DelegatedTokenMode delegatedTokenMode(ExternalCatalog dorisCatalog) {
-        // This is only reached on REST user-session paths, so a non-REST catalog or non-REST
-        // metastore properties here is unexpected. Fall back to ACCESS_TOKEN but warn so that a
-        // misconfigured delegated-token-mode is not silently ignored.
-        if (!(dorisCatalog instanceof IcebergRestExternalCatalog)) {
-            LOG.warn("Iceberg catalog {} is not a REST catalog; ignoring delegated-token-mode and "
-                    + "falling back to ACCESS_TOKEN.", dorisCatalog == null ? "null" : dorisCatalog.getName());
-            return IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN;
-        }
-        MetastoreProperties metaProps =
-                ((IcebergRestExternalCatalog) dorisCatalog).getCatalogProperty().getMetastoreProperties();
-        if (metaProps instanceof IcebergRestProperties) {
-            return ((IcebergRestProperties) metaProps).getDelegatedTokenMode();
-        }
-        LOG.warn("Iceberg catalog {} has no REST metastore properties; ignoring delegated-token-mode and "
-                + "falling back to ACCESS_TOKEN.", dorisCatalog.getName());
-        return IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN;
+        return userSessionCatalog != null && userSessionCatalog.useSessionCatalog(ctx);
     }
 
     private TableIdentifier getTableIdentifier(String dbName, String tblName) {
