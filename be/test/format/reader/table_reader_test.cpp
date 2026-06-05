@@ -2105,6 +2105,101 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_constant_partition_filter_skip_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 10))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_constant_partition_filter_keep_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& partition_value = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    ASSERT_EQ(partition_value.size(), 1);
+    EXPECT_EQ(partition_value.get_element(0), 7);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_test";

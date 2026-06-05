@@ -264,6 +264,12 @@ protected:
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
+        bool constant_filter_pruned_split = false;
+        RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
+        if (constant_filter_pruned_split) {
+            RETURN_IF_ERROR(close_current_reader());
+            return Status::OK();
+        }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
@@ -318,6 +324,90 @@ protected:
 
     Status _build_table_filters_from_conjuncts();
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
+
+    Status _evaluate_constant_filters(bool* can_filter_all) {
+        DORIS_CHECK(can_filter_all != nullptr);
+        *can_filter_all = false;
+        for (const auto& table_filter : _table_filters) {
+            if (table_filter.conjunct == nullptr ||
+                !_table_filter_has_only_constant_entries(table_filter)) {
+                continue;
+            }
+            Block eval_block;
+            RETURN_IF_ERROR(_build_constant_filter_block(table_filter, &eval_block));
+            int result_column_id = -1;
+            RETURN_IF_ERROR(table_filter.conjunct->execute(&eval_block, &result_column_id));
+            DORIS_CHECK(result_column_id >= 0);
+            if (_filter_result_filters_all(eval_block.get_by_position(result_column_id).column)) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+        }
+        return Status::OK();
+    }
+
+    bool _table_filter_has_only_constant_entries(const TableFilter& table_filter) const {
+        const auto& filter_entries = _data_reader.column_mapper.filter_entries();
+        for (const auto global_index : table_filter.global_indices) {
+            const auto entry_it = filter_entries.find(global_index);
+            if (entry_it == filter_entries.end() || !entry_it->second.is_constant()) {
+                return false;
+            }
+        }
+        return !table_filter.global_indices.empty();
+    }
+
+    Status _build_constant_filter_block(const TableFilter& table_filter, Block* eval_block) {
+        DORIS_CHECK(eval_block != nullptr);
+        eval_block->clear();
+        const auto& mappings = _data_reader.column_mapper.mappings();
+        const auto& filter_entries = _data_reader.column_mapper.filter_entries();
+        DORIS_CHECK(mappings.size() == _projected_columns.size());
+        for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
+            const auto global_index = GlobalIndex(column_idx);
+            const auto& mapping = mappings[column_idx];
+            const auto entry_it = filter_entries.find(global_index);
+            const bool referenced_by_filter =
+                    std::find(table_filter.global_indices.begin(),
+                              table_filter.global_indices.end(),
+                              global_index) != table_filter.global_indices.end();
+            if (referenced_by_filter && entry_it != filter_entries.end() &&
+                entry_it->second.is_constant()) {
+                ColumnPtr constant_column;
+                RETURN_IF_ERROR(_materialize_constant_filter_column(mapping, &constant_column));
+                eval_block->insert({std::move(constant_column), mapping.table_type,
+                                    mapping.table_column_name});
+            } else {
+                eval_block->insert({mapping.table_type->create_column_const_with_default_value(1),
+                                    mapping.table_type, mapping.table_column_name});
+            }
+        }
+        return Status::OK();
+    }
+
+    Status _materialize_constant_filter_column(const ColumnMapping& mapping, ColumnPtr* column) {
+        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(mapping.constant_index.has_value());
+        DORIS_CHECK(mapping.default_expr != nullptr);
+        RowDescriptor row_desc;
+        RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
+        Block eval_block;
+        eval_block.insert({mapping.table_type->create_column_const_with_default_value(1),
+                           mapping.table_type, "__table_reader_constant_filter"});
+        int result_column_id = -1;
+        RETURN_IF_ERROR(mapping.default_expr->execute(&eval_block, &result_column_id));
+        DORIS_CHECK(result_column_id >= 0);
+        *column = eval_block.get_by_position(result_column_id).column;
+        DORIS_CHECK((*column)->size() == 1);
+        return Status::OK();
+    }
+
+    static bool _filter_result_filters_all(const ColumnPtr& filter_column) {
+        DORIS_CHECK(filter_column != nullptr);
+        DORIS_CHECK(filter_column->size() == 1);
+        return !filter_column->get_bool(0);
+    }
 
     virtual Status customize_file_scan_request(FileScanRequest* file_request) {
         return _append_delete_predicate(file_request);

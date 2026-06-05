@@ -268,19 +268,18 @@ Filter localization 已经接入 `FilterEntry`：`filter_entries()` 会记录 `G
 `LOCAL` / `CONSTANT` / `UNSET` target 的映射，row-level conjunct 和 column predicate pruning
 只对可下推的 `LOCAL` target 进入 file reader。
 
+TableReader 已经用 `FilterEntry` 提前求值 constant-only filter：当一个 conjunct 只引用
+`CONSTANT` target 时，会在打开底层 file reader 之前构造 1 行常量 block 并执行该 conjunct。
+如果结果为 false/NULL，当前 split 直接跳过，不再创建 file-local block layout，也不会打开
+file reader。
+
 当前 `ColumnMapping` 已收缩为主流程内部的构造态对象，不再携带 `reader_filter_expr`、
 `is_constant`、`is_missing`、`file_path` 这类跨阶段状态；最终可消费结果由
 `ColumnMapResult` / `ResultColumnMapping` 表达。
 
 ## TODO
 
-### TODO 1：提前求值 constant filter
-
-当前 `FilterEntry` 已能记录 constant target，并阻止 constant/unset target 进入 file reader
-row-level filter。后续可以参考 DuckDB 的 `EvaluateConstantFilters()`，对只依赖 constant entry
-的 filter 在 split 打开前提前求值，从而跳过整个文件。
-
-### TODO 2：收紧 LocalColumnIndex 类型
+### TODO 1：收紧 LocalColumnIndex 类型
 
 当前 `LocalColumnIndex::index` 同时表示 top-level file column id 和 nested child id。
 
@@ -302,7 +301,7 @@ struct LocalColumnIndex {
 
 这样能在类型层面阻止 top-level id 和 child id 混用，但迁移成本更高。
 
-### TODO 3：沉淀 reader projection helper
+### TODO 2：沉淀 reader projection helper
 
 new parquet reader 中 struct/list/map child projection 查找和校验逻辑仍分散在 column
 reader factory 内部。
@@ -313,7 +312,7 @@ reader factory 内部。
 - 统一 full projection、partial projection、empty projection 的判断。
 - 统一 struct/list/map 对 unsupported nested projection 的校验和错误信息。
 
-### TODO 4：继续完善 LIST/MAP nested projection
+### TODO 3：继续完善 LIST/MAP nested projection
 
 当前 `STRUCT` reader 裁剪收益最明确。`LIST` 和 `MAP` 的复杂 nested projection 仍偏保守。
 

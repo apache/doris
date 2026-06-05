@@ -349,6 +349,10 @@ Status TableReader::create_next_reader(bool* eos) {
 
     RETURN_IF_ERROR(_data_reader.reader->init(_runtime_state));
     RETURN_IF_ERROR(open_reader());
+    if (_data_reader.reader == nullptr) {
+        *eos = _current_task == nullptr;
+        return Status::OK();
+    }
     *eos = false;
     return Status::OK();
 }
