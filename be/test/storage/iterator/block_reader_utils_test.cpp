@@ -19,17 +19,17 @@
 
 #include <gtest/gtest.h>
 
-#include "vec/columns/columns_number.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type_number.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/data_type/data_type_number.h"
 
-namespace doris::vectorized::detail {
+namespace doris {
 
-TEST(BlockReaderUtilsTest, BuildBeforeColumnName) {
+class BlockReaderUtilsTest : public testing::Test {};
+TEST_F(BlockReaderUtilsTest, BuildBeforeColumnName) {
     EXPECT_EQ(build_before_column_name("v1"), "__BEFORE__v1__");
 }
 
-TEST(BlockReaderUtilsTest, ResolveBeforeColumnIndex) {
+TEST_F(BlockReaderUtilsTest, ResolveBeforeColumnIndex) {
     auto int_type = std::make_shared<DataTypeInt64>();
     auto col_key = ColumnInt64::create();
     auto col_val = ColumnInt64::create();
@@ -46,7 +46,7 @@ TEST(BlockReaderUtilsTest, ResolveBeforeColumnIndex) {
     EXPECT_EQ(resolve_before_column_index(block, 3, 3), 3);
 }
 
-TEST(BlockReaderUtilsTest, ResolveBeforeColumnIndexFallbackWhenMissing) {
+TEST_F(BlockReaderUtilsTest, ResolveBeforeColumnIndexFallbackWhenMissing) {
     auto int_type = std::make_shared<DataTypeInt64>();
     auto col_key = ColumnInt64::create();
     auto col_val = ColumnInt64::create();
@@ -63,4 +63,4 @@ TEST(BlockReaderUtilsTest, ResolveBeforeColumnIndexFallbackWhenMissing) {
     EXPECT_EQ(resolve_before_column_index(block, 0, 2), 0);
 }
 
-} // namespace doris::vectorized::detail
+} // namespace doris

@@ -60,40 +60,6 @@ using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
-namespace {
-
-Status insert_cell_with_wrapper_adaptation(IColumn& dst, const IColumn& src, size_t row_pos) {
-    auto* dst_nullable = typeid_cast<ColumnNullable*>(&dst);
-    auto* src_nullable = check_and_get_column<ColumnNullable>(src);
-
-    if (dst_nullable == nullptr && src_nullable == nullptr) {
-        dst.insert_from(src, row_pos);
-        return Status::OK();
-    }
-
-    if (dst_nullable != nullptr && src_nullable != nullptr) {
-        dst.insert_from(src, row_pos);
-        return Status::OK();
-    }
-
-    if (dst_nullable != nullptr) {
-        dst_nullable->get_nested_column().insert_from(src, row_pos);
-        dst_nullable->get_null_map_data().push_back(0);
-        return Status::OK();
-    }
-
-    DCHECK(src_nullable != nullptr);
-    if (src_nullable->is_null_at(row_pos)) {
-        return Status::InternalError(
-                "cannot append null value from source column {} to non-nullable target column {}",
-                src.get_name(), dst.get_name());
-    }
-    dst.insert_from(src_nullable->get_nested_column(), row_pos);
-    return Status::OK();
-}
-
-} // namespace
-
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
         _agg_functions[i]->destroy(_agg_places[i]);
@@ -223,9 +189,8 @@ Status BlockReader::_append_change_row(MutableColumns& target_columns, const Blo
             continue;
         }
         int source_idx = _resolve_source_column_index(idx, use_before);
-        RETURN_IF_ERROR(insert_cell_with_wrapper_adaptation(
-                *target_columns[target_col_idx], *src_block.get_by_position(source_idx).column,
-                row_pos));
+        target_columns[target_col_idx]->insert_from(*src_block.get_by_position(source_idx).column,
+                                                    row_pos);
     }
     return Status::OK();
 }

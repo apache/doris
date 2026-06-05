@@ -136,31 +136,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     std::vector<uint32_t> read_columns;
     std::set<uint32_t> read_columns_set;
     std::set<uint32_t> delete_columns_set;
-    auto add_read_column_if_absent = [&](uint32_t cid) {
-        if (read_columns_set.insert(cid).second) {
-            read_columns.push_back(cid);
-        }
-    };
     for (int i = 0; i < _read_context->return_columns->size(); ++i) {
-        add_read_column_if_absent(_read_context->return_columns->at(i));
+        read_columns.push_back(_read_context->return_columns->at(i));
+        read_columns_set.insert(_read_context->return_columns->at(i));
     }
     _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
     for (auto cid : delete_columns_set) {
-        add_read_column_if_absent(cid);
-    }
-    if (_read_context->predicates != nullptr) {
-        for (auto pred : *(_read_context->predicates)) {
-            add_read_column_if_absent(pred->column_id());
-        }
-    }
-    if (_should_push_down_value_predicates()) {
-        // sequence mapping currently only support merge on read, so can not push down value
-        // predicates
-        if (_read_context->value_predicates != nullptr &&
-            !read_context->tablet_schema->has_seq_map()) {
-            for (auto pred : *(_read_context->value_predicates)) {
-                add_read_column_if_absent(pred->column_id());
-            }
+        if (read_columns_set.find(cid) == read_columns_set.end()) {
+            read_columns.push_back(cid);
         }
     }
     // disable condition cache if you have delete condition

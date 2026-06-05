@@ -120,8 +120,6 @@ private:
     Status _append_change_row(MutableColumns& target_columns, const Block& src_block,
                               size_t row_pos, int64_t output_op, bool use_before);
 
-    bool _get_next_row_same();
-
     // return false if keys of rowsets are mono ascending and disjoint
     bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
 

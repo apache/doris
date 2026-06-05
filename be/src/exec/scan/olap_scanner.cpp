@@ -352,6 +352,12 @@ Status OlapScanner::_init_row_binlog_tso_predicates() {
                 tso_index, std::string(kRowBinlogTimestampColName), data_type, end_value, false));
     }
 
+    if (std::find(_tablet_reader_params.return_columns.begin(),
+                  _tablet_reader_params.return_columns.end(),
+                  tso_index) == _tablet_reader_params.return_columns.end()) {
+        _tablet_reader_params.return_columns.push_back(tso_index);
+    }
+
     return Status::OK();
 }
 

@@ -26,7 +26,8 @@ namespace doris {
 
 using ResultType = AggregateFunctionMinDelta::ResultType;
 
-TEST(AggregateFunctionMinDeltaTest, ValidOperationPairs) {
+class BlockReaderMinDeltaTest : public testing::Test {};
+TEST_F(BlockReaderMinDeltaTest, ValidOperationPairs) {
     // Cover the 3x3 valid row binlog op pairs to keep the min-delta mapping stable.
     struct Case {
         int64_t first_op;
@@ -52,7 +53,7 @@ TEST(AggregateFunctionMinDeltaTest, ValidOperationPairs) {
     }
 }
 
-TEST(AggregateFunctionMinDeltaTest, InvalidOperationFallback) {
+TEST_F(BlockReaderMinDeltaTest, InvalidOperationFallback) {
     // Invalid op codes (negative/out-of-range) should fall back to avoid OOB and keep changes conservatively.
     const int64_t invalid_values[] = {-1,
                                       3,
@@ -71,7 +72,7 @@ TEST(AggregateFunctionMinDeltaTest, InvalidOperationFallback) {
     }
 }
 
-TEST(AggregateFunctionMinDeltaTest, SemanticScenarios) {
+TEST_F(BlockReaderMinDeltaTest, SemanticScenarios) {
     // Scenario 1: insert then delete yields no net change.
     EXPECT_EQ(ResultType::SKIP,
               AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_APPEND, ROW_BINLOG_DELETE));
@@ -85,7 +86,7 @@ TEST(AggregateFunctionMinDeltaTest, SemanticScenarios) {
               AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_DELETE, ROW_BINLOG_APPEND));
 }
 
-TEST(AggregateFunctionMinDeltaTest, CrossRowsetSameKeyScenarios) {
+TEST_F(BlockReaderMinDeltaTest, CrossRowsetSameKeyScenarios) {
     // Model same-key row binlog ops read from multiple rowsets in commit order.
     // The min-delta result depends on the first and last op for that key, regardless of rowset boundaries.
     auto calc_from_rowsets = [](const std::vector<std::vector<int64_t>>& rowsets) -> ResultType {
@@ -124,7 +125,7 @@ TEST(AggregateFunctionMinDeltaTest, CrossRowsetSameKeyScenarios) {
               calc_from_rowsets({{}, {ROW_BINLOG_UPDATE}, {}, {ROW_BINLOG_DELETE}, {}}));
 }
 
-TEST(AggregateFunctionMinDeltaTest, RowBinlogOperationCodeLayoutGuard) {
+TEST_F(BlockReaderMinDeltaTest, RowBinlogOperationCodeLayoutGuard) {
     // The implementation uses op codes as 2D lookup indices, so guard the op layout to prevent implicit OOB.
     EXPECT_EQ(0, ROW_BINLOG_APPEND);
     EXPECT_EQ(1, ROW_BINLOG_UPDATE);
