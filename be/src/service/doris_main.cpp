@@ -723,6 +723,9 @@ int main(int argc, char** argv) {
     if (!doris::config::enable_graceful_exit_check) {
         // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
         // It will make sure that graceful shutdown can be done definitely.
+        LOG(INFO) << "exiting immediately. k_doris_exit : " << doris::k_doris_exit
+                  << "k_shutdown_fe_known: " << doris::k_shutdown_fe_known
+                  << " k_in_graceful_shutdown: " << doris::k_in_graceful_shutdown;
         LOG(INFO) << "Doris main exited.";
         google::FlushLogFiles(google::GLOG_INFO);
         _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
@@ -748,6 +751,10 @@ int main(int argc, char** argv) {
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
+    doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
+    LOG(INFO) << "stop all will exiting immediately. k_doris_exit : " << doris::k_doris_exit
+              << " k_shutdown_fe_known: " << doris::k_shutdown_fe_known
+              << " k_in_graceful_shutdown: " << doris::k_in_graceful_shutdown;
     LOG(INFO) << "All service stopped, doris main exited.";
     return 0;
 }

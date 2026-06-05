@@ -105,7 +105,7 @@ import javax.annotation.Nullable;
 public class VariableMgr {
     private static final Logger LOG = LogManager.getLogger(VariableMgr.class);
     private static final String HEARTBEAT_INTERVAL_SECOND = "heartbeat_interval_second";
-    private static final String FAST_HEARTBEAT_INTERVAL_SECONDS = "1";
+    private static final String FAST_HEARTBEAT_INTERVAL_SECONDS = "3";
     private static final String DEFAULT_HEARTBEAT_INTERVAL_SECONDS = "10";
 
     // Map variable name to variable context which have enough information to change variable value.

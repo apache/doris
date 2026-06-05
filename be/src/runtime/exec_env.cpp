@@ -199,6 +199,8 @@ void ExecEnv::wait_for_all_fe_known() {
 }
 
 void ExecEnv::wait_for_all_tasks_done() {
+    LOG(INFO) << "begin to wait for all tasks done before shutdown. k_shutdown_fe_known: "
+              << k_shutdown_fe_known << " k_in_graceful_shutdown: " << k_in_graceful_shutdown;
     // For graceful shutdown, need to wait for all running queries to stop
     int32_t wait_seconds_passed = 0;
     while (true) {
@@ -221,6 +223,8 @@ void ExecEnv::wait_for_all_tasks_done() {
     // If the current BE is shut down at this point,
     // the FE will detect the downtime of a related BE and cancel the entire query,
     // defeating the purpose of a graceful stop.
+    LOG(INFO) << "after wait all tasks done and sleep. k_shutdown_fe_known: " << k_shutdown_fe_known
+              << " k_in_graceful_shutdown: " << k_in_graceful_shutdown;
     sleep(config::grace_shutdown_post_delay_seconds);
 }
 

@@ -94,6 +94,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
             // FE Master has pulled at least one heartbeat carrying
             // is_shutdown=true. Unblock Phase A in graceful_shutdown.
             doris::k_shutdown_fe_known = true;
+            LOG(INFO) << " The heartbeat with is_shutdown=true has been pulled by FE Master.";
         }
         heartbeat_result.backend_info.__set_fragment_executing_count(
                 get_fragment_executing_count());
