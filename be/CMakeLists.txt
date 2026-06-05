@@ -894,7 +894,13 @@ if (ENABLE_PCH)
         endif()
     endif()
 
-    add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
+    # Add gensrc headers as PCH dependencies so ninja rebuilds PCH when they change.
+    file(GLOB GENSRC_PCH_DEPENDS
+        ${GENSRC_DIR}/gen_cpp/*.h
+    )
+
+    add_library(pch STATIC ${SRC_DIR}pch/pch.cc ${GENSRC_PCH_DEPENDS})
+    set_source_files_properties(${GENSRC_PCH_DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
     target_precompile_headers(
         pch
         PUBLIC
