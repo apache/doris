@@ -1167,7 +1167,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& map_result = assert_cast<const ColumnMap&>(*block.get_by_position(0).column);
+    const auto& map_result = assert_cast<const doris::ColumnMap&>(*block.get_by_position(0).column);
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);
@@ -1673,6 +1673,49 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     ASSERT_EQ(file_request.local_positions.size(), 2);
     EXPECT_EQ(file_request.local_positions.at(LocalColumnId(0)).value(), 1);
     EXPECT_EQ(file_request.local_positions.at(LocalColumnId(1)).value(), 0);
+}
+
+TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<ColumnDefinition> projected_columns = {
+            make_table_column(0, "id", int_type),
+            make_table_column(1, "score", int_type),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "id", int_type),
+            make_file_column(1, "score", int_type),
+    };
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(
+                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    const auto& map_results = mapper.column_map_results();
+    ASSERT_EQ(map_results.size(), 2);
+    const auto& id_result = map_results.at(GlobalIndex(0));
+    ASSERT_TRUE(id_result.local_column_id.has_value());
+    EXPECT_EQ(id_result.local_column_id->value(), 0);
+    ASSERT_TRUE(id_result.column_index.has_value());
+    EXPECT_EQ(id_result.column_index->index, 0);
+    ASSERT_TRUE(id_result.mapping.has_value());
+    EXPECT_EQ(id_result.mapping->index, 1);
+
+    const auto& result_mapping = mapper.result_mapping();
+    ASSERT_FALSE(result_mapping.has_error());
+    ASSERT_EQ(result_mapping.global_to_local.size(), 2);
+    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).mapping.index, 1);
+    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(1)).mapping.index, 0);
+    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).filter_conversion,
+              FilterConversionType::COPY_DIRECTLY);
 }
 
 TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) {

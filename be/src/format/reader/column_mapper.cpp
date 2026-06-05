@@ -1462,6 +1462,63 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
     mapping->projection = VExprContext::create_shared(expr);
 }
 
+static std::shared_ptr<IndexMapping> build_child_index_mapping(const ColumnMapping& mapping) {
+    DORIS_CHECK(mapping.field_id.has_value());
+    auto result = std::make_shared<IndexMapping>();
+    result->index = *mapping.field_id;
+    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
+        const auto& child_mapping = mapping.child_mappings[child_idx];
+        if (!child_mapping.field_id.has_value()) {
+            continue;
+        }
+        result->child_mapping.emplace(cast_set<int32_t>(child_idx),
+                                      build_child_index_mapping(child_mapping));
+    }
+    return result;
+}
+
+static IndexMapping build_index_mapping(const ColumnMapping& mapping, LocalIndex block_position) {
+    DORIS_CHECK(mapping.field_id.has_value());
+    IndexMapping result;
+    result.index = cast_set<int32_t>(block_position.value());
+    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
+        const auto& child_mapping = mapping.child_mappings[child_idx];
+        if (!child_mapping.field_id.has_value()) {
+            continue;
+        }
+        result.child_mapping.emplace(cast_set<int32_t>(child_idx),
+                                     build_child_index_mapping(child_mapping));
+    }
+    return result;
+}
+
+static Status build_column_map_result(const ColumnMapping& mapping,
+                                      const FileScanRequest& file_request,
+                                      ColumnMapResult* result) {
+    DORIS_CHECK(result != nullptr);
+    *result = {};
+    result->projection = mapping.projection;
+    result->default_expr = mapping.default_expr;
+    if (!mapping.field_id.has_value()) {
+        return Status::OK();
+    }
+
+    const auto local_column_id = LocalColumnId(*mapping.field_id);
+    result->local_column_id = local_column_id;
+    LocalColumnIndex column_index {.index = local_column_id.value()};
+    if (mapping.has_complex_projection || complex_projection_has_pruned_children(mapping)) {
+        RETURN_IF_ERROR(build_complex_projection(mapping, &column_index));
+    }
+    result->column_index = std::move(column_index);
+
+    const auto position_it = file_request.local_positions.find(local_column_id);
+    DORIS_CHECK(position_it != file_request.local_positions.end())
+            << file_request.local_positions.size() << " " << *mapping.field_id << " "
+            << mapping.file_column_name;
+    result->mapping = build_index_mapping(mapping, position_it->second);
+    return Status::OK();
+}
+
 // Build a map from global output index to file slot rewrite info for all columns in the given
 // mappings that have a file column id and are present in the file request.
 static std::map<GlobalIndex, FileSlotRewriteInfo> build_file_slot_rewrite_map(
@@ -1608,6 +1665,26 @@ void TableColumnMapper::_set_constant_mapping(ColumnMapping* mapping, VExprConte
     mapping->filter_conversion = FilterConversionType::CONSTANT;
 }
 
+Status TableColumnMapper::_build_result_column_mapping(const FileScanRequest& file_request) {
+    _column_map_results.clear();
+    _result_mapping = {};
+    for (const auto& mapping : _mappings) {
+        ColumnMapResult map_result;
+        RETURN_IF_ERROR(build_column_map_result(mapping, file_request, &map_result));
+
+        if (map_result.mapping.has_value()) {
+            _result_mapping.global_to_local.emplace(
+                    mapping.global_index,
+                    ColumnMap {.mapping = *map_result.mapping,
+                               .local_type = mapping.file_type,
+                               .global_type = mapping.table_type,
+                               .filter_conversion = mapping.filter_conversion});
+        }
+        _column_map_results.emplace(mapping.global_index, std::move(map_result));
+    }
+    return Status::OK();
+}
+
 Status TableColumnMapper::create_scan_request(
         const std::vector<TableFilter>& table_filters,
         const TableColumnPredicates& table_column_predicates,
@@ -1656,7 +1733,7 @@ Status TableColumnMapper::create_scan_request(
                 << mapping.file_column_name;
         rebuild_projection(&mapping, position_it->second);
     }
-    return Status::OK();
+    return _build_result_column_mapping(*file_request);
 }
 
 ColumnMapping* TableColumnMapper::_find_mapping(GlobalIndex global_index) {

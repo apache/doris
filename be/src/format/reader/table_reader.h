@@ -647,7 +647,7 @@ protected:
         const NullMap* parent_null_map = nullptr;
         const auto* nested_file_column =
                 _nested_column_if_nullable(full_file_column, &parent_null_map);
-        const auto* file_map = assert_cast<const ColumnMap*>(nested_file_column);
+        const auto* file_map = assert_cast<const doris::ColumnMap*>(nested_file_column);
         ColumnPtr key_column = file_map->get_keys_ptr();
         ColumnPtr value_column = file_map->get_values_ptr();
 
@@ -657,9 +657,9 @@ protected:
                     value_mapping, value_column, value_column->size(), &value_column));
         }
         auto offsets_column = file_map->get_offsets_ptr()->convert_to_full_column_if_const();
-        auto result = ColumnMap::create(IColumn::mutate(std::move(key_column)),
-                                        IColumn::mutate(std::move(value_column)),
-                                        IColumn::mutate(std::move(offsets_column)));
+        auto result = doris::ColumnMap::create(IColumn::mutate(std::move(key_column)),
+                                               IColumn::mutate(std::move(value_column)),
+                                               IColumn::mutate(std::move(offsets_column)));
         if (mapping.table_type->is_nullable()) {
             auto null_map = ColumnUInt8::create();
             auto& null_map_data = null_map->get_data();
