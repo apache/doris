@@ -582,7 +582,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             lowerCaseToTableName.remove(dorisTable.getName().toLowerCase());
         }
 
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(dorisTable);
     }
 
     @Override

@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
@@ -219,6 +220,7 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateCatalog",
                 () -> cache.invalidateCatalogEntries(catalogId)));
+        rowCountCache.invalidateCatalog(catalogId);
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
@@ -231,6 +233,7 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "removeCatalog",
                 () -> cache.invalidateCatalog(catalogId)));
+        rowCountCache.invalidateCatalog(catalogId);
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
@@ -242,12 +245,34 @@ public class ExternalMetaCacheMgr {
     public void invalidateDb(long catalogId, String dbName) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog != null) {
+            rowCountCache.invalidateDb(catalogId, Util.genIdByName(catalog.getName(), dbName));
+        }
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog != null) {
+            rowCountCache.invalidateTable(catalogId,
+                    Util.genIdByName(catalog.getName(), dbName),
+                    Util.genIdByName(catalog.getName(), dbName, tableName));
+        }
+    }
+
+    public void invalidateTable(ExternalTable dorisTable) {
+        invalidateTable(dorisTable.getCatalog().getId(), dorisTable.getDbName(), dorisTable.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
+                    dorisTable.getRemoteName(), dorisTable.getCatalog().getName());
+        }
+    }
+
+    public void invalidateTableRowCountCache(ExternalTable dorisTable) {
+        rowCountCache.invalidateTable(dorisTable.getCatalog().getId(), dorisTable.getDbId(), dorisTable.getId());
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
@@ -386,16 +411,6 @@ public class ExternalMetaCacheMgr {
         return rowCountCache;
     }
 
-    public void invalidateTableCache(ExternalTable dorisTable) {
-        invalidateTable(dorisTable.getCatalog().getId(),
-                dorisTable.getDbName(),
-                dorisTable.getName());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
-                    dorisTable.getRemoteName(), dorisTable.getCatalog().getName());
-        }
-    }
-
     public LegacyMetaCacheFactory legacyMetaCacheFactory() {
         return legacyMetaCacheFactory;
     }
@@ -413,6 +428,10 @@ public class ExternalMetaCacheMgr {
 
     void replaceEngineCachesForTest(List<? extends ExternalMetaCache> caches) {
         cacheRegistry.resetForTest(caches);
+    }
+
+    void replaceRowCountCacheForTest(ExternalRowCountCache rowCountCache) {
+        this.rowCountCache = rowCountCache;
     }
 
     /**

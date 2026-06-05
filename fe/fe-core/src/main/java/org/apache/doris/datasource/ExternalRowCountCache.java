@@ -162,4 +162,16 @@ public class ExternalRowCountCache {
         return -1;
     }
 
+    void invalidateCatalog(long catalogId) {
+        rowCountCache.asMap().keySet().removeIf(key -> key.catalogId == catalogId);
+    }
+
+    void invalidateDb(long catalogId, long dbId) {
+        rowCountCache.asMap().keySet().removeIf(key -> key.catalogId == catalogId && key.dbId == dbId);
+    }
+
+    void invalidateTable(long catalogId, long dbId, long tableId) {
+        rowCountCache.synchronous().invalidate(new RowCountKey(catalogId, dbId, tableId));
+    }
+
 }

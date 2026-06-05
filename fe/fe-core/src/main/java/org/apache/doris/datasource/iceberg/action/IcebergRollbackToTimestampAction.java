@@ -110,7 +110,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
             Snapshot currentSnapshot = icebergTable.currentSnapshot();
             Long currentSnapshotId = currentSnapshot != null ? currentSnapshot.snapshotId() : null;
             // invalid iceberg catalog table cache.
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable((ExternalTable) table);
             return Lists.newArrayList(
                     String.valueOf(previousSnapshotId),
                     String.valueOf(currentSnapshotId)
