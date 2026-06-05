@@ -404,7 +404,7 @@ protected:
     }
 
     static bool _filter_result_filters_all(const ColumnPtr& filter_column) {
-        DORIS_CHECK(filter_column != nullptr);
+        DORIS_CHECK(filter_column.get() != nullptr);
         DORIS_CHECK(filter_column->size() == 1);
         return !filter_column->get_bool(0);
     }
