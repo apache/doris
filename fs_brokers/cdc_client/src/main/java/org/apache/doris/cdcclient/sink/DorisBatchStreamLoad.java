@@ -270,9 +270,12 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     public void close() {
-        // close async executor
-        this.loadExecutorService.shutdown();
+        // Wake up any blocked producer and stop the loader to avoid writer thread leak.
         this.started.set(false);
+        this.loadThreadAlive = false;
+        this.flushQueue.clear();
+        this.currentCacheBytes.set(0);
+        this.loadExecutorService.shutdownNow();
     }
 
     @VisibleForTesting
