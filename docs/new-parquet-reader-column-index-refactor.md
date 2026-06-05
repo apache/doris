@@ -262,8 +262,11 @@ projection 和 local block position 确定后，生成两份结果：
   其中 local 物理列包含 `LocalColumnId`、`LocalColumnIndex` 和 root 指向 file-local block
   position 的 `IndexMapping`；constant/missing/virtual 列保留 expression/default 信息但不生成
   local mapping。
-- `result_mapping()`：只保存真实 file-local source 到 global result column 的最终映射，用于后续
-  table-reader finalize plan 和 filter entry 继续下沉。
+- `result_mapping()`：只保存真实 file-local source 到 global result column 的最终映射。
+
+Filter localization 已经接入 `FilterEntry`：`filter_entries()` 会记录 `GlobalIndex` 到
+`LOCAL` / `CONSTANT` / `UNSET` target 的映射，row-level conjunct 和 column predicate pruning
+只对可下推的 `LOCAL` target 进入 file reader。
 
 当前 `ColumnMapping` 已收缩为主流程内部的构造态对象，不再携带 `reader_filter_expr`、
 `is_constant`、`is_missing`、`file_path` 这类跨阶段状态；最终可消费结果由
@@ -299,7 +302,7 @@ struct LocalColumnIndex {
 
 这样能在类型层面阻止 top-level id 和 child id 混用，但迁移成本更高。
 
-### TODO 4：沉淀 reader projection helper
+### TODO 3：沉淀 reader projection helper
 
 new parquet reader 中 struct/list/map child projection 查找和校验逻辑仍分散在 column
 reader factory 内部。
@@ -310,7 +313,7 @@ reader factory 内部。
 - 统一 full projection、partial projection、empty projection 的判断。
 - 统一 struct/list/map 对 unsupported nested projection 的校验和错误信息。
 
-### TODO 5：继续完善 LIST/MAP nested projection
+### TODO 4：继续完善 LIST/MAP nested projection
 
 当前 `STRUCT` reader 裁剪收益最明确。`LIST` 和 `MAP` 的复杂 nested projection 仍偏保守。
 
