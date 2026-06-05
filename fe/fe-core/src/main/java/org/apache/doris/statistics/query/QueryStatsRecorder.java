@@ -115,8 +115,8 @@ public class QueryStatsRecorder {
         Map<ExprId, PhysicalOlapScan> exprIdToScan = new HashMap<>();
         Map<ExprId, String> exprIdToColName = new HashMap<>();
         Map<String, StatsDelta> deltas = new HashMap<>();
-        // aggOutputToInputSlots maps aggregate output ExprId → all input slots for multi-input
-        // HAVING expansion (e.g. HAVING SUM(k2+k3) > 0 records filterHit on both k2 and k3).
+        // ExprId → input slots for multi-input computed expressions (agg outputs, project aliases).
+        // Used to expand filterHit in parent conjuncts and queryHit in the root output loop.
         Map<ExprId, Set<Slot>> aggOutputToInputSlots = new HashMap<>();
         walkPlan(plan, exprIdToScan, exprIdToColName, deltas, aggOutputToInputSlots);
         if (exprIdToScan.isEmpty()) {
@@ -128,19 +128,42 @@ public class QueryStatsRecorder {
                 : plan.getOutput();
         for (NamedExpression ne : rootExprs) {
             SlotReference sr = unwrapAlias(ne);
-            if (sr == null) {
+            if (sr != null) {
+                PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
+                if (sourceScan != null) {
+                    StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
+                    if (delta != null) {
+                        String colName = sr.getOriginalColumn().map(col -> col.getName())
+                                .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
+                        if (colName != null) {
+                            delta.addQueryStats(colName);
+                        }
+                    }
+                    continue;
+                }
+            }
+            // Slot from a computed alias, or a complex root alias (Alias(a+b)): expand via map.
+            ExprId lookupId = (sr != null) ? sr.getExprId() : ne.getExprId();
+            Set<Slot> inputSlots = aggOutputToInputSlots.get(lookupId);
+            if (inputSlots == null) {
                 continue;
             }
-            PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
-            if (sourceScan == null) {
-                continue;
-            }
-            StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-            if (delta != null) {
-                String colName = sr.getOriginalColumn().map(col -> col.getName())
-                        .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
-                if (colName != null) {
-                    delta.addQueryStats(colName);
+            for (Slot slot : inputSlots) {
+                if (!(slot instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference inputSr = (SlotReference) slot;
+                PhysicalOlapScan sourceScan = exprIdToScan.get(inputSr.getExprId());
+                if (sourceScan == null) {
+                    continue;
+                }
+                StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
+                if (delta != null) {
+                    String colName = inputSr.getOriginalColumn().map(col -> col.getName())
+                            .orElseGet(() -> exprIdToColName.get(inputSr.getExprId()));
+                    if (colName != null) {
+                        delta.addQueryStats(colName);
+                    }
                 }
             }
         }
@@ -431,7 +454,7 @@ public class QueryStatsRecorder {
                     }
                 } else if (underlying == null && ne instanceof Alias) {
                     // Complex alias (Alias(Cast(k1)) join-key or Alias(k1+k2) computed SELECT):
-                    // single-input → propagate ExprId to scan; multi-input → record each as queryHit.
+                    // single-input → propagate ExprId to scan; multi-input → defer to expansion map.
                     Set<Slot> inputSlots = ((Alias) ne).child().getInputSlots();
                     if (inputSlots.size() == 1) {
                         Slot inputSlot = inputSlots.iterator().next();
@@ -444,8 +467,10 @@ public class QueryStatsRecorder {
                             }
                         }
                     } else if (inputSlots.size() > 1) {
-                        recordInputSlotsAsQueryHit(((Alias) ne).child(),
-                                exprIdToScan, exprIdToColName, deltas);
+                        // Defer to avoid misclassifying PushDownExpressionsInHashCondition
+                        // join-key projects as queryHit; parent filter/join expands as filterHit,
+                        // root output loop expands as queryHit.
+                        aggOutputToInputSlots.put(ne.getExprId(), inputSlots);
                     }
                 }
             }

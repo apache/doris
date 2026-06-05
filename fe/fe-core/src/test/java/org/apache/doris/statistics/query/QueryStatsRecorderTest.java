@@ -1244,9 +1244,9 @@ public class QueryStatsRecorderTest {
 
     /**
      * SELECT k1+k2 AS result FROM t: computed alias with two input slots.
-     * unwrapAlias returns null (not a plain SlotReference), so the root output loop
-     * cannot record queryHit. The multi-input branch in the PhysicalProject handler
-     * must call recordInputSlotsAsQueryHit directly on the alias child expression.
+     * unwrapAlias returns null (not a plain SlotReference), so the PhysicalProject handler
+     * stores {k1, k2} in the expansion map (aggOutputToInputSlots). The root output loop in
+     * collectDeltas then expands via that map and records k1.queryHit and k2.queryHit.
      * Expected: k1.queryHit=true AND k2.queryHit=true.
      */
     @Test
@@ -1287,6 +1287,74 @@ public class QueryStatsRecorderTest {
                 "k2 must be recorded as queryHit from computed SELECT k1+k2");
         Assertions.assertTrue(delta.getColumnStats().get("k2").queryHit,
                 "k2.queryHit must be true");
+    }
+
+    /**
+     * PushDownExpressionsInHashCondition inserts a PhysicalProject below the join with
+     * Alias(k1+k2) as the hash-join key. Walking this intermediate project must NOT record
+     * k1/k2 as queryHit; instead, the join hash conjunct (which references the alias slot)
+     * must expand via the map and record k1.filterHit and k2.filterHit.
+     * Plan: HashJoin(aliasSlot = k3) → Project([Alias(k1+k2)]) → Scan[k1,k2]; Scan[k3]
+     * Expected: k1.filterHit=true, k2.filterHit=true, k1.queryHit=false, k2.queryHit=false.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testIntermediateProjectComputedJoinKeyRecordsFilterHitNotQueryHit() {
+        ExprId id1 = new ExprId(1);
+        ExprId id2 = new ExprId(2);
+        ExprId id3 = new ExprId(3);
+        ExprId aliasId = new ExprId(99);
+        SlotReference k1Slot = mockSlot(id1, "k1");
+        SlotReference k2Slot = mockSlot(id2, "k2");
+        SlotReference k3Slot = mockSlot(id3, "k3");
+        PhysicalOlapScan leftScan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Slot, k2Slot));
+        PhysicalOlapScan rightScan = mockScan(2L, 2L, 2L, 2L, ImmutableList.of(k3Slot));
+
+        // Simulates k1+k2 — a binary expression with two input slots
+        Expression addExpr = Mockito.mock(Expression.class);
+        Mockito.when(addExpr.getInputSlots()).thenReturn(ImmutableSet.of(k1Slot, k2Slot));
+
+        org.apache.doris.nereids.trees.expressions.Alias alias =
+                Mockito.mock(org.apache.doris.nereids.trees.expressions.Alias.class);
+        Mockito.when(alias.getExprId()).thenReturn(aliasId);
+        Mockito.when(alias.child()).thenReturn(addExpr);
+
+        // The slot the join conjunct references (the alias output, not k1/k2 directly)
+        SlotReference aliasSlot = mockSlot(aliasId, "k1_plus_k2");
+
+        org.apache.doris.nereids.trees.plans.physical.PhysicalProject<?> project =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalProject.class);
+        Mockito.when(project.children()).thenReturn(ImmutableList.of(leftScan));
+        Mockito.when(project.getProjects()).thenReturn(ImmutableList.of(alias));
+        Mockito.when(project.getOutput()).thenReturn(ImmutableList.of(aliasSlot));
+
+        // Hash conjunct: (k1+k2) = k3 — references aliasSlot, not k1/k2 directly
+        Expression hashConjunct = Mockito.mock(Expression.class);
+        Mockito.when(hashConjunct.getInputSlots()).thenReturn(ImmutableSet.of(aliasSlot, k3Slot));
+
+        org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin<?, ?> join =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin.class);
+        Mockito.when(join.children()).thenReturn(ImmutableList.of(project, rightScan));
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(ImmutableList.of(hashConjunct));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(ImmutableList.of());
+        Mockito.when(join.getOutput()).thenReturn(ImmutableList.of());
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) join);
+
+        Assertions.assertTrue(deltas.containsKey("1_1_1_1"), "left scan delta must exist");
+        StatsDelta leftDelta = deltas.get("1_1_1_1");
+        Assertions.assertNotNull(leftDelta.getColumnStats().get("k1"),
+                "k1 must be recorded via join-key alias expansion");
+        Assertions.assertTrue(leftDelta.getColumnStats().get("k1").filterHit,
+                "k1.filterHit must be true: used only in join predicate");
+        Assertions.assertFalse(leftDelta.getColumnStats().get("k1").queryHit,
+                "k1.queryHit must be false: intermediate project must not record queryHit");
+        Assertions.assertNotNull(leftDelta.getColumnStats().get("k2"),
+                "k2 must be recorded via join-key alias expansion");
+        Assertions.assertTrue(leftDelta.getColumnStats().get("k2").filterHit,
+                "k2.filterHit must be true: used only in join predicate");
+        Assertions.assertFalse(leftDelta.getColumnStats().get("k2").queryHit,
+                "k2.queryHit must be false: intermediate project must not record queryHit");
     }
 
     private SlotReference mockSlot(ExprId exprId, String columnName) {
