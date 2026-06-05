@@ -226,7 +226,7 @@ protected:
         std::vector<ColumnDefinition> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
         // TODO: It's different for paimon/hudi/iceberg
-        bool has_field_id = !file_schema.empty() && file_schema.front().id >= 0;
+        bool has_field_id = !file_schema.empty() && file_schema.front().has_identifier_field_id();
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = default_mapping_mode() == TableColumnMappingMode::BY_FIELD_ID
                                        ? (has_field_id ? TableColumnMappingMode::BY_FIELD_ID
