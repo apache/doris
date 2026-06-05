@@ -84,10 +84,9 @@ public class OlapTableStream extends BaseTableStream {
     @Override
     public OlapTable getBaseTableNullable() {
         TableIf baseTable = super.getBaseTableNullable();
-        if (baseTable == null) {
+        if (baseTable == null || !(baseTable instanceof OlapTable)) {
             return null;
         }
-        Preconditions.checkState(baseTable instanceof OlapTable);
         return (OlapTable) baseTable;
     }
 
@@ -227,7 +226,8 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {
-        Preconditions.checkState(isWriteLockHeldByCurrentThread());
+        Preconditions.checkState(isWriteLockHeldByCurrentThread(),
+                "unprotectedCollectStalePartitionOffsetIds must be called with write lock held");
         Set<Long> stalePartitionIds = new HashSet<>();
         for (Long partitionId : partitionOffset.keySet()) {
             if (!validPartitionIds.contains(partitionId)) {
@@ -254,8 +254,9 @@ public class OlapTableStream extends BaseTableStream {
         return stalePartitionIds;
     }
 
-    int unprotectedPrunePartitionOffsets(Set<Long> partitionIds) {
-        Preconditions.checkState(isWriteLockHeldByCurrentThread());
+    void unprotectedPrunePartitionOffsets(Set<Long> partitionIds) {
+        Preconditions.checkState(isWriteLockHeldByCurrentThread(),
+                "unprotectedPrunePartitionOffsets must be called with write lock held");
         for (Long partitionId : partitionIds) {
             partitionOffset.remove(partitionId);
             partitionConsumptionTime.remove(partitionId);
@@ -264,6 +265,5 @@ public class OlapTableStream extends BaseTableStream {
                 historicalPartitionTSO.remove(partitionId);
             }
         }
-        return partitionIds.size();
     }
 }

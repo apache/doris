@@ -103,6 +103,7 @@ suite("test_min_delta_stream") {
         """
         sql "INSERT INTO ${ukBase} VALUES (1, 11)"
         sql "sync"
+        sleep(1200)
 
         def ukRows = sql """
             SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
@@ -176,6 +177,7 @@ suite("test_min_delta_stream") {
         sql "INSERT INTO ${ukSkipBase} VALUES (2, 20)"
         sql "DELETE FROM ${ukSkipBase} WHERE id = 2"
         sql "sync"
+        sleep(1200)
 
         def ukSkipRows = sql "SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__ FROM ${ukSkipStream}"
         assertEquals(0, ukSkipRows.size())
@@ -208,6 +210,7 @@ suite("test_min_delta_stream") {
         sql "INSERT INTO ${ukMultiBase} VALUES (3, 31)"
         sql "INSERT INTO ${ukMultiBase} VALUES (3, 32)"
         sql "sync"
+        sleep(1200)
 
         def ukMultiRows = sql """
             SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
@@ -249,6 +252,7 @@ suite("test_min_delta_stream") {
         """
         sql "DELETE FROM ${ukDeleteBase} WHERE id = 4"
         sql "sync"
+        sleep(1200)
 
         def ukDeleteRows = sql """
             SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
@@ -293,6 +297,7 @@ suite("test_min_delta_stream") {
         // rowset-2
         sql "INSERT INTO ${ukCrossRowsetBase} VALUES (1, 12)"
         sql "sync"
+        sleep(1200)
 
         def ukCrossRowsetRows = sql """
             SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
@@ -361,6 +366,7 @@ suite("test_min_delta_stream") {
         sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 72)"
         sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 73)"
         sql "sync"
+        sleep(1200)
 
         def ukCrossBlockRows = sql """
             SELECT /*+ SET_VAR(batch_size=1) */ id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
@@ -404,6 +410,7 @@ suite("test_min_delta_stream") {
         sql "INSERT INTO ${ukPendingBase} VALUES (8, 81)"
         sql "INSERT INTO ${ukPendingBase} VALUES (9, 91)"
         sql "sync"
+        sleep(1200)
 
         def ukPendingRows = sql """
             SELECT /*+ SET_VAR(batch_size=1) */ id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
@@ -452,6 +459,7 @@ suite("test_min_delta_stream") {
         sql "INSERT INTO ${ukDeleteBeforeBase} VALUES (10, 101)"
         sql "DELETE FROM ${ukDeleteBeforeBase} WHERE id = 10"
         sql "sync"
+        sleep(1200)
 
         def ukDeleteBeforeRows = sql """
             SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
@@ -506,6 +514,7 @@ suite("test_min_delta_stream") {
         sql "INSERT INTO ${ukShowInitialBase} VALUES (4, 11, 'a2')"
         sql "DELETE FROM ${ukShowInitialBase} WHERE id = 2"
         sql "sync"
+        sleep(1200)
 
         def ukShowInitialRows = sql """
             SELECT id, __DORIS_STREAM_CHANGE_TYPE_COL__, __DORIS_STREAM_SEQUENCE_COL__

@@ -624,7 +624,8 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void waitForTimeBasedReadTransactionsVisible() throws Exception {
+    protected static void waitForTimeBasedReadTransactionsVisible(ConnectContext context, List<ScanNode> scanNodes,
+                                                           TQueryGlobals queryGlobals) throws Exception {
         if (context == null) {
             return;
         }
@@ -832,7 +833,7 @@ public class Coordinator implements CoordInterface {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
-        waitForTimeBasedReadTransactionsVisible();
+        waitForTimeBasedReadTransactionsVisible(context, scanNodes, queryGlobals);
         processFragmentAssignmentAndParams();
 
         traceInstance();

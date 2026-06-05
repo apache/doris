@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -4142,5 +4143,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void versionWriteUnlock() {
         versionLock.writeLock().unlock();
+    }
+
+    public void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        if (!needRowBinlog()) {
+            throw new DdlException("Base Olap table " + getQualifiedName()
+                    + " need to enable row binlog for table stream");
+        }
+        if (streamScanType.equals(BaseTableStream.StreamScanType.MIN_DELTA)
+                && (getKeysType().equals(KeysType.PRIMARY_KEYS)
+                || (getKeysType().equals(KeysType.UNIQUE_KEYS)))
+                && (!getBinlogConfig().getNeedHistoricalValue() || !isUniqKeyMergeOnWrite())) {
+            throw new DdlException("MIN_DELTA table stream requires base mow table to enable "
+                    + "binlog.need_historical_value=true. Table " + getQualifiedName()
+                    + " doesn't enable historical value in row binlog.");
+        }
     }
 }

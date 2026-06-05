@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -396,5 +397,10 @@ public interface TableIf {
             return Optional.empty();
         }
         return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
+    }
+
+    default void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        throw new DdlException("Base table type: " + getType()  + ", StreamScanType: " + streamScanType
+                + " is not supported for create table stream");
     }
 }

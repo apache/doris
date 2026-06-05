@@ -91,17 +91,9 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames,
             boolean isTempPart, List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
             Optional<String> indexName, TableScanParams scanParams, Optional<TableSnapshot> tableSnapshot) {
-        this(id, nameParts, isTempPart, partNames, tabletIds, hints, tableSample, indexName,
-                scanParams, tableSnapshot, Optional.empty());
-    }
-
-    public UnboundRelation(RelationId id, List<String> nameParts, boolean isTempPart, List<String> partNames,
-            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
-            TableScanParams scanParams,
-            Optional<TableSnapshot> tableSnapshot, Optional<ChangeScanInfo> changeScanInfo) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
-                Optional.empty(), tableSnapshot, changeScanInfo);
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, Optional.empty(),
+                tableSnapshot, Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts,

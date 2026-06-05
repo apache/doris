@@ -148,7 +148,17 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                     staleStreamIds.add(Pair.of(db.get().getId(), tableId));
                     continue;
                 }
-                cleanupStalePartitionOffsets((OlapTableStream) table.get()).ifPresent(pruneEntries::add);
+                if (!table.get().tryReadLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("skip cleaning stream {} because read lock is busy", table.get().getName());
+                    }
+                    continue;
+                }
+                try {
+                    cleanupStalePartitionOffsets((OlapTableStream) table.get()).ifPresent(pruneEntries::add);
+                } finally {
+                    table.get().readUnlock();
+                }
             }
         }
         removeStaleDbAndStream(staleDbIds, staleStreamIds);
@@ -196,10 +206,10 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
             if (stalePartitionIds.isEmpty()) {
                 return Optional.empty();
             }
-            int removedPartitionCount = stream.unprotectedPrunePartitionOffsets(stalePartitionIds);
-            if (removedPartitionCount > 0) {
+            stream.unprotectedPrunePartitionOffsets(stalePartitionIds);
+            if (stalePartitionIds.size() > 0) {
                 LOG.info("cleaned {} stale partition offset entries from stream {}.{} ({})",
-                        removedPartitionCount, stream.getDatabase().getFullName(), stream.getName(), stream.getId());
+                        stalePartitionIds.size(), stream.getDatabase().getFullName(), stream.getName(), stream.getId());
             }
             return Optional.of(new PruneTableStreamPartitionOffsetInfo.Entry(
                     stream.getDatabase().getId(), stream.getId(), stalePartitionIds));
@@ -292,7 +302,7 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                             // STREAM_TYPE
                             trow.addToColumnValue(new TCell().setStringVal(stream.getTableStreamType()));
                             // CONSUME_TYPE
-                            trow.addToColumnValue(new TCell().setStringVal(stream.getConsumeTypeString()));
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getScanTypeString()));
                             // STREAM_COMMENT
                             trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
                             TableIf baseTable = stream.getBaseTableNullable();

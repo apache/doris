@@ -130,7 +130,7 @@ public abstract class BaseTableStream extends Table {
         return "BASE_STREAM";
     }
 
-    public String getConsumeTypeString() {
+    public String getScanTypeString() {
         return streamScanType.name();
     }
 

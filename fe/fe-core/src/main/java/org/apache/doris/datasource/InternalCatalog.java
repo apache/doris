@@ -84,7 +84,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
-import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.TableStreamBuildFactory;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -1016,9 +1015,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (table instanceof OlapTable) {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
-        }
-        if (table instanceof BaseTableStream) {
-            Env.getCurrentEnv().getTableStreamManager().removeStaleStream((BaseTableStream) table);
         }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
@@ -3984,8 +3980,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             BaseTableStream newStream;
             TableIf baseTable = baseCatalog.getDbOrDdlException(createStreamInfo.getBaseTableName().getDb())
                     .getTableOrDdlException(createStreamInfo.getBaseTableName().getTbl());
-            // check base table type is supported for stream
-            checkBaseTableAvailable(baseTable);
             // lock base table for stream init
             baseTable.readLock();
             try {
@@ -3996,13 +3990,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .withBaseTable(baseTable)
                         .build();
                 newStream.setComment(createStreamInfo.getComment());
+                // check base table type is supported for stream
+                baseTable.checkAsTableStreamBaseTable(newStream.getConsumeType());
                 try {
                     newStream.setProperties(properties);
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage(), e);
-                }
-                if (baseTable instanceof OlapTable) {
-                    checkBaseTableAvailableForStreamType((OlapTable) baseTable, newStream.getConsumeType());
                 }
                 if (properties != null && !properties.isEmpty()) {
                     // before here, all properties should be checked
@@ -4015,34 +4008,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!db.createTableWithLock(newStream, false, createStreamInfo.isIfNotExists()).first) {
                 throw new DdlException("Failed to create stream[" + streamName + "].");
             }
-            Env.getCurrentEnv().getTableStreamManager().addTableStream(newStream);
             LOG.info("successfully create stream[{}]", streamName);
-        }
-    }
-
-    void checkBaseTableAvailable(TableIf tableIf) throws DdlException {
-        if (!BaseTableStream.isTableTypeSupported(tableIf)) {
-            throw new DdlException("Base table type " + tableIf.getType()
-                    + " is not supported for create table stream");
-        }
-        if (tableIf instanceof OlapTable) {
-            OlapTable olapTable = (OlapTable) tableIf;
-            if (!olapTable.needRowBinlog()) {
-                throw new DdlException("Base Olap table " + olapTable.getQualifiedName()
-                        + " need to enable row binlog for table stream");
-            }
-        }
-    }
-
-    void checkBaseTableAvailableForStreamType(OlapTable olapTable, StreamScanType streamScanType)
-            throws DdlException {
-        if (streamScanType.equals(StreamScanType.MIN_DELTA)
-                && (olapTable.getKeysType().equals(KeysType.PRIMARY_KEYS)
-                || (olapTable.getKeysType().equals(KeysType.UNIQUE_KEYS)))
-                && (!olapTable.getBinlogConfig().getNeedHistoricalValue() || !olapTable.isUniqKeyMergeOnWrite())) {
-            throw new DdlException("MIN_DELTA table stream requires base mow table to enable "
-                    + "binlog.need_historical_value=true. Table " + olapTable.getQualifiedName()
-                    + " doesn't enable historical value in row binlog.");
         }
     }
 }
