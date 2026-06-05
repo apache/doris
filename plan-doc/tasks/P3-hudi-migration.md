@@ -16,7 +16,7 @@
 - **阻塞**：无（P0 ✅ / P1 ✅ / P2 ✅ 已合入 #64096）
 - **阻塞下游**：批 E（live cutover）与 P7 hive/HMS migration 合并；P3 批 A–D 不阻塞任何下游
 - **主 owner**：@me
-- **分支**：从 `branch-catalog-spi` 切（建议 `catalog-spi-04` / `catalog-spi-p3-hudi`）；PR base = `apache/doris:branch-catalog-spi`
+- **分支**：`catalog-spi-04`（从 `branch-catalog-spi` 切）；**PR [#64143](https://github.com/apache/doris/pull/64143)**（base `apache/doris:branch-catalog-spi`，2026-06-05 开，26 files +3065/−154、12 commits）
 
 ---
 

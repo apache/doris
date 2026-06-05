@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-06-05** | 当前阶段：**P3 Hudi hybrid（D-019）批 A–D 全部 in-scope 完成**（T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E）；剩批 E（cutover）并入 P7，P3 PR 待开 | 项目总进度：**33%**
+> 最后更新：**2026-06-05** | 当前阶段：**P3 Hudi hybrid（D-019）批 A–D 全部 in-scope 完成**（T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E）；剩批 E（cutover）并入 P7，P3 PR #64143 已开（CI 中） | 项目总进度：**33%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -12,7 +12,7 @@
 | **P0** | SPI 缺口补齐 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR #63582 squash-merge `c6f056fa5bd`，T24-T25 流水线全绿）| [tasks/P0](./tasks/P0-spi-foundation.md) |
 | **P1** | scan-node 收口 + 重复清理 | 1 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR [#63641](https://github.com/apache/doris/pull/63641) squash-merged `778c5dd610f`；T1 推迟 P8；T2 推迟 P4/P5）| [tasks/P1](./tasks/P1-scan-node-cleanup.md) |
 | **P2** | trino-connector 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 已合入 `branch-catalog-spi`（#64096，squash `0793f032662`；T12 回归推迟 DV-003）| [tasks/P2](./tasks/P2-trino-connector-migration.md) |
-| P3 | hudi 迁移 | 2 周 | ▰▰▰▰▰▱▱▱▱▱ 45% | 🚧 hybrid（D-019）；**批 A–D 全部 in-scope 完成**（T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E）；剩批 E（cutover）并入 P7，P3 PR 待开 | [tasks/P3](./tasks/P3-hudi-migration.md) |
+| P3 | hudi 迁移 | 2 周 | ▰▰▰▰▰▱▱▱▱▱ 45% | 🚧 hybrid（D-019）；**批 A–D 全部 in-scope 完成**（T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E）；剩批 E（cutover）并入 P7，P3 PR #64143 已开（CI 中） | [tasks/P3](./tasks/P3-hudi-migration.md) |
 | P4 | maxcompute 迁移 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P5 | paimon 迁移 | 3 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P6 | iceberg 迁移 | 5 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -44,7 +44,7 @@
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
 
-### P3 — hudi 迁移（🚧 hybrid，批 A–D 全部 in-scope 完成：T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E；剩批 E→P7，P3 PR 待开）
+### P3 — hudi 迁移（🚧 hybrid，批 A–D 全部 in-scope 完成：T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E；剩批 E→P7，P3 PR #64143 已开（CI 中））
 
 > 策略 = **hybrid**（[D-019](./decisions-log.md)）：现做 (b) 连接器硬化+测试（behind gate），推迟 (a) 模型落地+cutover 到 hive/HMS migration。详细批次见 [tasks/P3](./tasks/P3-hudi-migration.md)；背景见 [DV-005](./deviations-log.md) / [HANDOFF](./HANDOFF.md) 关键认知 1+1b。
 
@@ -128,7 +128,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
-- **2026-06-05** ✅ **P3 批 D 完成（T08 `tableFormatType` 分流消费设计备忘，design-only）= P3 hybrid in-scope（批 A–D）全完成**：以上 session 的 6-reader recon（`research/spi-multi-format-hms-catalog-analysis.md`）为直接输入，本场不重复 recon、只 firsthand 核读 load-bearing 锚点（确认 keystone gap：`PluginDrivenExternalTable.initSchema` 只读 columns 丢 `tableFormatType`；新增第二缺口：`getEngine`/`getEngineTableTypeName` switch catalog type 非 per-table format；`planScan` 入参带 per-table handle）。**核心分析贡献**：把 keystone 拆成可分离的 **M1 身份消费 ⊥ M2 scan 路由**（M1 三方案通用，A/B/C 只在 M2 分歧）。M2 三方案评估后 **AskUserQuestion 用户签字 = 方案 B**（[D-020]）：新增向后兼容 default `ConnectorMetadata.getScanPlanProvider(handle)`（默认 null→回落 per-catalog），fe-core `PluginDrivenScanNode.getSplits` 优先 per-table、回落 per-catalog；把 per-table 选 provider 升为一等 SPI 契约（满足 D-009 default-only）。A（连接器内 router，零 SPI churn）备选；C（fe-core 发现期分派）否决（违瘦 fe-core）。**细化 D-005**（区分符沿用；"PhysicalXxxScan" 措辞早于 P1 scan-node 统一，由 per-table provider seam 取代）。缩界：本场零代码、gate 不动；Iceberg-on-hms 经 SPI 依赖 P6/M3；M1+M2 实现登记批 E/P7。**P3 hybrid 净产出**=2 正确性修（T02/T05）+ 2 fail-loud/决策（T04/T06）+ 测试网零→59 测（T07）+ 模型 dispatch 设计（T08/D-020）。下一步=批 E 并入 P7 / 开 P3 PR / 启 P4。设计 `designs/P3-T08-tableformat-dispatch-design.md`
+- **2026-06-05** ✅ **P3 批 D 完成（T08 `tableFormatType` 分流消费设计备忘，design-only）= P3 hybrid in-scope（批 A–D）全完成**：以上 session 的 6-reader recon（`research/spi-multi-format-hms-catalog-analysis.md`）为直接输入，本场不重复 recon、只 firsthand 核读 load-bearing 锚点（确认 keystone gap：`PluginDrivenExternalTable.initSchema` 只读 columns 丢 `tableFormatType`；新增第二缺口：`getEngine`/`getEngineTableTypeName` switch catalog type 非 per-table format；`planScan` 入参带 per-table handle）。**核心分析贡献**：把 keystone 拆成可分离的 **M1 身份消费 ⊥ M2 scan 路由**（M1 三方案通用，A/B/C 只在 M2 分歧）。M2 三方案评估后 **AskUserQuestion 用户签字 = 方案 B**（[D-020]）：新增向后兼容 default `ConnectorMetadata.getScanPlanProvider(handle)`（默认 null→回落 per-catalog），fe-core `PluginDrivenScanNode.getSplits` 优先 per-table、回落 per-catalog；把 per-table 选 provider 升为一等 SPI 契约（满足 D-009 default-only）。A（连接器内 router，零 SPI churn）备选；C（fe-core 发现期分派）否决（违瘦 fe-core）。**细化 D-005**（区分符沿用；"PhysicalXxxScan" 措辞早于 P1 scan-node 统一，由 per-table provider seam 取代）。缩界：本场零代码、gate 不动；Iceberg-on-hms 经 SPI 依赖 P6/M3；M1+M2 实现登记批 E/P7。**P3 hybrid 净产出**=2 正确性修（T02/T05）+ 2 fail-loud/决策（T04/T06）+ 测试网零→59 测（T07）+ 模型 dispatch 设计（T08/D-020）。**P3 PR [#64143](https://github.com/apache/doris/pull/64143) 已开**（base branch-catalog-spi，26 files +3065/−154，12 commits）；下一步=监控 CI / 处理 review，批 E 并入 P7 / 启 P4。设计 `designs/P3-T08-tableformat-dispatch-design.md`
 - **2026-06-05** ✅ **P3 批 C 编码完成（T07 三模块测试基线 + COW/MOR schema parity）**：feasibility recon（5-agent code-grounded workflow）定 **golden-value parity**（fe-core 只依赖 fe-connector-api/-spi、不依赖具体连接器模块，无跨模块编译路径；JUnit5 + 手写替身）；关键结论 **COW/MOR schema type-agnostic**（legacy/SPI 两侧 schema 推导都不按表型分支，差异只在 scan planning）。落地：**hudi**——`avroSchemaToColumns` 顶层列名 `toLowerCase` 修（gap-1，镜像 legacy `HMSExternalTable:745`，仅顶层、嵌套 struct 名保留）+ package-private static 可测；`HudiTypeMappingTest` 补 `fromAvroSchema`→ConnectorType golden（原零覆盖）；新 `HudiSchemaParityTest`（列名/序/类型/Hive 串/casing 边界 pin）+ `HudiTableTypeTest`（COW/MOR/UNKNOWN 分类）。**hms**——新 `HmsTypeMappingTest`（hms+hive 共享的 Hive 类型串解析器，原零测试）。**hive**——新 `HiveFileFormatTest` + `HiveConnectorMetadataPartitionPruningTest`（镜像 T05 裁剪网）。三模块 test：hms 12 + hive 14 + hudi +18=33 全绿；checkstyle 0（含 test 源）；import-gate 通过。**两 parity gap**（[DV-008]）：gap-1 列名 casing 当场修（用户签字），gap-2 Hudi meta-field 纳入（`getTableAvroSchema(true)` vs 无参）推迟批 E（无真实 metaclient 不可单测）。下一步批 D（T08 design-only）。设计：`designs/P3-T07-test-baseline-design.md`
 - **2026-06-05** ✅ **P3 批 B 编码完成**（T05 ✅ + T06 决策，[DV-007]）：**T05**（commit `10b72d4`，feat）`HudiConnectorMetadata.applyFilter` 真实 EQ/IN 分区裁剪——原占位实现列**全部** HMS 分区不裁剪、且无条件设 `prunedPartitionPaths` 静默把分区来源从 Hudi-metadata 切到 HMS；重写为忠实镜像 `HiveConnectorMetadata`（抽取 partition 列 EQ/IN 谓词→列候选→裁剪→仅有效果时回传 pruned handle，否则 `Optional.empty()` 回落 Hudi-metadata listing），保留 `List<String>` 路径表示 + `-1` 上限，7 helper duplicate from Hive（hudi 仅依赖 fe-connector-hms）。`HudiPartitionPruningTest` 8 测全绿（模块 19 测）、checkstyle 0、import-gate 通过。**T06**（零代码决策，用户签字）MVCC/snapshot SPI **保持 default `Optional.empty()` opt-out**——recon 证「显式抛异常 override」错（破 SPI opt-out 约定、全体连接器无 override、无 production caller=死代码、T04 已 fail-loud time-travel）；完整 MVCC 入批 E。**scope 校正**（[DV-007]）：T05 `listPartitions*` override 推迟批 E（零 live caller、Hive 不 override）。批 A+B 编码完成，下一步批 C（三模块测试 + COW/MOR parity）。设计：`designs/P3-T05-*` / `P3-T06-*`
 - **2026-06-05** ✅ **P3-T04 time-travel/增量读 fail-loud**（commit `feceabb`，批 A 编码收尾）：`PhysicalPlanTranslator.visitPhysicalHudiScan` SPI 分支对 `FOR TIME/VERSION AS OF`（曾静默返最新——provider 永远读 `lastInstant`）与增量读（曾静默全扫——SPI 无表示）抛 `AnalysisException`。唯一同时可见 snapshot+incremental 处。fe-core 编译 + checkstyle 0；dormant 分支 gate 关时不可达=零 live 风险；单测推迟批 E（不可 exercise，R12 显式登记）。**批 A 编码完成**：T02 + T04 两个正确性修复落地，T03 推迟批 E（DV-006）
@@ -190,7 +190,7 @@
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
 - **本 session 已完成**：P3 批 D（T08 design-only，AskUserQuestion 用户签字 M2=方案 B）——`tableFormatType` 分流消费设计备忘 + [D-020]；核心拆解 **M1 身份消费 ⊥ M2 scan 路由**；细化 D-005；同步 tasks/P3（T08 ✅ + 阶段日志）+ PROGRESS（§一/§二/§三/§四/§六/§七）+ decisions-log（D-020）+ connectors/hudi + 设计备忘 P3-T08 + HANDOFF；研究输入 `research/spi-multi-format-hms-catalog-analysis.md` 一并纳入 git 跟踪（design 引用，避免悬空）
-- **下一个 session 应做**（**P3 hybrid in-scope 批 A–D 已全部完成**，三选一，待用户定）：(1) 开 **P3 PR**（base `apache/doris:branch-catalog-spi`）；(2) **批 E 并入 P7**（live cutover，不在 P3 编码）；(3) 启 **P4**（maxcompute）。**P3 内不要碰 `SPI_READY_TYPES` / fe-core 消费实现 / legacy / 非 hudi 连接器（皆批 E）**
+- **下一个 session 应做**（**P3 hybrid in-scope 批 A–D 完成，PR #64143 已开**）：监控 [PR #64143](https://github.com/apache/doris/pull/64143) CI / 处理 review；待合入后 **批 E 并入 P7**（live cutover，不在 P3 编码）或启 **P4**（maxcompute）。**P3 内不要碰 `SPI_READY_TYPES` / fe-core 消费实现 / legacy / 非 hudi 连接器（皆批 E）**
 - **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（P3 批 A–D 完成总结 + D-020/M1⊥M2 认知 + 批 E/PR/P4 三选项 + 沿用坑）
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 

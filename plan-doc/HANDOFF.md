@@ -9,7 +9,7 @@
 ## 📅 最后一次 handoff
 
 - **日期 / 时间**：2026-06-05
-- **本 session 主题**：**P3 批 D 完成（T08，design-only）**——`tableFormatType` 分流消费设计备忘 + **[D-020]**（用户签字 M2=方案 B per-table SPI provider）。**P3 hybrid in-scope（批 A–D）全部完成**；剩批 E（live cutover）并入 P7。
+- **本 session 主题**：**P3 批 D 完成（T08，design-only）**——`tableFormatType` 分流消费设计备忘 + **[D-020]**（用户签字 M2=方案 B per-table SPI provider）。**P3 hybrid in-scope（批 A–D）全部完成**；剩批 E（live cutover）并入 P7。**P3 PR [#64143](https://github.com/apache/doris/pull/64143) 已开**（base branch-catalog-spi）。
 - **分支**：`catalog-spi-04`（P3 工作分支，基于 `branch-catalog-spi`）。工作树预期 clean（仅本地未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.bak`；**`plan-doc/research/` 本 session 已纳入 git 跟踪**）。
 
 ---
@@ -28,10 +28,10 @@
 
 ## 🚧 未完成 / 待办（下一 session：三选一，待用户定）
 
-**P3 hybrid in-scope（批 A–D）已全部完成。** 没有"批 D 之后的批"——批 E 是 deferred、并入 P7。下一 session 是一个**分叉点**：
+**P3 hybrid in-scope（批 A–D）已全部完成，PR #64143 已开。** 没有"批 D 之后的批"——批 E 是 deferred、并入 P7。下一 session：
 
-1. **开 P3 PR**（推荐先确认）：把 `catalog-spi-04` 的批 A–D 工作开 PR，base = `apache/doris:branch-catalog-spi`。**git/push/PR 只在用户明确要求时做**（本 session 未开）。P3 无独立"开 PR"task（不同于 P2-T13），需用户拍板是否现在开、是否等批 E。
-2. **批 E 并入 P7**（不在 P3 编码）：live cutover——见下「批 E backlog」。属 hive/HMS migration（P7 或专门子阶段），不在 P3 PR 内。
+1. **监控 [PR #64143](https://github.com/apache/doris/pull/64143)**：base = `apache/doris:branch-catalog-spi`、head = `morningman:catalog-spi-04`，26 files +3065/−154、12 commits。盯 CI、处理 review comment（review 改动在本分支 `catalog-spi-04` 续 commit + push 即自动进 PR）。前序 P0/P1/P2 PR 均 **squash-merge**。
+2. **批 E 并入 P7**（不在 P3 编码）：live cutover——见下「批 E backlog」。属 hive/HMS migration（P7 或专门子阶段），不在本 PR 内。
 3. **启 P4**（maxcompute）：若 P3 告一段落，按 master plan 进下一连接器。
 
 > ⚠️ 三选项**都不应**在 P3 分支内碰 `SPI_READY_TYPES` / fe-core 消费实现 / legacy `datasource/hudi/` / 非 hudi 连接器——皆批 E。
@@ -85,10 +85,10 @@
    git status → clean（除 .audit-scratch/ conf.cmy/ regression-conf.bak；research/ 现已跟踪）
    Read PROGRESS.md §一/§三 + 本文件关键认知 1（M1⊥M2 + D-020）
 
-2. 与用户确认分叉（本文件「未完成/待办」三选一）：
-   (1) 开 P3 PR（base apache/doris:branch-catalog-spi）——需用户明确要求才 push/开 PR
-   (2) 批 E 并入 P7（live cutover；T08/D-020 已出 M1+M2 设计）
-   (3) 启 P4（maxcompute）
+2. PR #64143 已开（base apache/doris:branch-catalog-spi、head morningman:catalog-spi-04）：
+   gh pr view 64143 --repo apache/doris   → 盯 CI / review
+   review 改动在 catalog-spi-04 续 commit + push 即自动进 PR（前序均 squash-merge）
+   合入后：批 E 并入 P7（T08/D-020 已出 M1+M2 设计）或启 P4
    → P3 内不碰 SPI_READY_TYPES / fe-core 消费实现 / legacy / 非 hudi 连接器（皆批 E）
 
 3. 若走 (2) 批 E：实现序见本文件「批 E backlog」M1→M2→M4→翻闸；
