@@ -84,7 +84,8 @@ Status IcebergTableReader::prepare_split(const reader::SplitReadOptions& options
         }
     }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
-    return _init_delete_predicates(options.current_range.table_format_params);
+    RETURN_IF_ERROR(_init_delete_predicates(options.current_range.table_format_params));
+    return Status::OK();
 }
 
 Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {

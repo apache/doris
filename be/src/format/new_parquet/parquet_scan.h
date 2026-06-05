@@ -110,8 +110,8 @@ private:
     std::vector<RowGroupReadPlan> _row_group_plans;
     size_t _next_row_group_plan_idx = 0;
     std::shared_ptr<::parquet::RowGroupReader> _current_row_group;
-    std::vector<std::unique_ptr<ParquetColumnReader>> _current_predicate_columns;
-    std::vector<std::unique_ptr<ParquetColumnReader>> _current_non_predicate_columns;
+    std::map<ColumnId, std::unique_ptr<ParquetColumnReader>> _current_predicate_columns;
+    std::map<ColumnId, std::unique_ptr<ParquetColumnReader>> _current_non_predicate_columns;
     int64_t _current_row_group_rows = 0;
     int64_t _current_row_group_rows_read = 0;
     int64_t _current_row_group_first_row = 0;

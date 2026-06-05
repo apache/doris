@@ -81,7 +81,7 @@ SchemaBuildContext child_context(const SchemaBuildContext& parent,
                                  const ::parquet::schema::Node& child_node, int32_t child_idx,
                                  int32_t parent_schema_node_id) {
     SchemaBuildContext result = parent;
-    result.field_id = child_idx;
+    result.field_id = child_node.field_id();
     result.parent_schema_node_id = parent_schema_node_id;
     if (child_node.repetition() != ::parquet::Repetition::REQUIRED) {
         result.definition_level++;
