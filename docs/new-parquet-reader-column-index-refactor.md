@@ -65,28 +65,33 @@ file reader 返回的 file-local schema。它描述列名、类型、children、
 
 `ColumnDefinition` 不保存 FE column unique id。FE column unique id 只在
 `FileScannerV2` 边界内使用，并在进入 table/file reader 前翻译成 `GlobalIndex`。
-table reader 层及以下只通过 `ColumnDefinition::Identifier` 做 schema 匹配，通过
-`GlobalIndex` 表示 table/global output column 位置。
+table reader 层及以下只通过 `ColumnDefinition::identifier` 做 schema 匹配，通过 `GlobalIndex`
+表示 table/global output column 位置。
 
 旧的 file-local schema 专用类型已删除，`FileReader::get_schema()` 直接返回
 `std::vector<ColumnDefinition>`。Parquet reader、Iceberg reader、schema projection 和
 table reader tests 都已经迁移到该类型。
 
-### ColumnDefinition::Identifier
+### ColumnDefinition::identifier
 
 定义位置：`be/src/format/reader/column_data.h`
 
-`ColumnDefinition::Identifier` 用于描述一个 column 如何匹配另一份 schema，不表示 block
-位置，也不表示 file reader 输出位置。
+`ColumnDefinition::identifier` 对标 DuckDB `MultiFileColumnDefinition::identifier`：它是一个
+typed value，不再额外保存匹配方式。匹配方式由 `TableColumnMapperOptions::mode` 一次性绑定，
+具体 matcher 决定如何解释这个 typed value。
 
-当前支持三种匹配方式：
+当前支持三种 identifier value：
 
-- `FIELD_ID`：schema evolution aware field id，例如 Iceberg/Parquet field id。
-- `NAME`：逻辑列名，用于按名字匹配的文件格式。
-- `POSITION`：物理文件顺序，用于 Hive1 ORC 这类文件名不可用的场景。
+- `TYPE_NULL`：没有显式 identifier。BY_NAME 会像 DuckDB `GetIdentifierName()` 一样回退到
+  `ColumnDefinition::name`。
+- `TYPE_INT`：在 BY_FIELD_ID 中表示 schema evolution aware field id，例如 Iceberg/Parquet
+  field id；在 BY_INDEX 中表示物理文件顺序。
+- `TYPE_STRING`：显式 name identifier，用于按名字匹配的文件格式。
 
-`ColumnDefinition::field_id()`、`file_position()` 和 `match_name()` 是带语义断言的访问
-helper，调用方应先选择正确匹配模式，不要在 reader 层重新引入 FE column unique id。
+`ColumnDefinition::get_identifier_field_id()`、`get_identifier_name()` 和
+`get_identifier_position()` 是带语义断言的访问 helper，用于封装 DuckDB
+`GetIdentifierFieldId()` / `GetIdentifierName()` 这类逻辑。调用方应先选择正确匹配模式，不要
+在 reader 层重新引入 FE column unique id。
 
 ### LocalColumnId
 
@@ -204,7 +209,7 @@ table/global output 顺序。
 `TableColumnMapper` 根据 table/global projection 和 nested predicate，构造 file-local
 `LocalColumnIndex` 树。主要职责包括：
 
-- 通过 `ColumnDefinition::Identifier` 找到 table column 对应的 file field。
+- 通过 `ColumnDefinition::identifier` 找到 table column 对应的 file field。
 - 为 output column 构造需要读取的 file projection。
 - 为 nested predicate 构造额外的 file projection。
 - 合并 predicate projection 和 output projection。
@@ -261,9 +266,9 @@ struct/list/map child remap、missing/default/partition/generated/virtual column
 `TableColumnMapper` 已经引入内部 matcher strategy，对齐 DuckDB `ColumnMapper` 的组织方式：
 
 - `ColumnMatcher`：内部 strategy interface，只负责匹配 table column 和 file column。
-- `FieldIdMatcher`：严格按 `ColumnDefinition::Identifier::FIELD_ID` 匹配。
+- `FieldIdMatcher`：严格按 `ColumnDefinition::get_identifier_field_id()` 匹配。
 - `NameMatcher`：按 case-insensitive logical name 匹配。
-- `PositionMatcher`：按 `ColumnDefinition::Identifier::POSITION` 匹配。
+- `PositionMatcher`：按 `ColumnDefinition::get_identifier_position()` 匹配。
 
 root column 和 nested child 现在复用同一套 matcher。`BY_FIELD_ID` 不再隐式 fallback 到 name；
 如果调用方需要 fallback，应在 table-format 层显式选择或组合策略。

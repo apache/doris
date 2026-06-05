@@ -80,10 +80,9 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
                                             reader::ColumnDefinition* field) const {
     if (column_schema.parquet_field_id >= 0) {
-        field->identifier =
-                reader::ColumnDefinition::Identifier::by_field_id(column_schema.parquet_field_id);
+        field->identifier = Field::create_field<TYPE_INT>(column_schema.parquet_field_id);
     } else {
-        field->identifier = reader::ColumnDefinition::Identifier::by_name(column_schema.name);
+        field->identifier = Field::create_field<TYPE_STRING>(column_schema.name);
     }
     field->local_id = column_schema.local_id;
     field->name = column_schema.name;

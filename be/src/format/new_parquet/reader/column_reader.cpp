@@ -113,7 +113,7 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
 
 reader::ColumnDefinition ParquetColumnReaderFactory::row_position_column_definition() {
     reader::ColumnDefinition field;
-    field.identifier = reader::ColumnDefinition::Identifier::by_field_id(ROW_POSITION_COLUMN_ID);
+    field.identifier = Field::create_field<TYPE_INT>(ROW_POSITION_COLUMN_ID);
     field.local_id = ROW_POSITION_COLUMN_ID;
     field.name = ROW_POSITION_COLUMN_NAME;
     field.type = std::make_shared<DataTypeInt64>();

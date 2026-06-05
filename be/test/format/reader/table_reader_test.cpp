@@ -117,17 +117,17 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByLocalId) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto string_type = std::make_shared<DataTypeString>();
     ColumnDefinition field;
-    field.identifier = ColumnDefinition::Identifier::by_field_id(5);
+    field.identifier = Field::create_field<TYPE_INT>(5);
     field.name = "root";
     field.type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
     ColumnDefinition a_child;
-    a_child.identifier = ColumnDefinition::Identifier::by_field_id(10);
+    a_child.identifier = Field::create_field<TYPE_INT>(10);
     a_child.local_id = 0;
     a_child.name = "a";
     a_child.type = int_type;
     ColumnDefinition b_child;
-    b_child.identifier = ColumnDefinition::Identifier::by_field_id(20);
+    b_child.identifier = Field::create_field<TYPE_INT>(20);
     b_child.local_id = 1;
     b_child.name = "b";
     b_child.type = string_type;
@@ -141,7 +141,7 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByLocalId) {
     ColumnDefinition projected_field;
     ASSERT_TRUE(project_column_definition(field, projection, &projected_field).ok());
     ASSERT_EQ(projected_field.children.size(), 1);
-    EXPECT_EQ(projected_field.children[0].identifier.field_id, 20);
+    EXPECT_EQ(projected_field.children[0].get_identifier_field_id(), 20);
     EXPECT_EQ(projected_field.children[0].name, "b");
 
     const auto* projected_type =
@@ -793,7 +793,7 @@ SplitReadOptions build_split_options_for_row_group_mid(const std::string& file_p
 ColumnDefinition make_table_column(int32_t id, const std::string& name, const DataTypePtr& type) {
     ColumnDefinition column;
     if (id >= 0) {
-        column.identifier = ColumnDefinition::Identifier::by_field_id(id);
+        column.identifier = Field::create_field<TYPE_INT>(id);
     }
     column.name = name;
     column.type = type;
@@ -802,7 +802,7 @@ ColumnDefinition make_table_column(int32_t id, const std::string& name, const Da
 
 ColumnDefinition make_file_column(int32_t id, const std::string& name, const DataTypePtr& type) {
     ColumnDefinition field;
-    field.identifier = ColumnDefinition::Identifier::by_field_id(id);
+    field.identifier = Field::create_field<TYPE_INT>(id);
     field.local_id = id;
     field.name = name;
     field.type = type;
@@ -3218,20 +3218,19 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 // ---------------------------------------------------------------------------
 // BY_INDEX (Hive1 / hive_*_use_column_names=false) column mapping tests.
 // These cases exercise `TableColumnMapper::create_mapping` directly to verify top-level
-// file-position matching semantics, where `ColumnDefinition::Identifier::POSITION` is interpreted as the
-// 0-based file column position in this mode.
+// file-position matching semantics, where the TYPE_INT identifier is interpreted as the 0-based
+// file column position in this mode.
 // They do not depend on any real file reads.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-// In BY_INDEX mode, `ColumnDefinition::Identifier::POSITION` directly represents the position of the
-// column in `file_schema`. This helper packages `file_index + display name` into one
-// ColumnDefinition.
+// In BY_INDEX mode, a TYPE_INT identifier directly represents the position of the column in
+// `file_schema`. This helper packages `file_index + display name` into one ColumnDefinition.
 ColumnDefinition make_index_table_column(int32_t file_index, const std::string& name,
                                          const DataTypePtr& type) {
     ColumnDefinition column;
-    column.identifier = ColumnDefinition::Identifier::by_position(file_index);
+    column.identifier = Field::create_field<TYPE_INT>(file_index);
     column.name = name;
     column.type = type;
     return column;
@@ -3281,7 +3280,7 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
     // Only project the 2nd and 4th table columns (mapped to `_col2` and `_col4` in the file).
     // BY_INDEX must support sparse projection: file position is determined only by
-    // `table_column.identifier.position`, independent of the relative order inside
+    // `table_column.get_identifier_position()`, independent of the relative order inside
     // `projected_columns`.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<ColumnDefinition> projected_columns = {
@@ -3313,7 +3312,7 @@ TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
 TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFileIndex) {
     // In BY_INDEX mode, partition columns should take the constant branch using
     // `partition_values` and stay completely independent from file schema. Data columns still
-    // index into file positions through `table_column.identifier.position`.
+    // index into file positions through `table_column.get_identifier_position()`.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto str_type = std::make_shared<DataTypeString>();
 
@@ -3454,7 +3453,7 @@ TEST(TableColumnMapperByIndexTest, ExtraFileColumnsAreSimplyIgnored) {
 TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
     // BY_INDEX ignores file column names completely. Even if a file column name appears to match a
     // table column name, the mapping must still follow the position specified by
-    // `table_column.identifier.position`.
+    // `table_column.get_identifier_position()`.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<ColumnDefinition> projected_columns = {
             // The table wants column "a", but file_index=1 means it should map to file column 1

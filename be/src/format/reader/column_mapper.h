@@ -47,9 +47,9 @@ struct TableFilter;
 using TableColumnPredicates = std::map<GlobalIndex, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
-    // Match by ColumnDefinition::Identifier::FIELD_ID against ColumnDefinition::identifier.field_id.
+    // Match by ColumnDefinition::identifier TYPE_INT as field id.
     BY_FIELD_ID,
-    // Match by ColumnDefinition::Identifier::NAME / logical name against ColumnDefinition::name.
+    // Match by ColumnDefinition::identifier TYPE_STRING, or logical name when identifier is null.
     BY_NAME,
     // Match top-level columns by file position. This mainly serves Hive1 ORC style files whose
     // column names are placeholder values such as `_col0` / `_col1`, where position is the only

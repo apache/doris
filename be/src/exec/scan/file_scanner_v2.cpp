@@ -104,13 +104,13 @@ reader::ColumnDefinition* find_or_add_child(reader::ColumnDefinition* parent, in
                                             std::string name, DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
     for (auto& child : parent->children) {
-        if ((child.identifier.has_field_id() && child.identifier.field_id == id) ||
+        if ((child.has_identifier_field_id() && child.get_identifier_field_id() == id) ||
             child.name == name) {
             return &child;
         }
     }
     parent->children.push_back({
-            .identifier = reader::ColumnDefinition::Identifier::by_field_id(id),
+            .identifier = Field::create_field<TYPE_INT>(id),
             .name = std::move(name),
             .type = std::move(type),
             .children = {},
@@ -140,9 +140,7 @@ DataTypePtr find_struct_child_type_by_name(const DataTypeStruct& struct_type,
 reader::ColumnDefinition build_schema_column_from_external_field(
         const schema::external::TField& field, DataTypePtr type) {
     reader::ColumnDefinition column {
-            .identifier = field.__isset.id
-                                  ? reader::ColumnDefinition::Identifier::by_field_id(field.id)
-                                  : reader::ColumnDefinition::Identifier {},
+            .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
             .type = std::move(type),
             .children = {},
@@ -223,8 +221,8 @@ const reader::ColumnDefinition* find_schema_child_by_path(
     if (parse_non_negative_int(child_path, &parsed_field_id)) {
         const auto child_it = std::ranges::find_if(
                 schema_column->children, [&](const reader::ColumnDefinition& child) {
-                    return child.identifier.has_field_id() &&
-                           child.identifier.field_id == parsed_field_id;
+                    return child.has_identifier_field_id() &&
+                           child.get_identifier_field_id() == parsed_field_id;
                 });
         return child_it == schema_column->children.end() ? nullptr : &*child_it;
     }
@@ -235,10 +233,10 @@ const reader::ColumnDefinition* find_schema_child_by_path(
 }
 
 int32_t schema_field_id(const reader::ColumnDefinition* schema_column) {
-    if (schema_column == nullptr || !schema_column->identifier.has_field_id()) {
+    if (schema_column == nullptr || !schema_column->has_identifier_field_id()) {
         return -1;
     }
-    return schema_column->identifier.field_id;
+    return schema_column->get_identifier_field_id();
 }
 
 const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
@@ -501,7 +499,8 @@ Status build_nested_children_from_access_paths(reader::ColumnDefinition* column,
         int32_t top_level_id = -1;
         if (to_lower(path.front()) != to_lower(column->name) &&
             (!parse_non_negative_int(path.front(), &top_level_id) ||
-             !column->identifier.has_field_id() || top_level_id != column->identifier.field_id)) {
+             !column->has_identifier_field_id() ||
+             top_level_id != column->get_identifier_field_id())) {
             return Status::NotSupported("FileScannerV2 access path {} does not match slot {}",
                                         access_path_to_string(path), column->name);
         }
@@ -844,7 +843,7 @@ Status FileScannerV2::_build_default_expr(const TFileScanSlotInfo& slot_info,
 reader::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor* slot_desc) {
     DORIS_CHECK(slot_desc != nullptr);
     reader::ColumnDefinition column;
-    column.identifier = reader::ColumnDefinition::Identifier::by_name(slot_desc->col_name());
+    column.identifier = Field::create_field<TYPE_STRING>(slot_desc->col_name());
     column.name = slot_desc->col_name();
     column.type = slot_desc->get_data_type_ptr();
     return column;

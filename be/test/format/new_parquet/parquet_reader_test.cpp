@@ -566,7 +566,7 @@ public:
     Status get_schema(std::vector<reader::ColumnDefinition>* file_schema) const override {
         file_schema->clear();
         reader::ColumnDefinition field;
-        field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+        field.identifier = Field::create_field<TYPE_INT>(0);
         field.name = "id";
         field.type = std::make_shared<DataTypeInt32>();
         file_schema->push_back(std::move(field));
@@ -621,14 +621,14 @@ TEST(FileReaderTest, CloseReleasesSharedIOContext) {
 
 TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    struct_field.identifier = Field::create_field<TYPE_INT>(0);
     struct_field.name = "s";
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = std::make_shared<DataTypeInt32>();
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = std::make_shared<DataTypeString>();
     struct_field.children = {a_field, b_field};
@@ -636,11 +636,11 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
                                                          Strings {"a", "b"});
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "b";
     table_child.type = b_field.type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_field.type}, Strings {"b"});
     table_column.children = {table_child};
@@ -671,26 +671,26 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = a_type;
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = b_type;
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    struct_field.identifier = Field::create_field<TYPE_INT>(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "b";
     table_child.type = b_type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_column.children = {table_child};
@@ -742,21 +742,21 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
 TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     auto id_type = std::make_shared<DataTypeInt32>();
     reader::ColumnDefinition file_child;
-    file_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    file_child.identifier = Field::create_field<TYPE_INT>(101);
     file_child.name = "file_id";
     file_child.type = id_type;
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    struct_field.identifier = Field::create_field<TYPE_INT>(100);
     struct_field.name = "s";
     struct_field.type = std::make_shared<DataTypeStruct>(DataTypes {id_type}, Strings {"file_id"});
     struct_field.children = {file_child};
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "table_id";
     table_child.type = id_type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {id_type}, Strings {"table_id"});
     table_column.children = {table_child};
@@ -797,26 +797,26 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = a_type;
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = b_type;
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    struct_field.identifier = Field::create_field<TYPE_INT>(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "b";
     table_child.type = b_type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_column.children = {table_child};
@@ -851,26 +851,26 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseCompariso
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = a_type;
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = b_type;
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    struct_field.identifier = Field::create_field<TYPE_INT>(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "b";
     table_child.type = b_type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_column.children = {table_child};
@@ -912,34 +912,34 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
             std::make_shared<DataTypeStruct>(DataTypes {inner_type, b_type}, Strings {"a", "b"});
 
     reader::ColumnDefinition id_field;
-    id_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    id_field.identifier = Field::create_field<TYPE_INT>(0);
     id_field.name = "id";
     id_field.type = id_type;
     reader::ColumnDefinition name_field;
-    name_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    name_field.identifier = Field::create_field<TYPE_INT>(1);
     name_field.name = "n";
     name_field.type = name_type;
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = inner_type;
     a_field.children = {id_field, name_field};
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = b_type;
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    struct_field.identifier = Field::create_field<TYPE_INT>(0);
     struct_field.name = "s";
     struct_field.type = full_struct_type;
     struct_field.children = {a_field, b_field};
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "b";
     table_child.type = b_type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_column.children = {table_child};
@@ -975,26 +975,26 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = a_type;
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = b_type;
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    struct_field.identifier = Field::create_field<TYPE_INT>(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "b";
     table_child.type = b_type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_column.children = {table_child};
@@ -1026,26 +1026,26 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterFromOr) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = a_type;
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = b_type;
     reader::ColumnDefinition struct_field;
-    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    struct_field.identifier = Field::create_field<TYPE_INT>(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
     reader::ColumnDefinition table_child;
-    table_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_child.identifier = Field::create_field<TYPE_INT>(101);
     table_child.name = "b";
     table_child.type = b_type;
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_column.children = {table_child};
@@ -1090,51 +1090,51 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
 
     reader::ColumnDefinition key_field;
-    key_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    key_field.identifier = Field::create_field<TYPE_INT>(0);
     key_field.name = "key";
     key_field.type = key_type;
     reader::ColumnDefinition a_field;
-    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
     a_field.name = "a";
     a_field.type = a_type;
     reader::ColumnDefinition b_field;
-    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
     b_field.name = "b";
     b_field.type = b_type;
     reader::ColumnDefinition value_field;
-    value_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    value_field.identifier = Field::create_field<TYPE_INT>(1);
     value_field.name = "value";
     value_field.type = value_type;
     value_field.children = {a_field, b_field};
     reader::ColumnDefinition entry_field;
-    entry_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    entry_field.identifier = Field::create_field<TYPE_INT>(0);
     entry_field.name = "entries";
     entry_field.type = std::make_shared<DataTypeStruct>(DataTypes {key_type, value_type},
                                                         Strings {"key", "value"});
     entry_field.children = {key_field, value_field};
     reader::ColumnDefinition map_field;
-    map_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    map_field.identifier = Field::create_field<TYPE_INT>(0);
     map_field.name = "m";
     map_field.type = std::make_shared<DataTypeMap>(key_type, value_type);
     map_field.children = {entry_field};
 
     reader::ColumnDefinition table_value_child;
-    table_value_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(103);
+    table_value_child.identifier = Field::create_field<TYPE_INT>(103);
     table_value_child.name = "b";
     table_value_child.type = b_type;
     reader::ColumnDefinition table_value;
-    table_value.identifier = reader::ColumnDefinition::Identifier::by_field_id(102);
+    table_value.identifier = Field::create_field<TYPE_INT>(102);
     table_value.name = "value";
     table_value.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_value.children = {table_value_child};
     reader::ColumnDefinition table_entry;
-    table_entry.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
+    table_entry.identifier = Field::create_field<TYPE_INT>(101);
     table_entry.name = "entries";
     table_entry.type =
             std::make_shared<DataTypeStruct>(DataTypes {table_value.type}, Strings {"value"});
     table_entry.children = {table_value};
     reader::ColumnDefinition table_column;
-    table_column.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "m";
     table_column.type = std::make_shared<DataTypeMap>(key_type, table_value.type);
     table_column.children = {table_entry};
@@ -1170,22 +1170,22 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
 
 TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) {
     reader::ColumnDefinition id_field;
-    id_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    id_field.identifier = Field::create_field<TYPE_INT>(0);
     id_field.name = "id";
     id_field.type = std::make_shared<DataTypeInt32>();
 
     reader::ColumnDefinition value_field;
-    value_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    value_field.identifier = Field::create_field<TYPE_INT>(1);
     value_field.name = "value";
     value_field.type = std::make_shared<DataTypeString>();
 
     reader::ColumnDefinition table_id;
-    table_id.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
+    table_id.identifier = Field::create_field<TYPE_INT>(0);
     table_id.name = "id";
     table_id.type = id_field.type;
 
     reader::ColumnDefinition table_value;
-    table_value.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
+    table_value.identifier = Field::create_field<TYPE_INT>(1);
     table_value.name = "value";
     table_value.type = value_field.type;
 

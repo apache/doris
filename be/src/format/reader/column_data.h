@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "core/field.h"
 #include "exprs/vexpr_fwd.h"
 
 namespace doris::reader {
@@ -215,50 +216,16 @@ enum ColumnType {
 // ColumnDefinition intentionally carries schema identity only. FE column unique ids are translated
 // to GlobalIndex at the FileScannerV2 boundary and must not appear in table/file reader APIs.
 struct ColumnDefinition {
-    // Identifier used to match a column against another schema.
+    // Typed identifier value used to match a column against another schema.
     //
-    // - FIELD_ID: schema evolution aware field id, such as Iceberg/Parquet field id.
-    // - NAME: logical column name for formats that rely on names.
-    // - POSITION: physical file ordinal for files whose names are placeholders, such as Hive1 ORC.
-    struct Identifier {
-        enum class Kind {
-            INVALID,
-            FIELD_ID,
-            NAME,
-            POSITION,
-        };
-
-        Kind kind = Kind::INVALID;
-        int32_t field_id = -1;
-        std::string name;
-        int32_t position = -1;
-
-        static Identifier by_field_id(int32_t id) {
-            return {.kind = Kind::FIELD_ID, .field_id = id, .name = {}, .position = -1};
-        }
-
-        static Identifier by_name(std::string column_name) {
-            return {.kind = Kind::NAME,
-                    .field_id = -1,
-                    .name = std::move(column_name),
-                    .position = -1};
-        }
-
-        static Identifier by_position(int32_t file_position) {
-            return {.kind = Kind::POSITION, .field_id = -1, .name = {}, .position = file_position};
-        }
-
-        bool has_field_id() const { return kind == Kind::FIELD_ID; }
-        bool has_name() const { return kind == Kind::NAME; }
-        bool has_position() const { return kind == Kind::POSITION; }
-    };
-
-    // Matching key from table/global schema to file-local schema.
+    // - TYPE_NULL: no explicit identifier. BY_NAME falls back to ColumnDefinition::name.
+    // - TYPE_INT: interpreted by TableColumnMapperOptions::mode as a field id or file position.
+    // - TYPE_STRING: explicit name identifier.
     //
-    // This is not the id that FileReader uses to read data. For example, a Parquet
-    // column can be matched by its optional Parquet field_id, while the reader still
-    // addresses it by a file-local ordinal.
-    Identifier identifier;
+    // This is not the id that FileReader uses to read data. For example, a Parquet column can be
+    // matched by its optional Parquet field_id, while the reader still addresses it by a file-local
+    // ordinal.
+    Field identifier;
     // Reader-local id of this node inside the file schema returned by FileReader::get_schema().
     // Top-level fields use the root column ordinal and nested fields use the child ordinal under
     // their parent. -1 means unset; special virtual file columns may use other negative ids.
@@ -280,25 +247,38 @@ struct ColumnDefinition {
     // File-local column kind. For table/global columns this remains DATA_COLUMN.
     ColumnType column_type = ColumnType::DATA_COLUMN;
 
-    // Helper for BY_FIELD_ID matching.
-    int32_t field_id() const {
-        DORIS_CHECK(identifier.has_field_id());
-        return identifier.field_id;
+    bool has_identifier() const { return !identifier.is_null(); }
+    bool has_identifier_field_id() const { return identifier.get_type() == TYPE_INT; }
+    bool has_identifier_name() const { return identifier.get_type() == TYPE_STRING; }
+
+    // DuckDB-style helper for BY_FIELD_ID matching. The mapper binds the matching mode once, so a
+    // TYPE_INT identifier is interpreted as a field id only by the field-id matcher.
+    int32_t get_identifier_field_id() const {
+        DORIS_CHECK(has_identifier_field_id());
+        return identifier.get<TYPE_INT>();
     }
-    // Helper for BY_INDEX matching.
-    int32_t file_position() const {
-        DORIS_CHECK(identifier.has_position());
-        return identifier.position;
+    // DuckDB-style helper for BY_NAME matching. When no explicit string identifier is present, the
+    // logical column name is the identifier.
+    const std::string& get_identifier_name() const {
+        if (identifier.is_null()) {
+            return name;
+        }
+        DORIS_CHECK(has_identifier_name());
+        return identifier.get<TYPE_STRING>();
     }
-    // Helper for BY_NAME matching.
-    const std::string& match_name() const { return identifier.has_name() ? identifier.name : name; }
+    // Helper for BY_INDEX matching. BY_INDEX reuses the TYPE_INT identifier as the table-side file
+    // position, matching DuckDB's typed identifier plus mapper-mode interpretation.
+    int32_t get_identifier_position() const {
+        DORIS_CHECK(has_identifier_field_id());
+        return identifier.get<TYPE_INT>();
+    }
+
     // Helper for reader-local projection and scan requests.
     int32_t file_local_id() const {
         if (local_id != -1) {
             return local_id;
         }
-        DORIS_CHECK(identifier.has_field_id());
-        return identifier.field_id;
+        return get_identifier_field_id();
     }
 };
 

@@ -69,12 +69,12 @@ class FieldIdMatcher final : public ColumnMatcher {
 public:
     const ColumnDefinition* find(const ColumnDefinition& table_column,
                                  const std::vector<ColumnDefinition>& file_schema) const override {
-        if (!table_column.identifier.has_field_id()) {
+        if (!table_column.has_identifier_field_id()) {
             return nullptr;
         }
-        const auto field_id = table_column.field_id();
+        const auto field_id = table_column.get_identifier_field_id();
         const auto field_it = std::ranges::find_if(file_schema, [&](const ColumnDefinition& field) {
-            return field.identifier.has_field_id() && field.identifier.field_id == field_id;
+            return field.has_identifier_field_id() && field.get_identifier_field_id() == field_id;
         });
         return field_it == file_schema.end() ? nullptr : &*field_it;
     }
@@ -84,7 +84,7 @@ class NameMatcher final : public ColumnMatcher {
 public:
     const ColumnDefinition* find(const ColumnDefinition& table_column,
                                  const std::vector<ColumnDefinition>& file_schema) const override {
-        const auto match_name = to_lower(table_column.match_name());
+        const auto match_name = to_lower(table_column.get_identifier_name());
         const auto field_it = std::ranges::find_if(file_schema, [&](const ColumnDefinition& field) {
             return to_lower(field.name) == match_name;
         });
@@ -96,10 +96,10 @@ class PositionMatcher final : public ColumnMatcher {
 public:
     const ColumnDefinition* find(const ColumnDefinition& table_column,
                                  const std::vector<ColumnDefinition>& file_schema) const override {
-        if (!table_column.identifier.has_position()) {
+        if (!table_column.has_identifier_field_id()) {
             return nullptr;
         }
-        const auto position = table_column.file_position();
+        const auto position = table_column.get_identifier_position();
         if (position < 0 || static_cast<size_t>(position) >= file_schema.size()) {
             return nullptr;
         }
@@ -264,7 +264,7 @@ std::string TableColumnMapperOptions::debug_string() const {
 std::string TableColumnMapper::debug_string(const ColumnDefinition& column) {
     std::ostringstream out;
     out << "ColumnDefinition{name=" << column.name
-        << ", identifier_kind=" << static_cast<int>(column.identifier.kind)
+        << ", identifier_type=" << static_cast<int>(column.identifier.get_type())
         << ", local_id=" << column.local_id << ", type=" << data_type_debug_string(column.type)
         << ", children="
         << join_debug_strings(column.children,
@@ -1663,7 +1663,7 @@ Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table
     DORIS_CHECK(mapping != nullptr);
     DORIS_CHECK(!table_column.is_partition_key);
 
-    // Key contract: in BY_INDEX mode, `ColumnDefinition::Identifier::POSITION` is interpreted as the
+    // Key contract: in BY_INDEX mode, `ColumnDefinition::identifier` TYPE_INT is interpreted as the
     // 0-based position of this column inside `file_schema`. FE writes the physical file position
     // of each non-partition projected column into that identifier. This interpretation allows:
     //   - sparse projection: read only a subset of file columns (for example only `_col2`
@@ -1671,7 +1671,7 @@ Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table
     //   - column reordering: table column order differs from file column order;
     //   - no many-to-one mapping: FE must guarantee that each file position is referenced by at
     //     most one table column.
-    const auto file_index = table_column.file_position();
+    const auto file_index = table_column.get_identifier_position();
 
     // Case A: file_index is in range, so build a direct positional mapping.
     // The file column name (for example `_col0`) is intentionally ignored here.
