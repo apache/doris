@@ -63,6 +63,14 @@ enum TableVirtualColumnType {
     LAST_UPDATED_SEQUENCE_NUMBER = 2,
 };
 
+enum class FilterConversionType {
+    COPY_DIRECTLY,
+    CAST_FILTER,
+    READER_EXPRESSION,
+    FINALIZE_ONLY,
+    CONSTANT,
+};
+
 // 单个 table column 到 file column 的映射结果。
 // 这是 table 层和 file 层的核心边界对象。
 struct ColumnMapping {
@@ -83,6 +91,9 @@ struct ColumnMapping {
     // File-local nested child id path from the top-level file column to this mapping.
     // The root top-level column id is stored in field_id of the root mapping, not repeated here.
     std::vector<int32_t> file_path;
+    // Split/file-local constant entry when this mapping is produced from partition/default/virtual
+    // expression instead of physical file data.
+    std::optional<ConstantIndex> constant_index;
     // Effective file type after applying casts/remaps/nested projection pruning.
     DataTypePtr file_type;
     // Target table/global type after final materialization.
@@ -108,6 +119,9 @@ struct ColumnMapping {
     // True when the nested value read from file has a pruned/remapped child layout and must be
     // reconstructed before returning to table/global schema.
     bool has_complex_projection = false;
+    // How filters referencing this table/global column can be converted below table-reader
+    // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
+    FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
 
@@ -152,8 +166,12 @@ public:
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
                                     const TableColumnPredicates& table_column_predicates,
                                     FileScanRequest* file_request);
-    void clear() { _mappings.clear(); }
+    void clear() {
+        _mappings.clear();
+        _constant_map.clear();
+    }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
+    const ConstantMap& constant_map() const { return _constant_map; }
     std::string debug_string() const;
 
     static std::string debug_string(const ColumnDefinition& column);
@@ -170,7 +188,9 @@ private:
 
     Status _create_by_index_mapping(const ColumnDefinition& table_column,
                                     const std::vector<ColumnDefinition>& file_schema,
-                                    ColumnMapping* mapping) const;
+                                    ColumnMapping* mapping);
+
+    void _set_constant_mapping(ColumnMapping* mapping, VExprContextSPtr expr);
 
     ColumnMapping* _find_mapping(GlobalIndex global_index);
     const ColumnMapping* _find_mapping(GlobalIndex global_index) const;
@@ -183,6 +203,7 @@ private:
 
     TableColumnMapperOptions _options;
     std::vector<ColumnMapping> _mappings;
+    ConstantMap _constant_map;
 };
 
 } // namespace doris::reader

@@ -1708,6 +1708,46 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     EXPECT_EQ(localized_slot->column_id(), 1);
 }
 
+TEST(TableColumnMapperMatcherTest, FieldIdModeDoesNotFallbackToName) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<ColumnDefinition> projected_columns = {
+            make_table_column(10, "same_name", int_type),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(20, "same_name", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_FIELD_ID;
+    options.allow_missing_columns = false;
+    TableColumnMapper mapper(options);
+
+    const auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    EXPECT_FALSE(status.ok());
+}
+
+TEST(TableColumnMapperMatcherTest, NestedFieldIdModeDoesNotFallbackToName) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"child"});
+
+    auto table_child = make_table_column(10, "child", int_type);
+    auto table_root = make_table_column(1, "root", struct_type);
+    table_root.children = {table_child};
+
+    auto file_child = make_file_column(20, "child", int_type);
+    auto file_root = make_file_column(1, "root", struct_type);
+    file_root.children = {file_child};
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_FIELD_ID;
+    options.allow_missing_columns = false;
+    TableColumnMapper mapper(options);
+
+    const auto status = mapper.create_mapping({table_root}, {}, {file_root});
+    EXPECT_FALSE(status.ok());
+}
+
 TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<ColumnDefinition> projected_columns = {
@@ -3025,6 +3065,13 @@ TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFi
     EXPECT_TRUE(mappings[0].is_constant);
     EXPECT_FALSE(mappings[0].field_id.has_value());
     EXPECT_NE(mappings[0].default_expr, nullptr);
+    ASSERT_TRUE(mappings[0].constant_index.has_value());
+    EXPECT_EQ(mappings[0].constant_index->value(), 0);
+    ASSERT_EQ(mapper.constant_map().size(), 1);
+    EXPECT_EQ(mapper.constant_map().get(*mappings[0].constant_index).global_index, GlobalIndex(0));
+    EXPECT_EQ(mapper.constant_map().get(*mappings[0].constant_index).expr,
+              mappings[0].default_expr);
+    EXPECT_TRUE(mapper.constant_map().get(*mappings[0].constant_index).type->equals(*str_type));
 
     ASSERT_TRUE(mappings[1].field_id.has_value());
     EXPECT_EQ(*mappings[1].field_id, 0);
@@ -3071,6 +3118,12 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissin
     EXPECT_FALSE(mappings[1].field_id.has_value());
     EXPECT_TRUE(mappings[1].is_constant);
     EXPECT_EQ(mappings[1].default_expr, literal_expr);
+    ASSERT_TRUE(mappings[1].constant_index.has_value());
+    EXPECT_EQ(mappings[1].constant_index->value(), 0);
+    ASSERT_EQ(mapper.constant_map().size(), 1);
+    EXPECT_EQ(mapper.constant_map().get(*mappings[1].constant_index).global_index, GlobalIndex(1));
+    EXPECT_EQ(mapper.constant_map().get(*mappings[1].constant_index).expr, literal_expr);
+    EXPECT_TRUE(mapper.constant_map().get(*mappings[1].constant_index).type->equals(*int_type));
 
     EXPECT_FALSE(mappings[2].field_id.has_value());
     EXPECT_FALSE(mappings[2].is_constant);

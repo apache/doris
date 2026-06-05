@@ -26,6 +26,31 @@ Doris 对应把这些共享定义集中放在 `be/src/format/reader/column_data.
 schema definition、local/global/constant index、file-local projection tree 等数据结构，比
 只表达 column definition 的命名更接近 DuckDB `multi_file_data.hpp` 的职责范围。
 
+DuckDB 在 `src/common/multi_file/multi_file_column_mapper.cpp` 中把 column mapping 继续拆成
+几个层次：
+
+- `ColumnMapper`：内部 strategy interface，只负责判断 table column 和 file column 是否匹配。
+- `FieldIdMapper` / `NameMapper`：按 field id 或 name 匹配的具体策略。
+- `ColumnMapResult`：递归记录一个 table column 的映射结果，包括 file column id、file
+  children、expected type、source type 和 projection 行为。
+- `MultiFileColumnMap`：top-level table column 到 file-local source 的最终映射集合。
+- `ResultColumnMapping`：记录结果列从 local column 或 constant map 得到。
+- `MultiFileIndexMapping`：记录 global/local/constant 之间的位置关系。
+- `MultiFileFilterEntry`：filter target，显式指向 local column 或 constant map entry。
+
+整体流程是：
+
+1. 通过 mapper strategy 递归匹配 table schema 和 file schema。
+2. 得到 `ColumnMapResult` 后构造 file projection 和结果列映射。
+3. 将 partition/default/missing 列放入 constant map。
+4. 根据 `global -> local/constant` 映射重写 filter。
+5. 对 constant filter 在打开 file reader 前求值，对 local filter 下推给 file reader。
+
+Doris 当前 `TableColumnMapper` 已经完成了 schema definition 和 local/global index 的第一轮
+拆分，但 mapper strategy、constant map、filter target 和 recursive map result 仍混在
+`ColumnMapping` flags、`optional<int32_t>` 和临时局部 map 中。后续优化应继续沿 DuckDB 的
+方向拆分这些职责。
+
 ## 当前实现
 
 ### ColumnDefinition
@@ -110,8 +135,14 @@ helper，调用方应先选择正确匹配模式，不要在 reader 层重新引
 
 `ConstantIndex` 表示 per-split 或 per-file constant map 中的位置。
 
-当前类型已经引入，但 `ConstantMap` 尚未实现。因此 missing/default/partition/generated/
-virtual column 仍主要通过 `ColumnMapping` flags 和 expression 表示。
+`ConstantMap` 已经在 `column_data.h` 中实现，用于保存 partition/default/generated/virtual
+column 对应的常量表达式。`TableColumnMapper::create_mapping()` 会把 partition value 和
+schema-evolution default expression 注册到 `ConstantMap`，并在 `ColumnMapping` 中记录
+`constant_index`。
+
+`LocalFilterEntry` 也已经作为强类型 filter target 引入，可以表示 filter 指向
+`LocalIndex` 还是 `ConstantIndex`。当前 `localize_filters()` 仍主要使用临时
+`global_to_file_slot` map，后续需要切换到 `GlobalIndex -> LocalFilterEntry`。
 
 ### LocalColumnIndex
 
@@ -194,62 +225,69 @@ struct/list/map child remap、missing/default/partition/generated/virtual column
 - `field_id`：file-local field id。root mapping 可转成 `LocalColumnId`，nested mapping 表示
   parent 下的 child id。
 - `file_path`：从 top-level file column 到当前 mapping 的 child id path。
+- `constant_index`：partition/default/generated/virtual column 在 `ConstantMap` 中的位置。
 - `original_file_type` / `original_file_children`：projection 前的 file type 和 child schema。
 - `file_type` / `table_type`：投影和 cast 后参与读取/输出的类型。
 - `projection`：从 file-local 或 constant 输入生成 table/global 输出的表达式。
 - `child_mappings`：nested table child 到 file child 的映射树。
 - `is_constant` / `is_missing`：当前仍用于表达非真实 file column 来源。
 - `has_complex_projection`：表示读取到的 nested value 需要在 finalize 阶段重建 shape。
+- `filter_conversion`：记录 filter 可以 copy、cast、reader expression、finalize-only 还是
+  constant evaluate。
+
+### ColumnMatcher strategy
+
+定义位置：`be/src/format/reader/column_mapper.cpp`
+
+`TableColumnMapper` 已经引入内部 matcher strategy，对齐 DuckDB `ColumnMapper` 的组织方式：
+
+- `ColumnMatcher`：内部 strategy interface，只负责匹配 table column 和 file column。
+- `FieldIdMatcher`：严格按 `ColumnDefinition::Identifier::FIELD_ID` 匹配。
+- `NameMatcher`：按 case-insensitive logical name 匹配。
+- `PositionMatcher`：按 `ColumnDefinition::Identifier::POSITION` 匹配。
+
+root column 和 nested child 现在复用同一套 matcher。`BY_FIELD_ID` 不再隐式 fallback 到 name；
+如果调用方需要 fallback，应在 table-format 层显式选择或组合策略。
 
 ## TODO
 
-### TODO 1：实现 ConstantMap
+### TODO 1：沉淀 ColumnMapResult
 
-目标：把 missing/default/partition/generated/virtual column 从 file column 逻辑中拆出来。
+目标：把递归映射结果和最终 scan request 构造解耦。
 
 建议结构：
 
 ```cpp
-struct ConstantEntry {
+struct ColumnMapResult {
     GlobalIndex global_index;
-    VExprContextSPtr expr;
-    DataTypePtr type;
-};
-
-class ConstantMap {
-public:
-    ConstantIndex add(ConstantEntry entry);
-    const ConstantEntry& get(ConstantIndex index) const;
-
-private:
-    std::vector<ConstantEntry> entries;
+    std::optional<LocalColumnId> local_column_id;
+    std::optional<ConstantIndex> constant_index;
+    LocalColumnIndex local_projection;
+    DataTypePtr source_type;
+    DataTypePtr result_type;
+    VExprContextSPtr projection;
+    std::vector<ColumnMapResult> children;
 };
 ```
 
 收益：
 
-- `ColumnMapping` 可以显式表示当前 column 来源于 file-local column 还是 constant。
-- filter 可以在打开 file reader 前对 constant column 求值。
-- partition/default/missing column 不需要伪装成 file projection。
+- nested projection 可以先形成完整映射树，再统一生成 `FileScanRequest`。
+- missing/default child 和真实 file child 不再依赖同一个 `field_id` 字段表达。
+- `ColumnMapping` 可以逐步收敛成更小的 table-reader finalize plan。
 
-### TODO 2：引入 LocalFilterEntry
+### TODO 2：用 LocalFilterEntry 驱动 filter localization
 
-目标：对齐 DuckDB `MultiFileFilterEntry`，让 filter target 明确指向 local column 或 constant。
+目标：把当前 `build_file_slot_rewrite_map()` 的临时局部 map 沉淀成 scan request 构造结果，并
+用 `ColumnMapping::filter_conversion` 决定 filter 转换路径。
 
-建议结构：
+后续步骤：
 
-```cpp
-struct LocalFilterEntry {
-    std::optional<LocalIndex> local_index;
-    std::optional<ConstantIndex> constant_index;
-};
-```
-
-约束：
-
-- `local_index` 和 `constant_index` 只能有一个。
-- 指向 `LocalIndex` 的 filter 在 file reader 读出 block 后执行。
-- 指向 `ConstantIndex` 的 filter 可以提前在 split/file 打开前执行。
+- 记录 `GlobalIndex -> LocalFilterEntry`。
+- 对 local entry，重写 table slot 到 file-local slot。
+- 对 constant entry，使用 `ConstantMap` 重写或提前求值 constant filter。
+- row-level conjunct 和 column predicate pruning 共用 `filter_conversion` 判断。
+- 对 unset/finalize-only entry，不进入 file reader filter。
 
 ### TODO 3：收紧 LocalColumnIndex 类型
 

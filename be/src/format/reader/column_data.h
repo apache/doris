@@ -129,6 +129,82 @@ inline std::ostream& operator<<(std::ostream& os, const ConstantIndex& index) {
     return os << index.value();
 }
 
+// A split/file-local constant value used to materialize a table/global column without reading a
+// physical file column.
+//
+// Common producers are partition values, schema-evolution default expressions, generated columns
+// and table-format virtual columns. The entry is keyed by ConstantIndex in ConstantMap; global_index
+// keeps the link back to the caller-visible output column.
+struct ConstantEntry {
+    GlobalIndex global_index;
+    VExprContextSPtr expr;
+    DataTypePtr type;
+};
+
+// Per mapping/split collection of constants.
+//
+// ConstantIndex only has meaning within this container. Keeping constants separate from LocalIndex
+// makes it explicit that these values do not occupy positions in the file reader output Block.
+class ConstantMap {
+public:
+    ConstantIndex add(ConstantEntry entry) {
+        const auto index = ConstantIndex(_entries.size());
+        _entries.push_back(std::move(entry));
+        return index;
+    }
+
+    const ConstantEntry& get(ConstantIndex index) const {
+        DORIS_CHECK(index.value() < _entries.size());
+        return _entries[index.value()];
+    }
+
+    void clear() { _entries.clear(); }
+    bool empty() const { return _entries.empty(); }
+    size_t size() const { return _entries.size(); }
+
+    const std::vector<ConstantEntry>& entries() const { return _entries; }
+
+private:
+    std::vector<ConstantEntry> _entries;
+};
+
+// Target of a localized filter.
+//
+// A filter can either reference a file-local Block position or a constant entry. Unset entries mean
+// the filter cannot be evaluated below the table-reader finalize stage.
+struct LocalFilterEntry {
+    enum class Kind {
+        UNSET,
+        LOCAL,
+        CONSTANT,
+    };
+
+    static LocalFilterEntry local(LocalIndex index) {
+        return {.kind = Kind::LOCAL, .index = index.value()};
+    }
+
+    static LocalFilterEntry constant(ConstantIndex index) {
+        return {.kind = Kind::CONSTANT, .index = index.value()};
+    }
+
+    bool is_set() const { return kind != Kind::UNSET; }
+    bool is_local() const { return kind == Kind::LOCAL; }
+    bool is_constant() const { return kind == Kind::CONSTANT; }
+
+    LocalIndex local_index() const {
+        DORIS_CHECK(is_local());
+        return LocalIndex(index);
+    }
+
+    ConstantIndex constant_index() const {
+        DORIS_CHECK(is_constant());
+        return ConstantIndex(index);
+    }
+
+    Kind kind = Kind::UNSET;
+    size_t index = 0;
+};
+
 enum ColumnType {
     DATA_COLUMN = 0, // normal data column
     ROW_NUMBER = 1,  // row number in a file

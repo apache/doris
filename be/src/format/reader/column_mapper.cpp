@@ -56,6 +56,71 @@ std::string mapping_mode_to_string(TableColumnMappingMode mode) {
     return "UNKNOWN";
 }
 
+class ColumnMatcher {
+public:
+    virtual ~ColumnMatcher() = default;
+    virtual const ColumnDefinition* find(
+            const ColumnDefinition& table_column,
+            const std::vector<ColumnDefinition>& file_schema) const = 0;
+};
+
+class FieldIdMatcher final : public ColumnMatcher {
+public:
+    const ColumnDefinition* find(const ColumnDefinition& table_column,
+                                 const std::vector<ColumnDefinition>& file_schema) const override {
+        if (!table_column.identifier.has_field_id()) {
+            return nullptr;
+        }
+        const auto field_id = table_column.field_id();
+        const auto field_it = std::ranges::find_if(file_schema, [&](const ColumnDefinition& field) {
+            return field.identifier.has_field_id() && field.identifier.field_id == field_id;
+        });
+        return field_it == file_schema.end() ? nullptr : &*field_it;
+    }
+};
+
+class NameMatcher final : public ColumnMatcher {
+public:
+    const ColumnDefinition* find(const ColumnDefinition& table_column,
+                                 const std::vector<ColumnDefinition>& file_schema) const override {
+        const auto match_name = to_lower(table_column.match_name());
+        const auto field_it = std::ranges::find_if(file_schema, [&](const ColumnDefinition& field) {
+            return to_lower(field.name) == match_name;
+        });
+        return field_it == file_schema.end() ? nullptr : &*field_it;
+    }
+};
+
+class PositionMatcher final : public ColumnMatcher {
+public:
+    const ColumnDefinition* find(const ColumnDefinition& table_column,
+                                 const std::vector<ColumnDefinition>& file_schema) const override {
+        if (!table_column.identifier.has_position()) {
+            return nullptr;
+        }
+        const auto position = table_column.file_position();
+        if (position < 0 || static_cast<size_t>(position) >= file_schema.size()) {
+            return nullptr;
+        }
+        return &file_schema[static_cast<size_t>(position)];
+    }
+};
+
+const ColumnMatcher& matcher_for_mode(TableColumnMappingMode mode) {
+    static const FieldIdMatcher field_id_matcher;
+    static const NameMatcher name_matcher;
+    static const PositionMatcher position_matcher;
+    switch (mode) {
+    case TableColumnMappingMode::BY_FIELD_ID:
+        return field_id_matcher;
+    case TableColumnMappingMode::BY_NAME:
+        return name_matcher;
+    case TableColumnMappingMode::BY_INDEX:
+        return position_matcher;
+    }
+    return field_id_matcher;
+}
+
 std::string virtual_column_type_to_string(TableVirtualColumnType type) {
     switch (type) {
     case TableVirtualColumnType::INVALID:
@@ -64,6 +129,22 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "ROW_ID";
     case TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER:
         return "LAST_UPDATED_SEQUENCE_NUMBER";
+    }
+    return "UNKNOWN";
+}
+
+std::string filter_conversion_type_to_string(FilterConversionType type) {
+    switch (type) {
+    case FilterConversionType::COPY_DIRECTLY:
+        return "COPY_DIRECTLY";
+    case FilterConversionType::CAST_FILTER:
+        return "CAST_FILTER";
+    case FilterConversionType::READER_EXPRESSION:
+        return "READER_EXPRESSION";
+    case FilterConversionType::FINALIZE_ONLY:
+        return "FINALIZE_ONLY";
+    case FilterConversionType::CONSTANT:
+        return "CONSTANT";
     }
     return "UNKNOWN";
 }
@@ -254,10 +335,16 @@ std::string TableColumnMapper::debug_string(const FileScanRequest& request) {
 
 std::string ColumnMapping::debug_string() const {
     std::ostringstream out;
-    out << "ColumnMapping{table_column_id=" << table_column_id
+    out << "ColumnMapping{global_index=" << global_index
         << ", table_column_name=" << table_column_name << ", field_id=";
     if (field_id.has_value()) {
         out << *field_id;
+    } else {
+        out << "null";
+    }
+    out << ", constant_index=";
+    if (constant_index.has_value()) {
+        out << *constant_index;
     } else {
         out << "null";
     }
@@ -277,6 +364,7 @@ std::string ColumnMapping::debug_string() const {
                               [](const ColumnMapping& child) { return child.debug_string(); })
         << ", is_trivial=" << is_trivial << ", is_constant=" << is_constant
         << ", is_missing=" << is_missing << ", has_complex_projection=" << has_complex_projection
+        << ", filter_conversion=" << filter_conversion_type_to_string(filter_conversion)
         << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
         << ", has_default_expr=" << (default_expr != nullptr) << "}";
     return out.str();
@@ -287,7 +375,7 @@ std::string TableColumnMapper::debug_string() const {
     out << "TableColumnMapper{options=" << _options.debug_string() << ", mappings="
         << join_debug_strings(_mappings,
                               [](const ColumnMapping& mapping) { return mapping.debug_string(); })
-        << "}";
+        << ", constant_count=" << _constant_map.size() << "}";
     return out.str();
 }
 
@@ -1402,17 +1490,7 @@ static std::map<GlobalIndex, FileSlotRewriteInfo> build_file_slot_rewrite_map(
 static const ColumnDefinition* find_file_child_by_table_column(
         const ColumnDefinition& table_column, const std::vector<ColumnDefinition>& file_children,
         TableColumnMappingMode mode) {
-    for (const auto& field : file_children) {
-        if (mode == TableColumnMappingMode::BY_FIELD_ID && table_column.identifier.has_field_id() &&
-            field.identifier.has_field_id() &&
-            field.identifier.field_id == table_column.field_id()) {
-            return &field;
-        }
-        if (to_lower(field.name) == to_lower(table_column.match_name())) {
-            return &field;
-        }
-    }
-    return nullptr;
+    return matcher_for_mode(mode).find(table_column, file_children);
 }
 
 static const ColumnDefinition* find_file_child_for_complex_wrapper(
@@ -1432,7 +1510,7 @@ static const ColumnDefinition* find_file_child_for_complex_wrapper(
 Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& projected_columns,
                                          const std::map<std::string, Field>& partition_values,
                                          const std::vector<ColumnDefinition>& file_schema) {
-    _mappings.clear();
+    clear();
     for (size_t column_idx = 0; column_idx < projected_columns.size(); ++column_idx) {
         const auto& table_column = projected_columns[column_idx];
         ColumnMapping mapping;
@@ -1441,9 +1519,9 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
         mapping.table_type = table_column.type;
         if (table_column.is_partition_key && partition_values.contains(table_column.name)) {
             // 1. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
-            mapping.is_constant = true;
-            mapping.default_expr = VExprContext::create_shared(TableLiteral::create_shared(
-                    mapping.table_type, partition_values.at(table_column.name)));
+            _set_constant_mapping(
+                    &mapping, VExprContext::create_shared(TableLiteral::create_shared(
+                                      mapping.table_type, partition_values.at(table_column.name))));
         } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
                    !table_column.is_partition_key) {
             RETURN_IF_ERROR(_create_by_index_mapping(table_column, file_schema, &mapping));
@@ -1452,8 +1530,7 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
             RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &mapping));
         } else if (table_column.default_expr != nullptr) {
             // 3. Table column does not exist in file (column adding by schema evolution), which has a default expression, use it as a constant mapping.
-            mapping.is_constant = true;
-            mapping.default_expr = table_column.default_expr;
+            _set_constant_mapping(&mapping, table_column.default_expr);
         } else if (table_column.name == ROW_LINEAGE_ROW_ID) {
             // 4. Virtual column, use special mapping to indicate it should be materialized by table reader instead of read from file or evaluated from expression.
             mapping.virtual_column_type = TableVirtualColumnType::ROW_ID;
@@ -1479,7 +1556,7 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
 
 Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table_column,
                                                    const std::vector<ColumnDefinition>& file_schema,
-                                                   ColumnMapping* mapping) const {
+                                                   ColumnMapping* mapping) {
     DORIS_CHECK(mapping != nullptr);
     DORIS_CHECK(!table_column.is_partition_key);
 
@@ -1505,8 +1582,7 @@ Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table
     //   B1: the table column carries a default_expr injected by FE, so use the constant branch and
     //       materialize that value for every row.
     if (table_column.default_expr != nullptr) {
-        mapping->is_constant = true;
-        mapping->default_expr = table_column.default_expr;
+        _set_constant_mapping(mapping, table_column.default_expr);
         return Status::OK();
     }
     //   B2: if missing columns are not allowed, fail explicitly instead of silently producing
@@ -1520,6 +1596,19 @@ Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table
     //       (`file_column_id` remains `nullopt`) and let the upper finalize stage fill
     //       NULL/default values.
     return Status::OK();
+}
+
+void TableColumnMapper::_set_constant_mapping(ColumnMapping* mapping, VExprContextSPtr expr) {
+    DORIS_CHECK(mapping != nullptr);
+    DORIS_CHECK(expr != nullptr);
+    mapping->is_constant = true;
+    mapping->default_expr = std::move(expr);
+    mapping->constant_index = _constant_map.add(ConstantEntry {
+            .global_index = mapping->global_index,
+            .expr = mapping->default_expr,
+            .type = mapping->table_type,
+    });
+    mapping->filter_conversion = FilterConversionType::CONSTANT;
 }
 
 Status TableColumnMapper::create_scan_request(
@@ -1648,26 +1737,13 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
 const ColumnDefinition* TableColumnMapper::_find_file_field(
         const ColumnDefinition& table_column,
         const std::vector<ColumnDefinition>& file_schema) const {
-    for (const auto& field : file_schema) {
-        if (_options.mode == TableColumnMappingMode::BY_FIELD_ID) {
-            if (table_column.identifier.has_field_id() && field.identifier.has_field_id() &&
-                field.identifier.field_id == table_column.field_id()) {
-                return &field;
-            }
-        }
-        if (to_lower(field.name) == to_lower(table_column.match_name())) {
-            return &field;
-        }
-    }
-    return nullptr;
+    return matcher_for_mode(_options.mode).find(table_column, file_schema);
 }
 
 Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_column,
                                                  const ColumnDefinition& file_field,
                                                  ColumnMapping* mapping) const {
-    if (mapping == nullptr) {
-        return Status::InvalidArgument("mapping is null");
-    }
+    DORIS_CHECK(mapping != nullptr);
     mapping->field_id = file_field.field_id();
     mapping->table_column_name = table_column.name;
     mapping->file_column_name = file_field.name;
@@ -1675,6 +1751,8 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_children = file_field.children;
     mapping->file_type = file_field.type;
     mapping->is_trivial = _is_same_type(mapping->table_type, mapping->file_type);
+    mapping->filter_conversion = mapping->is_trivial ? FilterConversionType::COPY_DIRECTLY
+                                                     : FilterConversionType::CAST_FILTER;
     mapping->child_mappings.clear();
 
     if (!table_column.children.empty()) {
@@ -1695,6 +1773,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.file_type = table_child.type;
                 child_mapping.is_missing = true;
                 child_mapping.has_complex_projection = !table_child.children.empty();
+                child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
             }
@@ -1710,6 +1789,9 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                                                        &mapping->file_type));
             mapping->is_trivial = mapping->table_type != nullptr &&
                                   mapping->table_type->equals(*mapping->file_type);
+            mapping->filter_conversion = mapping->is_trivial
+                                                 ? FilterConversionType::COPY_DIRECTLY
+                                                 : FilterConversionType::READER_EXPRESSION;
         }
     }
     return Status::OK();
