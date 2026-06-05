@@ -374,7 +374,6 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 }
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
-    _data_reader.column_mapper = TableColumnMapper(_mapper_options);
     _partition_values = std::move(options.partition_values);
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);

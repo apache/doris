@@ -249,6 +249,7 @@ protected:
         std::vector<SchemaField> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
         _data_reader.file_schema = file_schema;
+        _data_reader.column_mapper = TableColumnMapper(_mapper_options);
         RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_projected_columns,
                                                                   _partition_values, file_schema));
         DORIS_CHECK(_data_reader.column_mapper.mappings().size() == _projected_columns.size());

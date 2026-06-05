@@ -121,7 +121,6 @@ Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) 
     for (size_t column_idx = 0; column_idx < _state->file_schema.size(); ++column_idx) {
         reader::SchemaField field;
         _fill_schema_field(*_state->file_schema[column_idx], &field);
-        field.id = static_cast<reader::ColumnId>(column_idx);
         file_schema->push_back(std::move(field));
     }
     return Status::OK();
