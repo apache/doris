@@ -663,9 +663,12 @@ _monitor_regression_log() {
 }
 
 _redact_creds() {
-    local expr="" v
+    local expr="" v escaped
     for v in "${hwYunAk:-}" "${hwYunSk:-}" "${s3SourceAk:-}" "${s3SourceSk:-}" "${txYunAk:-}" "${txYunSk:-}"; do
-        [[ -n "${v}" ]] && expr+="s/${v}//g;"
+        if [[ -n "${v}" ]]; then
+            escaped=$(printf '%s' "${v}" | sed 's/[]\/$*.^[]/\\&/g')
+            expr+="s/${escaped}//g;"
+        fi
     done
     [[ -n "${expr}" ]] && sed -i "${expr}" "$@" &>/dev/null || true
 }
