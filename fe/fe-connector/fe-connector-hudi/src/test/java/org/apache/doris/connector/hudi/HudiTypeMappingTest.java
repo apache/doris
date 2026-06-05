@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.api.ConnectorType;
+
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.junit.jupiter.api.Assertions;
@@ -25,14 +27,21 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 
 /**
- * Tests {@link HudiTypeMapping#toHiveTypeString}.
+ * Tests {@link HudiTypeMapping#toHiveTypeString} and {@link HudiTypeMapping#fromAvroSchema}.
  *
- * <p>WHY: the BE Hudi JNI scanner ({@code HadoopHudiJniScanner}) parses
- * {@code hudi_column_types} as Hive type strings split on {@code '#'}. The FE
+ * <p>WHY (toHiveTypeString): the BE Hudi JNI scanner ({@code HadoopHudiJniScanner})
+ * parses {@code hudi_column_types} as Hive type strings split on {@code '#'}. The FE
  * must therefore emit full Hive type strings carrying precision/scale and
  * subtypes — not Doris type names — or the scanner reads wrong/null columns.
  * These tests pin the exact strings, matching fe-core
  * {@code HudiUtils.convertAvroToHiveType}.</p>
+ *
+ * <p>WHY (fromAvroSchema): {@code getTableSchema} reports each column's
+ * {@link ConnectorType} from this mapper. These tests pin the Doris type per Avro
+ * type, matching fe-core {@code HudiUtils.fromAvroHudiTypeToDorisType} (P3-T07
+ * parity baseline — previously uncovered). Note the deliberate asymmetry: time
+ * types map to {@code TIMEV2} here but fail loud in {@code toHiveTypeString},
+ * exactly as the two legacy converters diverge.</p>
  */
 public class HudiTypeMappingTest {
 
@@ -116,5 +125,96 @@ public class HudiTypeMappingTest {
         Schema timeMillis = LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> HudiTypeMapping.toHiveTypeString(timeMillis));
+    }
+
+    // ===== fromAvroSchema -> ConnectorType (parity with HudiUtils.fromAvroHudiTypeToDorisType) =====
+
+    @Test
+    public void testFromAvroSchemaPrimitives() {
+        Assertions.assertEquals(ConnectorType.of("BOOLEAN"),
+                HudiTypeMapping.fromAvroSchema(Schema.create(Schema.Type.BOOLEAN)));
+        Assertions.assertEquals(ConnectorType.of("INT"),
+                HudiTypeMapping.fromAvroSchema(Schema.create(Schema.Type.INT)));
+        Assertions.assertEquals(ConnectorType.of("BIGINT"),
+                HudiTypeMapping.fromAvroSchema(Schema.create(Schema.Type.LONG)));
+        Assertions.assertEquals(ConnectorType.of("FLOAT"),
+                HudiTypeMapping.fromAvroSchema(Schema.create(Schema.Type.FLOAT)));
+        Assertions.assertEquals(ConnectorType.of("DOUBLE"),
+                HudiTypeMapping.fromAvroSchema(Schema.create(Schema.Type.DOUBLE)));
+        Assertions.assertEquals(ConnectorType.of("STRING"),
+                HudiTypeMapping.fromAvroSchema(Schema.create(Schema.Type.STRING)));
+        // Avro bytes/fixed without a decimal logical type degrade to STRING (legacy parity).
+        Assertions.assertEquals(ConnectorType.of("STRING"),
+                HudiTypeMapping.fromAvroSchema(Schema.create(Schema.Type.BYTES)));
+    }
+
+    @Test
+    public void testFromAvroSchemaLogicalTypes() {
+        Assertions.assertEquals(ConnectorType.of("DATEV2"),
+                HudiTypeMapping.fromAvroSchema(
+                        LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT))));
+        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 3, 0),
+                HudiTypeMapping.fromAvroSchema(
+                        LogicalTypes.timestampMillis().addToSchema(Schema.create(Schema.Type.LONG))));
+        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0),
+                HudiTypeMapping.fromAvroSchema(
+                        LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG))));
+        // Time types map to TIMEV2 here, unlike toHiveTypeString which fails loud —
+        // matching legacy HudiUtils.fromAvroHudiTypeToDorisType.
+        Assertions.assertEquals(ConnectorType.of("TIMEV2", 3, 0),
+                HudiTypeMapping.fromAvroSchema(
+                        LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT))));
+        Assertions.assertEquals(ConnectorType.of("TIMEV2", 6, 0),
+                HudiTypeMapping.fromAvroSchema(
+                        LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG))));
+    }
+
+    @Test
+    public void testFromAvroSchemaDecimalKeepsPrecisionAndScale() {
+        Schema decimal = LogicalTypes.decimal(10, 2).addToSchema(Schema.create(Schema.Type.BYTES));
+        Assertions.assertEquals(ConnectorType.of("DECIMALV3", 10, 2),
+                HudiTypeMapping.fromAvroSchema(decimal));
+    }
+
+    @Test
+    public void testFromAvroSchemaComplexTypes() {
+        Assertions.assertEquals(
+                ConnectorType.arrayOf(ConnectorType.of("INT")),
+                HudiTypeMapping.fromAvroSchema(Schema.createArray(Schema.create(Schema.Type.INT))));
+        // Avro maps always have string keys.
+        Assertions.assertEquals(
+                ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("BIGINT")),
+                HudiTypeMapping.fromAvroSchema(Schema.createMap(Schema.create(Schema.Type.LONG))));
+        Schema struct = Schema.createRecord("r", null, null, false, Arrays.asList(
+                new Schema.Field("a", Schema.create(Schema.Type.INT)),
+                new Schema.Field("b", Schema.create(Schema.Type.STRING))));
+        Assertions.assertEquals(
+                ConnectorType.structOf(Arrays.asList("a", "b"),
+                        Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING"))),
+                HudiTypeMapping.fromAvroSchema(struct));
+    }
+
+    @Test
+    public void testFromAvroSchemaNullableUnionUnwrapped() {
+        Schema nullableInt = Schema.createUnion(
+                Schema.create(Schema.Type.NULL), Schema.create(Schema.Type.INT));
+        Assertions.assertEquals(ConnectorType.of("INT"),
+                HudiTypeMapping.fromAvroSchema(nullableInt));
+    }
+
+    @Test
+    public void testFromAvroSchemaEnumMapsToString() {
+        Schema enumSchema = Schema.createEnum("e", null, null, Arrays.asList("A", "B"));
+        Assertions.assertEquals(ConnectorType.of("STRING"),
+                HudiTypeMapping.fromAvroSchema(enumSchema));
+    }
+
+    @Test
+    public void testFromAvroSchemaMultiMemberUnionUnsupported() {
+        // A true union (no single non-null member) is unsupported (legacy parity).
+        Schema union = Schema.createUnion(
+                Schema.create(Schema.Type.INT), Schema.create(Schema.Type.STRING));
+        Assertions.assertEquals(ConnectorType.of("UNSUPPORTED"),
+                HudiTypeMapping.fromAvroSchema(union));
     }
 }

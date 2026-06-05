@@ -47,6 +47,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -258,8 +259,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Convert Avro schema fields to ConnectorColumn list.
+     *
+     * <p>Package-private and static so it can be unit-tested directly with a
+     * hand-built Avro schema (no live HoodieTableMetaClient needed).</p>
      */
-    private List<ConnectorColumn> avroSchemaToColumns(Schema avroSchema) {
+    static List<ConnectorColumn> avroSchemaToColumns(Schema avroSchema) {
         List<Schema.Field> fields = avroSchema.getFields();
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         for (Schema.Field field : fields) {
@@ -267,7 +271,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             Schema fieldSchema = unwrapNullable(field.schema());
             ConnectorType connectorType = HudiTypeMapping.fromAvroSchema(fieldSchema);
             String comment = field.doc() != null ? field.doc() : "";
-            columns.add(new ConnectorColumn(field.name(), connectorType, comment, nullable, null));
+            // Lower-case the top-level column name to mirror legacy
+            // HMSExternalTable.initHudiSchema (name().toLowerCase(Locale.ROOT)).
+            // Nested struct field names are left as-is here and in HudiTypeMapping,
+            // matching legacy (which lowercases only the top-level column name).
+            String columnName = field.name().toLowerCase(Locale.ROOT);
+            columns.add(new ConnectorColumn(columnName, connectorType, comment, nullable, null));
         }
         return columns;
     }
