@@ -169,6 +169,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             PhysicalCatalogRelation relation, ProbeContext context) {
         if (checkRelationTableSupportedType(relation)
                     && relation.getOutput().contains(context.slot)
+                    && !relation.getOperativeSlots().contains(context.slot)
                     && !context.requiredMaterializedSlots.contains(context.slot)) {
             // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {
@@ -185,6 +186,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
         if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
+                && !tvfRelation.getOperativeSlots().contains(context.slot)
                 && !context.requiredMaterializedSlots.contains(context.slot)) {
             // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {

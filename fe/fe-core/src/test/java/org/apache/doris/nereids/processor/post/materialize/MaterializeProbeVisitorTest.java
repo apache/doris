@@ -42,25 +42,6 @@ import java.util.Set;
 public class MaterializeProbeVisitorTest {
 
     @Test
-    public void testOlapScanIgnoresGlobalOperativeSlots() {
-        SlotReference baseSlot = new SlotReference("a", IntegerType.INSTANCE);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
-        Mockito.when(table.getKeysType()).thenReturn(KeysType.DUP_KEYS);
-        PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
-        Mockito.when(scan.getSelectedIndexId()).thenReturn(1L);
-        Mockito.when(scan.getTable()).thenReturn(table);
-        Mockito.when(scan.getOperativeSlots()).thenReturn(ImmutableList.of(baseSlot));
-
-        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(baseSlot);
-        Optional<MaterializeSource> source = new MaterializeProbeVisitor().visitPhysicalOlapScan(scan, context);
-
-        Assertions.assertTrue(source.isPresent());
-        Assertions.assertEquals(scan, source.get().relation);
-        Assertions.assertEquals(baseSlot, source.get().baseSlot);
-    }
-
-    @Test
     public void testOlapScanRejectsRequiredMaterializedSlots() {
         SlotReference baseSlot = new SlotReference("a", IntegerType.INSTANCE);
         OlapTable table = Mockito.mock(OlapTable.class);
