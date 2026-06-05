@@ -200,10 +200,29 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
      * Whether the given request should use a per-user session catalog. This is the single source of truth for
      * that decision, shared by the cache-bypass logic above and by {@link IcebergMetadataOps} via
      * {@link IcebergUserSessionCatalog}.
+     *
+     * <p>Three outcomes:
+     * <ul>
+     *   <li>dynamic identity disabled: {@code false} — use the shared default path;</li>
+     *   <li>dynamic identity enabled and the request carries a delegated credential: {@code true} — use the
+     *       per-user session catalog;</li>
+     *   <li>dynamic identity enabled but the request has <em>no</em> delegated credential: throw. A catalog
+     *       configured with {@code iceberg.rest.session=user} has no shared/default identity to fall back on,
+     *       and silently borrowing another request's token would leak credentials across users. So a session
+     *       without a token (e.g. a password login) is rejected here rather than served by the default path.</li>
+     * </ul>
      */
     @Override
     public boolean useSessionCatalog(SessionContext ctx) {
-        return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
+        if (!isIcebergRestUserSessionEnabled()) {
+            return false;
+        }
+        if (ctx == null || !ctx.hasDelegatedCredential()) {
+            throw new IllegalStateException("Catalog " + getName() + " is configured with dynamic identity "
+                    + "(iceberg.rest.session=user) but the current session has no delegated credential. "
+                    + "Access requires a token-based identity (e.g. OAuth/OIDC/JWT).");
+        }
+        return true;
     }
 
     @Override

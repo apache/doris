@@ -1764,13 +1764,11 @@ public class IcebergUtils {
     }
 
     private static boolean useSessionCatalog(ExternalTable dorisTable) {
-        // User-session mode is REST-only, so the catalog must be an IcebergRestExternalCatalog.
-        if (!(dorisTable.getCatalog() instanceof IcebergRestExternalCatalog)) {
-            return false;
-        }
-        SessionContext sessionContext = SessionContext.current();
-        return sessionContext.hasDelegatedCredential()
-                && ((IcebergRestExternalCatalog) dorisTable.getCatalog()).isIcebergRestUserSessionEnabled();
+        // Defer to the catalog's single session decision (IcebergUserSessionCatalog): false when dynamic
+        // identity is off, true when on and the request carries a delegated credential, and it throws when
+        // dynamic identity is on but the request has no credential (no shared identity to borrow).
+        return dorisTable.getCatalog() instanceof IcebergUserSessionCatalog
+                && ((IcebergUserSessionCatalog) dorisTable.getCatalog()).useSessionCatalog(SessionContext.current());
     }
 
     public static boolean isIcebergRowLineageColumn(Column column) {

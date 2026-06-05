@@ -35,9 +35,14 @@ import org.apache.iceberg.rest.RESTSessionCatalog;
 public interface IcebergUserSessionCatalog {
 
     /**
-     * Whether the given request should use a per-user session catalog: the request carries a delegated
-     * credential <em>and</em> dynamic identity is enabled. This is the single source of truth for the decision,
-     * used both for cache bypass and for routing metadata calls.
+     * Whether the given request should use a per-user session catalog. Single source of truth for the decision,
+     * used both for cache bypass and for routing metadata calls. Returns {@code false} when dynamic identity is
+     * disabled (use the shared default path) and {@code true} when it is enabled and the request carries a
+     * delegated credential.
+     *
+     * @throws IllegalStateException when dynamic identity is enabled but the request has no delegated credential.
+     *     Such a catalog has no shared identity to fall back on, so a tokenless session is rejected rather than
+     *     served by borrowing another request's credential.
      */
     boolean useSessionCatalog(SessionContext ctx);
 

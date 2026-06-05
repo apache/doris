@@ -1270,12 +1270,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private Optional<ViewCatalog> resolveDefaultViewCatalog(Catalog catalog, RESTSessionCatalog restSessionCatalog,
             boolean viewEnabled) {
-        if (restSessionCatalog != null) {
-            // REST: views are served by the session catalog (the default Catalog from asCatalog() is not a
-            // ViewCatalog). Gate on the REST view-enabled flag to preserve the prior behavior.
-            return viewEnabled
-                    ? Optional.of(restSessionCatalog.asViewCatalog(SessionCatalog.SessionContext.createEmpty()))
-                    : Optional.empty();
+        // Branch on whether this is a REST (session-aware) catalog, not on whether restSessionCatalog happens to
+        // be built: for REST the default Catalog (asCatalog) is not a ViewCatalog, so views must come from the
+        // session catalog's asViewCatalog, gated on the REST view-enabled flag.
+        if (userSessionCatalog != null) {
+            if (!viewEnabled || restSessionCatalog == null) {
+                return Optional.empty();
+            }
+            return Optional.of(restSessionCatalog.asViewCatalog(SessionCatalog.SessionContext.createEmpty()));
         }
         return catalog instanceof ViewCatalog ? Optional.of((ViewCatalog) catalog) : Optional.empty();
     }

@@ -93,7 +93,7 @@ public class IcebergUtilsTest {
         Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
         Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
         Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
-        Mockito.when(catalog.isIcebergRestUserSessionEnabled()).thenReturn(true);
+        Mockito.when(catalog.useSessionCatalog(Mockito.any())).thenReturn(true);
         Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
         Mockito.when(catalog.getId()).thenReturn(1L);
         Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))
@@ -132,7 +132,7 @@ public class IcebergUtilsTest {
         Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
         Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
         Mockito.when(dorisTable.isView()).thenReturn(true);
-        Mockito.when(catalog.isIcebergRestUserSessionEnabled()).thenReturn(true);
+        Mockito.when(catalog.useSessionCatalog(Mockito.any())).thenReturn(true);
         Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
         Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))

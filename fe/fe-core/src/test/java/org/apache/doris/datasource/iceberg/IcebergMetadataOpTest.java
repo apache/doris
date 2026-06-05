@@ -19,14 +19,18 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -91,37 +95,37 @@ public class IcebergMetadataOpTest {
     @Test
     public void testListTableNamesFiltersViewsWhenRestViewEnabled() {
         IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        // The default Catalog handed to IcebergMetadataOps is asCatalog(empty); it is NOT a ViewCatalog.
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
-                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
-
-        Map<String, String> props = new HashMap<>();
-        props.put("type", "iceberg");
-        props.put("iceberg.catalog.type", "rest");
-        props.put("iceberg.rest.uri", "http://localhost:8181");
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        RESTSessionCatalog sessionCatalog = Mockito.mock(RESTSessionCatalog.class);
+        ViewCatalog viewCatalog = Mockito.mock(ViewCatalog.class);
 
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
         Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
-        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, props));
+        Mockito.when(dorisCatalog.useSessionCatalog(Mockito.any())).thenReturn(false);
+        Mockito.when(dorisCatalog.isViewEnabled()).thenReturn(true);
+        Mockito.when(dorisCatalog.getRestSessionCatalog()).thenReturn(sessionCatalog);
+        Mockito.when(dorisCatalog.getDelegatedTokenMode())
+                .thenReturn(IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN);
+        Mockito.when(sessionCatalog.asViewCatalog(Mockito.any())).thenReturn(viewCatalog);
 
         Namespace namespace = Namespace.of("PUBLIC");
         TableIdentifier table = TableIdentifier.of(namespace, "DORIS_HORIZON_T");
         TableIdentifier view = TableIdentifier.of(namespace, "DORIS_HORIZON_V");
         Mockito.when(icebergCatalog.listTables(namespace)).thenReturn(Arrays.asList(table, view));
-        Mockito.when(((ViewCatalog) icebergCatalog).listViews(namespace)).thenReturn(Collections.singletonList(view));
+        Mockito.when(viewCatalog.listViews(namespace)).thenReturn(Collections.singletonList(view));
 
         IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
         List<String> tableNames = ops.listTableNames("PUBLIC");
 
         Assert.assertEquals(Collections.singletonList("DORIS_HORIZON_T"), tableNames);
+        Mockito.verify(viewCatalog).listViews(namespace);
     }
 
     @Test
-    public void testEmptySessionUsesBootstrapCatalogWhenRestUserSessionEnabled() {
-        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
-        Catalog icebergCatalog = Mockito.mock(Catalog.class,
-                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
-
+    public void testRejectsRequestWithoutCredentialWhenDynamicIdentityEnabled() {
         Map<String, String> props = new HashMap<>();
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "rest");
@@ -131,23 +135,33 @@ public class IcebergMetadataOpTest {
         props.put("iceberg.rest.oauth2.credential", "client_credentials");
         props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
 
-        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
-        });
-        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
-        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, props));
+        IcebergRestExternalCatalog catalog =
+                new IcebergRestExternalCatalog(1, "rest_user_session", null, props, "");
 
-        Namespace namespace = Namespace.of("PUBLIC");
-        TableIdentifier table = TableIdentifier.of(namespace, "DORIS_HORIZON_T");
-        TableIdentifier view = TableIdentifier.of(namespace, "DORIS_HORIZON_V");
-        Mockito.when(icebergCatalog.tableExists(table)).thenReturn(true);
-        Mockito.when(((SupportsNamespaces) icebergCatalog).namespaceExists(namespace)).thenReturn(true);
-        Mockito.when(((ViewCatalog) icebergCatalog).listViews(namespace)).thenReturn(Collections.singletonList(view));
+        // Dynamic identity is configured but the session has no delegated credential (e.g. a password login):
+        // rejected, never falls back to a shared/borrowed identity.
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> catalog.useSessionCatalog(SessionContext.empty()));
 
-        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        // With a delegated credential, the per-user session catalog is used.
+        SessionContext withCredential = SessionContext.of(
+                new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
+        Assert.assertTrue(catalog.useSessionCatalog(withCredential));
+    }
 
-        Assert.assertTrue(ops.tableExist(SessionContext.empty(), "PUBLIC", "DORIS_HORIZON_T"));
-        Assert.assertTrue(ops.databaseExist(SessionContext.empty(), "PUBLIC"));
-        Assert.assertEquals(Collections.singletonList("DORIS_HORIZON_V"), ops.listViewNames(SessionContext.empty(),
-                "PUBLIC"));
+    @Test
+    public void testNoSessionCatalogWhenDynamicIdentityDisabled() {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "rest");
+        props.put("iceberg.rest.uri", "http://localhost:8181");
+
+        IcebergRestExternalCatalog catalog =
+                new IcebergRestExternalCatalog(1, "rest_plain", null, props, "");
+
+        // Without dynamic identity, no request uses the session catalog and none is rejected.
+        Assert.assertFalse(catalog.useSessionCatalog(SessionContext.empty()));
+        Assert.assertFalse(catalog.useSessionCatalog(SessionContext.of(
+                new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"))));
     }
 }
