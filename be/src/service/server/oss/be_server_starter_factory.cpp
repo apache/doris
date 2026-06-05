@@ -221,7 +221,10 @@ public:
         }
     }
 
-    void join() override { _server.reset(); }
+    void join() override {
+        _server.reset();
+        _service.reset();
+    }
 
 private:
     int _port;
