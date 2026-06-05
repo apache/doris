@@ -1167,7 +1167,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& map_result = assert_cast<const doris::ColumnMap&>(*block.get_by_position(0).column);
+    const auto& map_result = assert_cast<const ColumnMap&>(*block.get_by_position(0).column);
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);

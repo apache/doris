@@ -32,7 +32,7 @@ DuckDB 在 `src/common/multi_file/multi_file_column_mapper.cpp` 中把 column ma
 - `FieldIdMapper` / `NameMapper`：按 field id 或 name 匹配的具体策略。
 - `ColumnMapResult`：递归记录一个 table column 的映射结果，包括 file column id、file
   children、expected type、source type 和 projection 行为。
-- `ColumnMap`：top-level table column 到 file-local source 的最终映射。
+- `ColumnMapEntry`：top-level table column 到 file-local source 的最终映射项。
 - `ResultColumnMapping`：记录结果列从 local column 或 constant map 得到。
 - `IndexMapping`：记录 global/local nested child 之间的位置关系。
 - `FilterEntry`：filter target，显式指向 local column 或 constant map entry。
@@ -246,13 +246,15 @@ struct/list/map child remap、missing/default/partition/generated/virtual column
 root column 和 nested child 现在复用同一套 matcher。`BY_FIELD_ID` 不再隐式 fallback 到 name；
 如果调用方需要 fallback，应在 table-format 层显式选择或组合策略。
 
-### ColumnMapResult / ColumnMap
+### ColumnMapResult / ColumnMapEntry
 
 定义位置：`be/src/format/reader/column_mapper.h`
 
-`IndexMapping`、`ColumnMapResult`、`ColumnMap` 和 `ResultColumnMapping` 已经作为无前缀的
-DuckDB 对应概念引入。`TableColumnMapper::create_scan_request()` 会在 file-local projection
-和 local block position 确定后，生成两份结果：
+`IndexMapping`、`ColumnMapResult`、`ColumnMapEntry` 和 `ResultColumnMapping` 已经作为
+DuckDB 对应概念引入。DuckDB 的 `MultiFileColumnMap` 是最终 `global_to_local` map 的
+value entry；Doris 已经有真实物理列类型 `doris::ColumnMap`，因此 reader mapping 使用
+`ColumnMapEntry` 避免同名冲突。`TableColumnMapper::create_scan_request()` 会在 file-local
+projection 和 local block position 确定后，生成两份结果：
 
 - `column_map_results()`：按 `GlobalIndex` 保存每个 table/global column 的递归映射结果。
   其中 local 物理列包含 `LocalColumnId`、`LocalColumnIndex` 和 root 指向 file-local block

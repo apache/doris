@@ -1675,10 +1675,10 @@ Status TableColumnMapper::_build_result_column_mapping(const FileScanRequest& fi
         if (map_result.mapping.has_value()) {
             _result_mapping.global_to_local.emplace(
                     mapping.global_index,
-                    ColumnMap {.mapping = *map_result.mapping,
-                               .local_type = mapping.file_type,
-                               .global_type = mapping.table_type,
-                               .filter_conversion = mapping.filter_conversion});
+                    ColumnMapEntry {.mapping = *map_result.mapping,
+                                    .local_type = mapping.file_type,
+                                    .global_type = mapping.table_type,
+                                    .filter_conversion = mapping.filter_conversion});
         }
         _column_map_results.emplace(mapping.global_index, std::move(map_result));
     }

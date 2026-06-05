@@ -92,8 +92,8 @@ struct ColumnMapResult {
     VExprContextSPtr default_expr;
 };
 
-// Final mapping from one global result column to one file-local source.
-struct ColumnMap {
+// Final mapping entry from one global result column to one file-local source.
+struct ColumnMapEntry {
     IndexMapping mapping;
     DataTypePtr local_type;
     DataTypePtr global_type;
@@ -102,7 +102,7 @@ struct ColumnMap {
 
 // Collection of final result-column mappings produced for one file/split.
 struct ResultColumnMapping {
-    std::map<GlobalIndex, ColumnMap> global_to_local;
+    std::map<GlobalIndex, ColumnMapEntry> global_to_local;
     std::string error;
 
     bool has_error() const { return !error.empty(); }
