@@ -40,6 +40,8 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
+class RemoteScanCacheWriteLimiter;
+
 enum class FileCacheMissPolicy : uint8_t {
     READ_THROUGH_AND_WRITE_BACK = 0,
     REMOTE_ONLY_ON_MISS = 1,
@@ -92,6 +94,8 @@ struct FileCacheStatistics {
     int64_t segment_footer_index_local_io_timer = 0;
     int64_t segment_footer_index_remote_io_timer = 0;
     int64_t segment_footer_index_peer_io_timer = 0;
+    int64_t remote_only_on_miss_triggered = 0;
+    int64_t remote_only_on_miss_threshold_bytes = 0;
 
     // Cross-CG / Same-CG peer read statistics
     int64_t num_cross_cg_peer_io_total = 0;
@@ -150,6 +154,11 @@ struct FileCacheStatistics {
         segment_footer_index_local_io_timer += other.segment_footer_index_local_io_timer;
         segment_footer_index_remote_io_timer += other.segment_footer_index_remote_io_timer;
         segment_footer_index_peer_io_timer += other.segment_footer_index_peer_io_timer;
+        remote_only_on_miss_triggered =
+                remote_only_on_miss_triggered || other.remote_only_on_miss_triggered;
+        if (other.remote_only_on_miss_threshold_bytes > remote_only_on_miss_threshold_bytes) {
+            remote_only_on_miss_threshold_bytes = other.remote_only_on_miss_threshold_bytes;
+        }
 
         num_cross_cg_peer_io_total += other.num_cross_cg_peer_io_total;
         bytes_read_from_cross_cg_peer += other.bytes_read_from_cross_cg_peer;
@@ -194,6 +203,7 @@ struct IOContext {
     // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
     bool bypass_peer_read {false};
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+    RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
 };
 
 } // namespace io

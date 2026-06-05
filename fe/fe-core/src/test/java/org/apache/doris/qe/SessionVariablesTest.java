@@ -27,6 +27,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -354,5 +355,17 @@ public class SessionVariablesTest extends TestWithFeService {
                         SessionVariable.IVF_NPROBE, new IntLiteral(0))));
         Assertions.assertTrue(nprobeException.getMessage().contains("ivf_nprobe must be >= 1"));
         Assertions.assertEquals(2, sv.ivfNprobe);
+    }
+
+    @Test
+    public void testRemoteScanNoWriteFileCacheThresholdToThrift() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.REMOTE_SCAN_NO_WRITE_FILE_CACHE_THRESHOLD_BYTES,
+                new IntLiteral(262144)));
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetRemoteScanNoWriteFileCacheThresholdBytes());
+        Assertions.assertEquals(262144L, queryOptions.getRemoteScanNoWriteFileCacheThresholdBytes());
     }
 }

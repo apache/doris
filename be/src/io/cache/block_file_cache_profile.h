@@ -89,6 +89,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* lock_wait_timer = nullptr;
     RuntimeProfile::Counter* get_timer = nullptr;
     RuntimeProfile::Counter* set_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_triggered = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_threshold_bytes = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;

@@ -49,6 +49,7 @@
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
 #include "io/cache/peer_file_cache_reader.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
@@ -105,6 +106,14 @@ bvar::Adder<uint64_t> g_peer_race_both_fail("peer_race_both_fail");
 bvar::Adder<uint64_t> g_peer_cross_compute_group_read("peer_cross_compute_group_read");
 bvar::Adder<uint64_t> g_peer_same_compute_group_read("peer_same_compute_group_read");
 bvar::Adder<uint64_t> g_peer_lazy_fetch_triggered("peer_lazy_fetch_triggered");
+
+static bool use_remote_only_on_cache_miss(const IOContext* io_ctx) {
+    if (io_ctx->file_cache_miss_policy == FileCacheMissPolicy::REMOTE_ONLY_ON_MISS) {
+        return true;
+    }
+    auto* limiter = io_ctx->remote_scan_cache_write_limiter;
+    return limiter != nullptr && limiter->remote_only_on_miss();
+}
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -1219,6 +1228,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             if (io_ctx->file_cache_stats) {
                 _update_stats(stats, source_read_breakdown, io_ctx->file_cache_stats,
                               file_cache_read_type);
+                auto* limiter = io_ctx->remote_scan_cache_write_limiter;
+                if (limiter != nullptr) {
+                    io_ctx->file_cache_stats->remote_only_on_miss_triggered =
+                            io_ctx->file_cache_stats->remote_only_on_miss_triggered ||
+                            limiter->remote_only_on_miss();
+                    io_ctx->file_cache_stats->remote_only_on_miss_threshold_bytes =
+                            limiter->threshold_bytes();
+                }
             }
             if (!io_ctx->is_warmup) {
                 FileCacheStatistics fcache_stats_increment;
@@ -1229,7 +1246,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     }};
 
-    if (io_ctx->file_cache_miss_policy == FileCacheMissPolicy::REMOTE_ONLY_ON_MISS) {
+    if (use_remote_only_on_cache_miss(io_ctx)) {
         read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
                                                   stats, source_read_breakdown, io_ctx);
         return read_st;

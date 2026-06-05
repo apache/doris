@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/operator/rec_cte_scan_operator.h"
@@ -36,6 +37,7 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/spill/spill_file_manager.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -121,6 +123,16 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     if (initialize_context_holder) {
         _query_context_holders = io::FileCacheFactory::instance()->get_query_context_holders(
                 _query_id, query_options.file_cache_query_limit_percent);
+    }
+
+    const bool initialize_remote_scan_cache_write_limiter =
+            config::is_cloud_mode() && config::enable_file_cache &&
+            query_options.__isset.remote_scan_no_write_file_cache_threshold_bytes &&
+            query_options.remote_scan_no_write_file_cache_threshold_bytes >= 0 &&
+            query_options.query_type == TQueryType::SELECT;
+    if (initialize_remote_scan_cache_write_limiter) {
+        _remote_scan_cache_write_limiter = std::make_unique<io::RemoteScanCacheWriteLimiter>(
+                _query_id, query_options.remote_scan_no_write_file_cache_threshold_bytes);
     }
 
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||

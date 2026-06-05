@@ -163,6 +163,12 @@ struct CacheContext {
         }
         query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
         is_warmup = io_context->is_warmup;
+        remote_scan_cache_write_limiter = io_context->remote_scan_cache_write_limiter;
+        admit_cache_write_by_remote_scan_limiter =
+                remote_scan_cache_write_limiter != nullptr &&
+                io_context->reader_type == ReaderType::READER_QUERY &&
+                (!io_context->is_index_data || io_context->is_inverted_index) &&
+                !io_context->is_warmup;
     }
     CacheContext() = default;
     bool operator==(const CacheContext& rhs) const {
@@ -176,6 +182,8 @@ struct CacheContext {
     ReadStatistics* stats {nullptr};
     bool is_warmup {false};
     int64_t tablet_id {0};
+    RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr;
+    bool admit_cache_write_by_remote_scan_limiter {false};
 };
 
 template <class Lock>

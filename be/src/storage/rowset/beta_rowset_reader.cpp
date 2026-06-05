@@ -33,6 +33,7 @@
 #include "core/block/block.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "storage/binlog.h"
 #include "storage/delete/delete_handler.h"
@@ -241,6 +242,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_context->runtime_state->query_options().enable_file_cache;
         _read_options.io_ctx.is_disposable =
                 _read_context->runtime_state->query_options().disable_file_cache;
+        auto* query_ctx = _read_context->runtime_state->get_query_ctx();
+        if (_read_context->reader_type == ReaderType::READER_QUERY && query_ctx != nullptr) {
+            _read_options.io_ctx.remote_scan_cache_write_limiter =
+                    query_ctx->remote_scan_cache_write_limiter();
+        }
     }
 
     if (_read_context->condition_cache_digest) {

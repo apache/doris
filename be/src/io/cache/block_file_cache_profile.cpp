@@ -120,6 +120,8 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(segment_footer_index_local_io_timer);
     SUBTRACT_FIELD(segment_footer_index_remote_io_timer);
     SUBTRACT_FIELD(segment_footer_index_peer_io_timer);
+    SUBTRACT_FIELD(remote_only_on_miss_triggered);
+    SUBTRACT_FIELD(remote_only_on_miss_threshold_bytes);
 #undef SUBTRACT_FIELD
     return diff;
 }
@@ -157,6 +159,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
     lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
     get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
     set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+    remote_only_on_miss_triggered = profile->AddHighWaterMarkCounter("RemoteOnlyOnMissTriggered",
+                                                                     TUnit::UNIT, cache_profile, 1);
+    remote_only_on_miss_threshold_bytes = profile->AddHighWaterMarkCounter(
+            "RemoteOnlyOnMissThresholdBytes", TUnit::BYTES, cache_profile, 1);
 
     inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -239,6 +245,8 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
     COUNTER_UPDATE(get_timer, statistics->get_timer);
     COUNTER_UPDATE(set_timer, statistics->set_timer);
+    remote_only_on_miss_triggered->set(statistics->remote_only_on_miss_triggered);
+    remote_only_on_miss_threshold_bytes->set(statistics->remote_only_on_miss_threshold_bytes);
 
     COUNTER_UPDATE(inverted_index_num_local_io_total,
                    statistics->inverted_index_num_local_io_total);

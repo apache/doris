@@ -519,6 +519,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
 
+    public static final String REMOTE_SCAN_NO_WRITE_FILE_CACHE_THRESHOLD_BYTES =
+            "remote_scan_no_write_file_cache_threshold_bytes";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
@@ -3159,6 +3162,14 @@ public class SessionVariable implements Serializable, Writable {
                 Config.file_cache_query_limit_max_percent));
         }
     }
+
+    @VarAttrDef.VarAttr(name = REMOTE_SCAN_NO_WRITE_FILE_CACHE_THRESHOLD_BYTES, needForward = true,
+            description = {"单个查询在每个 BE 上最多允许 read-through 写入 file cache 的远端 scan bytes。"
+                    + "< 0 表示关闭，= 0 表示查询开始即不写 file cache，> 0 表示达到阈值后不写 file cache。",
+                    "Maximum remote scan bytes allowed to write file cache per query on each BE. "
+                            + "< 0 disables it, = 0 disables file cache writes from query start, "
+                            + "> 0 disables file cache writes after the threshold is reached."})
+    public long remoteScanNoWriteFileCacheThresholdBytes = -1;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -5822,6 +5833,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
 
         tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
+        tResult.setRemoteScanNoWriteFileCacheThresholdBytes(remoteScanNoWriteFileCacheThresholdBytes);
 
         return tResult;
     }
