@@ -430,7 +430,7 @@ void AnalyticSinkLocalState::_output_current_block(Block* block) {
         DCHECK(_result_window_columns[i]);
         DCHECK(_agg_functions[i]);
         if (_parent->cast<AnalyticSinkOperatorX>()._change_to_nullable_flags[i]) {
-            block->insert({make_nullable(std::move(_result_window_columns[i])),
+            block->insert({make_mut_nullable(std::move(_result_window_columns[i])),
                            make_nullable(_agg_functions[i]->data_type()), ""});
         } else {
             block->insert(

@@ -103,7 +103,7 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         if (!st.ok()) {
             // Fill with default values, which is null
             col_to->insert_many_defaults(input_rows_count);
-            col_to = make_nullable(std::move(col_to), true);
+            col_to = make_mut_nullable(std::move(col_to), true);
         } else {
             col_to = IColumn::mutate(std::move(tmp_block.get_by_position(1).column));
             ColumnPtr col_to_ptr = std::move(col_to);
@@ -118,7 +118,7 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
     } else {
         if (variant->only_have_default_values()) {
             col_to->insert_many_defaults(input_rows_count);
-            col_to = make_nullable(std::move(col_to), true);
+            col_to = make_mut_nullable(std::move(col_to), true);
         } else if (is_string_type(data_type_to->get_primitive_type())) {
             // serialize to string
             return execute_on_finalized_input([&](Block& finalized_block) {
@@ -135,7 +135,7 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                    !is_string_type(data_type_to->get_primitive_type())) {
             // other types
             col_to->insert_many_defaults(input_rows_count);
-            col_to = make_nullable(std::move(col_to), true);
+            col_to = make_mut_nullable(std::move(col_to), true);
         } else {
             assert_cast<ColumnNullable&>(*col_to).insert_many_defaults(input_rows_count);
         }

@@ -3184,8 +3184,8 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         PathInData sub_path("k");
         nested_object_ptr->add_sub_column(sub_path, std::move(flattend_column),
                                           std::move(flattend_type));
-        nested_object = make_nullable(std::move(nested_object));
-        auto array = make_nullable(
+        nested_object = make_mut_nullable(std::move(nested_object));
+        auto array = make_mut_nullable(
                 MutableColumnPtr(ColumnArray::create(std::move(nested_object), std::move(offset))));
         PathInData path("v.k");
         container_variant.add_sub_column(path, std::move(array), container_variant.NESTED_TYPE);

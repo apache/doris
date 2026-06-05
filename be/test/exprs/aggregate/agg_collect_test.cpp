@@ -146,13 +146,14 @@ public:
         agg_collect_add_elements<DataType>(agg_function, place2, input_nums, support_complex);
 
         agg_function->merge(place, place2, _agg_arena_pool);
-        auto column_result = ColumnArray::create(make_nullable(data_types[0]->create_column()));
+        auto column_result = ColumnArray::create(make_mut_nullable(data_types[0]->create_column()));
         agg_function->insert_result_into(place, *column_result);
         EXPECT_EQ(column_result->size(), 1);
         EXPECT_EQ(column_result->get_offsets()[0],
                   is_distinct(fn_name) ? input_nums : 2 * input_nums * _repeated_times);
 
-        auto column_result2 = ColumnArray::create(make_nullable(data_types[0]->create_column()));
+        auto column_result2 =
+                ColumnArray::create(make_mut_nullable(data_types[0]->create_column()));
         agg_function->insert_result_into(place2, *column_result2);
         EXPECT_EQ(column_result2->size(), 1);
         EXPECT_EQ(column_result2->get_offsets()[0],
@@ -299,7 +300,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
         data_column->insert_data((const char*)(&v), 0);
     }
     auto array_column =
-            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
+            ColumnArray::create(make_mut_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
@@ -324,7 +325,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
         data_column->insert_data((const char*)(&v), 0);
     }
     auto array_column =
-            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
+            ColumnArray::create(make_mut_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4}),
                    ColumnHelper::create_column_with_name<DataTypeInt32>({3, 3, 3, 3})}),
@@ -349,7 +350,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
         data_column->insert_data((const char*)(&v), 0);
     }
     auto array_column =
-            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
+            ColumnArray::create(make_mut_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
@@ -374,7 +375,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
         data_column->insert_data((const char*)(&v), 0);
     }
     auto array_column =
-            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
+            ColumnArray::create(make_mut_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 3}),
                    ColumnHelper::create_column_with_name<DataTypeInt32>({3, 3, 3, 3, 3})}),

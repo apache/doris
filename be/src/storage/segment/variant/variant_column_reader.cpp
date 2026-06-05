@@ -1639,7 +1639,7 @@ static void fill_nested_with_defaults(MutableColumnPtr& dst, MutableColumnPtr& s
     ColumnPtr nested_column = std::move(new_nested);
     MutableColumnPtr array_column =
             ColumnArray::create(nested_column, sibling_array->get_offsets_ptr());
-    auto new_array = make_nullable(std::move(array_column));
+    auto new_array = make_mut_nullable(std::move(array_column));
     dst->insert_range_from(*new_array, 0, new_array->size());
 #ifndef NDEBUG
     if (!dst_array->has_equal_offsets(*sibling_array)) {

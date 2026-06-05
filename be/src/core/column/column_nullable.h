@@ -417,6 +417,6 @@ private:
 };
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
-MutableColumnPtr make_nullable(MutableColumnPtr&& column, bool is_nullable = false);
+MutableColumnPtr make_mut_nullable(MutableColumnPtr&& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
 } // namespace doris

@@ -215,7 +215,7 @@ struct ArrayAggregateImpl {
         }
 
         MutableColumnPtr res_column = create_column_func(column);
-        res_column = make_nullable(std::move(res_column));
+        res_column = make_mut_nullable(std::move(res_column));
         assert_cast<ColumnNullable&>(*res_column).reserve(offsets.size());
 
         auto function = Function::create(type, {.is_window_function = false, .column_names = {}});
@@ -439,7 +439,7 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
         }
 
         MutableColumnPtr res_column = create_column_func(column);
-        res_column = make_nullable(std::move(res_column));
+        res_column = make_mut_nullable(std::move(res_column));
         assert_cast<ColumnNullable&>(*res_column).reserve(offsets.size());
 
         auto function = Function::create(type, result_type,

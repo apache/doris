@@ -140,7 +140,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
                 {
                     auto column_vector_int32 = ColumnVector<TYPE_INT>::create();
                     auto column_nullable_vector =
-                            make_nullable(MutableColumnPtr(std::move(column_vector_int32)));
+                            make_mut_nullable(MutableColumnPtr(std::move(column_vector_int32)));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
                         mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(int32_t(i)));

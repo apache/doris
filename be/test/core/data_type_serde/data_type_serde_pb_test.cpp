@@ -203,7 +203,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
         DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
         //[[0,1,2,3,.....9]]
         auto out_array_column =
-                ColumnArray::create(make_nullable(MutableColumnPtr(std::move(array_column))),
+                ColumnArray::create(make_mut_nullable(MutableColumnPtr(std::move(array_column))),
                                     std::move(out_offset_column));
         check_pb_col(out_array_type, *out_array_column.get());
     }
@@ -241,7 +241,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
         //[[0, NULL, 2, NULL], [4, NULL, 6, NULL, 8, NULL]]
         out_offset_column->get_data().push_back(2);
         DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
-        auto null_array_column = make_nullable(MutableColumnPtr(std::move(array_column)));
+        auto null_array_column = make_mut_nullable(MutableColumnPtr(std::move(array_column)));
 
         auto out_array_column =
                 ColumnArray::create(static_cast<const IColumn&>(*null_array_column).get_ptr(),
@@ -290,7 +290,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
         out_offset_column->get_data().push_back(1);
         out_offset_column->get_data().push_back(2);
         DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
-        auto null_array_column = make_nullable(MutableColumnPtr(std::move(array_column)));
+        auto null_array_column = make_mut_nullable(MutableColumnPtr(std::move(array_column)));
 
         auto out_array_column =
                 ColumnArray::create(static_cast<const IColumn&>(*null_array_column).get_ptr(),

@@ -148,7 +148,7 @@ static void fill_block_with_array_int(Block& block) {
     }
 
     MutableColumnPtr nullable_data_column = std::move(data_column);
-    auto column_array_ptr = ColumnArray::create(make_nullable(std::move(nullable_data_column)),
+    auto column_array_ptr = ColumnArray::create(make_mut_nullable(std::move(nullable_data_column)),
                                                 std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeInt32>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
@@ -170,7 +170,7 @@ static void fill_block_with_array_string(Block& block) {
     }
 
     MutableColumnPtr nullable_data_column = std::move(data_column);
-    auto column_array_ptr = ColumnArray::create(make_nullable(std::move(nullable_data_column)),
+    auto column_array_ptr = ColumnArray::create(make_mut_nullable(std::move(nullable_data_column)),
                                                 std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeString>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
@@ -329,7 +329,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     {
         auto column_vector_int32 = ColumnInt32::create();
         MutableColumnPtr mutable_column_vector_int32 = std::move(column_vector_int32);
-        auto column_nullable_vector = make_nullable(std::move(mutable_column_vector_int32));
+        auto column_nullable_vector = make_mut_nullable(std::move(mutable_column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 4096; i++) {
             mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));
@@ -845,7 +845,7 @@ TEST(BlockTest, dump_data) {
 
     auto column_vector_int32 = ColumnInt32::create();
     MutableColumnPtr mutable_column_vector_int32 = std::move(column_vector_int32);
-    auto column_nullable_vector = make_nullable(std::move(mutable_column_vector_int32));
+    auto column_nullable_vector = make_mut_nullable(std::move(mutable_column_vector_int32));
     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
     for (int i = 0; i < 4096; i++) {
         mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));
