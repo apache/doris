@@ -21,13 +21,9 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.ViewIf;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -49,9 +45,13 @@ public class LogicalViewTest {
     // Helpers
     // -----------------------------------------------------------------------
 
-    private static Slot slot(int exprId, String name) {
-        return new SlotReference(new ExprId(exprId), name, StringType.INSTANCE,
-                true, Lists.newArrayList());
+    private static Slot slot(String name) {
+        Slot slot = Mockito.mock(Slot.class);
+        Mockito.when(slot.getName()).thenReturn(name);
+        Mockito.when(slot.withQualifier(Mockito.anyList())).thenReturn(slot);
+        Mockito.when(slot.withOneLevelTableAndColumnAndQualifier(
+                Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(slot);
+        return slot;
     }
 
     private static Column col(String name) {
@@ -88,7 +88,7 @@ public class LogicalViewTest {
     @Test
     public void testComputeOutputNormalCase() {
         List<Column> schema = ImmutableList.of(col("id"), col("name"), col("age"));
-        List<Slot> childSlots = ImmutableList.of(slot(0, "id"), slot(1, "name"), slot(2, "age"));
+        List<Slot> childSlots = ImmutableList.of(slot("id"), slot("name"), slot("age"));
 
         ViewIf view = mockView(schema, ImmutableList.of("hive", "test", "v"));
         LogicalView<LogicalPlan> logicalView = new LogicalView<>(view, mockChild(childSlots));
@@ -117,8 +117,7 @@ public class LogicalViewTest {
         // View was created with 3-column base table → fullSchema has 3 entries
         List<Column> schema = ImmutableList.of(col("id"), col("name"), col("age"));
         // After ADD COLUMN + REFRESH TABLE, the child produces 4 slots
-        List<Slot> childSlots = ImmutableList.of(
-                slot(0, "id"), slot(1, "name"), slot(2, "age"), slot(3, "score"));
+        List<Slot> childSlots = ImmutableList.of(slot("id"), slot("name"), slot("age"), slot("score"));
 
         ViewIf view = mockView(schema, ImmutableList.of("hive", "test", "v"));
         LogicalView<LogicalPlan> logicalView = new LogicalView<>(view, mockChild(childSlots));
@@ -147,7 +146,7 @@ public class LogicalViewTest {
     public void testComputeOutputSchemaDrift_fewerColumnsThanSchema() {
         // fullSchema wider than actual child (defensive scenario)
         List<Column> schema = ImmutableList.of(col("id"), col("name"), col("age"), col("score"));
-        List<Slot> childSlots = ImmutableList.of(slot(0, "id"), slot(1, "name"));
+        List<Slot> childSlots = ImmutableList.of(slot("id"), slot("name"));
 
         ViewIf view = mockView(schema, ImmutableList.of("hive", "test", "v"));
         LogicalView<LogicalPlan> logicalView = new LogicalView<>(view, mockChild(childSlots));
@@ -166,7 +165,7 @@ public class LogicalViewTest {
      */
     @Test
     public void testComputeOutputEmptySchema() {
-        List<Slot> childSlots = ImmutableList.of(slot(0, "id"), slot(1, "name"));
+        List<Slot> childSlots = ImmutableList.of(slot("id"), slot("name"));
 
         ViewIf view = mockView(Collections.emptyList(), ImmutableList.of("hive", "test", "v"));
         LogicalView<LogicalPlan> logicalView = new LogicalView<>(view, mockChild(childSlots));
@@ -185,7 +184,7 @@ public class LogicalViewTest {
      */
     @Test
     public void testComputeOutputNullSchema() {
-        List<Slot> childSlots = ImmutableList.of(slot(0, "id"), slot(1, "name"));
+        List<Slot> childSlots = ImmutableList.of(slot("id"), slot("name"));
 
         ViewIf view = mockView(null, ImmutableList.of("hive", "test", "v"));
         LogicalView<LogicalPlan> logicalView = new LogicalView<>(view, mockChild(childSlots));
@@ -204,7 +203,7 @@ public class LogicalViewTest {
     public void testComputeOutputSchemaDrift_singleColumnAdded() {
         // 1-column schema, child returns 2 slots after schema drift
         List<Column> schema = ImmutableList.of(col("id"));
-        List<Slot> childSlots = ImmutableList.of(slot(0, "id"), slot(1, "extra"));
+        List<Slot> childSlots = ImmutableList.of(slot("id"), slot("extra"));
 
         ViewIf view = mockView(schema, ImmutableList.of("hive", "test", "v"));
         LogicalView<LogicalPlan> logicalView = new LogicalView<>(view, mockChild(childSlots));

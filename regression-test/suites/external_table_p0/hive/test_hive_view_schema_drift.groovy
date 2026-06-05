@@ -93,10 +93,10 @@ suite("test_hive_view_schema_drift", "p0,external,hive_docker") {
             // returns 3 columns from the Hive metastore → IndexOutOfBoundsException before fix.
             sql """refresh table ${base_table}"""
 
-            // ---- Base table now exposes 4 columns ----
+            // ---- Base table now exposes 5 columns (id, name, age, score + partition col dt) ----
             def descBase = sql """desc ${base_table}"""
-            assertEquals(4, descBase.size(),
-                    "Base table should have 4 columns after ADD COLUMN + REFRESH")
+            assertEquals(5, descBase.size(),
+                    "Base table should have 5 columns after ADD COLUMN + REFRESH (including partition column)")
 
             // ---- Querying the external Hive view must NOT throw IndexOutOfBoundsException ----
             // The view's HMS schema still has 3 cols (view not refreshed), so the output
