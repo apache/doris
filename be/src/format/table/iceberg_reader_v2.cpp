@@ -282,15 +282,17 @@ Status IcebergTableReader::_append_equality_delete_predicates(reader::FileScanRe
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
             const int field_id = filter.field_ids[idx];
-            auto field_it = std::ranges::find_if(
-                    _data_reader.file_schema,
-                    [field_id](const reader::SchemaField& field) { return field.id == field_id; });
+            auto field_it = std::ranges::find_if(_data_reader.file_schema,
+                                                 [field_id](const reader::ColumnDefinition& field) {
+                                                     return field.identifier.has_field_id() &&
+                                                            field.identifier.field_id == field_id;
+                                                 });
             if (field_it == _data_reader.file_schema.end()) {
                 return Status::InternalError(
                         "Can not find equality delete column field id {} in data file schema",
                         field_id);
             }
-            const auto field_column_id = reader::LocalColumnId(field_it->id);
+            const auto field_column_id = reader::LocalColumnId(field_it->field_id());
             _append_file_scan_column(request, field_column_id, &request->predicate_columns);
             const auto block_position = request->local_positions.at(field_column_id).value();
             auto slot = TableSlotRef::create_shared(cast_set<int>(block_position),
@@ -335,10 +337,10 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     parquet::ParquetReader reader(system_properties, file_description, io_ctx, _scanner_profile);
     RETURN_IF_ERROR(reader.init(_runtime_state));
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     RETURN_IF_ERROR(reader.get_schema(&schema));
-    reader::SchemaField* file_path_field = nullptr;
-    reader::SchemaField* pos_field = nullptr;
+    reader::ColumnDefinition* file_path_field = nullptr;
+    reader::ColumnDefinition* pos_field = nullptr;
     for (auto& field : schema) {
         if (field.name == ICEBERG_FILE_PATH) {
             file_path_field = &field;
@@ -351,19 +353,20 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     }
 
     auto request = std::make_unique<reader::FileScanRequest>();
-    request->non_predicate_columns = {reader::LocalColumnIndex {.index = file_path_field->id},
-                                      reader::LocalColumnIndex {.index = pos_field->id}};
+    request->non_predicate_columns = {
+            reader::LocalColumnIndex {.index = file_path_field->field_id()},
+            reader::LocalColumnIndex {.index = pos_field->field_id()}};
     request->local_positions = {
-            {reader::LocalColumnId(file_path_field->id),
+            {reader::LocalColumnId(file_path_field->field_id()),
              reader::LocalIndex(ICEBERG_FILE_PATH_BLOCK_POSITION)},
-            {reader::LocalColumnId(pos_field->id),
+            {reader::LocalColumnId(pos_field->field_id()),
              reader::LocalIndex(ICEBERG_ROW_POS_BLOCK_POSITION)},
     };
     RETURN_IF_ERROR(reader.open(request));
 
     bool eof = false;
-    auto build_position_delete_block = [](const reader::SchemaField& file_path_field,
-                                          const reader::SchemaField& pos_field) -> Block {
+    auto build_position_delete_block = [](const reader::ColumnDefinition& file_path_field,
+                                          const reader::ColumnDefinition& pos_field) -> Block {
         Block block;
         block.insert(
                 {file_path_field.type->create_column(), file_path_field.type, ICEBERG_FILE_PATH});
@@ -443,15 +446,16 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
     parquet::ParquetReader reader(system_properties, file_description, io_ctx, _scanner_profile);
     RETURN_IF_ERROR(reader.init(_runtime_state));
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     RETURN_IF_ERROR(reader.get_schema(&schema));
-    std::vector<reader::SchemaField> delete_fields;
+    std::vector<reader::ColumnDefinition> delete_fields;
     std::vector<int> delete_field_ids;
     std::vector<DataTypePtr> delete_key_types;
     for (const auto field_id : delete_file.field_ids) {
         auto field_it = std::find_if(
-                schema.begin(), schema.end(),
-                [field_id](const reader::SchemaField& field) { return field_id == field.id; });
+                schema.begin(), schema.end(), [field_id](const reader::ColumnDefinition& field) {
+                    return field.identifier.has_field_id() && field_id == field.identifier.field_id;
+                });
         if (field_it == schema.end()) {
             return Status::InternalError("Can not find field id {} in equality delete file {}",
                                          field_id, delete_file.path);
@@ -467,13 +471,14 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
 
     auto request = std::make_unique<reader::FileScanRequest>();
     for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
-        request->non_predicate_columns.push_back({.index = delete_fields[idx].id});
-        request->local_positions.emplace(reader::LocalColumnId(delete_fields[idx].id),
+        request->non_predicate_columns.push_back({.index = delete_fields[idx].field_id()});
+        request->local_positions.emplace(reader::LocalColumnId(delete_fields[idx].field_id()),
                                          reader::LocalIndex(idx));
     }
     RETURN_IF_ERROR(reader.open(request));
 
-    auto build_equality_delete_block = [](const std::vector<reader::SchemaField> fields) -> Block {
+    auto build_equality_delete_block =
+            [](const std::vector<reader::ColumnDefinition> fields) -> Block {
         Block block;
         for (const auto& field : fields) {
             block.insert({field.type->create_column(), field.type, field.name});

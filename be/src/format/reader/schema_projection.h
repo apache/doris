@@ -32,12 +32,12 @@ Status rebuild_projected_type(const DataTypePtr& original_type,
                               const std::vector<std::string>& child_names,
                               DataTypePtr* projected_type);
 
-// Build the file-local schema field after applying a LocalColumnIndex projection.
+// Build the file-local column definition after applying a LocalColumnIndex projection.
 //
-// The projection is matched by SchemaField::id, not by vector ordinal. This keeps nested schema
-// evolution semantics in the common helper and lets callers use the same projection tree for type
-// rebuilding and file block layout.
-Status project_schema_field(const SchemaField& field, const LocalColumnIndex& projection,
-                            SchemaField* projected_field);
+// The projection is matched by ColumnDefinition::Identifier::FIELD_ID, not by vector ordinal. This
+// keeps nested schema evolution semantics in the common helper and lets callers use the same
+// projection tree for type rebuilding and file block layout.
+Status project_column_definition(const ColumnDefinition& field, const LocalColumnIndex& projection,
+                                 ColumnDefinition* projected_field);
 
 } // namespace doris::reader

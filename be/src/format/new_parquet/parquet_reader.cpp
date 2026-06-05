@@ -75,16 +75,16 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
                                    child_projection.index, column_schema.name);
 }
 
-void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
-                                       reader::SchemaField* field) const {
-    field->id = column_schema.field_id;
+void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
+                                            reader::ColumnDefinition* field) const {
+    field->identifier = reader::ColumnDefinition::Identifier::by_field_id(column_schema.field_id);
     field->name = column_schema.name;
     field->type = column_schema.type;
     field->children.clear();
     field->children.reserve(column_schema.children.size());
     for (const auto& child : column_schema.children) {
-        reader::SchemaField child_field;
-        _fill_schema_field(*child, &child_field);
+        reader::ColumnDefinition child_field;
+        _fill_column_definition(*child, &child_field);
         field->children.push_back(std::move(child_field));
     }
 }
@@ -108,7 +108,7 @@ Status ParquetReader::init(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) const {
+Status ParquetReader::get_schema(std::vector<reader::ColumnDefinition>* file_schema) const {
     if (file_schema == nullptr) {
         return Status::InvalidArgument("file_schema is null");
     }
@@ -119,9 +119,10 @@ Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) 
 
     file_schema->reserve(_state->file_schema.size());
     for (size_t column_idx = 0; column_idx < _state->file_schema.size(); ++column_idx) {
-        reader::SchemaField field;
-        _fill_schema_field(*_state->file_schema[column_idx], &field);
-        field.id = static_cast<int32_t>(column_idx);
+        reader::ColumnDefinition field;
+        _fill_column_definition(*_state->file_schema[column_idx], &field);
+        field.identifier =
+                reader::ColumnDefinition::Identifier::by_field_id(static_cast<int32_t>(column_idx));
         file_schema->push_back(std::move(field));
     }
     return Status::OK();

@@ -268,11 +268,11 @@ TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -306,11 +306,11 @@ TEST_F(CastTest, ColumnMapperTreatsEquivalentTypesAsTrivial) {
     table_column.type = std::make_shared<DataTypeInt32>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -326,11 +326,11 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -384,11 +384,11 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -443,11 +443,11 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -501,11 +501,11 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -545,11 +545,11 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
     table_column.type = std::make_shared<DataTypeString>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -601,8 +601,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {reader::GlobalIndex(0)};
 
-    reader::SchemaField int_file_field;
-    int_file_field.id = 0;
+    reader::ColumnDefinition int_file_field;
+    int_file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     int_file_field.name = "value";
     int_file_field.type = std::make_shared<DataTypeInt32>();
     reader::TableColumnMapper int_mapper;
@@ -618,8 +618,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
     EXPECT_TRUE(int_localized_expr->children()[2]->is_literal());
     EXPECT_TRUE(int_localized_expr->children()[2]->data_type()->equals(*int_file_field.type));
 
-    reader::SchemaField bigint_file_field;
-    bigint_file_field.id = 0;
+    reader::ColumnDefinition bigint_file_field;
+    bigint_file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     bigint_file_field.name = "value";
     bigint_file_field.type = std::make_shared<DataTypeInt64>();
     reader::TableColumnMapper bigint_mapper;
@@ -649,11 +649,11 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
     table_column.type = std::make_shared<DataTypeString>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -699,8 +699,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {reader::GlobalIndex(0)};
 
-    reader::SchemaField int_file_field;
-    int_file_field.id = 0;
+    reader::ColumnDefinition int_file_field;
+    int_file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     int_file_field.name = "value";
     int_file_field.type = std::make_shared<DataTypeInt32>();
     reader::TableColumnMapper int_mapper;
@@ -714,8 +714,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
     EXPECT_TRUE(int_localized_expr->children()[1]->is_literal());
     EXPECT_TRUE(int_localized_expr->children()[1]->data_type()->equals(*int_file_field.type));
 
-    reader::SchemaField bigint_file_field;
-    bigint_file_field.id = 0;
+    reader::ColumnDefinition bigint_file_field;
+    bigint_file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     bigint_file_field.name = "value";
     bigint_file_field.type = std::make_shared<DataTypeInt64>();
     reader::TableColumnMapper bigint_mapper;
@@ -743,11 +743,11 @@ TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -787,11 +787,11 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 0;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::SchemaField> file_schema {file_field};
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
 
     auto status = mapper.create_mapping(projected_columns, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status;
@@ -833,8 +833,8 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {reader::GlobalIndex(0)};
 
-    reader::SchemaField int_file_field;
-    int_file_field.id = 0;
+    reader::ColumnDefinition int_file_field;
+    int_file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     int_file_field.name = "value";
     int_file_field.type = std::make_shared<DataTypeInt32>();
 
@@ -848,8 +848,8 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     ASSERT_EQ(int_localized_expr->get_num_children(), 1);
     ASSERT_NE(dynamic_cast<const Cast*>(int_localized_expr->children()[0].get()), nullptr);
 
-    reader::SchemaField bigint_file_field;
-    bigint_file_field.id = 0;
+    reader::ColumnDefinition bigint_file_field;
+    bigint_file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     bigint_file_field.name = "value";
     bigint_file_field.type = std::make_shared<DataTypeInt64>();
 
@@ -892,8 +892,8 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     table_column.type = std::make_shared<DataTypeInt64>();
     std::vector<reader::ColumnDefinition> projected_columns {table_column};
 
-    reader::SchemaField file_field;
-    file_field.id = 10;
+    reader::ColumnDefinition file_field;
+    file_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(10);
     file_field.name = "value";
     file_field.type = std::make_shared<DataTypeInt64>();
 

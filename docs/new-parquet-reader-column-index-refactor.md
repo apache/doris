@@ -1,60 +1,20 @@
-# New Parquet Reader 列标识重构实现说明
+# New Parquet Reader 列标识重构实现说明 + TODO
 
-本文记录 new table/file reader 栈中列标识重构的当前实现状态和后续 TODO。
+本文记录 new table/file reader 栈中列标识重构的当前实现和后续 TODO。
 
-这次重构参考 DuckDB multi-file reader 的列标识模型，核心目标是把不同层级的
-column id 和 index 拆开，避免继续用裸 `int32_t`、`ColumnId`、`size_t` 同时表示
-table column id、file column id、block position、projection path 和 constant map
-position。
-
-## 状态概览
-
-### 已完成
-
-- 已引入 `ColumnDefinition`，调用点已直接使用该类型，不再保留 `TableColumn`
-  过渡 alias。
-- 已引入 `ColumnDefinition::Identifier`，用于描述 table/global column 如何匹配 file-local
-  schema。
-- `ColumnDefinition` 已清理为纯 schema definition，不再保存 FE column unique id。
-- FE column unique id 已限制在 `FileScannerV2` 边界内使用，并在进入 table/file reader 前
-  翻译成 `GlobalIndex`。
-- 已引入 `LocalColumnId`、`LocalIndex`、`GlobalIndex`、`ConstantIndex` 强类型。
-- `FileScanRequest` 已改为使用 `LocalColumnIndex` 和
-  `std::map<LocalColumnId, LocalIndex> local_positions`。
-- `TableFilter`、`TableColumnPredicates`、`ColumnMapping` 已使用 `GlobalIndex` 表示
-  table/global output column 位置。
-- new parquet reader 已改为消费 `LocalColumnIndex` 和 `LocalIndex`。
-- nested struct projection 已开始按 projection tree 跳过未投影 child reader。
-- Iceberg row position 和 equality delete 相关路径已迁移到新的 local id/index 表示。
-- column 相关类型已补充注释，说明各自语义边界和使用场景。
-
-### 部分完成
-
-- `LocalColumnIndex` 已统一替代原来的 `FieldProjection` 主要用途，但它的 `index`
-  字段在顶层表示 file-local top-level column id，在 nested 层表示 child id。
-- `STRUCT` projection 的 reader 创建路径已经按 projection 裁剪 child reader；
-  `LIST` 和 `MAP` 已有 projection 校验和部分递归传递，但后续还可以继续收敛。
-- `ConstantIndex` 已定义，但 `ConstantMap` 尚未实现，因此还没有形成完整的一等数据流。
-- `ColumnMapping` 已引入 `global_index`，但还没有完全改造成
-  `local_column_id/local_index/constant_index` 的结构。
-- `LocalColumnIndex` projection merge 和 schema projection 已沉淀为公共 helper，但 reader
-  projection helper 还没有完全收敛。
-
-### 未完成
-
-- `ConstantMap` 尚未实现。
-- filter target 尚未建模为 DuckDB 风格的 local-or-constant entry。
-- `FileReader::get_schema()` 仍返回 `SchemaField`，file reader schema 尚未统一到
-  `ColumnDefinition`。
-- reader projection 相关 helper 还比较分散。
-- `LocalColumnIndex` 顶层 id 和 nested child id 是否继续共用同一个字段仍需评估。
+这次重构参考 DuckDB multi-file reader 的列标识模型，核心原则是把不同层级的
+column id 和 index 拆开：column id 表示 schema identity，index 表示某个 block、
+vector、projection list 或 constant map 中的位置。Doris 当前实现不再用裸 `int32_t`、
+`ColumnId` 或 `size_t` 同时表示 table column id、file column id、block position、
+projection path 和 constant map position。
 
 ## DuckDB 参考
 
 DuckDB 在 `src/include/duckdb/common/multi_file/multi_file_data.hpp` 中把 multi-file
 reader 的列身份拆成几类：
 
-- `MultiFileColumnDefinition`：table/global schema column definition。
+- `MultiFileColumnDefinition`：table reader 和 base file reader 共享的 schema column
+  definition。
 - `ColumnIndex`：递归 projection path。
 - `MultiFileLocalColumnId`：当前文件 schema 中的列 id。
 - `MultiFileLocalIndex`：local file reader 输出或 local expression 输入中的位置。
@@ -62,46 +22,50 @@ reader 的列身份拆成几类：
 - `MultiFileConstantMapIndex`：per-file constant map 中的位置。
 - `MultiFileFilterEntry`：filter 目标，指向 local index 或 constant map index。
 
-最关键的原则是：column id 表示 schema identity，index 表示某个 vector、block、
-projection list 或 map 中的位置。Doris 当前实现沿用了这个原则，但还没有完全补齐
-constant map 和 filter entry。
+Doris 对应把这些共享定义集中放在 `be/src/format/reader/column_data.h`。这个文件名覆盖
+schema definition、local/global/constant index、file-local projection tree 等数据结构，比
+只表达 column definition 的命名更接近 DuckDB `multi_file_data.hpp` 的职责范围。
 
-## 当前核心类型
+## 当前实现
 
 ### ColumnDefinition
 
-定义位置：`be/src/format/reader/table_reader.h`
+定义位置：`be/src/format/reader/column_data.h`
 
-`ColumnDefinition` 是 table/global schema 中的列定义，对标 DuckDB 的
-`MultiFileColumnDefinition`。它描述 table 侧列的名字、类型、children、默认表达式、
-partition 属性和 virtual column 属性。
+`ColumnDefinition` 对标 DuckDB 的 `MultiFileColumnDefinition`，用于表示 table/global
+schema 和 file reader 返回的 file-local schema。它描述列名、类型、children、默认表达式、
+partition 属性和 file-local column kind。
 
-当前调用点已直接使用 `ColumnDefinition`，不再通过 `TableColumn` alias 过渡。
+`ColumnDefinition` 不保存 FE column unique id。FE column unique id 只在
+`FileScannerV2` 边界内使用，并在进入 table/file reader 前翻译成 `GlobalIndex`。
+table reader 层及以下只通过 `ColumnDefinition::Identifier` 做 schema 匹配，通过
+`GlobalIndex` 表示 table/global output column 位置。
+
+旧的 file-local schema 专用类型已删除，`FileReader::get_schema()` 直接返回
+`std::vector<ColumnDefinition>`。Parquet reader、Iceberg reader、schema projection 和
+table reader tests 都已经迁移到该类型。
 
 ### ColumnDefinition::Identifier
 
-定义位置：`be/src/format/reader/table_reader.h`
+定义位置：`be/src/format/reader/column_data.h`
 
-`ColumnDefinition::Identifier` 只用于 table/global schema 到 file-local schema 的匹配，不表示
-output block 位置，也不表示 file reader block 位置。
+`ColumnDefinition::Identifier` 用于描述一个 column 如何匹配另一份 schema，不表示 block
+位置，也不表示 file reader 输出位置。
 
 当前支持三种匹配方式：
 
-- `FIELD_ID`：用于 Iceberg 等有 schema evolution field id 的 table format。
-- `NAME`：用于按名字匹配的普通文件格式。
-- `POSITION`：用于只能按物理顺序匹配的文件，比如 Hive1 ORC 场景。
+- `FIELD_ID`：schema evolution aware field id，例如 Iceberg/Parquet field id。
+- `NAME`：逻辑列名，用于按名字匹配的文件格式。
+- `POSITION`：物理文件顺序，用于 Hive1 ORC 这类文件名不可用的场景。
 
-FE column unique id 不再保存在 `ColumnDefinition` 中。投影列通过
-`FileScannerV2` 翻译成 `GlobalIndex` 后再传入 table/file reader。table reader 层及以下
-通过 `TableFilter::global_indices`、`TableColumnPredicates` 和
-`ColumnMapping::global_index` 表示 table/global output column 位置；schema 匹配只使用
-`ColumnDefinition::Identifier`，不再接触 FE column unique id。
+`ColumnDefinition::field_id()`、`file_position()` 和 `match_name()` 是带语义断言的访问
+helper，调用方应先选择正确匹配模式，不要在 reader 层重新引入 FE column unique id。
 
 ### LocalColumnId
 
-定义位置：`be/src/format/reader/file_reader.h`
+定义位置：`be/src/format/reader/column_data.h`
 
-`LocalColumnId` 表示当前文件 schema 中的 top-level column id。
+`LocalColumnId` 表示当前物理文件 schema 中的 top-level column id。
 
 使用场景：
 
@@ -114,7 +78,7 @@ FE column unique id 不再保存在 `ColumnDefinition` 中。投影列通过
 
 ### LocalIndex
 
-定义位置：`be/src/format/reader/file_reader.h`
+定义位置：`be/src/format/reader/column_data.h`
 
 `LocalIndex` 表示一次 `FileScanRequest` 内，file reader 输出 block 中的列位置。
 
@@ -129,7 +93,7 @@ FE column unique id 不再保存在 `ColumnDefinition` 中。投影列通过
 
 ### GlobalIndex
 
-定义位置：`be/src/format/reader/file_reader.h`
+定义位置：`be/src/format/reader/column_data.h`
 
 `GlobalIndex` 表示 table/global output block 中的列位置。
 
@@ -142,39 +106,16 @@ FE column unique id 不再保存在 `ColumnDefinition` 中。投影列通过
 
 ### ConstantIndex
 
-定义位置：`be/src/format/reader/file_reader.h`
+定义位置：`be/src/format/reader/column_data.h`
 
 `ConstantIndex` 表示 per-split 或 per-file constant map 中的位置。
 
 当前类型已经引入，但 `ConstantMap` 尚未实现。因此 missing/default/partition/generated/
 virtual column 仍主要通过 `ColumnMapping` flags 和 expression 表示。
 
-## FileScanRequest
+### LocalColumnIndex
 
-定义位置：`be/src/format/reader/file_reader.h`
-
-当前结构已经改为：
-
-```cpp
-struct FileScanRequest {
-    std::vector<LocalColumnIndex> predicate_columns;
-    std::vector<LocalColumnIndex> non_predicate_columns;
-    std::map<LocalColumnId, LocalIndex> local_positions;
-};
-```
-
-语义：
-
-- `predicate_columns`：predicate 需要读取的 file-local projection。
-- `non_predicate_columns`：最终输出需要读取的 file-local projection。
-- `local_positions`：top-level `LocalColumnId` 到 request-local `LocalIndex` 的映射。
-
-`local_positions` 是 request-local 的 block layout，不是 file schema 顺序，也不是最终
-table/global output 顺序。
-
-## LocalColumnIndex
-
-定义位置：`be/src/format/reader/file_reader.h`
+定义位置：`be/src/format/reader/column_data.h`
 
 `LocalColumnIndex` 是递归 file-local projection path：
 
@@ -193,16 +134,39 @@ struct LocalColumnIndex {
 - `project_all_children = true` 表示读取该节点下完整 subtree。
 - `project_all_children = false` 时，`children` 表示需要读取的 child projection。
 
-这个结构和 DuckDB `ColumnIndex` 类似，迁移成本较低。但它没有在类型层面区分 top-level
-file column id 和 nested child id，这是后续可以继续收紧的地方。
+`merge_local_column_index` 用于合并同一个 file-local node 的 projection tree：full
+projection 覆盖 partial projection，两个 partial projection 按 child id 递归合并。
 
-## Nested Projection 当前实现
+### FileScanRequest
 
-### Mapper 阶段
+定义位置：`be/src/format/reader/file_reader.h`
 
-相关位置：`be/src/format/reader/column_mapper.cpp`
+`FileScanRequest` 只描述所有文件格式共享的 file-local 读取输入，不出现 table/global
+schema。所有 schema change、filter localization、default/generated/partition 列都在 table
+层完成。
 
-`TableColumnMapper` 会根据 table/global projection 和 nested predicate，构造 file-local
+核心字段：
+
+```cpp
+struct FileScanRequest {
+    std::vector<LocalColumnIndex> predicate_columns;
+    std::vector<LocalColumnIndex> non_predicate_columns;
+    std::map<LocalColumnId, LocalIndex> local_positions;
+};
+```
+
+语义：
+
+- `predicate_columns`：predicate 需要读取的 file-local projection。
+- `non_predicate_columns`：最终输出需要读取的 file-local projection。
+- `local_positions`：top-level `LocalColumnId` 到 request-local `LocalIndex` 的映射。
+
+`local_positions` 是 request-local 的 block layout，不是 file schema 顺序，也不是最终
+table/global output 顺序。
+
+### Nested Projection
+
+`TableColumnMapper` 根据 table/global projection 和 nested predicate，构造 file-local
 `LocalColumnIndex` 树。主要职责包括：
 
 - 通过 `ColumnDefinition::Identifier` 找到 table column 对应的 file field。
@@ -212,51 +176,19 @@ file column id 和 nested child id，这是后续可以继续收紧的地方。
 - 保存 `ColumnMapping::original_file_children`，用于后续 projected type 重建和 nested
   filter localization。
 
-当前已有两个公共 helper：
+new parquet reader 使用 `LocalColumnIndex` 创建 column reader。`STRUCT` 已按 projection
+裁剪 child reader：full projection 读取全部 children，partial projection 只为选中的 child
+创建 reader。`LIST` 和 `MAP` 已有 projection 校验和部分递归传递，但支持范围更保守。
 
-- `merge_local_column_index`：合并同一个 file-local node 的 projection tree。
-- `project_schema_field`：按 `SchemaField::id` 对 file-local schema 应用 projection。
+`TableReader` 仍负责把 file-local block 转成 table/global block，包括 projected
+struct/list/map child remap、missing/default/partition/generated/virtual column materialization
+和 nested projection 后的 type 重建。
 
-### Parquet Reader 阶段
-
-相关位置：
-
-- `be/src/format/new_parquet/parquet_reader.cpp`
-- `be/src/format/new_parquet/parquet_scan.cpp`
-- `be/src/format/new_parquet/reader/column_reader.cpp`
-
-new parquet reader 使用 `LocalColumnIndex` 创建 column reader。
-
-`STRUCT` 当前已经按 projection 裁剪 reader：
-
-- full projection 时读取全部 children。
-- partial projection 时只为选中的 child 创建 reader。
-- 未投影 child 不再创建底层 reader。
-
-`LIST` 和 `MAP` 当前也接受 projection 递归传递，但支持范围更保守：
-
-- `LIST` 的 scalar element 不允许携带 child projection。
-- `LIST` 的 complex element 可以继续递归到 struct/list/map。
-- `MAP` 默认读取 key，value 可以递归投影。
-- 对 unsupported complex nested projection 仍返回 `NotSupported`。
-
-### TableReader Finalize 阶段
-
-相关位置：`be/src/format/reader/table_reader.cpp`
-
-`TableReader` 仍负责把 file-local block 转成 table/global block：
-
-- 对 projected struct/list/map 做 child remap。
-- 对 missing/default/partition/generated/virtual column 执行 expression。
-- 对 nested projection 后的 file type 重建 table 侧形态。
-
-这块逻辑还没有完全拆成 constant map + projection expression 的统一模型。
-
-## ColumnMapping 当前状态
+### ColumnMapping
 
 定义位置：`be/src/format/reader/column_mapper.h`
 
-`ColumnMapping` 现在承担 table/global column 到 file-local column 的映射职责。当前字段中：
+`ColumnMapping` 现在承担 table/global column 到 file-local column 的映射职责。当前关键字段：
 
 - `global_index`：table/global output block 中的列位置。
 - `field_id`：file-local field id。root mapping 可转成 `LocalColumnId`，nested mapping 表示
@@ -264,49 +196,10 @@ new parquet reader 使用 `LocalColumnIndex` 创建 column reader。
 - `file_path`：从 top-level file column 到当前 mapping 的 child id path。
 - `original_file_type` / `original_file_children`：projection 前的 file type 和 child schema。
 - `file_type` / `table_type`：投影和 cast 后参与读取/输出的类型。
-- `projection`：从 file/local 或 constant 输入生成 table/global 输出的表达式。
+- `projection`：从 file-local 或 constant 输入生成 table/global 输出的表达式。
 - `child_mappings`：nested table child 到 file child 的映射树。
 - `is_constant` / `is_missing`：当前仍用于表达非真实 file column 来源。
 - `has_complex_projection`：表示读取到的 nested value 需要在 finalize 阶段重建 shape。
-
-后续目标是把 `ColumnMapping` 中的 source 和 position 拆得更直接：
-
-```cpp
-struct ColumnMapping {
-    GlobalIndex global_index;
-
-    std::optional<LocalColumnId> local_column_id;
-    std::optional<LocalIndex> local_index;
-    std::optional<ConstantIndex> constant_index;
-
-    LocalColumnIndex local_projection;
-    DataTypePtr local_type;
-    DataTypePtr global_type;
-
-    VExprContextSPtr projection_expr;
-    VExprContextSPtr reader_filter_expr;
-    std::vector<ColumnMapping> child_mappings;
-};
-```
-
-## Iceberg 相关路径
-
-相关位置：`be/src/format/table/iceberg_reader_v2.cpp`
-
-已迁移的内容：
-
-- row position 使用 `LocalColumnId` 加入 `FileScanRequest`。
-- `_row_position_block_position` 从 `local_positions` 中读取 `LocalIndex::value()`。
-- equality delete 读取 delete file 时使用 `LocalColumnIndex` 和 `local_positions`。
-- equality delete predicate 构造时，用 data file schema field id 定位 file-local block
-  column。
-
-需要继续关注：
-
-- equality delete 当前仍按 field id 找 data file schema；如果 nested equality delete 后续要支持，
-  需要重新设计 projection path 和 predicate 输入。
-- row position 更像 virtual local column。后续可以决定是否把它放入统一 virtual column
-  source，而不是特殊 `LocalColumnId`。
 
 ## TODO
 
@@ -391,22 +284,7 @@ reader factory 内部。
 - 统一 full projection、partial projection、empty projection 的判断。
 - 统一 struct/list/map 对 unsupported nested projection 的校验和错误信息。
 
-### TODO 5：统一 file reader schema 表示
-
-当前 `FileReader::get_schema()` 仍返回 `SchemaField`。这在语义上已经是 file-local
-schema definition，可以继续评估是否统一成 `ColumnDefinition` 或一个更明确的
-file-local `ColumnDefinition` 变体。
-
-后续需要先明确两点：
-
-- `ColumnDefinition::Identifier` 是否同时适合 table/global schema 和 file-local schema。
-- file-local `SchemaField::id` 是 top-level `LocalColumnId` / nested child id，不能重新混入
-  FE column unique id。
-
-如果统一收益明确，可以把 `FileReader::get_schema()`、`SchemaField` helper 和
-`ColumnMapper` 的 file schema 参数继续迁移。
-
-### TODO 6：继续完善 LIST/MAP nested projection
+### TODO 5：继续完善 LIST/MAP nested projection
 
 当前 `STRUCT` reader 裁剪收益最明确。`LIST` 和 `MAP` 的复杂 nested projection 仍偏保守。
 
@@ -417,20 +295,27 @@ file-local `ColumnDefinition` 变体。
 - 统一 key/value/list element projection 的错误信息和 schema validation。
 - 增加针对 list/map partial projection 的单测。
 
-## 测试和验证建议
+### TODO 6：拆分 ColumnMapping source 和 position
 
-已进行的验证：
+当前 `ColumnMapping` 已经引入 `global_index`，但 file source、constant source 和 request-local
+position 仍混在多个 flags 和 optional 字段中。
 
-- `build-support/clang-format.sh` 已用于相关 C++ 文件。
-- `git diff --check` 已通过。
-- Fedora 上使用 `BUILD_TYPE=DEBUG ./build.sh --be` 编译，已暴露并修复多个 DEBUG 下的
-  类型/字段名问题。
+后续目标结构可以继续向下面形态收敛：
 
-建议继续补充：
+```cpp
+struct ColumnMapping {
+    GlobalIndex global_index;
 
-- `be/test/format/new_parquet/parquet_reader_test.cpp`：覆盖 struct partial projection。
-- `be/test/format/new_parquet/parquet_column_reader_test.cpp`：覆盖 reader factory 只创建投影 child。
-- `be/test/format/reader/table_reader_test.cpp`：覆盖 table/global schema 到 file-local schema
-  的 field id/name/position 匹配。
-- Iceberg equality delete 相关单测：覆盖 `field_ids` 到 data file local positions 的映射。
-- 如果后续实现 ConstantMap，需要补 partition/default/missing column filter 的单测。
+    std::optional<LocalColumnId> local_column_id;
+    std::optional<LocalIndex> local_index;
+    std::optional<ConstantIndex> constant_index;
+
+    LocalColumnIndex local_projection;
+    DataTypePtr local_type;
+    DataTypePtr global_type;
+
+    VExprContextSPtr projection_expr;
+    VExprContextSPtr reader_filter_expr;
+    std::vector<ColumnMapping> child_mappings;
+};
+```

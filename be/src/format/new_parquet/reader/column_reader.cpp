@@ -124,9 +124,9 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         : _row_group(std::move(row_group)),
           _record_readers(static_cast<size_t>(num_leaf_columns)) {}
 
-reader::SchemaField ParquetColumnReaderFactory::row_position_schema_field() {
-    reader::SchemaField field;
-    field.id = ROW_POSITION_COLUMN_ID;
+reader::ColumnDefinition ParquetColumnReaderFactory::row_position_column_definition() {
+    reader::ColumnDefinition field;
+    field.identifier = reader::ColumnDefinition::Identifier::by_field_id(ROW_POSITION_COLUMN_ID);
     field.name = ROW_POSITION_COLUMN_NAME;
     field.type = std::make_shared<DataTypeInt64>();
     field.column_type = reader::ColumnType::ROW_NUMBER;

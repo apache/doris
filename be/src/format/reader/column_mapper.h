@@ -47,9 +47,9 @@ struct TableFilter;
 using TableColumnPredicates = std::map<GlobalIndex, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
-    // Match by ColumnDefinition::Identifier::FIELD_ID against SchemaField::id.
+    // Match by ColumnDefinition::Identifier::FIELD_ID against ColumnDefinition::id.
     BY_FIELD_ID,
-    // Match by ColumnDefinition::Identifier::NAME / logical name against SchemaField::name.
+    // Match by ColumnDefinition::Identifier::NAME / logical name against ColumnDefinition::name.
     BY_NAME,
     // Match top-level columns by file position. This mainly serves Hive1 ORC style files whose
     // column names are placeholder values such as `_col0` / `_col1`, where position is the only
@@ -79,7 +79,7 @@ struct ColumnMapping {
     // Full file type/children before nested projection pruning. Used to rebuild projected types
     // and to localize nested filters that reference children not present in the output projection.
     DataTypePtr original_file_type;
-    std::vector<SchemaField> original_file_children;
+    std::vector<ColumnDefinition> original_file_children;
     // File-local nested child id path from the top-level file column to this mapping.
     // The root top-level column id is stored in field_id of the root mapping, not repeated here.
     std::vector<int32_t> file_path;
@@ -136,7 +136,7 @@ public:
     // 后续 projection、filter localization 和 table block finalize 都应复用这份映射。
     virtual Status create_mapping(const std::vector<ColumnDefinition>& projected_columns,
                                   const std::map<std::string, Field>& partition_values,
-                                  const std::vector<SchemaField>& file_schema);
+                                  const std::vector<ColumnDefinition>& file_schema);
 
     // 把 table-level scan 请求转换成 file-local scan 请求。table_filters 保留 row-level
     // 过滤语义并转换成 file-local conjuncts；table_column_predicates 只转换成 file-layer
@@ -163,13 +163,14 @@ public:
     static std::string debug_string(const FileScanRequest& request);
 
 private:
-    const SchemaField* _find_file_field(const ColumnDefinition& table_column,
-                                        const std::vector<SchemaField>& file_schema) const;
+    const ColumnDefinition* _find_file_field(
+            const ColumnDefinition& table_column,
+            const std::vector<ColumnDefinition>& file_schema) const;
     Status _create_direct_mapping(const ColumnDefinition& table_column,
-                                  const SchemaField& file_field, ColumnMapping* mapping) const;
+                                  const ColumnDefinition& file_field, ColumnMapping* mapping) const;
 
     Status _create_by_index_mapping(const ColumnDefinition& table_column,
-                                    const std::vector<SchemaField>& file_schema,
+                                    const std::vector<ColumnDefinition>& file_schema,
                                     ColumnMapping* mapping) const;
 
     ColumnMapping* _find_mapping(GlobalIndex global_index);

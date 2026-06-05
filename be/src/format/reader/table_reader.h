@@ -46,6 +46,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/new_parquet/reader/column_reader.h"
+#include "format/reader/column_data.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"
@@ -63,78 +64,6 @@ struct DeleteFileDesc;
 namespace doris::reader {
 
 using DeleteRows = std::vector<int64_t>;
-
-// Column schema definition shared by table/global projection and file-local schema matching.
-//
-// ColumnDefinition intentionally carries schema identity only. FE column unique ids are translated
-// to GlobalIndex at the FileScannerV2 boundary and must not appear in table/file reader APIs.
-struct ColumnDefinition {
-    // Identifier used to match a column against another schema.
-    //
-    // - FIELD_ID: schema evolution aware field id, such as Iceberg/Parquet field id.
-    // - NAME: logical column name for formats that rely on names.
-    // - POSITION: physical file ordinal for files whose names are placeholders, such as Hive1 ORC.
-    struct Identifier {
-        enum class Kind {
-            INVALID,
-            FIELD_ID,
-            NAME,
-            POSITION,
-        };
-
-        Kind kind = Kind::INVALID;
-        int32_t field_id = -1;
-        std::string name;
-        int32_t position = -1;
-
-        static Identifier by_field_id(int32_t id) {
-            return {.kind = Kind::FIELD_ID, .field_id = id, .name = {}, .position = -1};
-        }
-
-        static Identifier by_name(std::string column_name) {
-            return {.kind = Kind::NAME,
-                    .field_id = -1,
-                    .name = std::move(column_name),
-                    .position = -1};
-        }
-
-        static Identifier by_position(int32_t file_position) {
-            return {.kind = Kind::POSITION, .field_id = -1, .name = {}, .position = file_position};
-        }
-
-        bool has_field_id() const { return kind == Kind::FIELD_ID; }
-        bool has_name() const { return kind == Kind::NAME; }
-        bool has_position() const { return kind == Kind::POSITION; }
-    };
-
-    // Matching key from table/global schema to file-local schema.
-    Identifier identifier;
-    // Logical table column name. This is also the matching name for by-name file formats.
-    std::string name;
-    DataTypePtr type;
-    // Projected nested table children. Children use table/global identifiers; they are resolved to
-    // file-local child ids by TableColumnMapper before reaching FileReader.
-    std::vector<ColumnDefinition> children {};
-    // Expression used to materialize missing/default/generated values when the column is not read
-    // directly from the file.
-    VExprContextSPtr default_expr = nullptr;
-    // Partition columns are constants from split metadata and should not be matched against file
-    // schema unless table-format logic explicitly asks for it.
-    bool is_partition_key = false;
-
-    // Helper for BY_FIELD_ID matching.
-    int32_t field_id() const {
-        DORIS_CHECK(identifier.has_field_id());
-        return identifier.field_id;
-    }
-    // Helper for BY_INDEX matching.
-    int32_t file_position() const {
-        DORIS_CHECK(identifier.has_position());
-        return identifier.position;
-    }
-    // Helper for BY_NAME matching.
-    const std::string& match_name() const { return identifier.has_name() ? identifier.name : name; }
-};
 
 // Row-level predicates on table/global schema. They are rewritten to file-local expressions when
 // possible, and remain the source of row-level filtering after localization.
@@ -310,7 +239,7 @@ protected:
     // 子类在这里基于当前 split/task 初始化底层 FileReader。
     virtual Status open_reader() {
         // 1. Get file schema and create column mapping.
-        std::vector<SchemaField> file_schema;
+        std::vector<ColumnDefinition> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
         // TODO: It's different for paimon/hudi/iceberg
         bool has_field_id = !file_schema.empty() && file_schema.front().id >= 0;
@@ -345,17 +274,17 @@ protected:
         // the block returned by file reader before table-column materialization.
         for (const auto& [file_column_id, block_position] : file_request->local_positions) {
             DORIS_CHECK(block_position.value() < _data_reader.file_block_layout.size());
-            const auto* field = _find_schema_field(_data_reader.file_schema, file_column_id);
+            const auto* field = _find_column_definition(_data_reader.file_schema, file_column_id);
             DORIS_CHECK(field != nullptr);
 
-            SchemaField projected_field;
+            ColumnDefinition projected_field;
             {
                 auto it = std::find_if(
                         file_request->non_predicate_columns.begin(),
                         file_request->non_predicate_columns.end(),
                         [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
                 if (it != file_request->non_predicate_columns.end()) {
-                    RETURN_IF_ERROR(project_schema_field(*field, *it, &projected_field));
+                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
                 }
             }
             {
@@ -364,7 +293,7 @@ protected:
                         file_request->predicate_columns.end(),
                         [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
                 if (it != file_request->predicate_columns.end()) {
-                    RETURN_IF_ERROR(project_schema_field(*field, *it, &projected_field));
+                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
                 }
             }
             _data_reader.file_block_layout[block_position.value()] = {
@@ -431,9 +360,9 @@ protected:
         if (column_id ==
                     LocalColumnId(
                             doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) &&
-            _find_schema_field(_data_reader.file_schema, column_id) == nullptr) {
+            _find_column_definition(_data_reader.file_schema, column_id) == nullptr) {
             _data_reader.file_schema.push_back(
-                    doris::parquet::ParquetColumnReaderFactory::row_position_schema_field());
+                    doris::parquet::ParquetColumnReaderFactory::row_position_column_definition());
         }
     }
 
@@ -855,7 +784,7 @@ protected:
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
         // Schema of the data file, also including virtual column (row position).
-        std::vector<SchemaField> file_schema;
+        std::vector<ColumnDefinition> file_schema;
         // Layout of the block returned by file reader, determined by column mapping and file
         // schema. It is used for file reader to materialize columns into correct type and position.
         std::vector<FileBlockColumn> file_block_layout;
@@ -884,10 +813,10 @@ protected:
     TableColumnMapperOptions _mapper_options;
 
 private:
-    static const SchemaField* _find_schema_field(const std::vector<SchemaField>& schema,
-                                                 LocalColumnId column_id) {
+    static const ColumnDefinition* _find_column_definition(
+            const std::vector<ColumnDefinition>& schema, LocalColumnId column_id) {
         for (const auto& field : schema) {
-            if (field.id == column_id.value()) {
+            if (field.identifier.has_field_id() && field.identifier.field_id == column_id.value()) {
                 return &field;
             }
         }

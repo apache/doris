@@ -72,8 +72,8 @@ Status rebuild_projected_type(const DataTypePtr& original_type,
     return Status::OK();
 }
 
-Status project_schema_field(const SchemaField& field, const LocalColumnIndex& projection,
-                            SchemaField* projected_field) {
+Status project_column_definition(const ColumnDefinition& field, const LocalColumnIndex& projection,
+                                 ColumnDefinition* projected_field) {
     if (projected_field == nullptr) {
         return Status::InvalidArgument("projected_field is null");
     }
@@ -87,15 +87,17 @@ Status project_schema_field(const SchemaField& field, const LocalColumnIndex& pr
         if (child_projection.index == -1) {
             return Status::InvalidArgument("Empty projection path for field {}", field.name);
         }
-        const auto child_it = std::ranges::find_if(field.children, [&](const SchemaField& child) {
-            return child.id == child_projection.index;
-        });
+        const auto child_it =
+                std::ranges::find_if(field.children, [&](const ColumnDefinition& child) {
+                    return child.identifier.has_field_id() &&
+                           child.identifier.field_id == child_projection.index;
+                });
         if (child_it == field.children.end()) {
             return Status::InvalidArgument("Invalid projection child id {} for field {}",
                                            child_projection.index, field.name);
         }
-        SchemaField projected_child;
-        RETURN_IF_ERROR(project_schema_field(*child_it, child_projection, &projected_child));
+        ColumnDefinition projected_child;
+        RETURN_IF_ERROR(project_column_definition(*child_it, child_projection, &projected_child));
         projected_field->children.push_back(std::move(projected_child));
     }
     if (projected_field->children.empty()) {

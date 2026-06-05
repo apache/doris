@@ -393,7 +393,7 @@ void write_nested_dictionary_filter_parquet_file(const std::string& file_path) {
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     builder.enable_dictionary("s.name");
-    builder.disable_dictionary("s.id");
+    builder.disable_dictionary("s.identifier.field_id");
     builder.disable_statistics();
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
                                                       builder.build()));
@@ -519,7 +519,7 @@ reader::FileColumnPredicateFilter bloom_filter_with_predicate(
     return bloom_filter;
 }
 
-Block build_file_block(const std::vector<reader::SchemaField>& schema) {
+Block build_file_block(const std::vector<reader::ColumnDefinition>& schema) {
     Block block;
     for (const auto& field : schema) {
         block.insert({field.type->create_column(), field.type, field.name});
@@ -527,10 +527,10 @@ Block build_file_block(const std::vector<reader::SchemaField>& schema) {
     return block;
 }
 
-Block build_file_block_with_row_position(const std::vector<reader::SchemaField>& schema) {
+Block build_file_block_with_row_position(const std::vector<reader::ColumnDefinition>& schema) {
     auto block = build_file_block(schema);
     const auto row_position_field =
-            parquet::ParquetColumnReaderFactory::row_position_schema_field();
+            parquet::ParquetColumnReaderFactory::row_position_column_definition();
     block.insert({row_position_field.type->create_column(), row_position_field.type,
                   row_position_field.name});
     return block;
@@ -563,10 +563,10 @@ public:
                    std::shared_ptr<io::IOContext> io_ctx)
             : reader::FileReader(system_properties, file_description, io_ctx, nullptr) {}
 
-    Status get_schema(std::vector<reader::SchemaField>* file_schema) const override {
+    Status get_schema(std::vector<reader::ColumnDefinition>* file_schema) const override {
         file_schema->clear();
-        reader::SchemaField field;
-        field.id = 0;
+        reader::ColumnDefinition field;
+        field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
         field.name = "id";
         field.type = std::make_shared<DataTypeInt32>();
         file_schema->push_back(std::move(field));
@@ -620,15 +620,15 @@ TEST(FileReaderTest, CloseReleasesSharedIOContext) {
 }
 
 TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
-    reader::SchemaField struct_field;
-    struct_field.id = 0;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     struct_field.name = "s";
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = std::make_shared<DataTypeInt32>();
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = std::make_shared<DataTypeString>();
     struct_field.children = {a_field, b_field};
@@ -670,16 +670,16 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
 TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = a_type;
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = b_type;
-    reader::SchemaField struct_field;
-    struct_field.id = 0;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
@@ -741,12 +741,12 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
 
 TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     auto id_type = std::make_shared<DataTypeInt32>();
-    reader::SchemaField file_child;
-    file_child.id = 101;
+    reader::ColumnDefinition file_child;
+    file_child.identifier = reader::ColumnDefinition::Identifier::by_field_id(101);
     file_child.name = "file_id";
     file_child.type = id_type;
-    reader::SchemaField struct_field;
-    struct_field.id = 100;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(100);
     struct_field.name = "s";
     struct_field.type = std::make_shared<DataTypeStruct>(DataTypes {id_type}, Strings {"file_id"});
     struct_field.children = {file_child};
@@ -796,16 +796,16 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
 TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = a_type;
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = b_type;
-    reader::SchemaField struct_field;
-    struct_field.id = 0;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
@@ -850,16 +850,16 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
 TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseComparison) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = a_type;
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = b_type;
-    reader::SchemaField struct_field;
-    struct_field.id = 0;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
@@ -911,25 +911,25 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
     auto full_struct_type =
             std::make_shared<DataTypeStruct>(DataTypes {inner_type, b_type}, Strings {"a", "b"});
 
-    reader::SchemaField id_field;
-    id_field.id = 0;
+    reader::ColumnDefinition id_field;
+    id_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     id_field.name = "id";
     id_field.type = id_type;
-    reader::SchemaField name_field;
-    name_field.id = 1;
+    reader::ColumnDefinition name_field;
+    name_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     name_field.name = "n";
     name_field.type = name_type;
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = inner_type;
     a_field.children = {id_field, name_field};
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = b_type;
-    reader::SchemaField struct_field;
-    struct_field.id = 0;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     struct_field.name = "s";
     struct_field.type = full_struct_type;
     struct_field.children = {a_field, b_field};
@@ -974,16 +974,16 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
 TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = a_type;
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = b_type;
-    reader::SchemaField struct_field;
-    struct_field.id = 0;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
@@ -1025,16 +1025,16 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
 TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterFromOr) {
     auto a_type = std::make_shared<DataTypeInt32>();
     auto b_type = std::make_shared<DataTypeString>();
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = a_type;
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = b_type;
-    reader::SchemaField struct_field;
-    struct_field.id = 0;
+    reader::ColumnDefinition struct_field;
+    struct_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     struct_field.name = "s";
     struct_field.type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
@@ -1089,31 +1089,31 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     auto value_type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
 
-    reader::SchemaField key_field;
-    key_field.id = 0;
+    reader::ColumnDefinition key_field;
+    key_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     key_field.name = "key";
     key_field.type = key_type;
-    reader::SchemaField a_field;
-    a_field.id = 0;
+    reader::ColumnDefinition a_field;
+    a_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     a_field.name = "a";
     a_field.type = a_type;
-    reader::SchemaField b_field;
-    b_field.id = 1;
+    reader::ColumnDefinition b_field;
+    b_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     b_field.name = "b";
     b_field.type = b_type;
-    reader::SchemaField value_field;
-    value_field.id = 1;
+    reader::ColumnDefinition value_field;
+    value_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     value_field.name = "value";
     value_field.type = value_type;
     value_field.children = {a_field, b_field};
-    reader::SchemaField entry_field;
-    entry_field.id = 0;
+    reader::ColumnDefinition entry_field;
+    entry_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     entry_field.name = "entries";
     entry_field.type = std::make_shared<DataTypeStruct>(DataTypes {key_type, value_type},
                                                         Strings {"key", "value"});
     entry_field.children = {key_field, value_field};
-    reader::SchemaField map_field;
-    map_field.id = 0;
+    reader::ColumnDefinition map_field;
+    map_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     map_field.name = "m";
     map_field.type = std::make_shared<DataTypeMap>(key_type, value_type);
     map_field.children = {entry_field};
@@ -1169,13 +1169,13 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
 }
 
 TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) {
-    reader::SchemaField id_field;
-    id_field.id = 0;
+    reader::ColumnDefinition id_field;
+    id_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(0);
     id_field.name = "id";
     id_field.type = std::make_shared<DataTypeInt32>();
 
-    reader::SchemaField value_field;
-    value_field.id = 1;
+    reader::ColumnDefinition value_field;
+    value_field.identifier = reader::ColumnDefinition::Identifier::by_field_id(1);
     value_field.name = "value";
     value_field.type = std::make_shared<DataTypeString>();
 
@@ -1333,13 +1333,13 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 2);
-    EXPECT_EQ(schema[0].id, 0);
+    EXPECT_EQ(schema[0].identifier.field_id, 0);
     EXPECT_EQ(schema[0].name, "id");
     EXPECT_EQ(schema[0].type->get_primitive_type(), TYPE_INT);
-    EXPECT_EQ(schema[1].id, 1);
+    EXPECT_EQ(schema[1].identifier.field_id, 1);
     EXPECT_EQ(schema[1].name, "value");
     EXPECT_EQ(schema[1].type->get_primitive_type(), TYPE_STRING);
 }
@@ -1349,7 +1349,7 @@ TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
@@ -1388,7 +1388,7 @@ TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
     request->non_predicate_columns = {field_projection(0), field_projection(1)};
@@ -1422,7 +1422,7 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
@@ -1466,7 +1466,7 @@ TEST_F(NewParquetReaderTest, ColumnPredicateOnlyPrunesAndDoesNotFilterRowsInside
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
@@ -1502,7 +1502,7 @@ TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
@@ -1533,7 +1533,7 @@ TEST_F(NewParquetReaderTest, PredicateColumnFiltersBeforeNonPredicateRead) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
@@ -1567,7 +1567,7 @@ TEST_F(NewParquetReaderTest, NonPredicateColumnKeepsSelectionFromPredicateColumn
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
@@ -1604,7 +1604,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
@@ -1684,7 +1684,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
@@ -1895,7 +1895,7 @@ TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
@@ -1948,7 +1948,7 @@ TEST_F(NewParquetReaderTest, DictionaryPageV2StringEdgesSurviveSelection) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
@@ -1996,7 +1996,7 @@ TEST_F(NewParquetReaderTest, StatisticsPruningSkipsPrefixRowGroupsAndReadsLaterG
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
@@ -2041,7 +2041,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderReturnsFileLocalPositions) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_unique<reader::FileScanRequest>();
     request->non_predicate_columns = {
@@ -2082,7 +2082,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block_with_row_position(schema);
 
@@ -2120,7 +2120,7 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block_with_row_position(schema);
 
@@ -2164,7 +2164,7 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::SchemaField> schema;
+    std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block_with_row_position(schema);
 
@@ -2217,7 +2217,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange
         RuntimeState state {TQueryOptions(), TQueryGlobals()};
         ASSERT_TRUE(reader->init(&state).ok());
 
-        std::vector<reader::SchemaField> schema;
+        std::vector<reader::ColumnDefinition> schema;
         ASSERT_TRUE(reader->get_schema(&schema).ok());
         auto request = std::make_unique<reader::FileScanRequest>();
         request->non_predicate_columns = {

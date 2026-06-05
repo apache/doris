@@ -97,24 +97,33 @@ TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates)
     ASSERT_TRUE(target.children.empty());
 }
 
-TEST(LocalColumnIndexTest, ProjectSchemaFieldMatchesChildrenByFieldId) {
+TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByFieldId) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto string_type = std::make_shared<DataTypeString>();
-    SchemaField field {.id = 5,
-                       .name = "root",
-                       .type = std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
-                                                                Strings {"a", "b"}),
-                       .children = {
-                               {.id = 10, .name = "a", .type = int_type},
-                               {.id = 20, .name = "b", .type = string_type},
-                       }};
+    ColumnDefinition field;
+    field.identifier = ColumnDefinition::Identifier::by_field_id(5);
+    field.name = "root";
+    field.type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    ColumnDefinition a_child;
+    a_child.identifier = ColumnDefinition::Identifier::by_field_id(10);
+    a_child.name = "a";
+    a_child.type = int_type;
+    ColumnDefinition b_child;
+    b_child.identifier = ColumnDefinition::Identifier::by_field_id(20);
+    b_child.name = "b";
+    b_child.type = string_type;
+    field.children = {
+            a_child,
+            b_child,
+    };
     LocalColumnIndex projection {.index = 5, .project_all_children = false};
     projection.children.push_back({.index = 20});
 
-    SchemaField projected_field;
-    ASSERT_TRUE(project_schema_field(field, projection, &projected_field).ok());
+    ColumnDefinition projected_field;
+    ASSERT_TRUE(project_column_definition(field, projection, &projected_field).ok());
     ASSERT_EQ(projected_field.children.size(), 1);
-    EXPECT_EQ(projected_field.children[0].id, 20);
+    EXPECT_EQ(projected_field.children[0].identifier.field_id, 20);
     EXPECT_EQ(projected_field.children[0].name, "b");
 
     const auto* projected_type =
@@ -773,9 +782,9 @@ ColumnDefinition make_table_column(int32_t id, const std::string& name, const Da
     return column;
 }
 
-SchemaField make_schema_field(int32_t id, const std::string& name, const DataTypePtr& type) {
-    SchemaField field;
-    field.id = id;
+ColumnDefinition make_file_column(int32_t id, const std::string& name, const DataTypePtr& type) {
+    ColumnDefinition field;
+    field.identifier = ColumnDefinition::Identifier::by_field_id(id);
     field.name = name;
     field.type = type;
     return field;
@@ -1592,15 +1601,11 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
             make_table_column(2, "c", int_type),
             make_table_column(3, "value", std::make_shared<DataTypeString>()),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "a", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1, .name = "b", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 2, .name = "c", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 3,
-             .name = "value",
-             .type = std::make_shared<DataTypeString>(),
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "a", int_type),
+            make_file_column(1, "b", int_type),
+            make_file_column(2, "c", int_type),
+            make_file_column(3, "value", std::make_shared<DataTypeString>()),
     };
 
     TableColumnMapper mapper;
@@ -1645,13 +1650,9 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
             make_table_column(0, "id", int_type),
             make_table_column(1, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "id", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1,
-             .name = "score",
-             .type = int_type,
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "id", int_type),
+            make_file_column(1, "score", int_type),
     };
 
     TableColumnMapper mapper;
@@ -1680,13 +1681,9 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "ID", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1,
-             .name = "score",
-             .type = int_type,
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "ID", int_type),
+            make_file_column(1, "score", int_type),
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
@@ -1717,13 +1714,9 @@ TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "ID", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1,
-             .name = "score",
-             .type = int_type,
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "ID", int_type),
+            make_file_column(1, "score", int_type),
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
@@ -2939,10 +2932,10 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
             make_index_table_column(1, "user_name", str_type),
             make_index_table_column(2, "age", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", str_type),
-            make_schema_field(2, "_col2", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", str_type),
+            make_file_column(2, "_col2", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -2977,10 +2970,10 @@ TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
             make_index_table_column(2, "age", int_type),
             make_index_table_column(4, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type), make_schema_field(1, "_col1", int_type),
-            make_schema_field(2, "_col2", int_type), make_schema_field(3, "_col3", int_type),
-            make_schema_field(4, "_col4", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type), make_file_column(1, "_col1", int_type),
+            make_file_column(2, "_col2", int_type), make_file_column(3, "_col3", int_type),
+            make_file_column(4, "_col4", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3013,9 +3006,9 @@ TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFi
             make_index_table_column(0, "user_id", int_type),
             make_index_table_column(1, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", int_type),
     };
 
     std::map<std::string, Field> partition_values;
@@ -3058,9 +3051,9 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissin
             with_default, // out-of-range file_index + default
             make_index_table_column(99, "extra_missing", int_type), // out-of-range without default
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3091,8 +3084,8 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeRejectedWhenAllowMissingFa
             make_index_table_column(0, "a", int_type),
             make_index_table_column(5, "b", int_type), // out of range and no default
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3110,10 +3103,10 @@ TEST(TableColumnMapperByIndexTest, ExtraFileColumnsAreSimplyIgnored) {
     const std::vector<ColumnDefinition> projected_columns = {
             make_index_table_column(0, "a", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", int_type),
-            make_schema_field(2, "_col2", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", int_type),
+            make_file_column(2, "_col2", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3137,9 +3130,9 @@ TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
             // (named "b"), not file column 0 that happens to be named "a".
             make_index_table_column(1, "a", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(10, "a", int_type),
-            make_schema_field(20, "b", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(10, "a", int_type),
+            make_file_column(20, "b", int_type),
     };
 
     TableColumnMapperOptions options;
