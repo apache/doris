@@ -34,13 +34,8 @@ namespace doris::parquet {
 
 struct ParquetReaderScanState;
 
-// ParquetReader 的 file-local scan 请求。
-// 当前没有新增 Parquet-only 字段，但保留独立类型，便于后续加入 row group/page index
-// 等 Parquet 专属选项。
-struct ParquetScanRequest : public reader::FileScanRequest {};
-
 // Parquet 文件物理读取层。
-// 该类只理解 Parquet file-local schema 和 ParquetScanRequest，不理解 Iceberg/global
+// 该类只理解 Parquet file-local schema 和 FileScanRequest，不理解 Iceberg/global
 // schema，不处理 table-level cast/default/generated/partition 语义。
 class ParquetReader : public reader::FileReader {
 public:

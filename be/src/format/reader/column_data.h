@@ -298,7 +298,18 @@ struct LocalColumnIndex {
     bool project_all_children = true;
     std::vector<LocalColumnIndex> children {};
 
+    static LocalColumnIndex top_level(LocalColumnId column_id) {
+        return {.index = column_id.value()};
+    }
+
+    static LocalColumnIndex field(int32_t field_id) { return {.index = field_id}; }
+
+    static LocalColumnIndex partial_field(int32_t field_id) {
+        return {.index = field_id, .project_all_children = false};
+    }
+
     LocalColumnId column_id() const { return LocalColumnId(index); }
+    int32_t field_id() const { return index; }
 };
 
 // Merge two projection trees that point to the same file-local node.

@@ -78,7 +78,7 @@ const reader::LocalColumnIndex* find_child_projection(const reader::LocalColumnI
     }
     auto it = std::find_if(projection->children.begin(), projection->children.end(),
                            [&](const reader::LocalColumnIndex& child_projection) {
-                               return child_projection.index == child_schema.field_id;
+                               return child_projection.field_id() == child_schema.field_id;
                            });
     return it == projection->children.end() ? nullptr : &*it;
 }

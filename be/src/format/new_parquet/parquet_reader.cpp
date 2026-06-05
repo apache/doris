@@ -67,12 +67,12 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
     }
     const auto& child_projection = projection.children[0];
     for (const auto& child_schema : column_schema.children) {
-        if (child_schema->field_id == child_projection.index) {
+        if (child_schema->field_id == child_projection.field_id()) {
             return find_projected_minmax_leaf(*child_schema, child_projection, leaf_schema);
         }
     }
     return Status::InvalidArgument("Invalid parquet aggregate projection field id {} for column {}",
-                                   child_projection.index, column_schema.name);
+                                   child_projection.field_id(), column_schema.name);
 }
 
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
@@ -156,22 +156,20 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         }
     }
 
-    // Column validation for .
     for (const auto& col : _request->predicate_columns) {
         DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
-        if (col.index == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        if (col.field_id() == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.index >= 0 && col.index < num_fields);
+        DORIS_CHECK(col.field_id() >= 0 && col.field_id() < num_fields);
     }
     for (const auto& col : _request->non_predicate_columns) {
         DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
-        if (col.index == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        if (col.field_id() == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.index >= 0 && col.index < num_fields);
+        DORIS_CHECK(col.field_id() >= 0 && col.field_id() < num_fields);
     }
-    // Validation complete
 
     RowGroupScanPlan row_group_plan;
     ParquetScanRange scan_range;
@@ -254,7 +252,7 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
     result->columns.resize(request.columns.size());
     for (size_t request_column_idx = 0; request_column_idx < request.columns.size();
          ++request_column_idx) {
-        const auto file_column_id = request.columns[request_column_idx].projection.index;
+        const auto file_column_id = request.columns[request_column_idx].projection.field_id();
         if (file_column_id < 0 ||
             file_column_id >= static_cast<int32_t>(_state->file_schema.size())) {
             return Status::InvalidArgument("Invalid parquet aggregate column id {}",

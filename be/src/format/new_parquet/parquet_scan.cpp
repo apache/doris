@@ -286,8 +286,9 @@ Status ParquetScanScheduler::open_next_row_group(
         ParquetColumnReaderFactory column_reader_factory(_current_row_group,
                                                          file_context.schema->num_columns());
         for (const auto& col : request.predicate_columns) {
-            if (col.index == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
-                _current_predicate_columns[col.index] =
+            const auto field_id = col.field_id();
+            if (field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+                _current_predicate_columns[field_id] =
                         column_reader_factory.create_row_position_column_reader(
                                 _current_row_group_first_row);
                 continue;
@@ -295,32 +296,33 @@ Status ParquetScanScheduler::open_next_row_group(
 
             const auto column_schema = std::find_if(
                     file_schema.begin(), file_schema.end(),
-                    [field_id = col.index](const std::unique_ptr<ParquetColumnSchema>& col_schema) {
+                    [field_id](const std::unique_ptr<ParquetColumnSchema>& col_schema) {
                         return col_schema->field_id == field_id;
                     });
             DORIS_CHECK(column_schema != file_schema.end());
             std::unique_ptr<ParquetColumnReader> column_reader;
             RETURN_IF_ERROR(
                     column_reader_factory.create(*column_schema->get(), &col, &column_reader));
-            _current_predicate_columns[col.index] = std::move(column_reader);
+            _current_predicate_columns[field_id] = std::move(column_reader);
         }
         for (const auto& col : request.non_predicate_columns) {
-            if (col.index == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
-                _current_non_predicate_columns[col.index] =
+            const auto field_id = col.field_id();
+            if (field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+                _current_non_predicate_columns[field_id] =
                         column_reader_factory.create_row_position_column_reader(
                                 _current_row_group_first_row);
                 continue;
             }
             const auto column_schema = std::find_if(
                     file_schema.begin(), file_schema.end(),
-                    [field_id = col.index](const std::unique_ptr<ParquetColumnSchema>& col_schema) {
+                    [field_id](const std::unique_ptr<ParquetColumnSchema>& col_schema) {
                         return col_schema->field_id == field_id;
                     });
             DORIS_CHECK(column_schema != file_schema.end());
             std::unique_ptr<ParquetColumnReader> column_reader;
             RETURN_IF_ERROR(
                     column_reader_factory.create(*column_schema->get(), &col, &column_reader));
-            _current_non_predicate_columns[col.index] = std::move(column_reader);
+            _current_non_predicate_columns[field_id] = std::move(column_reader);
         }
         *has_row_group = true;
         break;

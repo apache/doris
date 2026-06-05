@@ -617,7 +617,7 @@ static Status build_filter_projection_path(const std::vector<ColumnDefinition>& 
     if (child == nullptr) {
         return Status::OK();
     }
-    projection->index = child->field_id();
+    *projection = LocalColumnIndex::field(child->field_id());
     projection->project_all_children = selectors.size() == 1;
     projection->children.clear();
     if (selectors.size() == 1) {
@@ -625,14 +625,14 @@ static Status build_filter_projection_path(const std::vector<ColumnDefinition>& 
     }
     if (child->children.empty() ||
         remove_nullable(child->type)->get_primitive_type() != TYPE_STRUCT) {
-        projection->index = -1;
+        *projection = LocalColumnIndex {};
         return Status::OK();
     }
     LocalColumnIndex child_projection;
     RETURN_IF_ERROR(
             build_filter_projection_path(child->children, selectors.subspan(1), &child_projection));
-    if (child_projection.index < 0) {
-        projection->index = -1;
+    if (child_projection.field_id() < 0) {
+        *projection = LocalColumnIndex {};
         return Status::OK();
     }
     projection->children.push_back(std::move(child_projection));
@@ -655,10 +655,10 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
         return build_filter_projection_path(mapping.original_file_children, selectors, projection);
     }
     if (!child_mapping->field_id.has_value()) {
-        projection->index = -1;
+        *projection = LocalColumnIndex {};
         return Status::OK();
     }
-    projection->index = *child_mapping->field_id;
+    *projection = LocalColumnIndex::field(*child_mapping->field_id);
     projection->project_all_children = selectors.size() == 1;
     projection->children.clear();
     if (selectors.size() == 1) {
@@ -672,8 +672,8 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
         RETURN_IF_ERROR(build_filter_projection_path(*child_mapping, selectors.subspan(1),
                                                      &child_projection));
     }
-    if (child_projection.index < 0) {
-        projection->index = -1;
+    if (child_projection.field_id() < 0) {
+        *projection = LocalColumnIndex {};
         return Status::OK();
     }
     projection->children.push_back(std::move(child_projection));
@@ -1293,7 +1293,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
         return Status::InvalidArgument("projection is null");
     }
     DORIS_CHECK(mapping.field_id.has_value());
-    projection->index = *mapping.field_id;
+    *projection = LocalColumnIndex::field(*mapping.field_id);
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     for (const auto& child_mapping : mapping.child_mappings) {
@@ -1400,7 +1400,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         file_request->local_positions.emplace(file_column_id,
                                               LocalIndex(file_request->local_positions.size()));
     }
-    LocalColumnIndex projection {.index = file_column_id.value()};
+    LocalColumnIndex projection = LocalColumnIndex::top_level(file_column_id);
     if (mapping->has_complex_projection || complex_projection_has_pruned_children(*mapping)) {
         if (!mapping->has_complex_projection) {
             RETURN_IF_ERROR(rebuild_projected_file_type(mapping));
@@ -1455,12 +1455,12 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
             LocalColumnIndex child_projection;
             RETURN_IF_ERROR(
                     build_filter_projection_path(*mapping_it, path.selectors, &child_projection));
-            if (child_projection.index < 0) {
+            if (child_projection.field_id() < 0) {
                 continue;
             }
 
-            LocalColumnIndex root_projection {.index = *mapping_it->field_id,
-                                              .project_all_children = false};
+            LocalColumnIndex root_projection =
+                    LocalColumnIndex::partial_field(*mapping_it->field_id);
             root_projection.children.push_back(std::move(child_projection));
             auto filter_projection_it = filter_projections->find(root_projection.column_id());
             if (filter_projection_it == filter_projections->end()) {
@@ -1534,7 +1534,7 @@ static Status build_column_map_result(const ColumnMapping& mapping,
 
     const auto local_column_id = LocalColumnId(*mapping.field_id);
     result->local_column_id = local_column_id;
-    LocalColumnIndex column_index {.index = local_column_id.value()};
+    LocalColumnIndex column_index = LocalColumnIndex::top_level(local_column_id);
     if (mapping.has_complex_projection || complex_projection_has_pruned_children(mapping)) {
         RETURN_IF_ERROR(build_complex_projection(mapping, &column_index));
     }

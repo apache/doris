@@ -374,7 +374,8 @@ protected:
             if (referenced_by_filter && entry_it != filter_entries.end() &&
                 entry_it->second.is_constant()) {
                 ColumnPtr constant_column;
-                RETURN_IF_ERROR(_materialize_constant_filter_column(mapping, &constant_column));
+                RETURN_IF_ERROR(_materialize_constant_filter_column(
+                        entry_it->second.constant_index(), &constant_column));
                 eval_block->insert({std::move(constant_column), mapping.table_type,
                                     mapping.table_column_name});
             } else {
@@ -385,18 +386,19 @@ protected:
         return Status::OK();
     }
 
-    Status _materialize_constant_filter_column(const ColumnMapping& mapping, ColumnPtr* column) {
+    Status _materialize_constant_filter_column(ConstantIndex constant_index, ColumnPtr* column) {
         DORIS_CHECK(column != nullptr);
-        DORIS_CHECK(mapping.constant_index.has_value());
-        DORIS_CHECK(mapping.default_expr != nullptr);
+        const auto& constant_entry = _data_reader.column_mapper.constant_map().get(constant_index);
+        DORIS_CHECK(constant_entry.expr != nullptr);
+        DORIS_CHECK(constant_entry.type != nullptr);
         RowDescriptor row_desc;
-        RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
+        RETURN_IF_ERROR(constant_entry.expr->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(constant_entry.expr->open(_runtime_state));
         Block eval_block;
-        eval_block.insert({mapping.table_type->create_column_const_with_default_value(1),
-                           mapping.table_type, "__table_reader_constant_filter"});
+        eval_block.insert({constant_entry.type->create_column_const_with_default_value(1),
+                           constant_entry.type, "__table_reader_constant_filter"});
         int result_column_id = -1;
-        RETURN_IF_ERROR(mapping.default_expr->execute(&eval_block, &result_column_id));
+        RETURN_IF_ERROR(constant_entry.expr->execute(&eval_block, &result_column_id));
         DORIS_CHECK(result_column_id >= 0);
         *column = eval_block.get_by_position(result_column_id).column;
         DORIS_CHECK((*column)->size() == 1);
@@ -434,11 +436,11 @@ protected:
         }
         if (!request->local_positions.contains(column_id)) {
             request->local_positions.emplace(column_id, _next_block_position(*request));
-            scan_columns->push_back({.index = column_id.value()});
+            scan_columns->push_back(LocalColumnIndex::top_level(column_id));
         } else if (std::ranges::find_if(*scan_columns, [&](const LocalColumnIndex& p) {
                        return p.column_id() == column_id;
                    }) == scan_columns->end()) {
-            scan_columns->push_back({.index = column_id.value()});
+            scan_columns->push_back(LocalColumnIndex::top_level(column_id));
         }
         if (scan_columns == &request->predicate_columns) {
             request->non_predicate_columns.erase(
@@ -793,7 +795,7 @@ protected:
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
             DORIS_CHECK(mapping.field_id.has_value());
             FileAggregateRequest::Column column;
-            column.projection.index = *mapping.field_id;
+            column.projection = LocalColumnIndex::top_level(LocalColumnId(*mapping.field_id));
             if (!mapping.child_mappings.empty()) {
                 RETURN_IF_ERROR(build_aggregate_projection(mapping, &column.projection));
             }
@@ -938,7 +940,7 @@ private:
                                              LocalColumnIndex* projection) {
         DORIS_CHECK(projection != nullptr);
         DORIS_CHECK(mapping.field_id.has_value());
-        projection->index = *mapping.field_id;
+        *projection = LocalColumnIndex::field(*mapping.field_id);
         projection->children.clear();
         projection->project_all_children = true;
         if (mapping.child_mappings.empty()) {

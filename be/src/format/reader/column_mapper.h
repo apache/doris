@@ -47,7 +47,7 @@ struct TableFilter;
 using TableColumnPredicates = std::map<GlobalIndex, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
-    // Match by ColumnDefinition::Identifier::FIELD_ID against ColumnDefinition::id.
+    // Match by ColumnDefinition::Identifier::FIELD_ID against ColumnDefinition::identifier.field_id.
     BY_FIELD_ID,
     // Match by ColumnDefinition::Identifier::NAME / logical name against ColumnDefinition::name.
     BY_NAME,

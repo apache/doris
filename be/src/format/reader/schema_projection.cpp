@@ -84,17 +84,17 @@ Status project_column_definition(const ColumnDefinition& field, const LocalColum
 
     projected_field->children.clear();
     for (const auto& child_projection : projection.children) {
-        if (child_projection.index == -1) {
+        if (child_projection.field_id() == -1) {
             return Status::InvalidArgument("Empty projection path for field {}", field.name);
         }
         const auto child_it =
                 std::ranges::find_if(field.children, [&](const ColumnDefinition& child) {
                     return child.identifier.has_field_id() &&
-                           child.identifier.field_id == child_projection.index;
+                           child.identifier.field_id == child_projection.field_id();
                 });
         if (child_it == field.children.end()) {
             return Status::InvalidArgument("Invalid projection child id {} for field {}",
-                                           child_projection.index, field.name);
+                                           child_projection.field_id(), field.name);
         }
         ColumnDefinition projected_child;
         RETURN_IF_ERROR(project_column_definition(*child_it, child_projection, &projected_child));
