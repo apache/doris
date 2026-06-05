@@ -64,16 +64,15 @@ namespace {
 
 constexpr int64_t ROW_COUNT = 5;
 
-reader::FieldProjection field_projection(reader::ColumnId column_id) {
-    return reader::FieldProjection {.field_id = column_id};
+reader::LocalColumnIndex field_projection(int32_t column_id) {
+    return reader::LocalColumnIndex {.index = column_id};
 }
 
-std::vector<reader::ColumnId> projection_ids(
-        const std::vector<reader::FieldProjection>& projections) {
-    std::vector<reader::ColumnId> ids;
+std::vector<int32_t> projection_ids(const std::vector<reader::LocalColumnIndex>& projections) {
+    std::vector<int32_t> ids;
     ids.reserve(projections.size());
     for (const auto& projection : projections) {
-        ids.push_back(projection.field_id);
+        ids.push_back(projection.index);
     }
     return ids;
 }
@@ -636,11 +635,11 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
     struct_field.type = std::make_shared<DataTypeStruct>(DataTypes {a_field.type, b_field.type},
                                                          Strings {"a", "b"});
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "b";
     table_child.type = b_field.type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_field.type}, Strings {"b"});
@@ -653,13 +652,13 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
 
     auto request = std::make_unique<reader::FileScanRequest>();
     ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_column}, request.get()).ok());
-    EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<reader::ColumnId>({0}));
+    EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<int32_t>({0}));
     ASSERT_EQ(request->non_predicate_columns.size(), 1);
     const auto& projection = request->non_predicate_columns[0];
-    EXPECT_EQ(projection.field_id, 0);
+    EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].field_id, 1);
+    EXPECT_EQ(projection.children[0].index, 1);
 
     ASSERT_EQ(mapper.mappings().size(), 1);
     const auto* projected_type =
@@ -686,11 +685,11 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "b";
     table_child.type = b_type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
@@ -719,13 +718,13 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     const auto& projection = request.predicate_columns[0];
-    EXPECT_EQ(projection.field_id, 0);
+    EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 2);
-    EXPECT_EQ(projection.children[0].field_id, 1);
-    EXPECT_EQ(projection.children[1].field_id, 0);
+    EXPECT_EQ(projection.children[0].index, 1);
+    EXPECT_EQ(projection.children[1].index, 0);
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
@@ -752,11 +751,11 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     struct_field.type = std::make_shared<DataTypeStruct>(DataTypes {id_type}, Strings {"file_id"});
     struct_field.children = {file_child};
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "table_id";
     table_child.type = id_type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {id_type}, Strings {"table_id"});
@@ -783,13 +782,13 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
 
     ASSERT_EQ(request.predicate_columns.size(), 1);
     const auto& projection = request.predicate_columns[0];
-    EXPECT_EQ(projection.field_id, 100);
+    EXPECT_EQ(projection.index, 100);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].field_id, 101);
+    EXPECT_EQ(projection.children[0].index, 101);
 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 100);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 100);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({101}));
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
@@ -813,11 +812,11 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "b";
     table_child.type = b_type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
@@ -844,7 +843,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
     ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
@@ -868,11 +867,11 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseCompariso
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "b";
     table_child.type = b_type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
@@ -899,7 +898,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseCompariso
     ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
@@ -937,11 +936,11 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
     struct_field.type = full_struct_type;
     struct_field.children = {a_field, b_field};
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "b";
     table_child.type = b_type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
@@ -968,7 +967,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
     ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0, 0}));
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
@@ -992,11 +991,11 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "b";
     table_child.type = b_type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
@@ -1044,11 +1043,11 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterFromOr) {
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     struct_field.children = {a_field, b_field};
 
-    reader::TableColumn table_child;
+    reader::TableColumnDefinition table_child;
     table_child.id = 101;
     table_child.name = "b";
     table_child.type = b_type;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "s";
     table_column.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
@@ -1123,22 +1122,22 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     map_field.type = std::make_shared<DataTypeMap>(key_type, value_type);
     map_field.children = {entry_field};
 
-    reader::TableColumn table_value_child;
+    reader::TableColumnDefinition table_value_child;
     table_value_child.id = 103;
     table_value_child.name = "b";
     table_value_child.type = b_type;
-    reader::TableColumn table_value;
+    reader::TableColumnDefinition table_value;
     table_value.id = 102;
     table_value.name = "value";
     table_value.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_value.children = {table_value_child};
-    reader::TableColumn table_entry;
+    reader::TableColumnDefinition table_entry;
     table_entry.id = 101;
     table_entry.name = "entries";
     table_entry.type =
             std::make_shared<DataTypeStruct>(DataTypes {table_value.type}, Strings {"value"});
     table_entry.children = {table_value};
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 100;
     table_column.name = "m";
     table_column.type = std::make_shared<DataTypeMap>(key_type, table_value.type);
@@ -1151,17 +1150,17 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
 
     auto request = std::make_unique<reader::FileScanRequest>();
     ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_column}, request.get()).ok());
-    EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<reader::ColumnId>({0}));
+    EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<int32_t>({0}));
     ASSERT_EQ(request->non_predicate_columns.size(), 1);
     const auto& projection = request->non_predicate_columns[0];
-    EXPECT_EQ(projection.field_id, 0);
+    EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].field_id, 0);
+    EXPECT_EQ(projection.children[0].index, 0);
     ASSERT_EQ(projection.children[0].children.size(), 1);
-    EXPECT_EQ(projection.children[0].children[0].field_id, 1);
+    EXPECT_EQ(projection.children[0].children[0].index, 1);
     ASSERT_EQ(projection.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(projection.children[0].children[0].children[0].field_id, 1);
+    EXPECT_EQ(projection.children[0].children[0].children[0].index, 1);
 
     ASSERT_EQ(mapper.mappings().size(), 1);
     const auto* projected_type =
@@ -1184,12 +1183,12 @@ TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) 
     value_field.name = "value";
     value_field.type = std::make_shared<DataTypeString>();
 
-    reader::TableColumn table_id;
+    reader::TableColumnDefinition table_id;
     table_id.id = 0;
     table_id.name = "id";
     table_id.type = id_field.type;
 
-    reader::TableColumn table_value;
+    reader::TableColumnDefinition table_value;
     table_value.id = 1;
     table_value.name = "value";
     table_value.type = value_field.type;
@@ -1210,10 +1209,9 @@ TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) 
                                            request.get())
                         .ok());
     EXPECT_TRUE(request->predicate_columns.empty());
-    EXPECT_EQ(projection_ids(request->non_predicate_columns),
-              std::vector<reader::ColumnId>({0, 1}));
+    EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<int32_t>({0, 1}));
     ASSERT_EQ(request->column_predicate_filters.size(), 1);
-    EXPECT_EQ(request->column_predicate_filters[0].file_column_id, 0);
+    EXPECT_EQ(request->column_predicate_filters[0].file_column_id.value(), 0);
 }
 
 TEST(ParquetBloomFilterPruningTest, EqPredicateUsesArrowHashAndPrunesAbsentIntValue) {
@@ -2055,9 +2053,10 @@ TEST_F(NewParquetReaderTest, RowPositionReaderReturnsFileLocalPositions) {
     request->non_predicate_columns = {
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
             field_projection(0)};
-    request->column_positions = {
-            {0, 0},
-            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    request->local_positions = {
+            {reader::LocalColumnId(0), reader::LocalIndex(0)},
+            {reader::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
+             reader::LocalIndex(2)},
     };
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -2097,9 +2096,10 @@ TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
-    request->column_positions = {
-            {0, 0},
-            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    request->local_positions = {
+            {reader::LocalColumnId(0), reader::LocalIndex(0)},
+            {reader::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
+             reader::LocalIndex(2)},
     };
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     ASSERT_TRUE(reader->open(request).ok());
@@ -2140,9 +2140,10 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
     request->predicate_columns = {
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
     request->non_predicate_columns = {field_projection(0)};
-    request->column_positions = {
-            {0, 0},
-            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    request->local_positions = {
+            {reader::LocalColumnId(0), reader::LocalIndex(0)},
+            {reader::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
+             reader::LocalIndex(2)},
     };
     request->delete_conjuncts.push_back(VExprContext::create_shared(std::move(delete_predicate)));
     ASSERT_TRUE(reader->open(request).ok());
@@ -2184,9 +2185,10 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
             field_projection(0),
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
     request->non_predicate_columns = {};
-    request->column_positions = {
-            {0, 0},
-            {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+    request->local_positions = {
+            {reader::LocalColumnId(0), reader::LocalIndex(0)},
+            {reader::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
+             reader::LocalIndex(2)},
     };
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     request->delete_conjuncts.push_back(VExprContext::create_shared(std::move(delete_predicate)));
@@ -2227,9 +2229,10 @@ TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange
         request->non_predicate_columns = {
                 field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
                 field_projection(0)};
-        request->column_positions = {
-                {0, 0},
-                {parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID, 2},
+        request->local_positions = {
+                {reader::LocalColumnId(0), reader::LocalIndex(0)},
+                {reader::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
+                 reader::LocalIndex(2)},
         };
         ASSERT_TRUE(reader->open(request).ok());
 

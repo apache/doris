@@ -202,7 +202,7 @@ class TableColumnMapper {
 public:
     explicit TableColumnMapper(TableColumnMapperOptions options = {});
 
-    virtual Status create_mapping(const std::vector<TableColumn>& table_schema,
+    virtual Status create_mapping(const std::vector<TableColumnDefinition>& table_schema,
                                   const std::vector<SchemaField>& file_schema,
                                   std::vector<ColumnMapping>* mappings);
 
@@ -337,9 +337,9 @@ public:
 
 它服务于 `TableColumnMapper` 做 schema matching，不携带 table-level 语义。
 
-### TableColumn
+### TableColumnDefinition
 
-`TableColumn` 表示 table/global schema 中的列定义。
+`TableColumnDefinition` 表示 table/global schema 中的列定义。
 
 建议包含的信息：
 
@@ -484,7 +484,7 @@ Iceberg 场景下，column id 默认对应 field id。
 - 表层抽象使用 `TableReader`、`IcebergTableReader`、`TableColumnMapper`、
   `FileReader`、`ParquetReader` 命名。
 - `TableColumnMapper` 不使用 Iceberg-only 命名。
-- file schema 类型使用 `SchemaField`，table schema 类型使用 `TableColumn`。
+- file schema 类型使用 `SchemaField`，table schema 类型使用 `TableColumnDefinition`。
 
 ## 兼容原则
 

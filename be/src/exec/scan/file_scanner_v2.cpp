@@ -98,8 +98,8 @@ std::string access_path_to_string(const std::vector<std::string>& path) {
     return fmt::format("{}", fmt::join(path, "."));
 }
 
-reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::ColumnId id,
-                                       std::string name, DataTypePtr type) {
+reader::TableColumnDefinition* find_or_add_child(reader::TableColumnDefinition* parent, int32_t id,
+                                                 std::string name, DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
     for (auto& child : parent->children) {
         if (child.id == id || child.name == name) {
@@ -107,6 +107,7 @@ reader::TableColumn* find_or_add_child(reader::TableColumn* parent, reader::Colu
         }
     }
     parent->children.push_back({
+            .identifier = reader::TableColumnIdentifier::by_field_id(id),
             .id = id,
             .name = std::move(name),
             .type = std::move(type),
@@ -134,9 +135,11 @@ DataTypePtr find_struct_child_type_by_name(const DataTypeStruct& struct_type,
     return nullptr;
 }
 
-reader::TableColumn build_schema_column_from_external_field(const schema::external::TField& field,
-                                                            DataTypePtr type) {
-    reader::TableColumn column {
+reader::TableColumnDefinition build_schema_column_from_external_field(
+        const schema::external::TField& field, DataTypePtr type) {
+    reader::TableColumnDefinition column {
+            .identifier = field.__isset.id ? reader::TableColumnIdentifier::by_field_id(field.id)
+                                           : reader::TableColumnIdentifier {},
             .id = field.__isset.id ? field.id : -1,
             .name = field.__isset.name ? field.name : "",
             .type = std::move(type),
@@ -209,16 +212,17 @@ reader::TableColumn build_schema_column_from_external_field(const schema::extern
     return column;
 }
 
-const reader::TableColumn* find_schema_child_by_path(const reader::TableColumn* schema_column,
-                                                     const std::string& child_path) {
+const reader::TableColumnDefinition* find_schema_child_by_path(
+        const reader::TableColumnDefinition* schema_column, const std::string& child_path) {
     if (schema_column == nullptr) {
         return nullptr;
     }
     int32_t parsed_field_id = -1;
     if (parse_non_negative_int(child_path, &parsed_field_id)) {
-        const auto child_it = std::ranges::find_if(
-                schema_column->children,
-                [&](const reader::TableColumn& child) { return child.id == parsed_field_id; });
+        const auto child_it = std::ranges::find_if(schema_column->children,
+                                                   [&](const reader::TableColumnDefinition& child) {
+                                                       return child.id == parsed_field_id;
+                                                   });
         return child_it == schema_column->children.end() ? nullptr : &*child_it;
     }
     const auto child_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
@@ -227,8 +231,8 @@ const reader::TableColumn* find_schema_child_by_path(const reader::TableColumn* 
     return child_it == schema_column->children.end() ? nullptr : &*child_it;
 }
 
-const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
-                                                         const reader::TableColumn& column) {
+const schema::external::TField* find_external_root_field(
+        const TFileScanRangeParams* params, const reader::TableColumnDefinition& column) {
     if (params == nullptr || !params->__isset.history_schema_info ||
         params->history_schema_info.empty()) {
         return nullptr;
@@ -295,14 +299,15 @@ void insert_access_path(AccessPathNode* root, const std::vector<std::string>& pa
     insert_access_path(&root->children[path[path_idx]], path, path_idx + 1);
 }
 
-Status build_nested_children_from_access_node(reader::TableColumn* column, const DataTypePtr& type,
-                                              const AccessPathNode& node, const std::string& path,
-                                              const reader::TableColumn* schema_column);
+Status build_nested_children_from_access_node(reader::TableColumnDefinition* column,
+                                              const DataTypePtr& type, const AccessPathNode& node,
+                                              const std::string& path,
+                                              const reader::TableColumnDefinition* schema_column);
 
-Status build_struct_children_from_access_node(reader::TableColumn* column,
+Status build_struct_children_from_access_node(reader::TableColumnDefinition* column,
                                               const DataTypeStruct& struct_type,
                                               const AccessPathNode& node, const std::string& path,
-                                              const reader::TableColumn* schema_column) {
+                                              const reader::TableColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     for (const auto& [child_path, child_node] : node.children) {
         // Currently we do not support accessing struct children by position (e.g. "col.0") because it can be ambiguous and error-prone when the struct schema evolves. We only support accessing struct children by name (e.g. "col.child"). If needed, we can consider adding support for position-based access in the future with careful design and consideration.
@@ -339,9 +344,10 @@ Status build_struct_children_from_access_node(reader::TableColumn* column,
     return Status::OK();
 }
 
-Status build_map_children_from_access_node(reader::TableColumn* column, const DataTypeMap& map_type,
-                                           const AccessPathNode& node, const std::string& path,
-                                           const reader::TableColumn* schema_column) {
+Status build_map_children_from_access_node(reader::TableColumnDefinition* column,
+                                           const DataTypeMap& map_type, const AccessPathNode& node,
+                                           const std::string& path,
+                                           const reader::TableColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     AccessPathNode key_node;
     AccessPathNode value_node;
@@ -420,9 +426,10 @@ Status build_map_children_from_access_node(reader::TableColumn* column, const Da
     return Status::OK();
 }
 
-Status build_nested_children_from_access_node(reader::TableColumn* column, const DataTypePtr& type,
-                                              const AccessPathNode& node, const std::string& path,
-                                              const reader::TableColumn* schema_column) {
+Status build_nested_children_from_access_node(reader::TableColumnDefinition* column,
+                                              const DataTypePtr& type, const AccessPathNode& node,
+                                              const std::string& path,
+                                              const reader::TableColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (node.project_all || node.children.empty()) {
         // If project_all is true or there is no specific child path, we need to project all children of the complex type.
@@ -457,9 +464,9 @@ Status build_nested_children_from_access_node(reader::TableColumn* column, const
     }
 }
 
-Status build_nested_children_from_access_paths(reader::TableColumn* column,
+Status build_nested_children_from_access_paths(reader::TableColumnDefinition* column,
                                                const TColumnAccessPaths& access_paths,
-                                               const reader::TableColumn* schema_column) {
+                                               const reader::TableColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (!is_complex_type(remove_nullable(column->type)->get_primitive_type())) {
         return Status::OK();
@@ -497,9 +504,9 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
                                                   schema_column);
 }
 
-Status build_nested_children_from_access_paths(reader::TableColumn* column,
+Status build_nested_children_from_access_paths(reader::TableColumnDefinition* column,
                                                const SlotDescriptor* slot_desc,
-                                               const reader::TableColumn* schema_column) {
+                                               const reader::TableColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
     return build_nested_children_from_access_paths(column, slot_desc->all_access_paths(),
@@ -510,13 +517,13 @@ Status build_nested_children_from_access_paths(reader::TableColumn* column,
 
 #ifdef BE_TEST
 Status FileScannerV2::TEST_build_nested_children_from_access_paths(
-        reader::TableColumn* column, const TColumnAccessPaths& access_paths) {
+        reader::TableColumnDefinition* column, const TColumnAccessPaths& access_paths) {
     return build_nested_children_from_access_paths(column, access_paths, nullptr);
 }
 
 Status FileScannerV2::TEST_build_nested_children_from_access_paths(
-        reader::TableColumn* column, const TColumnAccessPaths& access_paths,
-        const reader::TableColumn* schema_column) {
+        reader::TableColumnDefinition* column, const TColumnAccessPaths& access_paths,
+        const reader::TableColumnDefinition* schema_column) {
     return build_nested_children_from_access_paths(column, access_paths, schema_column);
 }
 #endif
@@ -743,7 +750,7 @@ Status FileScannerV2::_build_projected_columns() {
         }
         auto column = _build_table_column(it->second);
         RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
-        std::optional<reader::TableColumn> schema_column;
+        std::optional<reader::TableColumnDefinition> schema_column;
         if (const auto* schema_field = find_external_root_field(_params, column);
             schema_field != nullptr) {
             // If the column has a matching root field in the schema, use the schema field to build the column's nested children.
@@ -776,9 +783,10 @@ Status FileScannerV2::_build_default_expr(const TFileScanSlotInfo& slot_info,
     return Status::OK();
 }
 
-reader::TableColumn FileScannerV2::_build_table_column(const SlotDescriptor* slot_desc) {
+reader::TableColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor* slot_desc) {
     DORIS_CHECK(slot_desc != nullptr);
-    reader::TableColumn column;
+    reader::TableColumnDefinition column;
+    column.identifier = reader::TableColumnIdentifier::by_field_id(slot_desc->col_unique_id());
     column.id = slot_desc->col_unique_id();
     column.name = slot_desc->col_name();
     column.type = slot_desc->get_data_type_ptr();
@@ -796,9 +804,12 @@ Status FileScannerV2::_build_table_column_predicates(
             continue;
         }
         (*predicates)[it->second->col_unique_id()] = {
-                reader::TableColumn {.id = it->second->col_unique_id(),
-                                     .name = it->second->col_name(),
-                                     .type = it->second->get_data_type_ptr()},
+                reader::TableColumnDefinition {
+                        .identifier = reader::TableColumnIdentifier::by_field_id(
+                                it->second->col_unique_id()),
+                        .id = it->second->col_unique_id(),
+                        .name = it->second->col_name(),
+                        .type = it->second->get_data_type_ptr()},
                 slot_predicate_list};
     }
     return Status::OK();

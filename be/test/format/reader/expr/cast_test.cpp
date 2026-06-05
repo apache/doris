@@ -45,16 +45,15 @@
 namespace doris {
 namespace {
 
-reader::FieldProjection field_projection(reader::ColumnId column_id) {
-    return reader::FieldProjection {.field_id = column_id};
+reader::LocalColumnIndex field_projection(int32_t column_id) {
+    return reader::LocalColumnIndex {.index = column_id};
 }
 
-std::vector<reader::ColumnId> projection_ids(
-        const std::vector<reader::FieldProjection>& projections) {
-    std::vector<reader::ColumnId> ids;
+std::vector<int32_t> projection_ids(const std::vector<reader::LocalColumnIndex>& projections) {
+    std::vector<int32_t> ids;
     ids.reserve(projections.size());
     for (const auto& projection : projections) {
-        ids.push_back(projection.field_id);
+        ids.push_back(projection.index);
     }
     return ids;
 }
@@ -263,11 +262,11 @@ TEST_F(CastTest, PrepareRejectsMultipleChildren) {
 
 TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -301,11 +300,11 @@ TEST_F(CastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
 
 TEST_F(CastTest, ColumnMapperTreatsEquivalentTypesAsTrivial) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt32>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -321,11 +320,11 @@ TEST_F(CastTest, ColumnMapperTreatsEquivalentTypesAsTrivial) {
 
 TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -346,7 +345,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
-    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<reader::ColumnId>({0}));
+    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 1);
     const auto& localized_child = localized_expr->children()[0];
@@ -379,11 +378,11 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
 
 TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -406,7 +405,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
-    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<reader::ColumnId>({0}));
+    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
     const auto* localized_slot =
@@ -438,11 +437,11 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
 
 TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -496,11 +495,11 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
 
 TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -525,7 +524,7 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
-    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<reader::ColumnId>({0}));
+    ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 3);
     const auto* localized_slot =
@@ -540,11 +539,11 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
 
 TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFails) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeString>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -586,11 +585,11 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
 }
 
 TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits) {
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     auto predicate = MockInExpr::create();
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
@@ -644,11 +643,11 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
 
 TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeString>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -686,11 +685,11 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
 }
 
 TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
@@ -738,11 +737,11 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
 
 TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -782,11 +781,11 @@ TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
 
 TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
     reader::TableColumnMapper mapper;
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 0;
@@ -822,11 +821,11 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
 }
 
 TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     auto predicate = std::make_shared<Int64ChildGreaterThanExpr>(15);
     predicate->add_child(TableSlotRef::create_shared(7, 7, -1, table_column.type, "value"));
@@ -887,11 +886,11 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
 }
 
 TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
-    reader::TableColumn table_column;
+    reader::TableColumnDefinition table_column;
     table_column.id = 7;
     table_column.name = "value";
     table_column.type = std::make_shared<DataTypeInt64>();
-    std::vector<reader::TableColumn> projected_columns {table_column};
+    std::vector<reader::TableColumnDefinition> projected_columns {table_column};
 
     reader::SchemaField file_field;
     file_field.id = 10;
@@ -916,8 +915,8 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     EXPECT_EQ(first_slot->column_id(), 0);
 
     reader::FileScanRequest second_request;
-    second_request.column_positions.emplace(9, 0);
-    second_request.column_positions.emplace(10, 1);
+    second_request.local_positions.emplace(reader::LocalColumnId(9), reader::LocalIndex(0));
+    second_request.local_positions.emplace(reader::LocalColumnId(10), reader::LocalIndex(1));
     second_request.non_predicate_columns.push_back(field_projection(9));
     ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &second_request).ok());
     ASSERT_EQ(second_request.conjuncts.size(), 1);

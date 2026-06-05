@@ -40,7 +40,7 @@ namespace doris {
 class IColumn;
 
 namespace reader {
-struct FieldProjection;
+struct LocalColumnIndex;
 struct SchemaField;
 } // namespace reader
 
@@ -109,7 +109,7 @@ public:
     // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
     // children。该入口只理解 Parquet file schema，不处理 table/global schema。
     Status create(const ParquetColumnSchema& column_schema,
-                  const reader::FieldProjection* projection,
+                  const reader::LocalColumnIndex* projection,
                   std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create(const ParquetColumnSchema& column_schema,
@@ -128,15 +128,15 @@ private:
                                               std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_struct_column_reader(const ParquetColumnSchema& column_schema,
-                                       const reader::FieldProjection* projection,
+                                       const reader::LocalColumnIndex* projection,
                                        std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_list_column_reader(const ParquetColumnSchema& column_schema,
-                                     const reader::FieldProjection* projection,
+                                     const reader::LocalColumnIndex* projection,
                                      std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_map_column_reader(const ParquetColumnSchema& column_schema,
-                                    const reader::FieldProjection* projection,
+                                    const reader::LocalColumnIndex* projection,
                                     std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,

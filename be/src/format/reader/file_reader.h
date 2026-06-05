@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,7 +46,103 @@ struct IOContext;
 
 namespace doris::reader {
 
-using ColumnId = int32_t;
+// File-local top-level column id.
+//
+// Scope:
+// - Only valid inside one physical file schema returned by FileReader::get_schema().
+// - For Parquet, this is the top-level field ordinal in the new reader schema.
+// - The synthetic row-position column also uses this type, with a reserved negative id.
+//
+// Do not use this for table/global column unique ids, block positions, nested child ids, or
+// slot ids. Nested child ids are carried by LocalColumnIndex::index below.
+class LocalColumnId {
+public:
+    constexpr LocalColumnId() = default;
+    explicit constexpr LocalColumnId(int32_t id) : _id(id) {}
+
+    static constexpr LocalColumnId invalid() { return LocalColumnId(); }
+
+    constexpr int32_t value() const { return _id; }
+    constexpr bool is_valid() const { return _id >= 0; }
+
+    constexpr bool operator==(const LocalColumnId& other) const { return _id == other._id; }
+    constexpr bool operator!=(const LocalColumnId& other) const { return !(*this == other); }
+    constexpr bool operator<(const LocalColumnId& other) const { return _id < other._id; }
+
+private:
+    int32_t _id = -1;
+};
+
+// Position of a file-local column in the Block produced by one FileScanRequest.
+//
+// This is assigned by TableColumnMapper/TableReader after predicate/non-predicate columns are
+// deduplicated. It is not a file schema id and it is not stable across requests. Use value() only
+// at the boundary where an existing Block or expression API still expects a size_t/int position.
+class LocalIndex {
+public:
+    constexpr LocalIndex() = default;
+    explicit constexpr LocalIndex(size_t index) : _index(index) {}
+
+    constexpr size_t value() const { return _index; }
+    constexpr bool operator==(const LocalIndex& other) const { return _index == other._index; }
+    constexpr bool operator<(const LocalIndex& other) const { return _index < other._index; }
+
+private:
+    size_t _index = 0;
+};
+
+// Position of a table/global output column in the final Block returned by TableReader.
+//
+// This type is reserved for boundaries that need to refer to caller-visible column order. It must
+// not be used to index a file-local Block, because schema evolution and lazy materialization can
+// make file-local order different from table output order.
+class GlobalIndex {
+public:
+    constexpr GlobalIndex() = default;
+    explicit constexpr GlobalIndex(size_t index) : _index(index) {}
+
+    constexpr size_t value() const { return _index; }
+    constexpr bool operator==(const GlobalIndex& other) const { return _index == other._index; }
+    constexpr bool operator<(const GlobalIndex& other) const { return _index < other._index; }
+
+private:
+    size_t _index = 0;
+};
+
+// Index of a split-local constant/default value used to materialize columns that are not read from
+// the physical file, such as partition columns, added columns with default values, and virtual
+// table-format columns.
+//
+// It is separate from LocalIndex because constants do not occupy a position in the file reader
+// output block unless an expression explicitly materializes them.
+class ConstantIndex {
+public:
+    constexpr ConstantIndex() = default;
+    explicit constexpr ConstantIndex(size_t index) : _index(index) {}
+
+    constexpr size_t value() const { return _index; }
+    constexpr bool operator==(const ConstantIndex& other) const { return _index == other._index; }
+    constexpr bool operator<(const ConstantIndex& other) const { return _index < other._index; }
+
+private:
+    size_t _index = 0;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const LocalColumnId& id) {
+    return os << id.value();
+}
+
+inline std::ostream& operator<<(std::ostream& os, const LocalIndex& index) {
+    return os << index.value();
+}
+
+inline std::ostream& operator<<(std::ostream& os, const GlobalIndex& index) {
+    return os << index.value();
+}
+
+inline std::ostream& operator<<(std::ostream& os, const ConstantIndex& index) {
+    return os << index.value();
+}
 
 enum ColumnType {
     DATA_COLUMN = 0, // normal data column
@@ -64,17 +162,60 @@ struct SchemaField {
     ColumnType column_type = ColumnType::DATA_COLUMN;
 };
 
-// Projection for both scalar type and nested type. `field_id` denotes file_column_id for top-level columns, and child id for nested columns.
-struct FieldProjection {
-    ColumnId field_id = -1;
+// Recursive file-local projection path.
+//
+// For a root entry in FileScanRequest::{predicate_columns, non_predicate_columns}, index is the
+// top-level file column id and column_id() is valid. For children, index is the file-local child id
+// under the parent node, not a table child id and not a child output ordinal.
+//
+// project_all_children=true means the whole subtree under this node is needed. When false, children
+// lists the selected child paths. File readers can use this to avoid constructing readers for
+// unprojected nested children.
+struct LocalColumnIndex {
+    int32_t index = -1;
     bool project_all_children = true;
-    std::vector<FieldProjection> children {};
+    std::vector<LocalColumnIndex> children {};
+
+    LocalColumnId column_id() const { return LocalColumnId(index); }
 };
 
+// Merge two projection trees that point to the same file-local node.
+//
+// A full projection dominates a partial projection. Two partial projections are merged by child id
+// and recursively union their child paths. The caller must only merge projections for the same
+// root/child node.
+inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColumnIndex& source) {
+    DORIS_CHECK(target != nullptr);
+    DORIS_CHECK(target->index == source.index);
+    if (target->project_all_children) {
+        return Status::OK();
+    }
+    if (source.project_all_children) {
+        target->project_all_children = true;
+        target->children.clear();
+        return Status::OK();
+    }
+    for (const auto& source_child : source.children) {
+        auto target_child_it = std::find_if(
+                target->children.begin(), target->children.end(),
+                [&](const LocalColumnIndex& child) { return child.index == source_child.index; });
+        if (target_child_it == target->children.end()) {
+            target->children.push_back(source_child);
+            continue;
+        }
+        RETURN_IF_ERROR(merge_local_column_index(&*target_child_it, source_child));
+    }
+    return Status::OK();
+}
+
 // File-local single-column predicates for file-layer pruning, such as min/max, page index,
-// dictionary and bloom filter. Predicates must all belong to file_column_id.
+// dictionary and bloom filter.
+//
+// Predicates must all belong to file_column_id. file_child_id_path points to the nested primitive
+// leaf under that root; empty means the top-level column itself is the primitive leaf. These
+// predicates are pruning hints only and are not row-level conjuncts.
 struct FileColumnPredicateFilter {
-    ColumnId file_column_id = -1;
+    LocalColumnId file_column_id = LocalColumnId::invalid();
     // File-local child field-id path under file_column_id. Empty means top-level scalar.
     // The ids are Parquet/Doris file schema child ids, not table ids and not child ordinals.
     std::vector<int32_t> file_child_id_path;
@@ -94,9 +235,14 @@ enum class FileFormat {
 struct FileScanRequest {
     virtual ~FileScanRequest() = default;
 
-    std::vector<FieldProjection> predicate_columns;
-    std::vector<FieldProjection> non_predicate_columns;
-    std::map<ColumnId, size_t> column_positions; // file_column_id -> file-local block position
+    // Columns that must be read before row-level filtering. They are materialized eagerly because
+    // conjuncts/delete_conjuncts need them to decide the selected rows.
+    std::vector<LocalColumnIndex> predicate_columns;
+    // Columns read after row-level filtering. Predicate columns are also available for output and
+    // should not be duplicated here.
+    std::vector<LocalColumnIndex> non_predicate_columns;
+    // file-local column id -> file-local output block position.
+    std::map<LocalColumnId, LocalIndex> local_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
     // Delete predicates converted to file-local expressions.
@@ -108,7 +254,9 @@ struct FileScanRequest {
 
 struct FileAggregateRequest {
     struct Column {
-        FieldProjection projection;
+        // File-local projection for the aggregate column. For nested MIN/MAX, this points to the
+        // single primitive leaf that can be represented by file statistics.
+        LocalColumnIndex projection;
     };
 
     TPushAggOp::type agg_type = TPushAggOp::type::NONE;
@@ -117,7 +265,9 @@ struct FileAggregateRequest {
 
 struct FileAggregateResult {
     struct Column {
-        FieldProjection projection;
+        // Mirrors FileAggregateRequest::Column::projection so TableReader can put the returned
+        // aggregate value back into the matching projected nested shape.
+        LocalColumnIndex projection;
         bool has_min = false;
         bool has_max = false;
         Field min_value;

@@ -17,7 +17,9 @@
 
 #include "format/reader/schema_projection.h"
 
+#include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
@@ -68,6 +70,47 @@ Status rebuild_projected_type(const DataTypePtr& original_type,
     *projected_type = original_type->is_nullable() ? make_nullable(nested_projected_type)
                                                    : nested_projected_type;
     return Status::OK();
+}
+
+Status project_schema_field(const SchemaField& field, const LocalColumnIndex& projection,
+                            SchemaField* projected_field) {
+    if (projected_field == nullptr) {
+        return Status::InvalidArgument("projected_field is null");
+    }
+    *projected_field = field;
+    if (projection.project_all_children || projection.children.empty()) {
+        return Status::OK();
+    }
+
+    projected_field->children.clear();
+    for (const auto& child_projection : projection.children) {
+        if (child_projection.index == -1) {
+            return Status::InvalidArgument("Empty projection path for field {}", field.name);
+        }
+        const auto child_it = std::ranges::find_if(field.children, [&](const SchemaField& child) {
+            return child.id == child_projection.index;
+        });
+        if (child_it == field.children.end()) {
+            return Status::InvalidArgument("Invalid projection child id {} for field {}",
+                                           child_projection.index, field.name);
+        }
+        SchemaField projected_child;
+        RETURN_IF_ERROR(project_schema_field(*child_it, child_projection, &projected_child));
+        projected_field->children.push_back(std::move(projected_child));
+    }
+    if (projected_field->children.empty()) {
+        return Status::NotSupported("Projection for field {} contains no children", field.name);
+    }
+
+    DataTypes child_types;
+    Strings child_names;
+    child_types.reserve(projected_field->children.size());
+    child_names.reserve(projected_field->children.size());
+    for (const auto& child : projected_field->children) {
+        child_types.push_back(child.type);
+        child_names.push_back(child.name);
+    }
+    return rebuild_projected_type(field.type, child_types, child_names, &projected_field->type);
 }
 
 } // namespace doris::reader

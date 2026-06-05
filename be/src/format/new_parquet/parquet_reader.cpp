@@ -43,7 +43,7 @@ struct ParquetReaderScanState {
 };
 
 static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schema,
-                                         const reader::FieldProjection& projection,
+                                         const reader::LocalColumnIndex& projection,
                                          const ParquetColumnSchema** leaf_schema) {
     DORIS_CHECK(leaf_schema != nullptr);
     if (projection.project_all_children || projection.children.empty()) {
@@ -67,12 +67,12 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
     }
     const auto& child_projection = projection.children[0];
     for (const auto& child_schema : column_schema.children) {
-        if (child_schema->field_id == child_projection.field_id) {
+        if (child_schema->field_id == child_projection.index) {
             return find_projected_minmax_leaf(*child_schema, child_projection, leaf_schema);
         }
     }
     return Status::InvalidArgument("Invalid parquet aggregate projection field id {} for column {}",
-                                   child_projection.field_id, column_schema.name);
+                                   child_projection.index, column_schema.name);
 }
 
 void ParquetReader::_fill_schema_field(const ParquetColumnSchema& column_schema,
@@ -121,6 +121,7 @@ Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) 
     for (size_t column_idx = 0; column_idx < _state->file_schema.size(); ++column_idx) {
         reader::SchemaField field;
         _fill_schema_field(*_state->file_schema[column_idx], &field);
+        field.id = static_cast<int32_t>(column_idx);
         file_schema->push_back(std::move(field));
     }
     return Status::OK();
@@ -136,36 +137,38 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     const int num_fields = static_cast<int>(_state->file_schema.size());
     for (const auto& column_filter : _request->column_predicate_filters) {
         const auto file_column_id = column_filter.file_column_id;
-        if (file_column_id < 0 || file_column_id >= num_fields) {
+        if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
             return Status::InvalidArgument("Invalid parquet filter top-level field id {}",
-                                           file_column_id);
+                                           file_column_id.value());
         }
     }
 
-    // `_request->column_positions.empty()` means all columns are needed by table reader
-    if (_request->column_positions.empty()) {
+    // `_request->local_positions.empty()` means all columns are needed by table reader
+    if (_request->local_positions.empty()) {
         for (const auto& col : _request->predicate_columns) {
-            _request->column_positions.emplace(col.field_id, col.field_id);
+            _request->local_positions.emplace(col.column_id(),
+                                              reader::LocalIndex(_request->local_positions.size()));
         }
         for (const auto& col : _request->non_predicate_columns) {
-            _request->column_positions.emplace(col.field_id, col.field_id);
+            _request->local_positions.emplace(col.column_id(),
+                                              reader::LocalIndex(_request->local_positions.size()));
         }
     }
 
     // Column validation for .
     for (const auto& col : _request->predicate_columns) {
-        DORIS_CHECK(_request->column_positions.count(col.field_id) > 0);
-        if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
+        if (col.index == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.field_id >= 0 && col.field_id < num_fields);
+        DORIS_CHECK(col.index >= 0 && col.index < num_fields);
     }
     for (const auto& col : _request->non_predicate_columns) {
-        DORIS_CHECK(_request->column_positions.count(col.field_id) > 0);
-        if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
+        if (col.index == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.field_id >= 0 && col.field_id < num_fields);
+        DORIS_CHECK(col.index >= 0 && col.index < num_fields);
     }
     // Validation complete
 
@@ -250,7 +253,7 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
     result->columns.resize(request.columns.size());
     for (size_t request_column_idx = 0; request_column_idx < request.columns.size();
          ++request_column_idx) {
-        const auto file_column_id = request.columns[request_column_idx].projection.field_id;
+        const auto file_column_id = request.columns[request_column_idx].projection.index;
         if (file_column_id < 0 ||
             file_column_id >= static_cast<int32_t>(_state->file_schema.size())) {
             return Status::InvalidArgument("Invalid parquet aggregate column id {}",

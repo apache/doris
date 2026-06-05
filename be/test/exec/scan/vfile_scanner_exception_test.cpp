@@ -402,7 +402,7 @@ TEST(FileScannerV2Test, BuildNestedChildrenFromAccessPaths) {
     const auto key_type = std::make_shared<DataTypeString>();
     const auto value_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"b", "c"});
-    reader::TableColumn column {
+    reader::TableColumnDefinition column {
             .id = 100, .name = "m", .type = std::make_shared<DataTypeMap>(key_type, value_type)};
 
     std::vector<TColumnAccessPath> access_paths;
@@ -430,7 +430,7 @@ TEST(FileScannerV2Test, BuildArrayStructChildrenFromAccessPaths) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-    reader::TableColumn column {
+    reader::TableColumnDefinition column {
             .id = 100,
             .name = "arr",
             .type = std::make_shared<DataTypeArray>(element_type),
@@ -455,12 +455,12 @@ TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto struct_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-    reader::TableColumn column {
+    reader::TableColumnDefinition column {
             .id = 100,
             .name = "s",
             .type = struct_type,
     };
-    reader::TableColumn schema_column {
+    reader::TableColumnDefinition schema_column {
             .id = 100,
             .name = "s",
             .type = struct_type,
@@ -484,7 +484,7 @@ TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
 
 TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    reader::TableColumn column {
+    reader::TableColumnDefinition column {
             .id = 100,
             .name = "s",
             .type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},

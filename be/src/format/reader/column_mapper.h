@@ -38,14 +38,19 @@ class ColumnPredicate;
 
 namespace doris::reader {
 
-struct TableColumn;
+struct TableColumnDefinition;
 struct TableFilter;
 
+// Table-level simple predicates grouped by FE column unique id. The key is not LocalColumnId:
+// TableColumnMapper resolves it through TableColumnDefinition before creating file pruning hints.
 using TableColumnPredicates =
-        std::map<int32_t, std::pair<TableColumn, std::vector<std::shared_ptr<ColumnPredicate>>>>;
+        std::map<int32_t,
+                 std::pair<TableColumnDefinition, std::vector<std::shared_ptr<ColumnPredicate>>>>;
 
 enum class TableColumnMappingMode {
+    // Match by TableColumnIdentifier::FIELD_ID against SchemaField::id.
     BY_FIELD_ID,
+    // Match by TableColumnIdentifier::NAME / logical name against SchemaField::name.
     BY_NAME,
     // Match top-level columns by file position. This mainly serves Hive1 ORC style files whose
     // column names are placeholder values such as `_col0` / `_col1`, where position is the only
@@ -62,15 +67,25 @@ enum TableVirtualColumnType {
 // 单个 table column 到 file column 的映射结果。
 // 这是 table 层和 file 层的核心边界对象。
 struct ColumnMapping {
+    // Table/global column id used by SlotRef and table-level predicates. It is intentionally not a
+    // LocalColumnId.
     int32_t table_column_id = -1;
     std::string table_column_name;
-    // File-local field id for top-level columns, or child id for nested columns.
+    // File-local field id for the mapped node. For a root mapping it is convertible to
+    // LocalColumnId; for a nested child mapping it is the child id under its parent projection.
+    // Empty means the table column is constant, missing, partition-only, or virtual.
     std::optional<int32_t> field_id;
     std::string file_column_name;
+    // Full file type/children before nested projection pruning. Used to rebuild projected types
+    // and to localize nested filters that reference children not present in the output projection.
     DataTypePtr original_file_type;
     std::vector<SchemaField> original_file_children;
+    // File-local nested child id path from the top-level file column to this mapping.
+    // The root top-level column id is stored in field_id of the root mapping, not repeated here.
     std::vector<int32_t> file_path;
+    // Effective file type after applying casts/remaps/nested projection pruning.
     DataTypePtr file_type;
+    // Target table/global type after final materialization.
     DataTypePtr table_type;
 
     // 最终输出表达式。用于把 file-local value 转成 table/global value，例如 cast、
@@ -81,10 +96,17 @@ struct ColumnMapping {
     // 时使用，服务 reader_expression_map，不等价于 finalize_expr。
     VExprContextSPtr reader_filter_expr;
 
+    // Mapping tree for nested table children. The order follows table output children, while file
+    // children can be pruned/reordered through each child mapping's field_id/file_path.
     std::vector<ColumnMapping> child_mappings;
+    // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
+    // True when value is produced from split metadata/default expression instead of file data.
     bool is_constant = false;
+    // True when a table child is not present in the file and will be filled by default/null logic.
     bool is_missing = false;
+    // True when the nested value read from file has a pruned/remapped child layout and must be
+    // reconstructed before returning to table/global schema.
     bool has_complex_projection = false;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
@@ -112,7 +134,7 @@ public:
     // 建立 table schema 到 file schema 的列映射。
     // 输出的 ColumnMapping 描述 table column 如何从 file column、常量列或表达式得到；
     // 后续 projection、filter localization 和 table block finalize 都应复用这份映射。
-    virtual Status create_mapping(const std::vector<TableColumn>& projected_columns,
+    virtual Status create_mapping(const std::vector<TableColumnDefinition>& projected_columns,
                                   const std::map<std::string, Field>& partition_values,
                                   const std::vector<SchemaField>& file_schema);
 
@@ -121,7 +143,7 @@ public:
     // pruning hints，不参与 batch row filtering。
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const TableColumnPredicates& table_column_predicates,
-                                       const std::vector<TableColumn>& projected_columns,
+                                       const std::vector<TableColumnDefinition>& projected_columns,
                                        FileScanRequest* file_request);
 
     // 将 table-level filter 定位到文件 schema。
@@ -141,17 +163,17 @@ public:
     static std::string debug_string(const FileScanRequest& request);
 
 private:
-    const SchemaField* _find_file_field(const TableColumn& table_column,
+    const SchemaField* _find_file_field(const TableColumnDefinition& table_column,
                                         const std::vector<SchemaField>& file_schema) const;
-    Status _create_direct_mapping(const TableColumn& table_column, const SchemaField& file_field,
-                                  ColumnMapping* mapping) const;
+    Status _create_direct_mapping(const TableColumnDefinition& table_column,
+                                  const SchemaField& file_field, ColumnMapping* mapping) const;
 
-    Status _create_by_index_mapping(const TableColumn& table_column,
+    Status _create_by_index_mapping(const TableColumnDefinition& table_column,
                                     const std::vector<SchemaField>& file_schema,
                                     ColumnMapping* mapping) const;
 
-    ColumnMapping* _find_mapping(const TableColumn& table_column);
-    const ColumnMapping* _find_mapping(const TableColumn& table_column) const;
+    ColumnMapping* _find_mapping(const TableColumnDefinition& table_column);
+    const ColumnMapping* _find_mapping(const TableColumnDefinition& table_column) const;
 
     bool _is_same_type(const DataTypePtr& table_type, const DataTypePtr& file_type) const {
         DORIS_CHECK(table_type != nullptr);

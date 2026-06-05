@@ -498,11 +498,11 @@ const ParquetColumnSchema* find_child_schema_by_field_id(const ParquetColumnSche
 const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const reader::FileColumnPredicateFilter& column_filter) {
-    if (column_filter.file_column_id < 0 ||
-        column_filter.file_column_id >= static_cast<int>(schema.size())) {
+    if (!column_filter.file_column_id.is_valid() ||
+        column_filter.file_column_id.value() >= static_cast<int>(schema.size())) {
         return nullptr;
     }
-    const ParquetColumnSchema* column_schema = schema[column_filter.file_column_id].get();
+    const ParquetColumnSchema* column_schema = schema[column_filter.file_column_id.value()].get();
     if (column_schema == nullptr) {
         return nullptr;
     }
