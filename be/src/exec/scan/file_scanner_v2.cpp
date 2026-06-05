@@ -342,6 +342,9 @@ Status build_struct_children_from_access_node(reader::ColumnDefinition* column,
             return Status::NotSupported("FileScannerV2 does not support access path {} for slot {}",
                                         path + "." + child_path, column->name);
         }
+        // TODO: For TVF Parquet files without field ids, this fallback uses the struct ordinal as
+        // the table child identifier. BY_NAME mapping should instead keep a string identifier and
+        // let TableColumnMapper resolve the file-local child id from the Parquet schema.
         auto* child = find_or_add_child(column, field_id, field_name, field_type);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
                 child, child->type, child_node, path + "." + child_path, schema_child));
