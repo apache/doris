@@ -22,6 +22,7 @@
 
 #include <cstring>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -38,6 +39,101 @@
 
 namespace doris::reader {
 namespace {
+
+template <typename T, typename Formatter>
+std::string join_table_reader_debug_strings(const std::vector<T>& values, Formatter formatter) {
+    std::ostringstream out;
+    out << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {
+            out << ", ";
+        }
+        out << formatter(values[i]);
+    }
+    out << "]";
+    return out.str();
+}
+
+std::string file_format_to_string(FileFormat format) {
+    switch (format) {
+    case FileFormat::PARQUET:
+        return "PARQUET";
+    case FileFormat::ORC:
+        return "ORC";
+    case FileFormat::CSV:
+        return "CSV";
+    }
+    return "UNKNOWN";
+}
+
+std::string push_down_agg_to_string(TPushAggOp::type op) {
+    switch (op) {
+    case TPushAggOp::NONE:
+        return "NONE";
+    case TPushAggOp::COUNT:
+        return "COUNT";
+    case TPushAggOp::MINMAX:
+        return "MINMAX";
+    case TPushAggOp::MIX:
+        return "MIX";
+    case TPushAggOp::COUNT_ON_INDEX:
+        return "COUNT_ON_INDEX";
+    }
+    return "UNKNOWN";
+}
+
+std::string current_file_debug_string(const std::unique_ptr<ScanTask>& task) {
+    if (task == nullptr || task->data_file == nullptr) {
+        return "null";
+    }
+    const auto& file = *task->data_file;
+    std::ostringstream out;
+    out << "FileDescription{path=" << file.path << ", file_size=" << file.file_size
+        << ", range_start_offset=" << file.range_start_offset << ", range_size=" << file.range_size
+        << ", mtime=" << file.mtime << ", fs_name=" << file.fs_name
+        << ", file_cache_admission=" << file.file_cache_admission << "}";
+    return out.str();
+}
+
+std::string partition_values_debug_string(const std::map<std::string, Field>& partition_values) {
+    std::ostringstream out;
+    out << "{";
+    size_t idx = 0;
+    for (const auto& [key, _] : partition_values) {
+        if (idx++ > 0) {
+            out << ", ";
+        }
+        out << key;
+    }
+    out << "}";
+    return out.str();
+}
+
+std::string table_filter_debug_string(const TableFilter& filter) {
+    std::ostringstream out;
+    out << "TableFilter{has_conjunct=" << (filter.conjunct != nullptr) << ", column_unique_ids="
+        << join_table_reader_debug_strings(filter.column_unique_ids,
+                                           [](const TableColumn& column) {
+                                               return TableColumnMapper::debug_string(column);
+                                           })
+        << "}";
+    return out.str();
+}
+
+std::string table_column_predicates_debug_string(const TableColumnPredicates& predicates) {
+    std::ostringstream out;
+    out << "{";
+    size_t idx = 0;
+    for (const auto& [slot_id, column_predicates] : predicates) {
+        if (idx++ > 0) {
+            out << ", ";
+        }
+        out << slot_id << ":{column=" << TableColumnMapper::debug_string(column_predicates.first)
+            << ", predicate_count=" << column_predicates.second.size() << "}";
+    }
+    out << "}";
+    return out.str();
+}
 
 void collect_table_column_unique_ids(const VExprSPtr& expr,
                                      std::map<ColumnId, TableColumn>* column_unique_ids) {
@@ -146,6 +242,56 @@ std::shared_ptr<io::FileSystemProperties> create_system_properties(
                                                    scan_params->broker_addresses.end());
     }
     return system_properties;
+}
+
+std::string TableReader::debug_string() const {
+    std::ostringstream out;
+    out << "TableReader{format=" << file_format_to_string(_format)
+        << ", push_down_agg_type=" << push_down_agg_to_string(_push_down_agg_type)
+        << ", aggregate_pushdown_tried=" << _aggregate_pushdown_tried
+        << ", has_current_reader=" << (_data_reader.reader != nullptr)
+        << ", has_current_task=" << (_current_task != nullptr)
+        << ", current_file=" << current_file_debug_string(_current_task)
+        << ", has_delete_rows=" << (_delete_rows != nullptr)
+        << ", delete_row_count=" << (_delete_rows == nullptr ? 0 : _delete_rows->size())
+        << ", has_profile=" << (_profile != nullptr)
+        << ", has_system_properties=" << (_system_properties != nullptr) << ", system_type="
+        << (_system_properties == nullptr ? static_cast<int>(TFileType::FILE_LOCAL)
+                                          : static_cast<int>(_system_properties->system_type))
+        << ", has_scan_params=" << (_scan_params != nullptr)
+        << ", has_io_ctx=" << (_io_ctx != nullptr)
+        << ", has_runtime_state=" << (_runtime_state != nullptr)
+        << ", has_scanner_profile=" << (_scanner_profile != nullptr)
+        << ", mapper_options=" << _mapper_options.debug_string() << ", projected_columns="
+        << join_table_reader_debug_strings(_projected_columns,
+                                           [](const TableColumn& column) {
+                                               return TableColumnMapper::debug_string(column);
+                                           })
+        << ", partition_values=" << partition_values_debug_string(_partition_values)
+        << ", table_filters="
+        << join_table_reader_debug_strings(
+                   _table_filters,
+                   [](const TableFilter& filter) { return table_filter_debug_string(filter); })
+        << ", table_column_predicates="
+        << table_column_predicates_debug_string(_table_column_predicates)
+        << ", conjunct_count=" << _conjuncts.size() << ", file_schema="
+        << join_table_reader_debug_strings(
+                   _data_reader.file_schema,
+                   [](const SchemaField& field) { return TableColumnMapper::debug_string(field); })
+        << ", file_block_layout="
+        << join_table_reader_debug_strings(
+                   _data_reader.file_block_layout,
+                   [](const FileBlockColumn& column) {
+                       std::ostringstream column_out;
+                       column_out << "FileBlockColumn{file_column_id=" << column.file_column_id
+                                  << ", name=" << column.name << ", type="
+                                  << (column.type == nullptr ? "null" : column.type->get_name())
+                                  << "}";
+                       return column_out.str();
+                   })
+        << ", block_template_columns=" << _data_reader.block_template.columns()
+        << ", column_mapper=" << _data_reader.column_mapper.debug_string() << "}";
+    return out.str();
 }
 
 Status TableReader::init(TableReadOptions&& options) {

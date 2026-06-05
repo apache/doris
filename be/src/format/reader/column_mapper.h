@@ -88,12 +88,16 @@ struct ColumnMapping {
     bool has_complex_projection = false;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
+
+    std::string debug_string() const;
 };
 
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
     bool allow_missing_columns = true;
     bool enable_reader_expression_fallback = true;
+
+    std::string debug_string() const;
 };
 
 // 通用 table schema 到 file schema 映射层。
@@ -128,6 +132,13 @@ public:
                                     FileScanRequest* file_request);
     void clear() { _mappings.clear(); }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
+    std::string debug_string() const;
+
+    static std::string debug_string(const TableColumn& column);
+    static std::string debug_string(const SchemaField& field);
+    static std::string debug_string(const FieldProjection& projection);
+    static std::string debug_string(const FileColumnPredicateFilter& filter);
+    static std::string debug_string(const FileScanRequest& request);
 
 private:
     const SchemaField* _find_file_field(const TableColumn& table_column,

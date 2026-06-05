@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,75 @@
 #include "storage/predicate/predicate_creator.h"
 
 namespace doris::reader {
+
+namespace {
+
+std::string mapping_mode_to_string(TableColumnMappingMode mode) {
+    switch (mode) {
+    case TableColumnMappingMode::BY_FIELD_ID:
+        return "BY_FIELD_ID";
+    case TableColumnMappingMode::BY_NAME:
+        return "BY_NAME";
+    case TableColumnMappingMode::BY_INDEX:
+        return "BY_INDEX";
+    }
+    return "UNKNOWN";
+}
+
+std::string virtual_column_type_to_string(TableVirtualColumnType type) {
+    switch (type) {
+    case TableVirtualColumnType::INVALID:
+        return "INVALID";
+    case TableVirtualColumnType::ROW_ID:
+        return "ROW_ID";
+    case TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER:
+        return "LAST_UPDATED_SEQUENCE_NUMBER";
+    }
+    return "UNKNOWN";
+}
+
+std::string column_type_to_string(ColumnType type) {
+    switch (type) {
+    case ColumnType::DATA_COLUMN:
+        return "DATA_COLUMN";
+    case ColumnType::ROW_NUMBER:
+        return "ROW_NUMBER";
+    }
+    return "UNKNOWN";
+}
+
+std::string data_type_debug_string(const DataTypePtr& type) {
+    return type == nullptr ? "null" : type->get_name();
+}
+
+template <typename T, typename Formatter>
+std::string join_debug_strings(const std::vector<T>& values, Formatter formatter) {
+    std::ostringstream out;
+    out << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {
+            out << ", ";
+        }
+        out << formatter(values[i]);
+    }
+    out << "]";
+    return out.str();
+}
+
+std::string int_vector_debug_string(const std::vector<int32_t>& values) {
+    std::ostringstream out;
+    out << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {
+            out << ", ";
+        }
+        out << values[i];
+    }
+    out << "]";
+    return out.str();
+}
+
+} // namespace
 
 struct FileSlotRewriteInfo {
     size_t block_position = 0;
@@ -117,6 +187,126 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
     default:
         return false;
     }
+}
+
+std::string TableColumnMapperOptions::debug_string() const {
+    std::ostringstream out;
+    out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
+        << ", allow_missing_columns=" << allow_missing_columns
+        << ", enable_reader_expression_fallback=" << enable_reader_expression_fallback << "}";
+    return out.str();
+}
+
+std::string TableColumnMapper::debug_string(const TableColumn& column) {
+    std::ostringstream out;
+    out << "TableColumn{id=" << column.id << ", name=" << column.name
+        << ", type=" << data_type_debug_string(column.type) << ", children="
+        << join_debug_strings(
+                   column.children,
+                   [](const TableColumn& child) { return TableColumnMapper::debug_string(child); })
+        << ", has_default_expr=" << (column.default_expr != nullptr)
+        << ", is_partition_key=" << column.is_partition_key << "}";
+    return out.str();
+}
+
+std::string TableColumnMapper::debug_string(const SchemaField& field) {
+    std::ostringstream out;
+    out << "SchemaField{id=" << field.id << ", name=" << field.name
+        << ", type=" << data_type_debug_string(field.type) << ", children="
+        << join_debug_strings(
+                   field.children,
+                   [](const SchemaField& child) { return TableColumnMapper::debug_string(child); })
+        << ", column_type=" << column_type_to_string(field.column_type) << "}";
+    return out.str();
+}
+
+std::string TableColumnMapper::debug_string(const FieldProjection& projection) {
+    std::ostringstream out;
+    out << "FieldProjection{field_id=" << projection.field_id
+        << ", project_all_children=" << projection.project_all_children << ", children="
+        << join_debug_strings(projection.children,
+                              [](const FieldProjection& child) {
+                                  return TableColumnMapper::debug_string(child);
+                              })
+        << "}";
+    return out.str();
+}
+
+std::string TableColumnMapper::debug_string(const FileColumnPredicateFilter& filter) {
+    std::ostringstream out;
+    out << "FileColumnPredicateFilter{file_column_id=" << filter.file_column_id
+        << ", file_child_id_path=" << int_vector_debug_string(filter.file_child_id_path)
+        << ", predicate_count=" << filter.predicates.size() << "}";
+    return out.str();
+}
+
+std::string TableColumnMapper::debug_string(const FileScanRequest& request) {
+    std::ostringstream out;
+    out << "FileScanRequest{predicate_columns="
+        << join_debug_strings(request.predicate_columns,
+                              [](const FieldProjection& projection) {
+                                  return TableColumnMapper::debug_string(projection);
+                              })
+        << ", non_predicate_columns="
+        << join_debug_strings(request.non_predicate_columns,
+                              [](const FieldProjection& projection) {
+                                  return TableColumnMapper::debug_string(projection);
+                              })
+        << ", column_positions={";
+    size_t position_idx = 0;
+    for (const auto& [column_id, block_position] : request.column_positions) {
+        if (position_idx++ > 0) {
+            out << ", ";
+        }
+        out << column_id << ":" << block_position;
+    }
+    out << "}, conjunct_count=" << request.conjuncts.size()
+        << ", delete_conjunct_count=" << request.delete_conjuncts.size()
+        << ", column_predicate_filters="
+        << join_debug_strings(request.column_predicate_filters,
+                              [](const FileColumnPredicateFilter& filter) {
+                                  return TableColumnMapper::debug_string(filter);
+                              })
+        << "}";
+    return out.str();
+}
+
+std::string ColumnMapping::debug_string() const {
+    std::ostringstream out;
+    out << "ColumnMapping{table_column_id=" << table_column_id
+        << ", table_column_name=" << table_column_name << ", field_id=";
+    if (field_id.has_value()) {
+        out << *field_id;
+    } else {
+        out << "null";
+    }
+    out << ", file_column_name=" << file_column_name
+        << ", original_file_type=" << data_type_debug_string(original_file_type)
+        << ", original_file_children="
+        << join_debug_strings(
+                   original_file_children,
+                   [](const SchemaField& child) { return TableColumnMapper::debug_string(child); })
+        << ", file_path=" << int_vector_debug_string(file_path)
+        << ", file_type=" << data_type_debug_string(file_type)
+        << ", table_type=" << data_type_debug_string(table_type)
+        << ", has_projection=" << (projection != nullptr)
+        << ", has_reader_filter_expr=" << (reader_filter_expr != nullptr) << ", child_mappings="
+        << join_debug_strings(child_mappings,
+                              [](const ColumnMapping& child) { return child.debug_string(); })
+        << ", is_trivial=" << is_trivial << ", is_constant=" << is_constant
+        << ", is_missing=" << is_missing << ", has_complex_projection=" << has_complex_projection
+        << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
+        << ", has_default_expr=" << (default_expr != nullptr) << "}";
+    return out.str();
+}
+
+std::string TableColumnMapper::debug_string() const {
+    std::ostringstream out;
+    out << "TableColumnMapper{options=" << _options.debug_string() << ", mappings="
+        << join_debug_strings(_mappings,
+                              [](const ColumnMapping& mapping) { return mapping.debug_string(); })
+        << "}";
+    return out.str();
 }
 
 static const FileSlotRewriteInfo* find_slot_rewrite_info(

@@ -228,6 +228,8 @@ public:
         return Status::OK();
     }
 
+    std::string debug_string() const;
+
 protected:
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
