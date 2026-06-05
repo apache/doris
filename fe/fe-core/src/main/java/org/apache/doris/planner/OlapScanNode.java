@@ -492,7 +492,9 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
-        if (olapTable instanceof OlapTableStreamWrapper) {
+        if (olapTable instanceof OlapTableStreamWrapper
+                && ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second != null) {
+            // legacy support, will be removed after full olap table stream history function ready
             visibleVersion = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second;
         }
         maxVersion = Math.max(maxVersion, visibleVersion);
@@ -554,6 +556,8 @@ public class OlapScanNode extends ScanNode {
                 paloRange.setStartTso(changeStartTimestamp);
                 if (hasChangeEndTimestamp) {
                     paloRange.setEndTso(changeEndTimestamp);
+                } else {
+                    paloRange.setEndTso(decodeTsoToTimestamp(partition.getTso()));
                 }
                 if (incrementalScan) {
                     paloRange.setBinlogScanType(informationKindToSchemaScanType(informationKind));
@@ -567,6 +571,8 @@ public class OlapScanNode extends ScanNode {
                 }
                 if (update.second != null) {
                     paloRange.setEndTso(decodeTsoToTimestamp(update.second));
+                } else {
+                    paloRange.setEndTso(decodeTsoToTimestamp(partition.getTso()));
                 }
                 TBinlogScanType streamScanType =
                         BaseTableStream.StreamScanType.toThrift(binlogWrapper.getParent().getConsumeType());
