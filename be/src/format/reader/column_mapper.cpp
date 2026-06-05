@@ -578,14 +578,6 @@ static void collect_nested_struct_paths(const VExprSPtr& expr,
     }
 }
 
-static const ColumnDefinition* find_schema_child_by_field_id(
-        const std::vector<ColumnDefinition>& children, int32_t field_id) {
-    const auto child_it = std::ranges::find_if(children, [&](const ColumnDefinition& child) {
-        return child.identifier.has_field_id() && child.identifier.field_id == field_id;
-    });
-    return child_it == children.end() ? nullptr : &*child_it;
-}
-
 static const ColumnDefinition* resolve_file_child(const std::vector<ColumnDefinition>& children,
                                                   const StructChildSelector& selector) {
     if (selector.by_name) {
