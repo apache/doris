@@ -94,9 +94,12 @@ struct JsonbParser {
             case simdjson::ondemand::json_type::null: {
                 bool is_null = false;
                 simdjson::error_code res = doc.is_null().get(is_null);
-                if (res != simdjson::SUCCESS || !is_null) {
+                if (res != simdjson::SUCCESS) {
                     return Status::InvalidArgument(fmt::format("simdjson get null failed: {}",
                                                                simdjson::error_message(res)));
+                }
+                if (!is_null) {
+                    return Status::InvalidArgument("invalid JSON null literal");
                 }
                 if (writer.writeNull() == 0) {
                     return Status::InvalidArgument("writeNull failed");
@@ -123,7 +126,7 @@ struct JsonbParser {
                 }
                 if (res == simdjson::error_code::NUMBER_ERROR ||
                     res == simdjson::error_code::BIGINT_ERROR) {
-                    RETURN_IF_ERROR(write_number_from_raw_json(pch, len, writer));
+                    RETURN_IF_ERROR(write_number_from_raw_json(std::string_view(pch, len), writer));
                     need_check_at_end = false;
                     break;
                 }
@@ -403,10 +406,6 @@ private:
             return Status::InvalidArgument("writeInt failed");
         }
         return Status::OK();
-    }
-
-    static Status write_number_from_raw_json(const char* pch, size_t len, JsonbWriter& writer) {
-        return write_number_from_raw_json(std::string_view(pch, len), writer);
     }
 
     // According to https://github.com/simdjson/simdjson/pull/2139
