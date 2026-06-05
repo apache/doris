@@ -263,8 +263,7 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
 std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
-        << ", allow_missing_columns=" << allow_missing_columns
-        << ", enable_reader_expression_fallback=" << enable_reader_expression_fallback << "}";
+        << ", allow_missing_columns=" << allow_missing_columns << "}";
     return out.str();
 }
 
@@ -1526,8 +1525,6 @@ static Status build_column_map_result(const ColumnMapping& mapping,
                                       ColumnMapResult* result) {
     DORIS_CHECK(result != nullptr);
     *result = {};
-    result->projection = mapping.projection;
-    result->default_expr = mapping.default_expr;
     if (!mapping.field_id.has_value()) {
         return Status::OK();
     }

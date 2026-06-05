@@ -260,8 +260,7 @@ projection 和 local block position 确定后，生成两份结果：
 
 - `column_map_results()`：按 `GlobalIndex` 保存每个 table/global column 的递归映射结果。
   其中 local 物理列包含 `LocalColumnId`、`LocalColumnIndex` 和 root 指向 file-local block
-  position 的 `IndexMapping`；constant/missing/virtual 列保留 expression/default 信息但不生成
-  local mapping。
+  position 的 `IndexMapping`；constant/missing/virtual 列不生成 local mapping。
 - `result_mapping()`：只保存真实 file-local source 到 global result column 的最终映射。
 
 Filter localization 已经接入 `FilterEntry`：`filter_entries()` 会记录 `GlobalIndex` 到

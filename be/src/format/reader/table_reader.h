@@ -72,22 +72,6 @@ struct TableFilter {
     std::vector<GlobalIndex> global_indices;
 };
 
-enum class TableFilterConversion {
-    COPY_DIRECTLY,
-    CAST_FILTER,
-    EVALUATE_EXPRESSION,
-    FINALIZE_ONLY,
-};
-
-struct BaseDataFile {
-    virtual ~BaseDataFile() = default;
-
-    std::string path;
-    std::string format;
-    int64_t record_count = 0;
-    int64_t file_size = 0;
-};
-
 struct ScanTask {
     virtual ~ScanTask() = default;
 

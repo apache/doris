@@ -1717,7 +1717,6 @@ TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
     EXPECT_EQ(filter_entries.at(GlobalIndex(1)).local_index().value(), 0);
 
     const auto& result_mapping = mapper.result_mapping();
-    ASSERT_FALSE(result_mapping.has_error());
     ASSERT_EQ(result_mapping.global_to_local.size(), 2);
     EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).mapping.index, 1);
     EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(1)).mapping.index, 0);

@@ -79,17 +79,11 @@ struct IndexMapping {
     std::map<int32_t, std::shared_ptr<IndexMapping>> child_mapping;
 };
 
-// Recursive result produced while matching one table/global column against one file-local schema.
-//
-// This mirrors DuckDB's split between temporary recursive mapping and final output mapping, but
-// uses Doris column/index types. It should absorb construction-only state currently stored in
-// ColumnMapping, such as original file children and default/projection expressions.
+// Recursive result produced after one table/global column is assigned to a file-local source.
 struct ColumnMapResult {
     std::optional<LocalColumnId> local_column_id;
     std::optional<LocalColumnIndex> column_index;
     std::optional<IndexMapping> mapping;
-    VExprContextSPtr projection;
-    VExprContextSPtr default_expr;
 };
 
 // Final mapping entry from one global result column to one file-local source.
@@ -103,9 +97,6 @@ struct ColumnMapEntry {
 // Collection of final result-column mappings produced for one file/split.
 struct ResultColumnMapping {
     std::map<GlobalIndex, ColumnMapEntry> global_to_local;
-    std::string error;
-
-    bool has_error() const { return !error.empty(); }
 };
 
 // 单个 table column 到 file column 的映射结果。
@@ -157,7 +148,6 @@ struct ColumnMapping {
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
     bool allow_missing_columns = true;
-    bool enable_reader_expression_fallback = true;
 
     std::string debug_string() const;
 };
