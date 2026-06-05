@@ -49,6 +49,9 @@ public class DelegatedCredential {
     }
 
     public boolean isExpired(long currentTimeMillis) {
+        // Use inclusive comparison (>=) on purpose: at the exact expiration instant the credential is
+        // already considered expired. Treating the boundary as still-valid would risk handing a token
+        // to the downstream REST server right as it stops being accepted, so we fail closed here.
         return expiresAtMillis != null && currentTimeMillis >= expiresAtMillis;
     }
 

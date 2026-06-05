@@ -27,7 +27,6 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
@@ -176,12 +175,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         List<String> viewNames = ops.listViewNames(ctx, dbName);
         tableNames.addAll(viewNames);
         return tableNames;
-    }
-
-    public boolean isIcebergRestUserSessionEnabled() {
-        makeSureInitialized();
-        return msProperties instanceof IcebergRestProperties
-                && ((IcebergRestProperties) msProperties).isIcebergRestUserSessionEnabled();
     }
 
     @Override

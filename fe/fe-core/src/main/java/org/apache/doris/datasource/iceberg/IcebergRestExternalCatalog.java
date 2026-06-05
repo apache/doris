@@ -177,20 +177,20 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     private boolean shouldBypassDatabaseCache(SessionContext ctx) {
-        return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionPropertyEnabled();
+        return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
     }
 
     /**
-     * Whether REST user-session mode is enabled, decided purely from catalog properties.
+     * Whether REST user-session mode is enabled for this catalog.
      *
-     * <p>Unlike {@link #isIcebergRestUserSessionEnabled()} (which calls {@code makeSureInitialized()}
-     * and reads the initialized metastore properties), this check is intentionally usable
-     * <em>before</em> catalog initialization: it drives the cache-bypass decision in
-     * {@link #getDbNames()} / {@link #getDbNullable(String)} which must run before
-     * {@code makeSureInitialized()}. {@code CatalogProperty#getMetastoreProperties()} lazily parses
-     * and never returns null, so this does not force catalog initialization.
+     * <p>This is REST-specific behavior, so it lives on {@link IcebergRestExternalCatalog} rather than the
+     * generic {@link IcebergExternalCatalog} base class. The decision is made purely from catalog
+     * properties via {@code CatalogProperty#getMetastoreProperties()}, which lazily parses and never
+     * returns null. It therefore does <em>not</em> force {@code makeSureInitialized()}, and is safe to
+     * call before catalog initialization, e.g. from the cache-bypass decision in {@link #getDbNames()} /
+     * {@link #getDbNullable(String)} which runs before initialization.
      */
-    private boolean isIcebergRestUserSessionPropertyEnabled() {
+    public boolean isIcebergRestUserSessionEnabled() {
         return catalogProperty.getMetastoreProperties() instanceof IcebergRestProperties
                 && ((IcebergRestProperties) catalogProperty.getMetastoreProperties()).isIcebergRestUserSessionEnabled();
     }

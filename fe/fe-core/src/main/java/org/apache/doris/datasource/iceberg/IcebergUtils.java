@@ -1764,12 +1764,13 @@ public class IcebergUtils {
     }
 
     private static boolean useSessionCatalog(ExternalTable dorisTable) {
-        if (!(dorisTable.getCatalog() instanceof IcebergExternalCatalog)) {
+        // User-session mode is REST-only, so the catalog must be an IcebergRestExternalCatalog.
+        if (!(dorisTable.getCatalog() instanceof IcebergRestExternalCatalog)) {
             return false;
         }
         SessionContext sessionContext = SessionContext.current();
         return sessionContext.hasDelegatedCredential()
-                && ((IcebergExternalCatalog) dorisTable.getCatalog()).isIcebergRestUserSessionEnabled();
+                && ((IcebergRestExternalCatalog) dorisTable.getCatalog()).isIcebergRestUserSessionEnabled();
     }
 
     public static boolean isIcebergRowLineageColumn(Column column) {
