@@ -135,6 +135,25 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
+    public void testDoNotPushDownNonNullPropagatingRuntimeFilterThroughOuterJoin() {
+        String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
+                + " inner join supplier on coalesce(c_custkey, 0) = s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testPushDownNullPropagatingRuntimeFilterThroughOuterJoin() {
+        String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
+                + " inner join supplier on c_custkey = s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(2, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("c_custkey", "lo_custkey"),
+                Pair.of("s_suppkey", "c_custkey")));
+    }
+
+    @Test
     public void testPushDownThroughAggNode() {
         String sql = "select profit"
                 + " from (select lo_custkey, sum(lo_revenue - lo_supplycost) as profit from lineorder inner join dates"
