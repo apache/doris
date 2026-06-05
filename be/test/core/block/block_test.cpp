@@ -1384,6 +1384,34 @@ TEST(BlockTest, others) {
     ASSERT_TRUE(dumped_names.empty()) << "Dumped names: " << dumped_names;
 }
 
+TEST(BlockTest, split_to_const_blocks) {
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
+    block.insert(
+            ColumnHelper::create_nullable_column_with_name<DataTypeUInt8>({10, 20, 30}, {0, 1, 0}));
+    block.insert({ColumnConst::create(ColumnInt64::create(1, 100), 3),
+                  std::make_shared<DataTypeInt64>(), "const_column"});
+
+    auto const_blocks = block.split_to_const_blocks();
+    ASSERT_EQ(const_blocks.size(), 3);
+
+    for (size_t row = 0; row < const_blocks.size(); ++row) {
+        const auto& const_block = const_blocks[row];
+        ASSERT_EQ(const_block.rows(), 1);
+        ASSERT_EQ(const_block.columns(), block.columns());
+        for (size_t column = 0; column < block.columns(); ++column) {
+            const auto& source_column = block.get_by_position(column);
+            const auto& const_column = const_block.get_by_position(column);
+            ASSERT_EQ(const_column.name, source_column.name);
+            ASSERT_TRUE(const_column.type->equals(*source_column.type));
+            ASSERT_TRUE(is_column_const(*const_column.column));
+            auto full_const_column = const_column.column->convert_to_full_column_if_const();
+            auto full_source_column = source_column.column->convert_to_full_column_if_const();
+            ASSERT_EQ(full_const_column->compare_at(0, row, *full_source_column, 0), 0);
+        }
+    }
+}
+
 TEST(BlockTest, ClearSelectedColumnDataClonesSharedColumn) {
     auto type = std::make_shared<DataTypeInt32>();
     auto mutable_col0 = ColumnInt32::create();

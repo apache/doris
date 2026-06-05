@@ -518,6 +518,16 @@ public:
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
+#ifndef NDEBUG
+    bool should_mock_sink_const_block_once() {
+        if (_has_mocked_sink_const_block) {
+            return false;
+        }
+        _has_mocked_sink_const_block = true;
+        return true;
+    }
+#endif
+
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
@@ -543,6 +553,9 @@ protected:
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
+#ifndef NDEBUG
+    bool _has_mocked_sink_const_block = false;
+#endif
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -623,6 +636,10 @@ public:
 
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
+
+#ifndef NDEBUG
+    [[nodiscard]] virtual bool mock_const_block_execution() const { return true; }
+#endif
 
     // Returns the memory this sink operator expects to allocate in the next
     // execution round (sink only — pipeline task sums all operators + sink).

@@ -22,9 +22,13 @@
 #include <functional>
 #include <future>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/column/column_const.h"
+#include "core/data_type/data_type_number.h"
+#include "exec/operator/mock_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
@@ -35,6 +39,7 @@
 #include "exec/spill/spill_file.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_thread_mem_tracker_mgr.h"
 #include "testutil/mock/mock_workload_group_mgr.h"
@@ -111,6 +116,21 @@ public:
     }
 
     std::function<void(PipelineTaskSPtr)> on_submit;
+};
+
+class RecordingSinkOperator final : public DataSinkOperatorX<DummySinkLocalState> {
+public:
+    RecordingSinkOperator(int op_id, int node_id, int dest_id)
+            : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
+
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
+        received_blocks.push_back(*in_block);
+        received_eos.push_back(eos);
+        return Status::OK();
+    }
+
+    std::vector<Block> received_blocks;
+    std::vector<bool> received_eos;
 };
 
 TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
@@ -395,6 +415,73 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_TRUE(task->finalize().ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
     }
+}
+
+TEST_F(PipelineTaskTest, TEST_SINK_CONST_BLOCK_MOCK_ONCE) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        auto* mock_source = new MockOperatorX();
+        mock_source->_outout_blocks.push_back(ColumnHelper::create_block<DataTypeInt32>({1, 2, 3}));
+        mock_source->_outout_blocks.push_back(ColumnHelper::create_block<DataTypeInt32>({4, 5}));
+        source_op.reset(mock_source);
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new RecordingSinkOperator(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-2);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->_exec_time_slice = 10'000'000'000ULL;
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+    }
+
+    _query_ctx->get_execution_dependency()->set_ready();
+    bool done = false;
+    EXPECT_TRUE(task->execute(&done).ok());
+    EXPECT_TRUE(done);
+
+    const auto& sink = task->_sink->cast<RecordingSinkOperator>();
+    ASSERT_EQ(sink.received_blocks.size(), 4);
+    ASSERT_EQ(sink.received_eos.size(), 4);
+
+    for (size_t i = 0; i < 3; ++i) {
+        ASSERT_EQ(sink.received_blocks[i].rows(), 1);
+        ASSERT_EQ(sink.received_blocks[i].columns(), 1);
+        const auto& column = sink.received_blocks[i].get_by_position(0).column;
+        ASSERT_TRUE(is_column_const(*column));
+        EXPECT_EQ(sink.received_blocks[i].get_by_position(0).type->to_string(*column, 0),
+                  std::to_string(i + 1));
+        EXPECT_FALSE(sink.received_eos[i]);
+    }
+
+    ASSERT_EQ(sink.received_blocks[3].rows(), 2);
+    ASSERT_EQ(sink.received_blocks[3].columns(), 1);
+    EXPECT_FALSE(is_column_const(*sink.received_blocks[3].get_by_position(0).column));
+    EXPECT_EQ(sink.received_blocks[3].get_by_position(0).type->to_string(
+                      *sink.received_blocks[3].get_by_position(0).column, 0),
+              "4");
+    EXPECT_EQ(sink.received_blocks[3].get_by_position(0).type->to_string(
+                      *sink.received_blocks[3].get_by_position(0).column, 1),
+              "5");
+    EXPECT_TRUE(sink.received_eos[3]);
 }
 
 TEST_F(PipelineTaskTest, TEST_TERMINATE) {

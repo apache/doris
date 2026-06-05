@@ -22,6 +22,7 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "core/block/materialize_block.h"
 #include "core/data_type/primitive_type.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/operator/operator.h"
@@ -990,6 +991,7 @@ Status AggSinkOperatorX::_check_agg_fn_output() {
 
 Status AggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
+    materialize_block_inplace(*in_block);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();

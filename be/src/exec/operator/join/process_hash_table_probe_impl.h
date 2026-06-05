@@ -47,6 +47,10 @@ static bool check_all_match_one(const auto& vecs) {
 }
 
 static void insert_with_indexs(auto& dst, const auto& src, const auto& indexs, bool all_match_one) {
+    if (const auto* const_src = check_and_get_column<ColumnConst>(src.get())) {
+        dst->insert_many_from(*const_src->get_data_column_ptr(), 0, indexs.size());
+        return;
+    }
     if (all_match_one) {
         dst->insert_range_from(*src, indexs[0], indexs.size());
     } else {

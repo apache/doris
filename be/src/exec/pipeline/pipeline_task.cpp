@@ -59,6 +59,28 @@ class RuntimeState;
 
 namespace doris {
 
+#ifndef NDEBUG
+namespace {
+
+Status sink_with_const_block_mock(DataSinkOperatorXBase* sink, RuntimeState* state, Block* block,
+                                  bool eos) {
+    auto* local_state = state->get_sink_local_state();
+    DCHECK(local_state);
+    if (block->empty() || !sink->mock_const_block_execution() ||
+        !local_state->should_mock_sink_const_block_once()) {
+        return sink->sink(state, block, eos);
+    }
+
+    auto const_blocks = block->split_to_const_blocks();
+    for (size_t i = 0; i < const_blocks.size(); ++i) {
+        RETURN_IF_ERROR(sink->sink(state, &const_blocks[i], eos && i + 1 == const_blocks.size()));
+    }
+    return Status::OK();
+}
+
+} // namespace
+#endif
+
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                            std::shared_ptr<PipelineFragmentContext> fragment_context,
                            RuntimeProfile* parent_profile,
@@ -719,7 +741,11 @@ Status PipelineTask::execute(bool* done) {
                 }
             });
             RETURN_IF_ERROR(block->check_type_and_column());
+#ifndef NDEBUG
+            status = sink_with_const_block_mock(_sink.get(), _state, block, _eos);
+#else
             status = _sink->sink(_state, block, _eos);
+#endif
 
             if (_eos) {
                 if (_sink->reset_to_rerun(_state, _root)) {

@@ -34,6 +34,7 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
@@ -345,6 +346,37 @@ TEST_F(HashJoinProbeOperatorTest, InnerJoin) {
     check_column_values(
             *sorted_block.get_by_position(3).column,
             {Field::create_field<TYPE_STRING>("c"), Field::create_field<TYPE_STRING>("d")});
+}
+
+TEST_F(HashJoinProbeOperatorTest, InnerJoinConstProbeBlock) {
+    auto sink_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    sink_block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c"}));
+
+    auto probe_key_column = ColumnInt32::create();
+    probe_key_column->insert_value(2);
+    auto probe_payload_column = ColumnString::create();
+    probe_payload_column->insert_data("b", 1);
+    Block probe_block(
+            {ColumnWithTypeAndName(ColumnConst::create(std::move(probe_key_column), 1),
+                                   std::make_shared<DataTypeInt32>(), "column1"),
+             ColumnWithTypeAndName(ColumnConst::create(std::move(probe_payload_column), 1),
+                                   std::make_shared<DataTypeString>(), "column2")});
+
+    Block output_block;
+    std::vector<Block> build_blocks = {sink_block};
+    std::vector<Block> probe_blocks = {probe_block};
+    run_test({TJoinOp::INNER_JOIN}, {TPrimitiveType::INT, TPrimitiveType::STRING}, {false, false},
+             {false, false}, build_blocks, probe_blocks, output_block);
+
+    ASSERT_EQ(output_block.rows(), 1);
+    check_column_values(*output_block.get_by_position(0).column,
+                        {Field::create_field<TYPE_INT>(2)});
+    check_column_values(*output_block.get_by_position(1).column,
+                        {Field::create_field<TYPE_STRING>("b")});
+    check_column_values(*output_block.get_by_position(2).column,
+                        {Field::create_field<TYPE_INT>(2)});
+    check_column_values(*output_block.get_by_position(3).column,
+                        {Field::create_field<TYPE_STRING>("b")});
 }
 
 TEST_F(HashJoinProbeOperatorTest, InnerJoinEmptyBuildSide) {
