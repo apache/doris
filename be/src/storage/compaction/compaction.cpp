@@ -34,6 +34,7 @@
 #include <ostream>
 #include <set>
 #include <shared_mutex>
+#include <string>
 #include <utility>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -756,8 +757,14 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(modify_rowsets());
 
-    auto* cumu_policy = tablet()->cumulative_compaction_policy();
-    DCHECK(cumu_policy);
+    auto compaction_policy_info = [this]() -> std::string {
+        if (compaction_type() == ReaderType::READER_BINLOG_COMPACTION) {
+            return fmt::format("binlog_compaction_level={}", static_cast<int>(compaction_level()));
+        }
+        auto* cumu_policy = tablet()->cumulative_compaction_policy();
+        DCHECK(cumu_policy);
+        return fmt::format("cumulative_compaction_policy={}", cumu_policy->name());
+    }();
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << _is_vertical
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << tablet()->max_version().second
@@ -778,8 +785,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", filtered_row_num=" << _stats.filtered_rows
               << ", merged_row_num=" << _stats.merged_rows
-              << ". elapsed time=" << watch.get_elapse_second()
-              << "s. cumulative_compaction_policy=" << cumu_policy->name()
+              << ". elapsed time=" << watch.get_elapse_second() << "s. " << compaction_policy_info
               << ", compact_row_per_second="
               << cast_set<double>(_input_row_num) / watch.get_elapse_second();
 
