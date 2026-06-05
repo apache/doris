@@ -363,6 +363,8 @@ public:
 
     const Slice& slice() const { return _slice; }
 
+    size_t capacity() const { return _capacity; }
+
 private:
     // faststring also inherits Allocator and disables mmap.
     friend class faststring;
