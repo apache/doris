@@ -43,9 +43,7 @@ struct TableFilter;
 
 // Table-level simple predicates grouped by FE column unique id. The key is not LocalColumnId:
 // TableColumnMapper resolves it through TableColumnDefinition before creating file pruning hints.
-using TableColumnPredicates =
-        std::map<int32_t,
-                 std::pair<TableColumnDefinition, std::vector<std::shared_ptr<ColumnPredicate>>>>;
+using TableColumnPredicates = std::map<int32_t, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
     // Match by TableColumnIdentifier::FIELD_ID against SchemaField::id.
@@ -137,6 +135,10 @@ public:
     virtual Status create_mapping(const std::vector<TableColumnDefinition>& projected_columns,
                                   const std::map<std::string, Field>& partition_values,
                                   const std::vector<SchemaField>& file_schema);
+    virtual Status create_mapping(const std::vector<TableColumnDefinition>& projected_columns,
+                                  const std::vector<int32_t>& projected_column_unique_ids,
+                                  const std::map<std::string, Field>& partition_values,
+                                  const std::vector<SchemaField>& file_schema);
 
     // 把 table-level scan 请求转换成 file-local scan 请求。table_filters 保留 row-level
     // 过滤语义并转换成 file-local conjuncts；table_column_predicates 只转换成 file-layer
@@ -144,6 +146,11 @@ public:
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const TableColumnPredicates& table_column_predicates,
                                        const std::vector<TableColumnDefinition>& projected_columns,
+                                       FileScanRequest* file_request);
+    virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
+                                       const TableColumnPredicates& table_column_predicates,
+                                       const std::vector<TableColumnDefinition>& projected_columns,
+                                       const std::vector<int32_t>& projected_column_unique_ids,
                                        FileScanRequest* file_request);
 
     // 将 table-level filter 定位到文件 schema。
@@ -172,6 +179,8 @@ private:
                                     const std::vector<SchemaField>& file_schema,
                                     ColumnMapping* mapping) const;
 
+    ColumnMapping* _find_mapping(int32_t table_column_id);
+    const ColumnMapping* _find_mapping(int32_t table_column_id) const;
     ColumnMapping* _find_mapping(const TableColumnDefinition& table_column);
     const ColumnMapping* _find_mapping(const TableColumnDefinition& table_column) const;
 

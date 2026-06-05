@@ -104,6 +104,7 @@ private:
 
     std::unique_ptr<reader::TableReader> _table_reader;
     std::vector<reader::TableColumnDefinition> _projected_columns;
+    std::vector<int32_t> _projected_column_unique_ids;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
     std::unordered_map<std::string, const SlotDescriptor*> _partition_slot_descs;
 

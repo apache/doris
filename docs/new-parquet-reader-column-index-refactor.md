@@ -15,6 +15,9 @@ position。
   过渡 alias。
 - 已引入 `TableColumnIdentifier`，用于描述 table/global column 如何匹配 file-local
   schema。
+- `TableColumnDefinition` 已清理为纯 schema definition，不再保存 FE column unique id。
+- `TableReadOptions::projected_column_unique_ids` 已用于在投影列旁路携带 FE/SlotRef id，
+  `ColumnMapping::table_column_id` 由该数组建立。
 - 已引入 `LocalColumnId`、`LocalIndex`、`GlobalIndex`、`ConstantIndex` 强类型。
 - `FileScanRequest` 已改为使用 `LocalColumnIndex` 和
   `std::map<LocalColumnId, LocalIndex> local_positions`。
@@ -85,8 +88,11 @@ output block 位置，也不表示 file reader block 位置。
 - `NAME`：用于按名字匹配的普通文件格式。
 - `POSITION`：用于只能按物理顺序匹配的文件，比如 Hive1 ORC 场景。
 
-需要注意：`TableColumnDefinition::id` 目前仍保留，用于兼容 FE column unique id、
-predicate slot id 等旧路径。它不应该继续被当作 file-local column id 使用。
+FE column unique id 不再保存在 `TableColumnDefinition` 中。投影列通过
+`TableReadOptions::projected_column_unique_ids` 平行传递 FE/SlotRef id，filter rewrite
+通过 `TableFilter::column_unique_ids`、`TableColumnPredicates` 和
+`ColumnMapping::table_column_id` 继续使用这些 id；schema 匹配只使用
+`TableColumnIdentifier`。
 
 ### LocalColumnId
 

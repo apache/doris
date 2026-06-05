@@ -73,9 +73,9 @@ enum class TableColumnIdentifierKind {
 
 // Identifier used to match a table/global column against a file-local schema.
 //
-// This is intentionally separate from TableColumnDefinition::id. The legacy id is still the column
-// unique id used by FE predicates and SlotRef ids, while identifier describes how the column should
-// be matched to a data file:
+// TableColumnDefinition intentionally carries schema identity only. FE column unique ids used by
+// SlotRef/table predicates stay in TableReadOptions/TableFilter/TableColumnPredicates/
+// ColumnMapping, while identifier describes how the column should be matched to a data file:
 // - FIELD_ID: schema evolution aware table-format id, such as Iceberg field id.
 // - NAME: table column name for file formats that rely on names.
 // - POSITION: physical file ordinal for files whose names are placeholders, such as Hive1 ORC.
@@ -115,14 +115,9 @@ struct TableColumnIdentifier {
 // Iceberg 场景下，identifier 默认使用 field id。普通文件可以使用 name；Hive1 ORC
 // 这类只能按物理顺序匹配的文件可以使用 position。
 struct TableColumnDefinition {
-    // Matching key from table/global schema to file-local schema. If INVALID, helper methods fall
-    // back to id/name for existing callers.
+    // Matching key from table/global schema to file-local schema.
     TableColumnIdentifier identifier;
-    // FE column unique id / slot unique id. Kept separate from identifier because it is used by
-    // table-level predicates and expression rewrite, not by file-local column addressing.
-    int32_t id = -1; // column_unique_id
-    // Logical table column name. This is also the default matching name when identifier is not
-    // explicitly set to NAME.
+    // Logical table column name. This is also the matching name for by-name file formats.
     std::string name;
     DataTypePtr type;
     // Projected nested table children. Children use table/global identifiers; they are resolved to
@@ -135,13 +130,17 @@ struct TableColumnDefinition {
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
 
-    // Helper for BY_FIELD_ID matching. The fallback keeps current callers working until they set
-    // identifier explicitly.
-    int32_t field_id() const { return identifier.has_field_id() ? identifier.field_id : id; }
-    // Helper for BY_INDEX matching. The fallback interprets id as a file position for older call
-    // sites that still construct positional columns through id.
-    int32_t file_position() const { return identifier.has_position() ? identifier.position : id; }
-    // Helper for BY_NAME matching. The fallback uses name for older call sites.
+    // Helper for BY_FIELD_ID matching.
+    int32_t field_id() const {
+        DORIS_CHECK(identifier.has_field_id());
+        return identifier.field_id;
+    }
+    // Helper for BY_INDEX matching.
+    int32_t file_position() const {
+        DORIS_CHECK(identifier.has_position());
+        return identifier.position;
+    }
+    // Helper for BY_NAME matching.
     const std::string& match_name() const { return identifier.has_name() ? identifier.name : name; }
 };
 
@@ -149,7 +148,7 @@ struct TableColumnDefinition {
 // possible, and remain the source of row-level filtering after localization.
 struct TableFilter {
     VExprContextSPtr conjunct;
-    std::vector<TableColumnDefinition> column_unique_ids;
+    std::vector<int32_t> column_unique_ids;
 };
 
 enum class TableFilterConversion {
@@ -184,6 +183,9 @@ struct TableReadOptions {
     // Columns need to be read from file and output by table reader. They are all in table/global
     // schema semantics.
     const std::vector<TableColumnDefinition> projected_columns;
+    // FE column unique ids for projected_columns, kept outside TableColumnDefinition so schema
+    // matching identity stays independent from SlotRef/filter ids.
+    const std::vector<int32_t> projected_column_unique_ids = {};
     // Simple predicates for a single column, which is parsed on scan operator.
     const TableColumnPredicates column_predicates;
     // All complex conjuncts from scan operator
@@ -330,8 +332,8 @@ protected:
                                        : default_mapping_mode();
 
         _data_reader.column_mapper = TableColumnMapper(_mapper_options);
-        RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_projected_columns,
-                                                                  _partition_values, file_schema));
+        RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(
+                _projected_columns, _projected_column_unique_ids, _partition_values, file_schema));
         DORIS_CHECK(_data_reader.column_mapper.mappings().size() == _projected_columns.size());
 
         // 2. Build table filters based on conjuncts and column predicates.
@@ -343,7 +345,8 @@ protected:
         // are pruning hints.
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
-                _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
+                _table_filters, _table_column_predicates, _projected_columns,
+                _projected_column_unique_ids, file_request.get()));
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
@@ -872,6 +875,7 @@ protected:
     };
     DataReader _data_reader;
     std::vector<TableColumnDefinition> _projected_columns;
+    std::vector<int32_t> _projected_column_unique_ids;
     std::unique_ptr<ScanTask> _current_task;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value

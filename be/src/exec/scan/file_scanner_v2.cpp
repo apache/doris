@@ -102,13 +102,13 @@ reader::TableColumnDefinition* find_or_add_child(reader::TableColumnDefinition* 
                                                  std::string name, DataTypePtr type) {
     DORIS_CHECK(parent != nullptr);
     for (auto& child : parent->children) {
-        if (child.id == id || child.name == name) {
+        if ((child.identifier.has_field_id() && child.identifier.field_id == id) ||
+            child.name == name) {
             return &child;
         }
     }
     parent->children.push_back({
             .identifier = reader::TableColumnIdentifier::by_field_id(id),
-            .id = id,
             .name = std::move(name),
             .type = std::move(type),
             .children = {},
@@ -140,7 +140,6 @@ reader::TableColumnDefinition build_schema_column_from_external_field(
     reader::TableColumnDefinition column {
             .identifier = field.__isset.id ? reader::TableColumnIdentifier::by_field_id(field.id)
                                            : reader::TableColumnIdentifier {},
-            .id = field.__isset.id ? field.id : -1,
             .name = field.__isset.name ? field.name : "",
             .type = std::move(type),
             .children = {},
@@ -219,10 +218,11 @@ const reader::TableColumnDefinition* find_schema_child_by_path(
     }
     int32_t parsed_field_id = -1;
     if (parse_non_negative_int(child_path, &parsed_field_id)) {
-        const auto child_it = std::ranges::find_if(schema_column->children,
-                                                   [&](const reader::TableColumnDefinition& child) {
-                                                       return child.id == parsed_field_id;
-                                                   });
+        const auto child_it = std::ranges::find_if(
+                schema_column->children, [&](const reader::TableColumnDefinition& child) {
+                    return child.identifier.has_field_id() &&
+                           child.identifier.field_id == parsed_field_id;
+                });
         return child_it == schema_column->children.end() ? nullptr : &*child_it;
     }
     const auto child_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
@@ -255,7 +255,8 @@ const schema::external::TField* find_external_root_field(
         if (field == nullptr) {
             continue;
         }
-        if (field->__isset.id && field->id == column.id) {
+        if (field->__isset.id && column.identifier.has_field_id() &&
+            field->id == column.identifier.field_id) {
             return field;
         }
         if (field->__isset.name && to_lower(field->name) == to_lower(column.name)) {
@@ -641,6 +642,7 @@ Status FileScannerV2::_create_table_reader(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_build_table_column_predicates(&table_column_predicates));
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
+            .projected_column_unique_ids = _projected_column_unique_ids,
             .column_predicates = std::move(table_column_predicates),
             .conjuncts = _conjuncts,
             .format = format,
@@ -740,7 +742,9 @@ Status FileScannerV2::_init_expr_ctxes() {
 
 Status FileScannerV2::_build_projected_columns() {
     _projected_columns.clear();
+    _projected_column_unique_ids.clear();
     _projected_columns.reserve(_params->required_slots.size());
+    _projected_column_unique_ids.reserve(_params->required_slots.size());
 
     for (const auto& slot_info : _params->required_slots) {
         const auto it = _slot_id_to_desc.find(slot_info.slot_id);
@@ -762,6 +766,7 @@ Status FileScannerV2::_build_projected_columns() {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(column.name, it->second);
         }
+        _projected_column_unique_ids.push_back(it->second->col_unique_id());
         _projected_columns.push_back(std::move(column));
     }
     return Status::OK();
@@ -787,7 +792,6 @@ reader::TableColumnDefinition FileScannerV2::_build_table_column(const SlotDescr
     DORIS_CHECK(slot_desc != nullptr);
     reader::TableColumnDefinition column;
     column.identifier = reader::TableColumnIdentifier::by_field_id(slot_desc->col_unique_id());
-    column.id = slot_desc->col_unique_id();
     column.name = slot_desc->col_name();
     column.type = slot_desc->get_data_type_ptr();
     return column;
@@ -803,14 +807,7 @@ Status FileScannerV2::_build_table_column_predicates(
         if (it == _slot_id_to_desc.end()) {
             continue;
         }
-        (*predicates)[it->second->col_unique_id()] = {
-                reader::TableColumnDefinition {
-                        .identifier = reader::TableColumnIdentifier::by_field_id(
-                                it->second->col_unique_id()),
-                        .id = it->second->col_unique_id(),
-                        .name = it->second->col_name(),
-                        .type = it->second->get_data_type_ptr()},
-                slot_predicate_list};
+        (*predicates)[it->second->col_unique_id()] = slot_predicate_list;
     }
     return Status::OK();
 }

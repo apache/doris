@@ -403,7 +403,9 @@ TEST(FileScannerV2Test, BuildNestedChildrenFromAccessPaths) {
     const auto value_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"b", "c"});
     reader::TableColumnDefinition column {
-            .id = 100, .name = "m", .type = std::make_shared<DataTypeMap>(key_type, value_type)};
+            .identifier = reader::TableColumnIdentifier::by_field_id(100),
+            .name = "m",
+            .type = std::make_shared<DataTypeMap>(key_type, value_type)};
 
     std::vector<TColumnAccessPath> access_paths;
     access_paths.push_back(data_access_path({"m", "KEYS"}));
@@ -415,7 +417,8 @@ TEST(FileScannerV2Test, BuildNestedChildrenFromAccessPaths) {
 
     ASSERT_EQ(column.children.size(), 1);
     const auto& entries = column.children[0];
-    EXPECT_EQ(entries.id, 0);
+    ASSERT_TRUE(entries.identifier.has_field_id());
+    EXPECT_EQ(entries.identifier.field_id, 0);
     EXPECT_EQ(entries.name, "entries");
     ASSERT_EQ(entries.children.size(), 2);
     EXPECT_EQ(entries.children[0].name, "key");
@@ -431,7 +434,7 @@ TEST(FileScannerV2Test, BuildArrayStructChildrenFromAccessPaths) {
     const auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
     reader::TableColumnDefinition column {
-            .id = 100,
+            .identifier = reader::TableColumnIdentifier::by_field_id(100),
             .name = "arr",
             .type = std::make_shared<DataTypeArray>(element_type),
     };
@@ -444,10 +447,12 @@ TEST(FileScannerV2Test, BuildArrayStructChildrenFromAccessPaths) {
 
     ASSERT_EQ(column.children.size(), 1);
     const auto& element = column.children[0];
-    EXPECT_EQ(element.id, 0);
+    ASSERT_TRUE(element.identifier.has_field_id());
+    EXPECT_EQ(element.identifier.field_id, 0);
     EXPECT_EQ(element.name, "element");
     ASSERT_EQ(element.children.size(), 1);
-    EXPECT_EQ(element.children[0].id, 0);
+    ASSERT_TRUE(element.children[0].identifier.has_field_id());
+    EXPECT_EQ(element.children[0].identifier.field_id, 0);
     EXPECT_EQ(element.children[0].name, "a");
 }
 
@@ -456,18 +461,22 @@ TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
     const auto struct_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
     reader::TableColumnDefinition column {
-            .id = 100,
+            .identifier = reader::TableColumnIdentifier::by_field_id(100),
             .name = "s",
             .type = struct_type,
     };
     reader::TableColumnDefinition schema_column {
-            .id = 100,
+            .identifier = reader::TableColumnIdentifier::by_field_id(100),
             .name = "s",
             .type = struct_type,
             .children =
                     {
-                            {.id = 101, .name = "a", .type = int_type},
-                            {.id = 205, .name = "b", .type = int_type},
+                            {.identifier = reader::TableColumnIdentifier::by_field_id(101),
+                             .name = "a",
+                             .type = int_type},
+                            {.identifier = reader::TableColumnIdentifier::by_field_id(205),
+                             .name = "b",
+                             .type = int_type},
                     },
     };
 
@@ -478,14 +487,15 @@ TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
     ASSERT_TRUE(status.ok()) << status;
 
     ASSERT_EQ(column.children.size(), 1);
-    EXPECT_EQ(column.children[0].id, 205);
+    ASSERT_TRUE(column.children[0].identifier.has_field_id());
+    EXPECT_EQ(column.children[0].identifier.field_id, 205);
     EXPECT_EQ(column.children[0].name, "b");
 }
 
 TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     reader::TableColumnDefinition column {
-            .id = 100,
+            .identifier = reader::TableColumnIdentifier::by_field_id(100),
             .name = "s",
             .type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
                                                      Strings {"a", "b"}),

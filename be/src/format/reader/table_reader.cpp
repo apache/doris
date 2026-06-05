@@ -113,9 +113,7 @@ std::string table_filter_debug_string(const TableFilter& filter) {
     std::ostringstream out;
     out << "TableFilter{has_conjunct=" << (filter.conjunct != nullptr) << ", column_unique_ids="
         << join_table_reader_debug_strings(filter.column_unique_ids,
-                                           [](const TableColumn& column) {
-                                               return TableColumnMapper::debug_string(column);
-                                           })
+                                           [](int32_t column_id) { return std::to_string(column_id); })
         << "}";
     return out.str();
 }
@@ -128,27 +126,19 @@ std::string table_column_predicates_debug_string(const TableColumnPredicates& pr
         if (idx++ > 0) {
             out << ", ";
         }
-        out << slot_id << ":{column=" << TableColumnMapper::debug_string(column_predicates.first)
-            << ", predicate_count=" << column_predicates.second.size() << "}";
+        out << slot_id << ":{predicate_count=" << column_predicates.size() << "}";
     }
     out << "}";
     return out.str();
 }
 
-void collect_table_column_unique_ids(const VExprSPtr& expr,
-                                     std::map<int32_t, TableColumnDefinition>* column_unique_ids) {
+void collect_table_column_unique_ids(const VExprSPtr& expr, std::set<int32_t>* column_unique_ids) {
     if (expr == nullptr) {
         return;
     }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        column_unique_ids->insert(
-                {slot_ref->column_uniq_id(),
-                 TableColumnDefinition {.identifier = TableColumnIdentifier::by_field_id(
-                                                slot_ref->column_uniq_id()),
-                                        .id = slot_ref->column_uniq_id(),
-                                        .name = slot_ref->column_name(),
-                                        .type = slot_ref->data_type()}});
+        column_unique_ids->insert(slot_ref->column_uniq_id());
     }
     for (const auto& child : expr->children()) {
         collect_table_column_unique_ids(child, column_unique_ids);
@@ -160,14 +150,14 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
     if (conjunct == nullptr) {
         return Status::OK();
     }
-    std::map<int32_t, TableColumnDefinition> columns;
+    std::set<int32_t> columns;
     collect_table_column_unique_ids(conjunct->root(), &columns);
     if (!columns.empty()) {
         TableFilter table_filter;
         table_filter.conjunct = nullptr;
         RETURN_IF_ERROR(conjunct->clone(state, table_filter.conjunct));
-        for (const auto& [column_id, column] : columns) {
-            table_filter.column_unique_ids.push_back(column);
+        for (const auto column_id : columns) {
+            table_filter.column_unique_ids.push_back(column_id);
         }
         table_filters->push_back(std::move(table_filter));
     }
@@ -305,6 +295,9 @@ Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
     _push_down_agg_type = options.push_down_agg_type;
     _projected_columns = std::move(options.projected_columns);
+    _projected_column_unique_ids = std::move(options.projected_column_unique_ids);
+    DORIS_CHECK(_projected_column_unique_ids.empty() ||
+                _projected_column_unique_ids.size() == _projected_columns.size());
     _system_properties = create_system_properties(_scan_params);
     _profile = std::move(options.profile);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;

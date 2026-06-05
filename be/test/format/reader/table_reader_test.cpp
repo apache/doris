@@ -766,10 +766,17 @@ SplitReadOptions build_split_options_for_row_group_mid(const std::string& file_p
 TableColumnDefinition make_table_column(int32_t id, const std::string& name,
                                         const DataTypePtr& type) {
     TableColumnDefinition column;
-    column.id = id;
+    if (id >= 0) {
+        column.identifier = TableColumnIdentifier::by_field_id(id);
+    }
     column.name = name;
     column.type = type;
     return column;
+}
+
+int32_t table_column_id(const TableColumnDefinition& column) {
+    DORIS_CHECK(column.identifier.has_field_id());
+    return column.identifier.field_id;
 }
 
 SchemaField make_schema_field(int32_t id, const std::string& name, const DataTypePtr& type) {
@@ -783,9 +790,8 @@ SchemaField make_schema_field(int32_t id, const std::string& name, const DataTyp
 void add_column_predicate(TableColumnPredicates* column_predicates,
                           const TableColumnDefinition& column,
                           std::shared_ptr<ColumnPredicate> predicate) {
-    auto& entry = (*column_predicates)[column.id];
-    entry.first = column;
-    entry.second.push_back(std::move(predicate));
+    auto& entry = (*column_predicates)[table_column_id(column)];
+    entry.push_back(std::move(predicate));
 }
 
 VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
@@ -1611,12 +1617,14 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
     table_filters.push_back({
             .conjunct = VExprContext::create_shared(
                     std::make_shared<TableInt32SumGreaterThanExpr>(0, 0, 1, 1, 1)),
-            .column_unique_ids = {projected_columns[0], projected_columns[1]},
+            .column_unique_ids = {table_column_id(projected_columns[0]),
+                                  table_column_id(projected_columns[1])},
     });
     table_filters.push_back({
             .conjunct = VExprContext::create_shared(
                     std::make_shared<TableInt32SumLessThanExpr>(0, 0, 2, 2, 3)),
-            .column_unique_ids = {projected_columns[0], projected_columns[2]},
+            .column_unique_ids = {table_column_id(projected_columns[0]),
+                                  table_column_id(projected_columns[2])},
     });
 
     FileScanRequest file_request;
@@ -1661,7 +1669,7 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     TableFilter table_filter {
             .conjunct = VExprContext::create_shared(
                     std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
-            .column_unique_ids = {projected_columns[0]},
+            .column_unique_ids = {table_column_id(projected_columns[0])},
     };
 
     FileScanRequest file_request;
@@ -1696,7 +1704,7 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     TableFilter table_filter {
             .conjunct = VExprContext::create_shared(
                     std::make_shared<TableInt32GreaterThanExpr>(10, 10, 1)),
-            .column_unique_ids = {projected_columns[0]},
+            .column_unique_ids = {table_column_id(projected_columns[0])},
     };
 
     FileScanRequest file_request;
@@ -2908,18 +2916,23 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 // ---------------------------------------------------------------------------
 // BY_INDEX (Hive1 / hive_*_use_column_names=false) column mapping tests.
 // These cases exercise `TableColumnMapper::create_mapping` directly to verify top-level
-// file-position matching semantics, where `TableColumnDefinition::id` is interpreted as the 0-based file
-// column position in this mode.
+// file-position matching semantics, where `TableColumnIdentifier::POSITION` is interpreted as the
+// 0-based file column position in this mode.
 // They do not depend on any real file reads.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-// In BY_INDEX mode, `TableColumnDefinition::id` directly represents the position of the column in
-// `file_schema`. This helper packages `file_index + display name` into one TableColumnDefinition.
+// In BY_INDEX mode, `TableColumnIdentifier::POSITION` directly represents the position of the
+// column in `file_schema`. This helper packages `file_index + display name` into one
+// TableColumnDefinition.
 TableColumnDefinition make_index_table_column(int32_t file_index, const std::string& name,
                                               const DataTypePtr& type) {
-    return make_table_column(file_index, name, type);
+    TableColumnDefinition column;
+    column.identifier = TableColumnIdentifier::by_position(file_index);
+    column.name = name;
+    column.type = type;
+    return column;
 }
 
 } // namespace
@@ -2966,7 +2979,8 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
     // Only project the 2nd and 4th table columns (mapped to `_col2` and `_col4` in the file).
     // BY_INDEX must support sparse projection: file position is determined only by
-    // `table_column.id`, independent of the relative order inside `projected_columns`.
+    // `table_column.identifier.position`, independent of the relative order inside
+    // `projected_columns`.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<TableColumnDefinition> projected_columns = {
             make_index_table_column(2, "age", int_type),
@@ -2997,7 +3011,7 @@ TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
 TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFileIndex) {
     // In BY_INDEX mode, partition columns should take the constant branch using
     // `partition_values` and stay completely independent from file schema. Data columns still
-    // index into file positions through `table_column.id`.
+    // index into file positions through `table_column.identifier.position`.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto str_type = std::make_shared<DataTypeString>();
 
@@ -3125,7 +3139,7 @@ TEST(TableColumnMapperByIndexTest, ExtraFileColumnsAreSimplyIgnored) {
 TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
     // BY_INDEX ignores file column names completely. Even if a file column name appears to match a
     // table column name, the mapping must still follow the position specified by
-    // `table_column.id`.
+    // `table_column.identifier.position`.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<TableColumnDefinition> projected_columns = {
             // The table wants column "a", but file_index=1 means it should map to file column 1
