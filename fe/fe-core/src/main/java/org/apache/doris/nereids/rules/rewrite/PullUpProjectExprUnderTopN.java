@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -365,6 +366,9 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             return false;
         }
         if (ne.anyMatch(e -> e instanceof Score)) {
+            return false;
+        }
+        if (ne.anyMatch(e -> e instanceof L2DistanceApproximate)) {
             return false;
         }
         return true;
