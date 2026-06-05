@@ -34,6 +34,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -345,8 +346,6 @@ DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
-// single read execute fragment max run time millseconds
-DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
 DEFINE_mInt32(doris_scanner_dynamic_interval_ms, "100");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
@@ -521,9 +520,6 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
 DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
 DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
-
-// This config can be set to limit thread number in  multiget thread pool.
-DEFINE_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 DEFINE_mInt64(total_permits_for_compaction_score, "1000000");
@@ -716,13 +712,10 @@ DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
 DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "2048");
 DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
-// Control the number of disks on the machine.  If 0, this comes from the system settings.
-DEFINE_Int32(num_disks, "0");
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
 // not introduce seeks.  The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
-DEFINE_Int32(read_size, "8388608");    // 8 * 1024 * 1024, Read Size (in bytes)
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
 // for pprof
@@ -777,9 +770,6 @@ DEFINE_Int32(load_process_soft_mem_limit_percent, "80");
 // If load memory consumption is within load_process_safe_mem_permit_percent,
 // memtable memory limiter will do nothing.
 DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
-
-// If there are a lot of memtable memory, then wait them flush finished.
-DEFINE_mDouble(load_max_wg_active_memtable_percent, "0.6");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -1008,9 +998,6 @@ DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
 DEFINE_mInt32(max_segment_num_per_rowset, "1000");
 DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
-// Time to clean up useless JDBC connection pool cache
-DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
-
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 // The default delete bitmap cache is set to 100MB,
@@ -1084,9 +1071,6 @@ DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
-DEFINE_mInt64(big_column_size_buffer, "65535");
-DEFINE_mInt64(small_column_size_buffer, "100");
-
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
@@ -1119,13 +1103,6 @@ DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
 // The batch size for sending data by brpc streaming client
 DEFINE_mInt64(brpc_streaming_client_batch_bytes, "262144");
-
-// Max waiting time to wait the "plan fragment start" rpc.
-// If timeout, the fragment will be cancelled.
-// This parameter is usually only used when the FE loses connection,
-// and the BE can automatically cancel the relevant fragment after the timeout,
-// so as to avoid occupying the execution thread for a long time.
-DEFINE_mInt32(max_fragment_start_wait_time_seconds, "30");
 
 DEFINE_mInt32(fragment_mgr_cancel_worker_interval_seconds, "1");
 
@@ -1186,21 +1163,11 @@ DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Int32(blocking_pipeline_executor_size, "0");
-DEFINE_Bool(enable_workload_group_for_scan, "false");
-DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
-
-// Whether use schema dict in backend side instead of MetaService side(cloud mode)
-DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
-DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
-// Maximum depth of nested arrays to track with NestedGroup
-// Reserved for future use when NestedGroup expansion moves to storage layer
-// Deeper arrays will be stored as JSONB
-DEFINE_mInt32(variant_nested_group_max_depth, "3");
 DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
 
 DEFINE_Validator(variant_max_json_key_length,
@@ -1237,9 +1204,6 @@ DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
 
 DEFINE_mBool(enable_read_cache_file_directly, "true");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
-// If true, evict the ttl cache using LRU when full.
-// Otherwise, only expiration can evict ttl and new data won't add to cache when full.
-DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 DEFINE_mBool(enbale_dump_error_file, "false");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
@@ -1271,7 +1235,6 @@ DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
 DEFINE_mInt64(file_cache_background_ttl_info_update_interval_ms, "180000");
 DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
-DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
@@ -1373,9 +1336,6 @@ DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
-// Deprecated
-DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
-
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DEFINE_mBool(jdk_process_reaper_use_default_stack_size, "true");
 
@@ -1490,9 +1450,6 @@ DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
-
-// Default 300s, if its value <= 0, then log is disabled
-DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
 
 // Tolerance for the number of partition id 0 in rowset, default 0
 DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
@@ -1609,8 +1566,6 @@ DEFINE_Validator(paimon_file_system_scheme_mappings,
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
-DEFINE_Bool(enable_index_compaction, "false");
-
 // http scheme in S3Client to use. E.g. http or https
 DEFINE_String(s3_client_http_scheme, "http");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
@@ -1724,8 +1679,6 @@ DEFINE_mInt32(max_automatic_compaction_num_per_round, "64");
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
-DEFINE_mInt32(schema_dict_cache_capacity, "4096");
-
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
@@ -1818,8 +1771,6 @@ DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
 #ifdef BE_TEST
-// test s3
-DEFINE_String(test_s3_resource, "resource");
 DEFINE_String(test_s3_ak, "ak");
 DEFINE_String(test_s3_sk, "sk");
 DEFINE_String(test_s3_endpoint, "endpoint");
@@ -2126,6 +2077,22 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
         continue;                                                                              \
     }
 
+// Keys that start with an uppercase letter and consist only of uppercase letters,
+// digits and underscores (e.g. JAVA_OPTS, LOG_DIR) are exported as environment
+// variables by bin/start_be.sh and are not BE config fields, so they must not be
+// reported as unknown.
+static bool is_env_style_key(const std::string& key) {
+    if (key.empty() || key[0] < 'A' || key[0] > 'Z') {
+        return false;
+    }
+    for (char c : key) {
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // init conf fields
 bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_to_default) {
     Properties props;
@@ -2152,6 +2119,24 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<int64_t>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
+    }
+
+    // Emit a warning for every key present in the conf file that does not correspond to a
+    // registered BE config field. Such keys (typos or configs removed in a newer version)
+    // are silently ignored above, so without this warning operators would have no feedback
+    // that the value is not taking effect. BE startup is not affected.
+    for (const auto& kv : props.conf_map()) {
+        const std::string& key = kv.first;
+        if (Register::_s_field_map->find(key) != Register::_s_field_map->end()) {
+            continue;
+        }
+        if (is_env_style_key(key)) {
+            continue;
+        }
+        LOG(WARNING) << fmt::format(
+                "Unknown config '{}' in {} is ignored, please check whether it is a typo "
+                "or has been removed in this version.",
+                key, conf_file);
     }
 
     if (config::is_cloud_mode()) {
