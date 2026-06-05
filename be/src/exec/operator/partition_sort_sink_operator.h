@@ -92,7 +92,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
             return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
