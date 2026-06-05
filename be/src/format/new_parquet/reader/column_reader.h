@@ -26,6 +26,7 @@
 #include "core/data_type/data_type.h"
 #include "format/new_parquet/parquet_type.h"
 #include "format/new_parquet/selection_vector.h"
+#include "format/reader/column_data.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -39,11 +40,6 @@ class RecordReader;
 namespace doris {
 class IColumn;
 
-namespace reader {
-struct FieldProjection;
-struct SchemaField;
-} // namespace reader
-
 namespace parquet {
 struct ParquetColumnSchema;
 
@@ -55,8 +51,8 @@ class ParquetColumnReader {
 public:
     virtual ~ParquetColumnReader() = default;
 
-    // file-local column id. Only top-level columns have valid file column ids; nested columns return -1.
-    // For example, for a nested column like `a.b.c`, only `a` has a valid file column id that can be used to access ColumnDescriptor and column chunk metadata; `b` and `c` return -1.
+    // Reader-local schema id. Top-level readers return the root column ordinal; nested readers
+    // return the child ordinal under their parent.
     virtual int file_column_id() const { return _field_id; }
 
     // Parquet leaf column id. This is the column id of the leaf column in the Parquet file schema, and can be used to access ColumnDescriptor, RecordReader, column chunk metadata and statistics.
@@ -104,12 +100,12 @@ public:
     static constexpr int ROW_POSITION_COLUMN_ID = -10001;
     static constexpr const char* ROW_POSITION_COLUMN_NAME = "__parquet_row_position";
 
-    static reader::SchemaField row_position_schema_field();
+    static reader::ColumnDefinition row_position_column_definition();
 
     // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
     // children。该入口只理解 Parquet file schema，不处理 table/global schema。
     Status create(const ParquetColumnSchema& column_schema,
-                  const reader::FieldProjection* projection,
+                  const reader::LocalColumnIndex* projection,
                   std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create(const ParquetColumnSchema& column_schema,
@@ -128,15 +124,15 @@ private:
                                               std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_struct_column_reader(const ParquetColumnSchema& column_schema,
-                                       const reader::FieldProjection* projection,
+                                       const reader::LocalColumnIndex* projection,
                                        std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_list_column_reader(const ParquetColumnSchema& column_schema,
-                                     const reader::FieldProjection* projection,
+                                     const reader::LocalColumnIndex* projection,
                                      std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_map_column_reader(const ParquetColumnSchema& column_schema,
-                                    const reader::FieldProjection* projection,
+                                    const reader::LocalColumnIndex* projection,
                                     std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,

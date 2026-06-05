@@ -46,6 +46,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/new_parquet/reader/column_reader.h"
+#include "format/reader/column_data.h"
 #include "format/reader/column_mapper.h"
 #include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/slot_ref.h"
@@ -64,38 +65,11 @@ namespace doris::reader {
 
 using DeleteRows = std::vector<int64_t>;
 
-// table/global schema 中的列视图。
-// Iceberg 场景下，id 默认对应 Iceberg field id。该结构不描述文件中的物理列。
-struct TableColumn {
-    ColumnId id = -1; // column_unique_id
-    std::string name;
-    DataTypePtr type;
-    std::vector<TableColumn> children {};
-    VExprContextSPtr default_expr = nullptr;
-    bool is_partition_key = false;
-};
-
 // Row-level predicates on table/global schema. They are rewritten to file-local expressions when
 // possible, and remain the source of row-level filtering after localization.
 struct TableFilter {
     VExprContextSPtr conjunct;
-    std::vector<TableColumn> column_unique_ids;
-};
-
-enum class TableFilterConversion {
-    COPY_DIRECTLY,
-    CAST_FILTER,
-    EVALUATE_EXPRESSION,
-    FINALIZE_ONLY,
-};
-
-struct BaseDataFile {
-    virtual ~BaseDataFile() = default;
-
-    std::string path;
-    std::string format;
-    int64_t record_count = 0;
-    int64_t file_size = 0;
+    std::vector<GlobalIndex> global_indices;
 };
 
 struct ScanTask {
@@ -113,7 +87,7 @@ struct ReadProfile {
 struct TableReadOptions {
     // Columns need to be read from file and output by table reader. They are all in table/global
     // schema semantics.
-    const std::vector<TableColumn> projected_columns;
+    const std::vector<ColumnDefinition> projected_columns;
     // Simple predicates for a single column, which is parsed on scan operator.
     const TableColumnPredicates column_predicates;
     // All complex conjuncts from scan operator
@@ -249,10 +223,10 @@ protected:
     // 子类在这里基于当前 split/task 初始化底层 FileReader。
     virtual Status open_reader() {
         // 1. Get file schema and create column mapping.
-        std::vector<SchemaField> file_schema;
+        std::vector<ColumnDefinition> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
         // TODO: It's different for paimon/hudi/iceberg
-        bool has_field_id = !file_schema.empty() && file_schema.front().id >= 0;
+        bool has_field_id = !file_schema.empty() && file_schema.front().has_identifier_field_id();
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = default_mapping_mode() == TableColumnMappingMode::BY_FIELD_ID
                                        ? (has_field_id ? TableColumnMappingMode::BY_FIELD_ID
@@ -274,44 +248,50 @@ protected:
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
+        bool constant_filter_pruned_split = false;
+        RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
+        if (constant_filter_pruned_split) {
+            RETURN_IF_ERROR(close_current_reader());
+            return Status::OK();
+        }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
-        _data_reader.file_block_layout.resize(file_request->column_positions.size());
+        _data_reader.file_block_layout.resize(file_request->local_positions.size());
 
         // 4. Build file block layout from file schema and column mapping. The layout describes
         // the block returned by file reader before table-column materialization.
-        for (const auto& [field_id, block_position] : file_request->column_positions) {
-            DORIS_CHECK(block_position < _data_reader.file_block_layout.size());
-            const auto* field = _find_schema_field(_data_reader.file_schema, field_id);
-            DORIS_CHECK(field != nullptr) << field_id << " " << debug_string();
+        for (const auto& [file_column_id, block_position] : file_request->local_positions) {
+            DORIS_CHECK(block_position.value() < _data_reader.file_block_layout.size());
+            const auto* field = _find_column_definition(_data_reader.file_schema, file_column_id);
+            DORIS_CHECK(field != nullptr);
 
-            SchemaField projected_field;
+            ColumnDefinition projected_field;
             {
                 auto it = std::find_if(
                         file_request->non_predicate_columns.begin(),
                         file_request->non_predicate_columns.end(),
-                        [&](const FieldProjection& p) { return p.field_id == field_id; });
+                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
                 if (it != file_request->non_predicate_columns.end()) {
-                    RETURN_IF_ERROR(_project_schema_field(*field, *it, &projected_field));
+                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
                 }
             }
             {
                 auto it = std::find_if(
                         file_request->predicate_columns.begin(),
                         file_request->predicate_columns.end(),
-                        [&](const FieldProjection& p) { return p.field_id == field_id; });
+                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
                 if (it != file_request->predicate_columns.end()) {
-                    RETURN_IF_ERROR(_project_schema_field(*field, *it, &projected_field));
+                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
                 }
             }
-            _data_reader.file_block_layout[block_position] = {
-                    .file_column_id = field_id,
+            _data_reader.file_block_layout[block_position.value()] = {
+                    .file_column_id = file_column_id,
                     .name = projected_field.name,
                     .type = projected_field.type,
             };
-            DORIS_CHECK(_data_reader.file_block_layout[block_position].type != nullptr);
+            DORIS_CHECK(_data_reader.file_block_layout[block_position.value()].type != nullptr);
         }
 
         // 5. Prepare block template from file block layout. The block template stores the block
@@ -329,48 +309,136 @@ protected:
     Status _build_table_filters_from_conjuncts();
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
 
+    Status _evaluate_constant_filters(bool* can_filter_all) {
+        DORIS_CHECK(can_filter_all != nullptr);
+        *can_filter_all = false;
+        for (const auto& table_filter : _table_filters) {
+            if (table_filter.conjunct == nullptr ||
+                !_table_filter_has_only_constant_entries(table_filter)) {
+                continue;
+            }
+            Block eval_block;
+            RETURN_IF_ERROR(_build_constant_filter_block(table_filter, &eval_block));
+            int result_column_id = -1;
+            RETURN_IF_ERROR(table_filter.conjunct->execute(&eval_block, &result_column_id));
+            DORIS_CHECK(result_column_id >= 0);
+            if (_filter_result_filters_all(eval_block.get_by_position(result_column_id).column)) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+        }
+        return Status::OK();
+    }
+
+    bool _table_filter_has_only_constant_entries(const TableFilter& table_filter) const {
+        const auto& filter_entries = _data_reader.column_mapper.filter_entries();
+        for (const auto global_index : table_filter.global_indices) {
+            const auto entry_it = filter_entries.find(global_index);
+            if (entry_it == filter_entries.end() || !entry_it->second.is_constant()) {
+                return false;
+            }
+        }
+        return !table_filter.global_indices.empty();
+    }
+
+    Status _build_constant_filter_block(const TableFilter& table_filter, Block* eval_block) {
+        DORIS_CHECK(eval_block != nullptr);
+        eval_block->clear();
+        const auto& mappings = _data_reader.column_mapper.mappings();
+        const auto& filter_entries = _data_reader.column_mapper.filter_entries();
+        DORIS_CHECK(mappings.size() == _projected_columns.size());
+        for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
+            const auto global_index = GlobalIndex(column_idx);
+            const auto& mapping = mappings[column_idx];
+            const auto entry_it = filter_entries.find(global_index);
+            const bool referenced_by_filter =
+                    std::find(table_filter.global_indices.begin(),
+                              table_filter.global_indices.end(),
+                              global_index) != table_filter.global_indices.end();
+            if (referenced_by_filter && entry_it != filter_entries.end() &&
+                entry_it->second.is_constant()) {
+                ColumnPtr constant_column;
+                RETURN_IF_ERROR(_materialize_constant_filter_column(
+                        entry_it->second.constant_index(), &constant_column));
+                eval_block->insert({std::move(constant_column), mapping.table_type,
+                                    mapping.table_column_name});
+            } else {
+                eval_block->insert({mapping.table_type->create_column_const_with_default_value(1),
+                                    mapping.table_type, mapping.table_column_name});
+            }
+        }
+        return Status::OK();
+    }
+
+    Status _materialize_constant_filter_column(ConstantIndex constant_index, ColumnPtr* column) {
+        DORIS_CHECK(column != nullptr);
+        const auto& constant_entry = _data_reader.column_mapper.constant_map().get(constant_index);
+        DORIS_CHECK(constant_entry.expr != nullptr);
+        DORIS_CHECK(constant_entry.type != nullptr);
+        RowDescriptor row_desc;
+        RETURN_IF_ERROR(constant_entry.expr->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(constant_entry.expr->open(_runtime_state));
+        Block eval_block;
+        eval_block.insert({constant_entry.type->create_column_const_with_default_value(1),
+                           constant_entry.type, "__table_reader_constant_filter"});
+        int result_column_id = -1;
+        RETURN_IF_ERROR(constant_entry.expr->execute(&eval_block, &result_column_id));
+        DORIS_CHECK(result_column_id >= 0);
+        *column = eval_block.get_by_position(result_column_id).column;
+        DORIS_CHECK((*column)->size() == 1);
+        return Status::OK();
+    }
+
+    static bool _filter_result_filters_all(const ColumnPtr& filter_column) {
+        DORIS_CHECK(filter_column.get() != nullptr);
+        DORIS_CHECK(filter_column->size() == 1);
+        return !filter_column->get_bool(0);
+    }
+
     virtual Status customize_file_scan_request(FileScanRequest* file_request) {
         return _append_delete_predicate(file_request);
     }
 
-    static size_t _next_block_position(const FileScanRequest& request) {
+    static LocalIndex _next_block_position(const FileScanRequest& request) {
         size_t next_position = 0;
-        for (const auto& [_, block_position] : request.column_positions) {
-            next_position = std::max(next_position, block_position + 1);
+        for (const auto& [_, block_position] : request.local_positions) {
+            next_position = std::max(next_position, block_position.value() + 1);
         }
-        return next_position;
+        return LocalIndex(next_position);
     }
 
-    void _append_file_scan_column(FileScanRequest* request, ColumnId column_id,
-                                  std::vector<FieldProjection>* scan_columns) {
+    void _append_file_scan_column(FileScanRequest* request, LocalColumnId column_id,
+                                  std::vector<LocalColumnIndex>* scan_columns) {
         DORIS_CHECK(request != nullptr);
         DORIS_CHECK(scan_columns != nullptr);
         if (scan_columns == &request->non_predicate_columns &&
-            std::ranges::find_if(request->predicate_columns, [&](const FieldProjection& p) {
-                return p.field_id == column_id;
+            std::ranges::find_if(request->predicate_columns, [&](const LocalColumnIndex& p) {
+                return p.column_id() == column_id;
             }) != request->predicate_columns.end()) {
             // The column is already added as a predicate column, no need to add it again as a non-predicate column because predicate columns are also returned in the file reader block and can be used for materialization and filtering.
             return;
         }
-        if (!request->column_positions.contains(column_id)) {
-            request->column_positions.emplace(column_id, _next_block_position(*request));
-            scan_columns->push_back({.field_id = column_id});
-        } else if (std::ranges::find_if(*scan_columns, [&](const FieldProjection& p) {
-                       return p.field_id == column_id;
+        if (!request->local_positions.contains(column_id)) {
+            request->local_positions.emplace(column_id, _next_block_position(*request));
+            scan_columns->push_back(LocalColumnIndex::top_level(column_id));
+        } else if (std::ranges::find_if(*scan_columns, [&](const LocalColumnIndex& p) {
+                       return p.column_id() == column_id;
                    }) == scan_columns->end()) {
-            scan_columns->push_back({.field_id = column_id});
+            scan_columns->push_back(LocalColumnIndex::top_level(column_id));
         }
         if (scan_columns == &request->predicate_columns) {
             request->non_predicate_columns.erase(
                     std::ranges::find_if(
                             request->non_predicate_columns,
-                            [&](const FieldProjection& p) { return p.field_id == column_id; }),
+                            [&](const LocalColumnIndex& p) { return p.column_id() == column_id; }),
                     request->non_predicate_columns.end());
         }
-        if (column_id == doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID &&
-            _find_schema_field(_data_reader.file_schema, column_id) == nullptr) {
+        if (column_id ==
+                    LocalColumnId(
+                            doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) &&
+            _find_column_definition(_data_reader.file_schema, column_id) == nullptr) {
             _data_reader.file_schema.push_back(
-                    doris::parquet::ParquetColumnReaderFactory::row_position_schema_field());
+                    doris::parquet::ParquetColumnReaderFactory::row_position_column_definition());
         }
     }
 
@@ -381,13 +449,13 @@ protected:
             return Status::OK();
         }
         const auto row_position_column_id =
-                parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+                LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID);
         _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
 
         auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
-        const auto block_position = request->column_positions.at(row_position_column_id);
+        const auto block_position = request->local_positions.at(row_position_column_id);
         delete_predicate->add_child(TableSlotRef::create_shared(
-                cast_set<int>(block_position), cast_set<int>(block_position), -1,
+                cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
                 std::make_shared<DataTypeInt64>(),
                 parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
 
@@ -473,7 +541,7 @@ protected:
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
         // virtual columns.
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            if (!mapping.field_id.has_value() ||
+            if (!mapping.file_local_id.has_value() ||
                 mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
                 mapping.default_expr != nullptr || mapping.file_type == nullptr ||
                 mapping.table_type == nullptr) {
@@ -488,7 +556,7 @@ protected:
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
-        if (mapping.has_complex_projection && mapping.field_id.has_value() &&
+        if (mapping.has_complex_projection && mapping.file_local_id.has_value() &&
             !mapping.child_mappings.empty()) {
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
@@ -508,7 +576,7 @@ protected:
                 RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
                 *column = current_block->get_columns()[res_id];
             } else {
-                DORIS_CHECK(mapping.is_constant);
+                DORIS_CHECK(mapping.constant_index.has_value());
                 Block eval_block;
                 eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
                                    mapping.table_type, "__table_reader_const_rows"});
@@ -574,7 +642,7 @@ protected:
         child_columns.reserve(mapping.child_mappings.size());
         size_t file_child_idx = 0;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.field_id.has_value()) {
+            if (!child_mapping.file_local_id.has_value()) {
                 child_columns.push_back(
                         child_mapping.table_type->create_column_const_with_default_value(rows)
                                 ->convert_to_full_column_if_const());
@@ -709,9 +777,9 @@ protected:
         }
         request->columns.reserve(_data_reader.column_mapper.mappings().size());
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
-            DORIS_CHECK(mapping.field_id.has_value());
+            DORIS_CHECK(mapping.file_local_id.has_value());
             FileAggregateRequest::Column column;
-            column.projection.field_id = *mapping.field_id;
+            column.projection = LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
             if (!mapping.child_mappings.empty()) {
                 RETURN_IF_ERROR(build_aggregate_projection(mapping, &column.projection));
             }
@@ -754,7 +822,7 @@ protected:
             for (size_t block_position = 0; block_position < _data_reader.file_block_layout.size();
                  ++block_position) {
                 if (_data_reader.file_block_layout[block_position].file_column_id ==
-                    file_result.columns[column_idx].projection.field_id) {
+                    file_result.columns[column_idx].projection.column_id()) {
                     found_file_column = true;
                     auto column = file_block.get_by_position(block_position)
                                           .type->create_column()
@@ -783,7 +851,7 @@ protected:
     }
 
     struct FileBlockColumn {
-        ColumnId file_column_id = -1;
+        LocalColumnId file_column_id = LocalColumnId::invalid();
         std::string name;
         DataTypePtr type;
     };
@@ -792,14 +860,14 @@ protected:
         std::unique_ptr<FileReader> reader;
         TableColumnMapper column_mapper;
         // Schema of the data file, also including virtual column (row position).
-        std::vector<SchemaField> file_schema;
+        std::vector<ColumnDefinition> file_schema;
         // Layout of the block returned by file reader, determined by column mapping and file
         // schema. It is used for file reader to materialize columns into correct type and position.
         std::vector<FileBlockColumn> file_block_layout;
         Block block_template;
     };
     DataReader _data_reader;
-    std::vector<TableColumn> _projected_columns;
+    std::vector<ColumnDefinition> _projected_columns;
     std::unique_ptr<ScanTask> _current_task;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
@@ -821,10 +889,10 @@ protected:
     TableColumnMapperOptions _mapper_options;
 
 private:
-    static const SchemaField* _find_schema_field(const std::vector<SchemaField>& schema,
-                                                 ColumnId field_id) {
+    static const ColumnDefinition* _find_column_definition(
+            const std::vector<ColumnDefinition>& schema, LocalColumnId column_id) {
         for (const auto& field : schema) {
-            if (field.id == field_id) {
+            if (field.file_local_id() == column_id.value()) {
                 return &field;
             }
         }
@@ -842,7 +910,7 @@ private:
         size_t mapped_children = 0;
         const ColumnMapping* mapped_child = nullptr;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.field_id.has_value()) {
+            if (!child_mapping.file_local_id.has_value()) {
                 continue;
             }
             ++mapped_children;
@@ -853,10 +921,10 @@ private:
     }
 
     static Status build_aggregate_projection(const ColumnMapping& mapping,
-                                             FieldProjection* projection) {
+                                             LocalColumnIndex* projection) {
         DORIS_CHECK(projection != nullptr);
-        DORIS_CHECK(mapping.field_id.has_value());
-        projection->field_id = *mapping.field_id;
+        DORIS_CHECK(mapping.file_local_id.has_value());
+        *projection = LocalColumnIndex::field(*mapping.file_local_id);
         projection->children.clear();
         projection->project_all_children = true;
         if (mapping.child_mappings.empty()) {
@@ -864,10 +932,10 @@ private:
         }
         projection->project_all_children = false;
         for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.field_id.has_value()) {
+            if (!child_mapping.file_local_id.has_value()) {
                 continue;
             }
-            FieldProjection child_projection;
+            LocalColumnIndex child_projection;
             RETURN_IF_ERROR(build_aggregate_projection(child_mapping, &child_projection));
             projection->children.push_back(std::move(child_projection));
         }
@@ -875,7 +943,7 @@ private:
         return Status::OK();
     }
 
-    static Status _insert_aggregate_projection_value(const FieldProjection& projection,
+    static Status _insert_aggregate_projection_value(const LocalColumnIndex& projection,
                                                      const Field& value, IColumn* column) {
         DORIS_CHECK(column != nullptr);
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
@@ -895,60 +963,6 @@ private:
         RETURN_IF_ERROR(_insert_aggregate_projection_value(child_projection, value,
                                                            &struct_column->get_column(0)));
         return Status::OK();
-    }
-
-    static Status _project_schema_field(const SchemaField& field, const FieldProjection& projection,
-                                        SchemaField* projected_field) {
-        if (projected_field == nullptr) {
-            return Status::InvalidArgument("projected_field is null");
-        }
-        *projected_field = field;
-        if (projection.project_all_children || projection.children.empty()) {
-            return Status::OK();
-        }
-        projected_field->children.clear();
-        for (const auto& child_projection : projection.children) {
-            if (child_projection.field_id == -1) {
-                return Status::InvalidArgument("Empty projection path for field {}", field.name);
-            }
-            const int32_t child_idx = child_projection.field_id;
-            if (child_idx < 0 || child_idx >= static_cast<int32_t>(field.children.size())) {
-                return Status::InvalidArgument("Invalid projection child index {} for field {}",
-                                               child_idx, field.name);
-            }
-            if (child_projection.field_id != field.children[child_idx].id) {
-                return Status::InvalidArgument("Invalid projection path for field {}",
-                                               field.children[child_idx].name);
-            }
-            SchemaField projected_child;
-            RETURN_IF_ERROR(_project_schema_field(field.children[child_idx], child_projection,
-                                                  &projected_child));
-            projected_field->children.push_back(std::move(projected_child));
-        }
-        if (projected_field->children.empty()) {
-            return Status::NotSupported("Projection for field {} contains no children", field.name);
-        }
-        RETURN_IF_ERROR(_rebuild_projected_type(field.type, projected_field));
-        return Status::OK();
-    }
-
-    static Status _rebuild_projected_type(const DataTypePtr& original_type,
-                                          SchemaField* projected_field) {
-        if (original_type == nullptr) {
-            return Status::InvalidArgument("Cannot rebuild projected type for field {}",
-                                           projected_field->name);
-        }
-        DataTypes child_types;
-        Strings child_names;
-        child_types.reserve(projected_field->children.size());
-        child_names.reserve(projected_field->children.size());
-        for (const auto& child : projected_field->children) {
-            child_types.push_back(child.type);
-            child_names.push_back(child.name);
-        }
-
-        return rebuild_projected_type(original_type, child_types, child_names,
-                                      &projected_field->type);
     }
 
     // Parse row-position deletes from table format specific parameters, and fill in _delete_rows.

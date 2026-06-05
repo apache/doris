@@ -484,11 +484,11 @@ segment_v2::ZoneMap to_column_predicate_statistics(const ParquetColumnStatistics
     return predicate_statistics;
 }
 
-const ParquetColumnSchema* find_child_schema_by_field_id(const ParquetColumnSchema& column_schema,
-                                                         int32_t field_id) {
+const ParquetColumnSchema* find_child_schema_by_local_id(const ParquetColumnSchema& column_schema,
+                                                         int32_t local_id) {
     const auto child_it = std::ranges::find_if(
             column_schema.children, [&](const std::unique_ptr<ParquetColumnSchema>& child) {
-                return child != nullptr && child->field_id == field_id;
+                return child != nullptr && child->local_id == local_id;
             });
     return child_it == column_schema.children.end() ? nullptr : child_it->get();
 }
@@ -498,16 +498,16 @@ const ParquetColumnSchema* find_child_schema_by_field_id(const ParquetColumnSche
 const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const reader::FileColumnPredicateFilter& column_filter) {
-    if (column_filter.file_column_id < 0 ||
-        column_filter.file_column_id >= static_cast<int>(schema.size())) {
+    if (!column_filter.file_column_id.is_valid() ||
+        column_filter.file_column_id.value() >= static_cast<int>(schema.size())) {
         return nullptr;
     }
-    const ParquetColumnSchema* column_schema = schema[column_filter.file_column_id].get();
+    const ParquetColumnSchema* column_schema = schema[column_filter.file_column_id.value()].get();
     if (column_schema == nullptr) {
         return nullptr;
     }
-    for (const auto child_field_id : column_filter.file_child_id_path) {
-        column_schema = find_child_schema_by_field_id(*column_schema, child_field_id);
+    for (const auto child_local_id : column_filter.file_child_id_path) {
+        column_schema = find_child_schema_by_local_id(*column_schema, child_local_id);
         if (column_schema == nullptr) {
             return nullptr;
         }

@@ -34,13 +34,8 @@ namespace doris::parquet {
 
 struct ParquetReaderScanState;
 
-// ParquetReader 的 file-local scan 请求。
-// 当前没有新增 Parquet-only 字段，但保留独立类型，便于后续加入 row group/page index
-// 等 Parquet 专属选项。
-struct ParquetScanRequest : public reader::FileScanRequest {};
-
 // Parquet 文件物理读取层。
-// 该类只理解 Parquet file-local schema 和 ParquetScanRequest，不理解 Iceberg/global
+// 该类只理解 Parquet file-local schema 和 FileScanRequest，不理解 Iceberg/global
 // schema，不处理 table-level cast/default/generated/partition 语义。
 class ParquetReader : public reader::FileReader {
 public:
@@ -56,7 +51,7 @@ public:
     // 返回 init() 阶段解析出的 Parquet 文件自身 schema。
     // 该方法只能在 init() 成功后调用，不要求 open() 已经执行。
     // 这里不做 Iceberg schema evolution，也不把字段转换成 table/global schema。
-    Status get_schema(std::vector<reader::SchemaField>* file_schema) const override;
+    Status get_schema(std::vector<reader::ColumnDefinition>* file_schema) const override;
 
     Status open(std::unique_ptr<reader::FileScanRequest>& request) override;
     // 读取下一批 Parquet file-local block。
@@ -121,8 +116,8 @@ private:
         RuntimeProfile::Counter* convert_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
     };
-    void _fill_schema_field(const ParquetColumnSchema& column_schema,
-                            reader::SchemaField* field) const;
+    void _fill_column_definition(const ParquetColumnSchema& column_schema,
+                                 reader::ColumnDefinition* field) const;
 
     std::unique_ptr<ParquetReaderScanState> _state;
     ParquetProfile _parquet_profile;

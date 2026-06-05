@@ -60,17 +60,95 @@
 namespace doris::reader {
 namespace {
 
-FieldProjection field_projection(ColumnId column_id) {
-    return FieldProjection {.field_id = column_id};
+LocalColumnIndex field_projection(int32_t column_id) {
+    return LocalColumnIndex {.index = column_id};
 }
 
-std::vector<ColumnId> projection_ids(const std::vector<FieldProjection>& projections) {
-    std::vector<ColumnId> ids;
+std::vector<int32_t> projection_ids(const std::vector<LocalColumnIndex>& projections) {
+    std::vector<int32_t> ids;
     ids.reserve(projections.size());
     for (const auto& projection : projections) {
-        ids.push_back(projection.field_id);
+        ids.push_back(projection.index);
     }
     return ids;
+}
+
+TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates) {
+    LocalColumnIndex target {.index = 10, .project_all_children = false};
+    target.children.push_back({.index = 1});
+    target.children.push_back({.index = 2, .project_all_children = false});
+    target.children.back().children.push_back({.index = 20});
+
+    LocalColumnIndex source {.index = 10, .project_all_children = false};
+    source.children.push_back({.index = 2, .project_all_children = false});
+    source.children.back().children.push_back({.index = 21});
+    source.children.push_back({.index = 3});
+
+    ASSERT_TRUE(merge_local_column_index(&target, source).ok());
+    ASSERT_FALSE(target.project_all_children);
+    ASSERT_EQ(std::vector<int32_t>({1, 2, 3}), projection_ids(target.children));
+    ASSERT_FALSE(target.children[1].project_all_children);
+    ASSERT_EQ(std::vector<int32_t>({20, 21}), projection_ids(target.children[1].children));
+    ASSERT_TRUE(target.children[2].project_all_children);
+
+    LocalColumnIndex full_source {.index = 10};
+    ASSERT_TRUE(merge_local_column_index(&target, full_source).ok());
+    ASSERT_TRUE(target.project_all_children);
+    ASSERT_TRUE(target.children.empty());
+}
+
+TEST(LocalColumnIndexTest, FindsProjectedChildren) {
+    LocalColumnIndex projection {.index = 10, .project_all_children = false};
+    projection.children.push_back({.index = 1});
+    projection.children.push_back({.index = 2});
+
+    EXPECT_TRUE(is_full_projection(nullptr));
+    EXPECT_FALSE(is_full_projection(&projection));
+    EXPECT_TRUE(is_partial_projection(&projection));
+    ASSERT_NE(find_child_projection(&projection, 2), nullptr);
+    EXPECT_EQ(find_child_projection(&projection, 2)->field_id(), 2);
+    EXPECT_EQ(find_child_projection(&projection, 3), nullptr);
+    EXPECT_TRUE(is_child_projected(nullptr, 3));
+    EXPECT_TRUE(is_child_projected(&projection, 1));
+    EXPECT_FALSE(is_child_projected(&projection, 3));
+}
+
+TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByLocalId) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto string_type = std::make_shared<DataTypeString>();
+    ColumnDefinition field;
+    field.identifier = Field::create_field<TYPE_INT>(5);
+    field.name = "root";
+    field.type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    ColumnDefinition a_child;
+    a_child.identifier = Field::create_field<TYPE_INT>(10);
+    a_child.local_id = 0;
+    a_child.name = "a";
+    a_child.type = int_type;
+    ColumnDefinition b_child;
+    b_child.identifier = Field::create_field<TYPE_INT>(20);
+    b_child.local_id = 1;
+    b_child.name = "b";
+    b_child.type = string_type;
+    field.children = {
+            a_child,
+            b_child,
+    };
+    LocalColumnIndex projection {.index = 5, .project_all_children = false};
+    projection.children.push_back({.index = 1});
+
+    ColumnDefinition projected_field;
+    ASSERT_TRUE(project_column_definition(field, projection, &projected_field).ok());
+    ASSERT_EQ(projected_field.children.size(), 1);
+    EXPECT_EQ(projected_field.children[0].get_identifier_field_id(), 20);
+    EXPECT_EQ(projected_field.children[0].name, "b");
+
+    const auto* projected_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(projected_field.type).get());
+    ASSERT_EQ(projected_type->get_elements().size(), 1);
+    EXPECT_EQ(projected_type->get_element_name(0), "b");
+    EXPECT_TRUE(projected_type->get_element(0)->equals(*string_type));
 }
 
 class TableInt32GreaterThanExpr final : public VExpr {
@@ -116,7 +194,7 @@ public:
 
 class IcebergTableReaderScanRequestTestHelper final : public doris::iceberg::IcebergTableReader {
 public:
-    Status init_for_scan_request_test(std::vector<TableColumn> projected_columns) {
+    Status init_for_scan_request_test(std::vector<ColumnDefinition> projected_columns) {
         _query_options = std::make_unique<TQueryOptions>();
         _query_globals = std::make_unique<TQueryGlobals>();
         _state = std::make_unique<RuntimeState>(*_query_options, *_query_globals);
@@ -564,7 +642,7 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     return static_cast<int64_t>(blob.size());
 }
 
-Block build_table_block(const std::vector<TableColumn>& columns) {
+Block build_table_block(const std::vector<ColumnDefinition>& columns) {
     Block block;
     for (const auto& column : columns) {
         block.insert({column.type->create_column(), column.type, column.name});
@@ -667,7 +745,7 @@ TTableFormatFileDesc make_iceberg_table_format_desc(
 }
 
 std::vector<int32_t> read_iceberg_ids(doris::iceberg::IcebergTableReader* reader,
-                                      const std::vector<TableColumn>& projected_columns) {
+                                      const std::vector<ColumnDefinition>& projected_columns) {
     std::vector<int32_t> ids;
     bool eos = false;
     while (!eos) {
@@ -712,27 +790,29 @@ SplitReadOptions build_split_options_for_row_group_mid(const std::string& file_p
     return options;
 }
 
-TableColumn make_table_column(ColumnId id, const std::string& name, const DataTypePtr& type) {
-    TableColumn column;
-    column.id = id;
+ColumnDefinition make_table_column(int32_t id, const std::string& name, const DataTypePtr& type) {
+    ColumnDefinition column;
+    if (id >= 0) {
+        column.identifier = Field::create_field<TYPE_INT>(id);
+    }
     column.name = name;
     column.type = type;
     return column;
 }
 
-SchemaField make_schema_field(ColumnId id, const std::string& name, const DataTypePtr& type) {
-    SchemaField field;
-    field.id = id;
+ColumnDefinition make_file_column(int32_t id, const std::string& name, const DataTypePtr& type) {
+    ColumnDefinition field;
+    field.identifier = Field::create_field<TYPE_INT>(id);
+    field.local_id = id;
     field.name = name;
     field.type = type;
     return field;
 }
 
-void add_column_predicate(TableColumnPredicates* column_predicates, const TableColumn& column,
+void add_column_predicate(TableColumnPredicates* column_predicates, GlobalIndex global_index,
                           std::shared_ptr<ColumnPredicate> predicate) {
-    auto& entry = (*column_predicates)[column.id];
-    entry.first = column;
-    entry.second.push_back(std::move(predicate));
+    auto& entry = (*column_predicates)[global_index];
+    entry.push_back(std::move(predicate));
 }
 
 VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
@@ -758,7 +838,7 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     write_parquet_file(file_paths[1], 2, "two");
     write_parquet_file(file_paths[2], 3, "three");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
@@ -824,7 +904,7 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
     write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5}, {10, 20, 30, 40, 50},
                                 {"one", "two", "three", "four", "five"}, 2);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -864,7 +944,7 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     write_int_pair_parquet_file(file_path, {3, 1, 5, 2}, {30, 10, 50, 20},
                                 {"three", "one", "five", "two"}, 2);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
     projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
 
@@ -912,7 +992,7 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     write_int_pair_parquet_file(file_path, {3, 1, 5, 2}, {30, 10, 50, 20},
                                 {"three", "one", "five", "two"}, 2);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt64>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -960,7 +1040,7 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"id"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child};
-    const std::vector<TableColumn> projected_columns = {struct_column};
+    const std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -1008,7 +1088,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
     auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
-    const std::vector<TableColumn> projected_columns = {list_column};
+    const std::vector<ColumnDefinition> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -1060,6 +1140,64 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_list_projection_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_list_struct_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto a_child = make_table_column(0, "a", int_type);
+    auto element_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
+    auto element_child = make_table_column(0, "element", element_type);
+    element_child.children = {a_child};
+    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    list_column.children = {element_child};
+    const std::vector<ColumnDefinition> projected_columns = {list_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    EXPECT_EQ(array_result.get_offsets()[0], 2);
+    EXPECT_EQ(array_result.get_offsets()[1], 3);
+    EXPECT_EQ(array_result.get_offsets()[2], 4);
+    const auto& nullable_elements = assert_cast<const ColumnNullable&>(array_result.get_data());
+    const auto& element_struct =
+            assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
+    ASSERT_EQ(element_struct.get_columns().size(), 1);
+    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    EXPECT_EQ(a_values.get_element(0), 10);
+    EXPECT_EQ(a_values.get_element(1), 20);
+    EXPECT_EQ(a_values.get_element(2), 30);
+    EXPECT_EQ(a_values.get_element(3), 40);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_minmax_map_test";
@@ -1081,7 +1219,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     auto map_column =
             make_table_column(100, "kv", std::make_shared<DataTypeMap>(key_type, value_type));
     map_column.children = {entry_child};
-    const std::vector<TableColumn> projected_columns = {map_column};
+    const std::vector<ColumnDefinition> projected_columns = {map_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -1135,7 +1273,7 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
     write_int_pair_parquet_file(file_path, {10, 1, 100}, {100, 10, 1000}, {"ten", "one", "hundred"},
                                 1);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -1178,7 +1316,7 @@ TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -1218,7 +1356,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -1262,11 +1400,11 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, projected_columns[0],
+    add_column_predicate(&column_predicates, GlobalIndex(0),
                          create_comparison_predicate<PredicateType::GT>(
                                  0, "id", std::make_shared<DataTypeInt32>(),
                                  Field::create_field<TYPE_INT>(2), false));
@@ -1310,7 +1448,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_parquet_file(file_path, 1, "one");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(99, "missing_id", std::make_shared<DataTypeInt32>()));
 
@@ -1352,7 +1490,7 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_parquet_file(file_path, 3, "three");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
@@ -1431,12 +1569,12 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
     // group so the predicate can prune the first two row groups and leave only id = 3.
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {1, 5, 8}, {"one", "two", "three"}, 1);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(2, "value", std::make_shared<DataTypeString>()));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, projected_columns[1],
+    add_column_predicate(&column_predicates, GlobalIndex(1),
                          create_comparison_predicate<PredicateType::GT>(
                                  0, "id", std::make_shared<DataTypeInt32>(),
                                  Field::create_field<TYPE_INT>(2), false));
@@ -1488,11 +1626,11 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
     write_int_pair_parquet_file(file_paths[0], {1, 3}, {10, 30}, {"one", "three"}, 1);
     write_int_pair_parquet_file(file_paths[1], {2, 4}, {20, 40}, {"two", "four"}, 1);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, projected_columns[0],
+    add_column_predicate(&column_predicates, GlobalIndex(0),
                          create_comparison_predicate<PredicateType::GT>(
                                  0, "id", std::make_shared<DataTypeInt32>(),
                                  Field::create_field<TYPE_INT>(2), false));
@@ -1534,21 +1672,17 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
 
 TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_table_column(0, "a", int_type),
             make_table_column(1, "b", int_type),
             make_table_column(2, "c", int_type),
             make_table_column(3, "value", std::make_shared<DataTypeString>()),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "a", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1, .name = "b", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 2, .name = "c", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 3,
-             .name = "value",
-             .type = std::make_shared<DataTypeString>(),
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "a", int_type),
+            make_file_column(1, "b", int_type),
+            make_file_column(2, "c", int_type),
+            make_file_column(3, "value", std::make_shared<DataTypeString>()),
     };
 
     TableColumnMapper mapper;
@@ -1558,12 +1692,12 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
     table_filters.push_back({
             .conjunct = VExprContext::create_shared(
                     std::make_shared<TableInt32SumGreaterThanExpr>(0, 0, 1, 1, 1)),
-            .column_unique_ids = {projected_columns[0], projected_columns[1]},
+            .global_indices = {GlobalIndex(0), GlobalIndex(1)},
     });
     table_filters.push_back({
             .conjunct = VExprContext::create_shared(
                     std::make_shared<TableInt32SumLessThanExpr>(0, 0, 2, 2, 3)),
-            .column_unique_ids = {projected_columns[0], projected_columns[2]},
+            .global_indices = {GlobalIndex(0), GlobalIndex(2)},
     });
 
     FileScanRequest file_request;
@@ -1572,13 +1706,13 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
 
     // Both filters reference column a. It must still be read once as a predicate column, and a
     // predicate column must not be repeated as a non-predicate column.
-    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<ColumnId>({0, 1, 2}));
-    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<ColumnId>({3}));
-    ASSERT_EQ(file_request.column_positions.size(), 4);
-    EXPECT_EQ(file_request.column_positions.at(3), 0);
-    EXPECT_EQ(file_request.column_positions.at(0), 1);
-    EXPECT_EQ(file_request.column_positions.at(1), 2);
-    EXPECT_EQ(file_request.column_positions.at(2), 3);
+    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0, 1, 2}));
+    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({3}));
+    ASSERT_EQ(file_request.local_positions.size(), 4);
+    EXPECT_EQ(file_request.local_positions.at(LocalColumnId(3)).value(), 0);
+    EXPECT_EQ(file_request.local_positions.at(LocalColumnId(0)).value(), 1);
+    EXPECT_EQ(file_request.local_positions.at(LocalColumnId(1)).value(), 2);
+    EXPECT_EQ(file_request.local_positions.at(LocalColumnId(2)).value(), 3);
     const auto predicate_column_ids = projection_ids(file_request.predicate_columns);
     const auto non_predicate_column_ids = projection_ids(file_request.non_predicate_columns);
     for (const auto predicate_column_id : predicate_column_ids) {
@@ -1589,17 +1723,13 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
 
 TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_table_column(0, "id", int_type),
             make_table_column(1, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "id", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1,
-             .name = "score",
-             .type = int_type,
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "id", int_type),
+            make_file_column(1, "score", int_type),
     };
 
     TableColumnMapper mapper;
@@ -1608,33 +1738,109 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     TableFilter table_filter {
             .conjunct = VExprContext::create_shared(
                     std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
-            .column_unique_ids = {projected_columns[0]},
+            .global_indices = {GlobalIndex(0)},
     };
 
     FileScanRequest file_request;
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
 
-    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<ColumnId>({0}));
-    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<ColumnId>({1}));
-    ASSERT_EQ(file_request.column_positions.size(), 2);
-    EXPECT_EQ(file_request.column_positions.at(0), 1);
-    EXPECT_EQ(file_request.column_positions.at(1), 0);
+    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
+    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({1}));
+    ASSERT_EQ(file_request.local_positions.size(), 2);
+    EXPECT_EQ(file_request.local_positions.at(LocalColumnId(0)).value(), 1);
+    EXPECT_EQ(file_request.local_positions.at(LocalColumnId(1)).value(), 0);
+}
+
+TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<ColumnDefinition> projected_columns = {
+            make_table_column(0, "id", int_type),
+            make_table_column(1, "score", int_type),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "id", int_type),
+            make_file_column(1, "score", int_type),
+    };
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(
+                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    const auto& map_results = mapper.column_map_results();
+    ASSERT_EQ(map_results.size(), 2);
+    const auto& id_result = map_results.at(GlobalIndex(0));
+    ASSERT_TRUE(id_result.local_column_id.has_value());
+    EXPECT_EQ(id_result.local_column_id->value(), 0);
+    ASSERT_TRUE(id_result.column_index.has_value());
+    EXPECT_EQ(id_result.column_index->index, 0);
+    ASSERT_TRUE(id_result.mapping.has_value());
+    EXPECT_EQ(id_result.mapping->index, 1);
+
+    const auto& filter_entries = mapper.filter_entries();
+    ASSERT_EQ(filter_entries.size(), 2);
+    ASSERT_TRUE(filter_entries.at(GlobalIndex(0)).is_local());
+    EXPECT_EQ(filter_entries.at(GlobalIndex(0)).local_index().value(), 1);
+    ASSERT_TRUE(filter_entries.at(GlobalIndex(1)).is_local());
+    EXPECT_EQ(filter_entries.at(GlobalIndex(1)).local_index().value(), 0);
+
+    const auto& result_mapping = mapper.result_mapping();
+    ASSERT_EQ(result_mapping.global_to_local.size(), 2);
+    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).mapping.index, 1);
+    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(1)).mapping.index, 0);
+    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).filter_conversion,
+              FilterConversionType::COPY_DIRECTLY);
+}
+
+TEST(TableReaderTest, CreateScanRequestBuildsConstantFilterEntry) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto partition_column = make_table_column(0, "part", int_type);
+    partition_column.is_partition_key = true;
+    const std::vector<ColumnDefinition> projected_columns = {partition_column};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns,
+                                      {{"part", Field::create_field<TYPE_INT>(7)}}, {})
+                        .ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(
+                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    const auto& filter_entries = mapper.filter_entries();
+    ASSERT_EQ(filter_entries.size(), 1);
+    ASSERT_TRUE(filter_entries.at(GlobalIndex(0)).is_constant());
+    EXPECT_EQ(filter_entries.at(GlobalIndex(0)).constant_index().value(), 0);
+    EXPECT_TRUE(file_request.local_positions.empty());
+    EXPECT_TRUE(file_request.predicate_columns.empty());
+    EXPECT_TRUE(file_request.non_predicate_columns.empty());
+    EXPECT_TRUE(file_request.conjuncts.empty());
 }
 
 TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "ID", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1,
-             .name = "score",
-             .type = int_type,
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "ID", int_type),
+            make_file_column(1, "score", int_type),
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
@@ -1642,43 +1848,105 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
 
     TableFilter table_filter {
             .conjunct = VExprContext::create_shared(
-                    std::make_shared<TableInt32GreaterThanExpr>(10, 10, 1)),
-            .column_unique_ids = {projected_columns[0]},
+                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .global_indices = {GlobalIndex(0)},
     };
 
     FileScanRequest file_request;
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
 
-    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<ColumnId>({0}));
-    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<ColumnId>({1}));
+    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
+    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({1}));
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto* localized_slot = assert_cast<const TableSlotRef*>(
             file_request.conjuncts[0]->root()->children()[0].get());
-    EXPECT_EQ(localized_slot->slot_id(), 10);
+    EXPECT_EQ(localized_slot->slot_id(), 0);
     EXPECT_EQ(localized_slot->column_id(), 1);
+}
+
+TEST(TableColumnMapperMatcherTest, FieldIdModeDoesNotFallbackToName) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const std::vector<ColumnDefinition> projected_columns = {
+            make_table_column(10, "same_name", int_type),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(20, "same_name", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_FIELD_ID;
+    options.allow_missing_columns = false;
+    TableColumnMapper mapper(options);
+
+    const auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    EXPECT_FALSE(status.ok());
+}
+
+TEST(TableColumnMapperMatcherTest, NestedFieldIdModeDoesNotFallbackToName) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"child"});
+
+    auto table_child = make_table_column(10, "child", int_type);
+    auto table_root = make_table_column(1, "root", struct_type);
+    table_root.children = {table_child};
+
+    auto file_child = make_file_column(20, "child", int_type);
+    auto file_root = make_file_column(1, "root", struct_type);
+    file_root.children = {file_child};
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_FIELD_ID;
+    options.allow_missing_columns = false;
+    TableColumnMapper mapper(options);
+
+    const auto status = mapper.create_mapping({table_root}, {}, {file_root});
+    EXPECT_FALSE(status.ok());
+}
+
+TEST(TableColumnMapperMatcherTest, NestedIndexMappingUsesTableStructChildIndex) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+
+    auto table_b_child = make_table_column(2, "b", int_type);
+    auto table_root = make_table_column(100, "root", struct_type);
+    table_root.children = {table_b_child};
+
+    auto file_a_child = make_file_column(1, "a", int_type);
+    auto file_b_child = make_file_column(2, "b", int_type);
+    auto file_root = make_file_column(100, "root", struct_type);
+    file_root.children = {file_a_child, file_b_child};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_root}, {}, {file_root}).ok());
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_root}, &file_request).ok());
+
+    const auto& mapping = mapper.result_mapping().global_to_local.at(GlobalIndex(0)).mapping;
+    EXPECT_FALSE(mapping.child_mapping.contains(0));
+    ASSERT_TRUE(mapping.child_mapping.contains(1));
+    EXPECT_EQ(mapping.child_mapping.at(1)->index, 2);
 }
 
 TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            {.id = 0, .name = "ID", .type = int_type, .children = {}, .column_type = DATA_COLUMN},
-            {.id = 1,
-             .name = "score",
-             .type = int_type,
-             .children = {},
-             .column_type = DATA_COLUMN},
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "ID", int_type),
+            make_file_column(1, "score", int_type),
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, projected_columns[0],
+    add_column_predicate(&column_predicates, GlobalIndex(0),
                          create_comparison_predicate<PredicateType::GT>(
                                  10, "id", int_type, Field::create_field<TYPE_INT>(2), false));
 
@@ -1687,8 +1955,8 @@ TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
                         .ok());
 
     ASSERT_EQ(file_request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(file_request.column_predicate_filters[0].file_column_id, 0);
-    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<ColumnId>({0, 1}));
+    EXPECT_EQ(file_request.column_predicate_filters[0].file_column_id.value(), 0);
+    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({0, 1}));
     EXPECT_TRUE(file_request.predicate_columns.empty());
 }
 
@@ -1701,7 +1969,7 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {1, 5, 8}, {"one", "two", "three"});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(2, "value", std::make_shared<DataTypeString>()));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
     projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
@@ -1757,7 +2025,7 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_parquet_file(file_path, 1, "one");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
 
@@ -1801,7 +2069,7 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
     const auto file_path = (test_dir / "split.parquet").string();
     write_parquet_file(file_path, 1, "one");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
 
@@ -1852,7 +2120,7 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child, missing_child};
-    const std::vector<TableColumn> projected_columns = {struct_column};
+    const std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReader reader;
@@ -1898,7 +2166,7 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_parquet_file(file_path, 1, "one");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     auto partition_column = make_table_column(1, "value", std::make_shared<DataTypeString>());
     partition_column.is_partition_key = true;
     projected_columns.push_back(std::move(partition_column));
@@ -1939,6 +2207,101 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_constant_partition_filter_skip_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 10))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_constant_partition_filter_keep_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& partition_value = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    ASSERT_EQ(partition_value.size(), 1);
+    EXPECT_EQ(partition_value.get_element(0), 7);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_test";
@@ -1948,7 +2311,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     const auto file_path = (test_dir / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(
@@ -2004,7 +2367,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
     const auto file_path = (test_dir / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(
@@ -2062,7 +2425,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
     // id > 2 prunes the first two row groups and leaves only the third file-local row.
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(
@@ -2071,7 +2434,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, projected_columns[2],
+    add_column_predicate(&column_predicates, GlobalIndex(2),
                          create_comparison_predicate<PredicateType::GT>(
                                  0, "id", std::make_shared<DataTypeInt32>(),
                                  Field::create_field<TYPE_INT>(2), false));
@@ -2160,7 +2523,7 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
                                 {"one", "two", "three", "four", "five"});
     const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0, 4});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2209,7 +2572,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2265,7 +2628,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDele
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2321,7 +2684,7 @@ TEST(TableReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2373,7 +2736,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEqualityDele
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2429,7 +2792,7 @@ TEST(TableReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_iceberg_equality_delete_bigint_parquet_file(delete_file_path, 0, 2);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2478,7 +2841,7 @@ TEST(TableReaderTest, IcebergPositionDeleteOnlyMatchesOriginalDataFilePath) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_position_delete_parquet_file(delete_file_path, {other_file_path, file_path}, {0, 1});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2526,7 +2889,7 @@ TEST(TableReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -2587,7 +2950,7 @@ TEST(TableReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
                                 {"one", "two", "three", "four", "five"});
     write_position_delete_parquet_file(delete_file_path, {file_path, file_path}, {1, 3});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2638,7 +3001,7 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
     const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0});
     write_position_delete_parquet_file(position_delete_path, {file_path, file_path}, {3, 3});
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -2679,7 +3042,7 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
 TEST(TableReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputColumn) {
     const auto row_position_column_id =
             doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -2689,15 +3052,15 @@ TEST(TableReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputColum
 
     FileScanRequest request;
     request.non_predicate_columns.push_back(field_projection(0));
-    request.column_positions.emplace(0, 0);
+    request.local_positions.emplace(LocalColumnId(0), LocalIndex(0));
 
     ASSERT_TRUE(reader.customize_request(&request).ok());
 
     EXPECT_EQ(projection_ids(request.predicate_columns),
-              std::vector<ColumnId>({row_position_column_id}));
-    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<ColumnId>({0}));
-    ASSERT_TRUE(request.column_positions.contains(row_position_column_id));
-    EXPECT_EQ(request.column_positions.at(row_position_column_id), 1);
+              std::vector<int32_t>({row_position_column_id}));
+    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({0}));
+    ASSERT_TRUE(request.local_positions.contains(LocalColumnId(row_position_column_id)));
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(row_position_column_id)).value(), 1);
     ASSERT_TRUE(request.conjuncts.empty());
     ASSERT_EQ(request.delete_conjuncts.size(), 1);
     EXPECT_NE(request.delete_conjuncts[0], nullptr);
@@ -2713,7 +3076,7 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30},
                                 {"range_group_one", "range_group_two", "range_group_three"}, 1);
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
     projected_columns.push_back(make_table_column(2, "value", std::make_shared<DataTypeString>()));
 
@@ -2763,7 +3126,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
     const auto file_path = (test_dir / "split.parquet").string();
     write_parquet_file(file_path, 1, "one");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(99, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2809,7 +3172,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
     const auto file_path = (test_dir / "split.parquet").string();
     write_parquet_file(file_path, 7, "seven");
 
-    std::vector<TableColumn> projected_columns;
+    std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt64>()));
     projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
 
@@ -2855,18 +3218,22 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 // ---------------------------------------------------------------------------
 // BY_INDEX (Hive1 / hive_*_use_column_names=false) column mapping tests.
 // These cases exercise `TableColumnMapper::create_mapping` directly to verify top-level
-// file-position matching semantics, where `TableColumn::id` is interpreted as the 0-based file
-// column position in this mode.
+// file-position matching semantics, where the TYPE_INT identifier is interpreted as the 0-based
+// file column position in this mode.
 // They do not depend on any real file reads.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-// In BY_INDEX mode, `TableColumn::id` directly represents the position of the column in
-// `file_schema`. This helper packages `file_index + display name` into one TableColumn.
-TableColumn make_index_table_column(int32_t file_index, const std::string& name,
-                                    const DataTypePtr& type) {
-    return make_table_column(file_index, name, type);
+// In BY_INDEX mode, a TYPE_INT identifier directly represents the position of the column in
+// `file_schema`. This helper packages `file_index + display name` into one ColumnDefinition.
+ColumnDefinition make_index_table_column(int32_t file_index, const std::string& name,
+                                         const DataTypePtr& type) {
+    ColumnDefinition column;
+    column.identifier = Field::create_field<TYPE_INT>(file_index);
+    column.name = name;
+    column.type = type;
+    return column;
 }
 
 } // namespace
@@ -2877,15 +3244,15 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
     // three file columns in order.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto str_type = std::make_shared<DataTypeString>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_index_table_column(0, "user_id", int_type),
             make_index_table_column(1, "user_name", str_type),
             make_index_table_column(2, "age", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", str_type),
-            make_schema_field(2, "_col2", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", str_type),
+            make_file_column(2, "_col2", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -2896,33 +3263,34 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 3);
 
-    ASSERT_TRUE(mappings[0].field_id.has_value());
-    EXPECT_EQ(*mappings[0].field_id, 0);
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 0);
     EXPECT_EQ(mappings[0].file_column_name, "_col0");
-    EXPECT_FALSE(mappings[0].is_constant);
+    EXPECT_FALSE(mappings[0].constant_index.has_value());
 
-    ASSERT_TRUE(mappings[1].field_id.has_value());
-    EXPECT_EQ(*mappings[1].field_id, 1);
+    ASSERT_TRUE(mappings[1].file_local_id.has_value());
+    EXPECT_EQ(*mappings[1].file_local_id, 1);
     EXPECT_EQ(mappings[1].file_column_name, "_col1");
 
-    ASSERT_TRUE(mappings[2].field_id.has_value());
-    EXPECT_EQ(*mappings[2].field_id, 2);
+    ASSERT_TRUE(mappings[2].file_local_id.has_value());
+    EXPECT_EQ(*mappings[2].file_local_id, 2);
     EXPECT_EQ(mappings[2].file_column_name, "_col2");
 }
 
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
     // Only project the 2nd and 4th table columns (mapped to `_col2` and `_col4` in the file).
     // BY_INDEX must support sparse projection: file position is determined only by
-    // `table_column.id`, independent of the relative order inside `projected_columns`.
+    // `table_column.get_identifier_position()`, independent of the relative order inside
+    // `projected_columns`.
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_index_table_column(2, "age", int_type),
             make_index_table_column(4, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type), make_schema_field(1, "_col1", int_type),
-            make_schema_field(2, "_col2", int_type), make_schema_field(3, "_col3", int_type),
-            make_schema_field(4, "_col4", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type), make_file_column(1, "_col1", int_type),
+            make_file_column(2, "_col2", int_type), make_file_column(3, "_col3", int_type),
+            make_file_column(4, "_col4", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -2932,32 +3300,32 @@ TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
 
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 2);
-    ASSERT_TRUE(mappings[0].field_id.has_value());
-    EXPECT_EQ(*mappings[0].field_id, 2);
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 2);
     EXPECT_EQ(mappings[0].file_column_name, "_col2");
 
-    ASSERT_TRUE(mappings[1].field_id.has_value());
-    EXPECT_EQ(*mappings[1].field_id, 4);
+    ASSERT_TRUE(mappings[1].file_local_id.has_value());
+    EXPECT_EQ(*mappings[1].file_local_id, 4);
     EXPECT_EQ(mappings[1].file_column_name, "_col4");
 }
 
 TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFileIndex) {
     // In BY_INDEX mode, partition columns should take the constant branch using
     // `partition_values` and stay completely independent from file schema. Data columns still
-    // index into file positions through `table_column.id`.
+    // index into file positions through `table_column.get_identifier_position()`.
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto str_type = std::make_shared<DataTypeString>();
 
     auto pt_col = make_table_column(/*id=*/-1, "dt", str_type);
     pt_col.is_partition_key = true;
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             pt_col, // partition column first
             make_index_table_column(0, "user_id", int_type),
             make_index_table_column(1, "score", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", int_type),
     };
 
     std::map<std::string, Field> partition_values;
@@ -2971,16 +3339,23 @@ TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFi
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 3);
 
-    EXPECT_TRUE(mappings[0].is_constant);
-    EXPECT_FALSE(mappings[0].field_id.has_value());
+    EXPECT_TRUE(mappings[0].constant_index.has_value());
+    EXPECT_FALSE(mappings[0].file_local_id.has_value());
     EXPECT_NE(mappings[0].default_expr, nullptr);
+    ASSERT_TRUE(mappings[0].constant_index.has_value());
+    EXPECT_EQ(mappings[0].constant_index->value(), 0);
+    ASSERT_EQ(mapper.constant_map().size(), 1);
+    EXPECT_EQ(mapper.constant_map().get(*mappings[0].constant_index).global_index, GlobalIndex(0));
+    EXPECT_EQ(mapper.constant_map().get(*mappings[0].constant_index).expr,
+              mappings[0].default_expr);
+    EXPECT_TRUE(mapper.constant_map().get(*mappings[0].constant_index).type->equals(*str_type));
 
-    ASSERT_TRUE(mappings[1].field_id.has_value());
-    EXPECT_EQ(*mappings[1].field_id, 0);
+    ASSERT_TRUE(mappings[1].file_local_id.has_value());
+    EXPECT_EQ(*mappings[1].file_local_id, 0);
     EXPECT_EQ(mappings[1].file_column_name, "_col0");
 
-    ASSERT_TRUE(mappings[2].field_id.has_value());
-    EXPECT_EQ(*mappings[2].field_id, 1);
+    ASSERT_TRUE(mappings[2].file_local_id.has_value());
+    EXPECT_EQ(*mappings[2].file_local_id, 1);
     EXPECT_EQ(mappings[2].file_column_name, "_col1");
 }
 
@@ -2995,14 +3370,14 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissin
             TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(42)));
     with_default.default_expr = literal_expr;
 
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_index_table_column(0, "a", int_type),
             with_default, // out-of-range file_index + default
             make_index_table_column(99, "extra_missing", int_type), // out-of-range without default
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3014,27 +3389,33 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissin
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 3);
 
-    ASSERT_TRUE(mappings[0].field_id.has_value());
-    EXPECT_EQ(*mappings[0].field_id, 0);
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 0);
 
-    EXPECT_FALSE(mappings[1].field_id.has_value());
-    EXPECT_TRUE(mappings[1].is_constant);
+    EXPECT_FALSE(mappings[1].file_local_id.has_value());
+    EXPECT_TRUE(mappings[1].constant_index.has_value());
     EXPECT_EQ(mappings[1].default_expr, literal_expr);
+    ASSERT_TRUE(mappings[1].constant_index.has_value());
+    EXPECT_EQ(mappings[1].constant_index->value(), 0);
+    ASSERT_EQ(mapper.constant_map().size(), 1);
+    EXPECT_EQ(mapper.constant_map().get(*mappings[1].constant_index).global_index, GlobalIndex(1));
+    EXPECT_EQ(mapper.constant_map().get(*mappings[1].constant_index).expr, literal_expr);
+    EXPECT_TRUE(mapper.constant_map().get(*mappings[1].constant_index).type->equals(*int_type));
 
-    EXPECT_FALSE(mappings[2].field_id.has_value());
-    EXPECT_FALSE(mappings[2].is_constant);
+    EXPECT_FALSE(mappings[2].file_local_id.has_value());
+    EXPECT_FALSE(mappings[2].constant_index.has_value());
     EXPECT_EQ(mappings[2].default_expr, nullptr);
 }
 
 TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeRejectedWhenAllowMissingFalse) {
     // When allow_missing_columns=false, an out-of-range file_index without a default must fail.
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_index_table_column(0, "a", int_type),
             make_index_table_column(5, "b", int_type), // out of range and no default
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3049,13 +3430,13 @@ TEST(TableColumnMapperByIndexTest, ExtraFileColumnsAreSimplyIgnored) {
     // The file may contain more columns than the table projects. Any file column that is not
     // referenced by a table column should simply be ignored without affecting the mapping.
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             make_index_table_column(0, "a", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(0, "_col0", int_type),
-            make_schema_field(1, "_col1", int_type),
-            make_schema_field(2, "_col2", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+            make_file_column(1, "_col1", int_type),
+            make_file_column(2, "_col2", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3065,23 +3446,23 @@ TEST(TableColumnMapperByIndexTest, ExtraFileColumnsAreSimplyIgnored) {
 
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 1);
-    ASSERT_TRUE(mappings[0].field_id.has_value());
-    EXPECT_EQ(*mappings[0].field_id, 0);
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 0);
 }
 
 TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
     // BY_INDEX ignores file column names completely. Even if a file column name appears to match a
     // table column name, the mapping must still follow the position specified by
-    // `table_column.id`.
+    // `table_column.get_identifier_position()`.
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<TableColumn> projected_columns = {
+    const std::vector<ColumnDefinition> projected_columns = {
             // The table wants column "a", but file_index=1 means it should map to file column 1
             // (named "b"), not file column 0 that happens to be named "a".
             make_index_table_column(1, "a", int_type),
     };
-    const std::vector<SchemaField> file_schema = {
-            make_schema_field(10, "a", int_type),
-            make_schema_field(20, "b", int_type),
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(10, "a", int_type),
+            make_file_column(20, "b", int_type),
     };
 
     TableColumnMapperOptions options;
@@ -3091,8 +3472,8 @@ TEST(TableColumnMapperByIndexTest, IgnoresFileColumnNames) {
 
     const auto& mappings = mapper.mappings();
     ASSERT_EQ(mappings.size(), 1);
-    ASSERT_TRUE(mappings[0].field_id.has_value());
-    EXPECT_EQ(*mappings[0].field_id, 20);
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 20);
     EXPECT_EQ(mappings[0].file_column_name, "b");
 }
 

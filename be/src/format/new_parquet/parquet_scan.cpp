@@ -286,43 +286,35 @@ Status ParquetScanScheduler::open_next_row_group(
         ParquetColumnReaderFactory column_reader_factory(_current_row_group,
                                                          file_context.schema->num_columns());
         for (const auto& col : request.predicate_columns) {
-            if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
-                _current_predicate_columns[col.field_id] =
+            const auto local_id = col.field_id();
+            if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+                _current_predicate_columns[local_id] =
                         column_reader_factory.create_row_position_column_reader(
                                 _current_row_group_first_row);
                 continue;
             }
 
-            const auto column_schema =
-                    std::find_if(file_schema.begin(), file_schema.end(),
-                                 [field_id = col.field_id](
-                                         const std::unique_ptr<ParquetColumnSchema>& col_schema) {
-                                     return col_schema->field_id == field_id;
-                                 });
-            DORIS_CHECK(column_schema != file_schema.end());
+            DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
+            const auto& column_schema = file_schema[local_id];
+            DORIS_CHECK(column_schema != nullptr);
             std::unique_ptr<ParquetColumnReader> column_reader;
-            RETURN_IF_ERROR(
-                    column_reader_factory.create(*column_schema->get(), &col, &column_reader));
-            _current_predicate_columns[col.field_id] = std::move(column_reader);
+            RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
+            _current_predicate_columns[local_id] = std::move(column_reader);
         }
         for (const auto& col : request.non_predicate_columns) {
-            if (col.field_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
-                _current_non_predicate_columns[col.field_id] =
+            const auto local_id = col.field_id();
+            if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+                _current_non_predicate_columns[local_id] =
                         column_reader_factory.create_row_position_column_reader(
                                 _current_row_group_first_row);
                 continue;
             }
-            const auto column_schema =
-                    std::find_if(file_schema.begin(), file_schema.end(),
-                                 [field_id = col.field_id](
-                                         const std::unique_ptr<ParquetColumnSchema>& col_schema) {
-                                     return col_schema->field_id == field_id;
-                                 });
-            DORIS_CHECK(column_schema != file_schema.end());
+            DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
+            const auto& column_schema = file_schema[local_id];
+            DORIS_CHECK(column_schema != nullptr);
             std::unique_ptr<ParquetColumnReader> column_reader;
-            RETURN_IF_ERROR(
-                    column_reader_factory.create(*column_schema->get(), &col, &column_reader));
-            _current_non_predicate_columns[col.field_id] = std::move(column_reader);
+            RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
+            _current_non_predicate_columns[local_id] = std::move(column_reader);
         }
         *has_row_group = true;
         break;
@@ -353,9 +345,9 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         selection->resize(static_cast<size_t>(batch_rows));
     }
     for (const auto& [fid, column_reader] : _current_predicate_columns) {
-        auto position_it = request.column_positions.find(fid);
-        DORIS_CHECK(position_it != request.column_positions.end());
-        const auto block_position = position_it->second;
+        auto position_it = request.local_positions.find(reader::LocalColumnId(fid));
+        DORIS_CHECK(position_it != request.local_positions.end());
+        const auto block_position = position_it->second.value();
         auto column = file_block->get_by_position(block_position).column->assert_mutable();
         DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
                   column_reader->type()->get_primitive_type())
@@ -391,9 +383,9 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
     if (need_filter_output) {
         IColumn::Filter output_filter = selection_to_filter(selection, selected_rows, batch_rows);
         for (const auto& col : request.predicate_columns) {
-            auto position_it = request.column_positions.find(col.field_id);
-            DORIS_CHECK(position_it != request.column_positions.end());
-            const auto block_position = position_it->second;
+            auto position_it = request.local_positions.find(col.column_id());
+            DORIS_CHECK(position_it != request.local_positions.end());
+            const auto block_position = position_it->second.value();
             RETURN_IF_CATCH_EXCEPTION(file_block->replace_by_position(
                     block_position, file_block->get_by_position(block_position)
                                             .column->filter(output_filter, selected_rows)));
@@ -401,9 +393,9 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
     }
 
     for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
-        auto position_it = request.column_positions.find(fid);
-        DORIS_CHECK(position_it != request.column_positions.end());
-        const auto block_position = position_it->second;
+        auto position_it = request.local_positions.find(reader::LocalColumnId(fid));
+        DORIS_CHECK(position_it != request.local_positions.end());
+        const auto block_position = position_it->second.value();
         auto column_guard = file_block->mutate_column_scoped(block_position);
         auto& col = column_guard.mutable_column();
         DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),

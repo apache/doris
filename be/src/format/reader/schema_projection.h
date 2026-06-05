@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format/reader/file_reader.h"
 
 namespace doris::reader {
 
@@ -30,5 +31,13 @@ Status rebuild_projected_type(const DataTypePtr& original_type,
                               const std::vector<DataTypePtr>& child_types,
                               const std::vector<std::string>& child_names,
                               DataTypePtr* projected_type);
+
+// Build the file-local column definition after applying a LocalColumnIndex projection.
+//
+// The projection is matched by ColumnDefinition::file_local_id(), not by vector ordinal. This keeps
+// nested schema evolution semantics in the common helper and lets callers use the same projection
+// tree for type rebuilding and file block layout.
+Status project_column_definition(const ColumnDefinition& field, const LocalColumnIndex& projection,
+                                 ColumnDefinition* projected_field);
 
 } // namespace doris::reader

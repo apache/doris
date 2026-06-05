@@ -111,11 +111,10 @@ std::string partition_values_debug_string(const std::map<std::string, Field>& pa
 
 std::string table_filter_debug_string(const TableFilter& filter) {
     std::ostringstream out;
-    out << "TableFilter{has_conjunct=" << (filter.conjunct != nullptr) << ", column_unique_ids="
-        << join_table_reader_debug_strings(filter.column_unique_ids,
-                                           [](const TableColumn& column) {
-                                               return TableColumnMapper::debug_string(column);
-                                           })
+    out << "TableFilter{has_conjunct=" << (filter.conjunct != nullptr) << ", global_indices="
+        << join_table_reader_debug_strings(
+                   filter.global_indices,
+                   [](GlobalIndex global_index) { return std::to_string(global_index.value()); })
         << "}";
     return out.str();
 }
@@ -124,31 +123,26 @@ std::string table_column_predicates_debug_string(const TableColumnPredicates& pr
     std::ostringstream out;
     out << "{";
     size_t idx = 0;
-    for (const auto& [slot_id, column_predicates] : predicates) {
+    for (const auto& [global_index, column_predicates] : predicates) {
         if (idx++ > 0) {
             out << ", ";
         }
-        out << slot_id << ":{column=" << TableColumnMapper::debug_string(column_predicates.first)
-            << ", predicate_count=" << column_predicates.second.size() << "}";
+        out << global_index.value() << ":{predicate_count=" << column_predicates.size() << "}";
     }
     out << "}";
     return out.str();
 }
 
-void collect_table_column_unique_ids(const VExprSPtr& expr,
-                                     std::map<ColumnId, TableColumn>* column_unique_ids) {
+void collect_global_indices(const VExprSPtr& expr, std::set<GlobalIndex>* global_indices) {
     if (expr == nullptr) {
         return;
     }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        column_unique_ids->insert(
-                {slot_ref->column_uniq_id(), TableColumn {.id = slot_ref->column_uniq_id(),
-                                                          .name = slot_ref->column_name(),
-                                                          .type = slot_ref->data_type()}});
+        global_indices->insert(GlobalIndex(cast_set<size_t>(slot_ref->slot_id())));
     }
     for (const auto& child : expr->children()) {
-        collect_table_column_unique_ids(child, column_unique_ids);
+        collect_global_indices(child, global_indices);
     }
 }
 
@@ -157,14 +151,14 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
     if (conjunct == nullptr) {
         return Status::OK();
     }
-    std::map<ColumnId, TableColumn> columns;
-    collect_table_column_unique_ids(conjunct->root(), &columns);
-    if (!columns.empty()) {
+    std::set<GlobalIndex> global_indices;
+    collect_global_indices(conjunct->root(), &global_indices);
+    if (!global_indices.empty()) {
         TableFilter table_filter;
         table_filter.conjunct = nullptr;
         RETURN_IF_ERROR(conjunct->clone(state, table_filter.conjunct));
-        for (const auto& [column_id, column] : columns) {
-            table_filter.column_unique_ids.push_back(column);
+        for (const auto global_index : global_indices) {
+            table_filter.global_indices.push_back(global_index);
         }
         table_filters->push_back(std::move(table_filter));
     }
@@ -264,7 +258,7 @@ std::string TableReader::debug_string() const {
         << ", has_scanner_profile=" << (_scanner_profile != nullptr)
         << ", mapper_options=" << _mapper_options.debug_string() << ", projected_columns="
         << join_table_reader_debug_strings(_projected_columns,
-                                           [](const TableColumn& column) {
+                                           [](const ColumnDefinition& column) {
                                                return TableColumnMapper::debug_string(column);
                                            })
         << ", partition_values=" << partition_values_debug_string(_partition_values)
@@ -275,9 +269,10 @@ std::string TableReader::debug_string() const {
         << ", table_column_predicates="
         << table_column_predicates_debug_string(_table_column_predicates)
         << ", conjunct_count=" << _conjuncts.size() << ", file_schema="
-        << join_table_reader_debug_strings(
-                   _data_reader.file_schema,
-                   [](const SchemaField& field) { return TableColumnMapper::debug_string(field); })
+        << join_table_reader_debug_strings(_data_reader.file_schema,
+                                           [](const ColumnDefinition& field) {
+                                               return TableColumnMapper::debug_string(field);
+                                           })
         << ", file_block_layout="
         << join_table_reader_debug_strings(
                    _data_reader.file_block_layout,
@@ -354,6 +349,10 @@ Status TableReader::create_next_reader(bool* eos) {
 
     RETURN_IF_ERROR(_data_reader.reader->init(_runtime_state));
     RETURN_IF_ERROR(open_reader());
+    if (_data_reader.reader == nullptr) {
+        *eos = _current_task == nullptr;
+        return Status::OK();
+    }
     *eos = false;
     return Status::OK();
 }

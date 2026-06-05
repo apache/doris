@@ -1310,11 +1310,11 @@ protected:
         const auto& struct_schema = *_fields[field_idx];
         EXPECT_LT(child_idx, struct_schema.children.size());
 
-        reader::FieldProjection projection;
-        projection.field_id = struct_schema.field_id;
+        reader::LocalColumnIndex projection;
+        projection.index = struct_schema.local_id;
         projection.project_all_children = false;
-        reader::FieldProjection child_projection;
-        child_projection.field_id = struct_schema.children[child_idx]->field_id;
+        reader::LocalColumnIndex child_projection;
+        child_projection.index = struct_schema.children[child_idx]->local_id;
         projection.children.push_back(std::move(child_projection));
 
         ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
@@ -1424,11 +1424,11 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructChildren) {
     ASSERT_EQ(struct_schema.name, "struct_col");
     ASSERT_EQ(struct_schema.children.size(), 2);
 
-    reader::FieldProjection projection;
-    projection.field_id = struct_schema.field_id;
+    reader::LocalColumnIndex projection;
+    projection.index = struct_schema.local_id;
     projection.project_all_children = false;
-    reader::FieldProjection child_projection;
-    child_projection.field_id = struct_schema.children[1]->field_id;
+    reader::LocalColumnIndex child_projection;
+    child_projection.index = struct_schema.children[1]->local_id;
     projection.children.push_back(std::move(child_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
@@ -1460,11 +1460,11 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedNullableStructChildren) {
     ASSERT_EQ(struct_schema.name, "nullable_struct_col");
     ASSERT_EQ(struct_schema.children.size(), 2);
 
-    reader::FieldProjection projection;
-    projection.field_id = struct_schema.field_id;
+    reader::LocalColumnIndex projection;
+    projection.index = struct_schema.local_id;
     projection.project_all_children = false;
-    reader::FieldProjection child_projection;
-    child_projection.field_id = struct_schema.children[1]->field_id;
+    reader::LocalColumnIndex child_projection;
+    child_projection.index = struct_schema.children[1]->local_id;
     projection.children.push_back(std::move(child_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
@@ -1510,14 +1510,14 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedListStructElementChildren) {
     const auto& element_schema = *list_schema.children[0];
     ASSERT_EQ(element_schema.children.size(), 2);
 
-    reader::FieldProjection projection;
-    projection.field_id = list_schema.field_id;
+    reader::LocalColumnIndex projection;
+    projection.index = list_schema.local_id;
     projection.project_all_children = false;
-    reader::FieldProjection element_projection;
-    element_projection.field_id = element_schema.field_id;
+    reader::LocalColumnIndex element_projection;
+    element_projection.index = element_schema.local_id;
     element_projection.project_all_children = false;
-    reader::FieldProjection child_projection;
-    child_projection.field_id = element_schema.children[1]->field_id;
+    reader::LocalColumnIndex child_projection;
+    child_projection.index = element_schema.children[1]->local_id;
     element_projection.children.push_back(std::move(child_projection));
     projection.children.push_back(std::move(element_projection));
 
@@ -1565,17 +1565,17 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
     const auto& value_schema = *key_value_schema.children[1];
     ASSERT_EQ(value_schema.children.size(), 2);
 
-    reader::FieldProjection projection;
-    projection.field_id = map_schema.field_id;
+    reader::LocalColumnIndex projection;
+    projection.index = map_schema.local_id;
     projection.project_all_children = false;
-    reader::FieldProjection entry_projection;
-    entry_projection.field_id = key_value_schema.field_id;
+    reader::LocalColumnIndex entry_projection;
+    entry_projection.index = key_value_schema.local_id;
     entry_projection.project_all_children = false;
-    reader::FieldProjection value_projection;
-    value_projection.field_id = value_schema.field_id;
+    reader::LocalColumnIndex value_projection;
+    value_projection.index = value_schema.local_id;
     value_projection.project_all_children = false;
-    reader::FieldProjection child_projection;
-    child_projection.field_id = value_schema.children[1]->field_id;
+    reader::LocalColumnIndex child_projection;
+    child_projection.index = value_schema.children[1]->local_id;
     value_projection.children.push_back(std::move(child_projection));
     entry_projection.children.push_back(std::move(value_projection));
     projection.children.push_back(std::move(entry_projection));
@@ -2482,12 +2482,9 @@ TEST_F(ParquetColumnReaderTest, BuildComplexSchemaNodeMetadata) {
     const auto& struct_schema = *_fields[field_idx];
     ASSERT_EQ(struct_schema.name, "struct_col");
     ASSERT_EQ(struct_schema.children.size(), 2);
-    EXPECT_EQ(struct_schema.field_id, static_cast<int32_t>(field_idx));
-    EXPECT_EQ(struct_schema.parent_schema_node_id, -1);
-    EXPECT_EQ(struct_schema.children[0]->field_id, 0);
-    EXPECT_EQ(struct_schema.children[1]->field_id, 1);
-    EXPECT_EQ(struct_schema.children[0]->parent_schema_node_id, struct_schema.schema_node_id);
-    EXPECT_EQ(struct_schema.children[1]->parent_schema_node_id, struct_schema.schema_node_id);
+    EXPECT_EQ(struct_schema.local_id, static_cast<int32_t>(field_idx));
+    EXPECT_EQ(struct_schema.children[0]->local_id, 0);
+    EXPECT_EQ(struct_schema.children[1]->local_id, 1);
     EXPECT_EQ(struct_schema.children[0]->name, "a");
     EXPECT_EQ(struct_schema.children[1]->name, "b");
     EXPECT_EQ(struct_schema.max_definition_level, 0);
