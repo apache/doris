@@ -209,6 +209,8 @@ public:
 
     Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
+    std::vector<Block> split_to_const_blocks() const;
+
     /** Get empty columns with the same types as in block. */
     MutableColumns clone_empty_columns() const;
 

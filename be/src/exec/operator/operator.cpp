@@ -18,6 +18,7 @@
 #include "exec/operator/operator.h"
 
 #include "common/status.h"
+#include "core/block/materialize_block.h"
 #include "exec/common/util.hpp"
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/local_exchange_source_operator.h"
@@ -795,6 +796,7 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
 template <typename Writer, typename Parent>
     requires(std::is_base_of_v<AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, Block* block, bool eos) {
+    materialize_block_inplace(*block);
     return _writer->sink(block, eos);
 }
 
