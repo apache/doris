@@ -51,11 +51,12 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     @Override
     public void onClose() {
         super.onClose();
-        // The underlying Catalog is RESTSessionCatalog.asCatalog(empty), which is not itself Closeable; the
+        // The default Catalog is RESTSessionCatalog.asCatalog(empty), which is not itself Closeable; the
         // closeable REST client/auth lives on the RESTSessionCatalog owned by IcebergRestProperties, so close
-        // it here. super.onClose() handles the generic (non-REST) catalog-close path.
+        // it here. For a REST catalog the metastore properties are always IcebergRestProperties; they are only
+        // null before any properties have been parsed (e.g. closing a never-initialized catalog).
         MetastoreProperties metaProps = catalogProperty.getMetastoreProperties();
-        if (metaProps instanceof IcebergRestProperties) {
+        if (metaProps != null) {
             ((IcebergRestProperties) metaProps).closeRestSessionCatalog();
         }
     }
