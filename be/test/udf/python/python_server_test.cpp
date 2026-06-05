@@ -213,7 +213,7 @@ TEST_F(PythonServerTest, SingletonReturnsSameInstance) {
 // PythonServerManager::_get_process() - process retrieval test
 // ============================================================================
 
-TEST_F(PythonServerTest, GetProcessFromEmptyPoolReturnsError) {
+TEST_F(PythonServerTest, EnsurePoolInitializedCanInitializeEmptyPoolForTest) {
     PythonServerManager mgr;
 
     setup_doris_home();
@@ -228,8 +228,6 @@ TEST_F(PythonServerTest, GetProcessFromEmptyPoolReturnsError) {
     ProcessPtr process;
     Status status = mgr._get_process(version, pool_result.value(), &process);
 
-    // An empty but initialized pool should try a bounded repair and let the current request proceed
-    // if the Python runtime can still fork normally.
     EXPECT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(process, nullptr);
     EXPECT_TRUE(process->is_alive());
@@ -338,6 +336,34 @@ TEST_F(PythonServerTest, ForkWithoutSocketCreationReturnsAfterBoundedTerminate) 
     EXPECT_LT(elapsed.count(), 2000);
 }
 
+TEST_F(PythonServerTest, ForkEnqueuesBackgroundReapWhenKilledStartFailureIsNotReaped) {
+    setup_doris_home();
+    std::string python_path =
+            create_fake_python_without_socket_creation("python3.no_socket_reap", "3.9.16");
+
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, python_path);
+
+    // SIGKILL not becoming reapable inside the bounded wait depends on kernel state. Force only the
+    // wait results so this test covers PythonServerManager::fork() handing waitpid ownership to the
+    // shared background reaper instead of detaching and losing the pid.
+    PythonUDFProcess::force_child_exit_timeouts_for_test(2);
+    ProcessPtr process;
+    Status status = mgr.fork(version, &process);
+    PythonUDFProcess::force_child_exit_timeouts_for_test(0);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(process, nullptr);
+    EXPECT_NE(status.to_string().find("process did not exit after SIGKILL"), std::string::npos);
+
+    std::string status_text = status.to_string();
+    size_t pid_pos = status_text.find("pid=");
+    ASSERT_NE(pid_pos, std::string::npos) << status_text;
+    pid_t child_pid = static_cast<pid_t>(std::stol(status_text.substr(pid_pos + 4)));
+    EXPECT_TRUE(PythonUDFProcess::wait_background_reaped_for_test(child_pid,
+                                                                  std::chrono::milliseconds(5000)));
+}
+
 // ============================================================================
 // PythonServerManager::_ensure_pool_initialized() - pool initialization test
 // ============================================================================
@@ -356,6 +382,21 @@ TEST_F(PythonServerTest, EnsurePoolInitializedWithInvalidVersionFails) {
     EXPECT_TRUE(result.error().to_string().find("Failed") != std::string::npos ||
                 result.error().to_string().find("failed") != std::string::npos ||
                 result.error().to_string().find("Timed out") != std::string::npos);
+}
+
+TEST_F(PythonServerTest, EnsurePoolInitializedReturnsImmediatelyWhenAllWorkersFail) {
+    PythonServerManager mgr;
+    config::max_python_process_num = 2;
+
+    PythonVersion invalid_version("3.9.16", test_dir_, test_dir_ + "/missing_python");
+
+    auto start = std::chrono::steady_clock::now();
+    auto result = mgr._ensure_pool_initialized(invalid_version);
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start);
+
+    EXPECT_FALSE(result.has_value());
+    EXPECT_LT(elapsed.count(), 500);
 }
 
 TEST_F(PythonServerTest, EnsurePoolInitializedAfterShutdownReturnsServiceUnavailable) {
@@ -578,7 +619,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedLogsProgressWhileWaitingForSlowPro
     mgr.shutdown();
 }
 
-TEST_F(PythonServerTest, EnsurePoolInitializedReturnsBeforeStuckWorkerFinishes) {
+TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterInitFailureWithBoundedWait) {
     setup_doris_home();
     std::string python_path =
             create_fake_python_without_socket_creation("python3.no_socket", "3.9.16");
@@ -596,17 +637,13 @@ TEST_F(PythonServerTest, EnsurePoolInitializedReturnsBeforeStuckWorkerFinishes) 
     EXPECT_FALSE(result.has_value());
     EXPECT_LT(elapsed.count(), 2000);
 
-    auto pool_result = mgr._ensure_pool_initialized(version);
-    ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
-
-    ProcessPtr process;
     start = std::chrono::steady_clock::now();
-    Status status = mgr._get_process(version, pool_result.value(), &process);
+    auto retry_result = mgr._ensure_pool_initialized(version);
     elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start);
 
-    EXPECT_FALSE(status.ok());
-    EXPECT_LT(elapsed.count(), 1000);
+    EXPECT_FALSE(retry_result.has_value());
+    EXPECT_LT(elapsed.count(), 2000);
 
     mgr.shutdown();
 }
@@ -628,11 +665,17 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSucceedsWithOneStuckWorkerAndOneUs
 
     ASSERT_TRUE(result.has_value()) << result.error().to_string();
     EXPECT_LT(elapsed.count(), 2000);
+    EXPECT_TRUE(mgr.process_pool_is_initializing_for_test(version));
 
     ProcessPtr process;
     EXPECT_TRUE(mgr._get_process(version, result.value(), &process).ok());
     ASSERT_NE(process, nullptr);
     EXPECT_TRUE(process->is_alive());
+
+    for (int i = 0; i < 20 && !mgr.process_pool_is_initialized_for_test(version); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    EXPECT_TRUE(mgr.process_pool_is_initialized_for_test(version));
 
     mgr.shutdown();
 }
@@ -1004,7 +1047,7 @@ TEST_F(PythonServerTest, CheckAndRecreateProcessesSkipsUninitializedPool) {
     mgr.shutdown();
 }
 
-TEST_F(PythonServerTest, CheckAndRecreateProcessesErasesDeadProcessWhenRecreateFails) {
+TEST_F(PythonServerTest, CheckAndRecreateProcessesKeepsDeadSlotsWhenRecreateFails) {
     setup_doris_home();
     std::string python_path = create_fake_python_with_socket_creation("3.9.16");
 
@@ -1030,7 +1073,10 @@ TEST_F(PythonServerTest, CheckAndRecreateProcessesErasesDeadProcessWhenRecreateF
 
     mgr.check_and_recreate_processes_for_test();
 
-    EXPECT_TRUE(mgr.process_pool_snapshot_for_test(invalid_version).empty());
+    auto pool_snapshot = mgr.process_pool_snapshot_for_test(invalid_version);
+    ASSERT_EQ(pool_snapshot.size(), 2);
+    EXPECT_FALSE(pool_snapshot[0]->is_alive());
+    EXPECT_FALSE(pool_snapshot[1]->is_alive());
 
     mgr.shutdown();
 }

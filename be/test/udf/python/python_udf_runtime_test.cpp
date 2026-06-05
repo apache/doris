@@ -178,6 +178,28 @@ TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsAlreadyReapedForReapedChild) {
     EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
 }
 
+TEST_F(PythonUDFRuntimeTest, BackgroundReaperReapsQueuedChild) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "sleep 0.1; exit 0", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+
+    // Do not try to force the real "SIGKILLed but still not reapable" case in UT. That usually
+    // needs kernel-level uninterruptible sleep. The behavior we must guarantee is that once such a
+    // pid is handed off, the background reaper keeps waitpid ownership until the child exits.
+    child.detach();
+    PythonUDFProcess::enqueue_child_for_reap(child_pid);
+
+    bool reaped = PythonUDFProcess::wait_background_reaped_for_test(
+            child_pid, std::chrono::milliseconds(5000));
+    EXPECT_TRUE(reaped);
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child_pid, std::chrono::milliseconds(0),
+                                                    &exit_status);
+    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
+}
+
 // Test socket file path generation for various PIDs
 TEST_F(PythonUDFRuntimeTest, SocketPathGenerationEdgeCases) {
     // Minimum PID
@@ -304,6 +326,27 @@ TEST_F(PythonUDFRuntimeTest, ShutdownWithStubbornProcess) {
 
     EXPECT_TRUE(process.is_shutdown());
     EXPECT_FALSE(process.is_alive());
+}
+
+TEST_F(PythonUDFRuntimeTest, ShutdownEnqueuesBackgroundReapWhenSigkillWaitTimesOut) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "trap '' TERM; exec sleep 60", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+
+    PythonUDFProcess process(std::move(child), std::move(output));
+    ASSERT_TRUE(process.is_alive());
+
+    // SIGKILL not becoming reapable inside a short bounded wait is rare and depends on kernel
+    // state, so force only the wait results here. This covers the shutdown handoff contract:
+    // a pid that was killed but not reaped synchronously must be owned by the background reaper.
+    PythonUDFProcess::force_child_exit_timeouts_for_test(2);
+    process.shutdown();
+    PythonUDFProcess::force_child_exit_timeouts_for_test(0);
+
+    EXPECT_TRUE(process.is_shutdown());
+    EXPECT_TRUE(PythonUDFProcess::wait_background_reaped_for_test(child_pid,
+                                                                  std::chrono::milliseconds(5000)));
 }
 
 // ============================================================================

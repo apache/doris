@@ -67,6 +67,10 @@ public:
 
     std::vector<ProcessPtr> process_pool_snapshot_for_test(const PythonVersion& version);
 
+    bool process_pool_is_initializing_for_test(const PythonVersion& version);
+
+    bool process_pool_is_initialized_for_test(const PythonVersion& version);
+
     Status broadcast_action_to_processes_for_test(const std::string& action_type,
                                                   const std::string& body,
                                                   const std::string& log_name) {
@@ -75,20 +79,28 @@ public:
 #endif
 
 private:
+    enum class PoolState {
+        UNINITIALIZED,
+        INITIALIZING,
+        // `Initialized` means:
+        // 1. All process slots have attempted initialization.
+        // 2. At least one live process is available for requests.
+        // 3. The health-check thread has been started.
+        INITIALIZED,
+        // Prevent the pool from being incorrectly reused after `shutdown()`
+        STOPPED,
+    };
+
     struct VersionedProcessPool {
         std::mutex mutex;
         // Coordinates initialization and repair workers with foreground requests.
         std::condition_variable cv;
         std::vector<ProcessPtr> processes;
-        // True after the first initialization round has either finished or timed out.
-        // It does not mean the pool currently has a usable process.
-        bool initialized = false;
+        PoolState state = PoolState::UNINITIALIZED;
         // True when at least one process in the pool can serve requests.
         bool has_available_process = false;
         // True while a background repair is recreating dead or missing processes.
         bool repairing = false;
-        // Set by shutdown() to reject late init/repair results from detached workers.
-        bool stopped = false;
     };
 
     /** 
@@ -147,6 +159,8 @@ private:
     _snapshot_process_pools();
     Status _broadcast_action_to_processes(const std::string& action_type, const std::string& body,
                                           const std::string& log_name);
+    static bool _select_alive_process_from_pool(const std::vector<ProcessPtr>& pool,
+                                                ProcessPtr* process);
 
     std::unordered_map<PythonVersion, std::shared_ptr<VersionedProcessPool>> _process_pools;
     // Protects the version -> pool handle map only. Per-version process operations are guarded
