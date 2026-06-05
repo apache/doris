@@ -794,8 +794,9 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- fastutil-core: keep as direct dependency to ensure classpath priority
-             over the ancient unrelocated fastutil classes embedded in hive-catalog-shade -->
+        <!-- fastutil-core: fastutil used directly by FE catalog/tablet-index code
+             (e.g. Long2ObjectOpenHashMap). The ancient copy once bundled unrelocated in
+             hive-catalog-shade is now relocated under shade.doris.hive.*, so no collision remains. -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
