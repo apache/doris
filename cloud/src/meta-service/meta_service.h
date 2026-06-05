@@ -28,9 +28,11 @@
 #include <type_traits>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
@@ -1035,19 +1037,19 @@ private:
         using namespace std::chrono;
         brpc::ClosureGuard done_guard(done);
 
+        DORIS_CLOUD_DEFER {
+            auto* status = resp->mutable_status();
+            set_response_status(status, get_response_code(*status), status->msg());
+        };
+
         // life span of this defer MUST be longer than `done`
         std::unique_ptr<int, std::function<void(int*)>> defer_injection(
                 (int*)(0x01), [&, this](int*) { idempotent_injection(method, req, resp); });
 
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
-            if (resp->status().code() == MetaServiceCode::KV_TXN_MAYBE_COMMITTED) {
-                // Keep maybe-committed as an internal retry signal only. Older proto2
-                // clients may treat unknown enum values as unset and fall back to OK.
-                resp->mutable_status()->set_code(MetaServiceCode::KV_TXN_COMMIT_ERR);
-            }
+            MetaServiceCode code = get_legacy_code(resp->status().code());
             if (DCHECK_IS_ON()) {
-                MetaServiceCode code = resp->status().code();
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE)
                         << "KV_TXN_STORE_GET_RETRYABLE should not be sent back to client";
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE)
@@ -1092,16 +1094,6 @@ private:
             if (retry_times >= config::txn_store_retry_times ||
                 // Retrying KV_TXN_TOO_OLD is very expensive, so we only retry once.
                 (retry_times > 1 && code == MetaServiceCode::KV_TXN_TOO_OLD)) {
-                // For KV_TXN_CONFLICT, we should return KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES,
-                // because BE will retries the KV_TXN_CONFLICT error.
-                resp->mutable_status()->set_code(
-                        code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
-                        : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
-                        : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
-                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED        ? KV_TXN_COMMIT_ERR
-                        : code == MetaServiceCode::KV_TXN_CONFLICT
-                                ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
-                                : MetaServiceCode::KV_TXN_TOO_OLD);
                 return;
             }
 

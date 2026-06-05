@@ -54,6 +54,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/cloud_proto_util.h"
 #include "cpp/sync_point.h"
 #include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
@@ -508,21 +509,22 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         // Record QPS statistics for all RPCs sent to MS (success or failure)
         record_rpc_qps(rpc, rate_limit_ctx);
 
+        MetaServiceCode status_code = get_response_code(res->status());
         if (cntl.Failed()) [[unlikely]] {
             error_msg = cntl.ErrorText();
             error_code = cntl.ErrorCode();
             proxy->set_unhealthy();
-        } else if (res->status().code() == MetaServiceCode::OK) {
+        } else if (status_code == MetaServiceCode::OK) {
             return Status::OK();
-        } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
+        } else if (status_code == MetaServiceCode::INVALID_ARGUMENT) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("failed to {}: {}", op_name,
                                                                      res->status().msg());
-        } else if (res->status().code() == MetaServiceCode::MS_TOO_BUSY) {
+        } else if (status_code == MetaServiceCode::MS_TOO_BUSY) {
             // MS_BUSY should also be retried
             if (rate_limit_ctx.backpressure_handler) {
                 rate_limit_ctx.backpressure_handler->on_ms_busy();
             }
-        } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
+        } else if (status_code != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());
         } else {
@@ -538,7 +540,7 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
             (retry_times > config::meta_service_rpc_timeout_retry_times &&
              error_code == brpc::ERPCTIMEDOUT) ||
             (retry_times > config::meta_service_conflict_error_retry_times &&
-             res->status().code() == MetaServiceCode::KV_TXN_CONFLICT)) {
+             status_code == MetaServiceCode::KV_TXN_CONFLICT)) {
             break;
         }
 
@@ -567,7 +569,7 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
                               .backpressure_handler = ms_backpressure_handler_,
                       });
     if (!st.ok()) {
-        if (resp.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
+        if (get_response_code(resp.status()) == MetaServiceCode::TABLET_NOT_FOUND) {
             return Status::NotFound("failed to get tablet meta: {}", resp.status().msg());
         }
         return st;
@@ -750,13 +752,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             }
             return Status::RpcError("failed to get rowset meta: {}", cntl.ErrorText());
         }
-        if (resp.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
+        MetaServiceCode status_code = get_response_code(resp.status());
+        if (status_code == MetaServiceCode::TABLET_NOT_FOUND) {
             LOG(WARNING) << "failed to get rowset meta, err=" << resp.status().msg() << " "
                          << tablet_info;
             return Status::NotFound("failed to get rowset meta: {}, {}", resp.status().msg(),
                                     tablet_info);
         }
-        if (resp.status().code() == MetaServiceCode::MS_TOO_BUSY) {
+        if (status_code == MetaServiceCode::MS_TOO_BUSY) {
             // MS_BUSY should also be retried
             if (ms_backpressure_handler_) {
                 ms_backpressure_handler_->on_ms_busy();
@@ -775,7 +778,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             }
             return Status::RpcError("failed to get rowset meta: {}", resp.status().msg());
         }
-        if (resp.status().code() != MetaServiceCode::OK) {
+        if (status_code != MetaServiceCode::OK) {
             LOG(WARNING) << " failed to get rowset meta, err=" << resp.status().msg() << " "
                          << tablet_info;
             return Status::InternalError("failed to get rowset meta: {}, {}", resp.status().msg(),
@@ -998,7 +1001,8 @@ Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
         return st;
     }
 
-    if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
+    MetaServiceCode status_code = get_response_code(res.status());
+    if (status_code == MetaServiceCode::TABLET_NOT_FOUND) {
         return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
     }
     // The delete bitmap of stale rowsets will be removed when commit compaction job,
@@ -1021,11 +1025,11 @@ Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
     //      |  return get delete bitmap  |                         |
     //      |<---------------------------|                         |
     //      |                            |                         |
-    if (res.status().code() == MetaServiceCode::ROWSETS_EXPIRED) {
+    if (status_code == MetaServiceCode::ROWSETS_EXPIRED) {
         return Status::Error<ErrorCode::ROWSETS_EXPIRED, false>("failed to get delete bitmap: {}",
                                                                 res.status().msg());
     }
-    if (res.status().code() != MetaServiceCode::OK) {
+    if (status_code != MetaServiceCode::OK) {
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to get delete bitmap: {}",
                                                                res.status().msg());
     }
@@ -1464,7 +1468,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
                               .backpressure_handler = ms_backpressure_handler_,
                               .table_id = table_id,
                       });
-    if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
+    if (!st.ok() && get_response_code(resp.status()) == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta_tmp =
                     cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()));
@@ -1500,7 +1504,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
                               .backpressure_handler = ms_backpressure_handler_,
                               .table_id = table_id,
                       });
-    if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
+    if (!st.ok() && get_response_code(resp.status()) == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta =
                     cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()));
@@ -1562,7 +1566,7 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
                                   .backpressure_handler = ms_backpressure_handler_,
                                   .table_id = table_id,
                           });
-    if (!st.ok() && resp.status().code() == MetaServiceCode::ROWSET_META_NOT_FOUND) {
+    if (!st.ok() && get_response_code(resp.status()) == MetaServiceCode::ROWSET_META_NOT_FOUND) {
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
     return st;
@@ -1844,7 +1848,8 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
                                 .host_limiters = host_level_ms_rpc_rate_limiters_,
                                 .backpressure_handler = ms_backpressure_handler_,
                         });
-    if (res->status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+    if (get_response_code(res->status()) ==
+        MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when commit tablet job {}", job.ShortDebugString());
     }
@@ -2082,13 +2087,14 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                                 .backpressure_handler = ms_backpressure_handler_,
                                 .table_id = table_id,
                         });
+    MetaServiceCode status_code = get_response_code(res.status());
     if (config::enable_update_delete_bitmap_kv_check_core &&
-        res.status().code() == MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV) {
+        status_code == MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV) {
         auto& msg = res.status().msg();
         LOG_WARNING(msg);
         CHECK(false) << msg;
     }
-    if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
+    if (status_code == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
                 "{}, error_msg: {}",
@@ -2186,7 +2192,7 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                        });
         DBUG_EXECUTE_IF("CloudMetaMgr::test_get_delete_bitmap_update_lock_conflict",
                         { test_conflict = true; });
-        if (!test_conflict && res.status().code() != MetaServiceCode::LOCK_CONFLICT) {
+        if (!test_conflict && get_response_code(res.status()) != MetaServiceCode::LOCK_CONFLICT) {
             break;
         }
 
@@ -2212,12 +2218,13 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
             std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
         }
     });
-    if (res.status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+    MetaServiceCode status_code = get_response_code(res.status());
+    if (status_code == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
                 "initiator {}",
                 tablet.table_id(), lock_id, initiator);
-    } else if (res.status().code() == MetaServiceCode::LOCK_CONFLICT) {
+    } else if (status_code == MetaServiceCode::LOCK_CONFLICT) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "lock conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
                 "initiator {}",
