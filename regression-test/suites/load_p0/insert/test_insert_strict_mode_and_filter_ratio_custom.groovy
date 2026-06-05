@@ -104,6 +104,10 @@ suite("test_insert_strict_mode_and_filter_ratio_custom","p0") {
     testExpectNoResult("select * from test_dst;")
     // end test 1: insert into values, str length is longer than schema, enable_insert_strict=true.
 
+    /*
+    Currently when enable_insert_strict=false, BE do substring for string value whose length is longer than schema,
+    and insert truncated string, no matter enable_insert_value_auto_cast and enable_strict_cast is true or false.
+    So insert_max_filter_ratio does not affect whether insert succeed or fail.
     // test 2: INSERT INTO VALUES, str length is longer than schema, enable_insert_strict=false
     // insert_max_filter_ratio affect whether insert succeed or fail
     sql """
@@ -199,6 +203,7 @@ suite("test_insert_strict_mode_and_filter_ratio_custom","p0") {
     """
     testExpectNoResult("select * from test_dst;")
     // END test 2: insert into values, str length is longer than schema, enable_insert_strict=false,
+    */
 
     // test 3: INSERT INTO SELECT, str length is longer than schema, enable_insert_strict=true
     multi_sql """
@@ -263,6 +268,7 @@ suite("test_insert_strict_mode_and_filter_ratio_custom","p0") {
     testExpectNoResult("select * from test_dst;")
     // END test 3: insert into select, str length is longer than schema, enable_insert_strict=true
 
+    /*
     // test 4: INSERT INTO SELECT, str length is longer than schema, enable_insert_strict=false
     // test 4.5: insert strict OFF, auto cast OFF, strict cast OFF, plan no substr, should failed
     multi_sql """
@@ -348,6 +354,7 @@ suite("test_insert_strict_mode_and_filter_ratio_custom","p0") {
     """
     testExpectNoResult("select * from test_dst;")
     // END test 4: insert into select, str length is longer than schema, enable_insert_strict=true
+    */
 
     // test 5: insert into values, invalid string to number, enable_insert_strict=true
     multi_sql """
