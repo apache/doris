@@ -59,7 +59,6 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 #include "util/jsonb_document.h"
-#include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
@@ -869,7 +868,6 @@ private:
     static ALWAYS_INLINE void inner_loop_impl(JsonbWriter* writer, size_t i,
                                               ColumnString::Chars& res_data,
                                               ColumnString::Offsets& res_offsets, NullMap& null_map,
-                                              std::unique_ptr<JsonbToJson>& formater,
                                               const char* l_raw, size_t l_size, JsonbPath& path) {
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
         const JsonbDocument* doc = nullptr;
@@ -930,7 +928,6 @@ public:
         res_offsets.resize(input_rows_count);
 
         auto writer = std::make_unique<JsonbWriter>();
-        std::unique_ptr<JsonbToJson> formater;
 
         // reuseable json path list, espacially for const path
         std::vector<JsonbPath> json_path_list;
@@ -994,8 +991,8 @@ public:
                 }
 
                 writer->reset();
-                inner_loop_impl(writer.get(), i, res_data, res_offsets, null_map, formater, l_raw,
-                                l_size, json_path_list[0]);
+                inner_loop_impl(writer.get(), i, res_data, res_offsets, null_map, l_raw, l_size,
+                                json_path_list[0]);
             } else { // will make array string to user
                 writer->reset();
                 bool has_value = false;
@@ -1060,8 +1057,6 @@ public:
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
 
-        std::unique_ptr<JsonbToJson> formater;
-
         JsonbWriter writer;
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (l_null_map && (*l_null_map)[i]) {
@@ -1088,8 +1083,7 @@ public:
             }
 
             writer.reset();
-            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, formater, l_raw, l_size,
-                            path);
+            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, l_raw, l_size, path);
         } //for
         return Status::OK();
     } //function
@@ -1100,8 +1094,6 @@ public:
                                 ColumnString::Offsets& res_offsets, NullMap& null_map) {
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
-
-        std::unique_ptr<JsonbToJson> formater;
 
         JsonbPath path;
         if (!path.seek(rdata.data, rdata.size)) {
@@ -1120,8 +1112,7 @@ public:
             const char* l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
             writer.reset();
-            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, formater, l_raw, l_size,
-                            path);
+            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, l_raw, l_size, path);
         } //for
         return Status::OK();
     } //function
@@ -1133,8 +1124,6 @@ public:
                                 NullMap& null_map) {
         size_t input_rows_count = roffsets.size();
         res_offsets.resize(input_rows_count);
-
-        std::unique_ptr<JsonbToJson> formater;
 
         JsonbWriter writer;
 
@@ -1155,8 +1144,8 @@ public:
             }
 
             writer.reset();
-            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, formater, ldata.data,
-                            ldata.size, path);
+            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, ldata.data, ldata.size,
+                            path);
         } //for
         return Status::OK();
     } //function
@@ -2136,8 +2125,6 @@ public:
 
         auto find_result = root->findValue(current);
         if (!find_result.value) {
-            std::string path_string;
-            current.to_string(&path_string);
             return false;
         } else if (find_result.value == root) {
             return true;
@@ -2724,8 +2711,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DORIS_CHECK_GE(arguments.size(), 2);
-
         // Check if arguments count is valid (json_doc + at least one path)
         if (arguments.size() < 2) {
             return Status::InvalidArgument("json_remove requires at least 2 arguments");
@@ -2832,7 +2817,6 @@ public:
             }
 
             std::vector<JsonbPath> paths;
-            std::vector<bool> path_constants_vec;
 
             for (size_t path_idx = 0; path_idx < path_columns.size(); ++path_idx) {
                 size_t idx = index_check_const(row_idx, path_constants[path_idx]);
@@ -2853,7 +2837,6 @@ public:
                 }
 
                 paths.push_back(std::move(path));
-                path_constants_vec.push_back(path_constants[path_idx]);
             }
 
             const JsonbValue* current_value = json_doc->getValue();
