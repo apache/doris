@@ -2027,6 +2027,7 @@ nonReserved
     | CAST
     | CATALOG
     | CATALOGS
+    | CEL
     | CHAIN
     | CIPHER
     | CHAR
@@ -2182,6 +2183,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MAPPING
     | MATCHED
     | MATCH_ALL
     | MATCH_ANY
@@ -2291,6 +2293,7 @@ nonReserved
     | ROOT
     | ROTATE
     | ROUTINE
+    | RULE
     | S3
     | SAMPLE
     | SAN
