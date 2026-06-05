@@ -28,6 +28,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Proxy;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
 
@@ -59,21 +61,33 @@ public class LogicalViewTest {
     }
 
     /**
-     * Build a mock ViewIf that reports the given schema and qualifiers.
+     * Build a minimal ViewIf stub via JDK Proxy (avoids ByteBuddy/Mockito
+     * which triggers TableIf → ColumnStatistic class-loading issues in unit tests).
      */
+    @SuppressWarnings("unchecked")
     private static ViewIf mockView(List<Column> schema, List<String> qualifiers) {
-        ViewIf view = Mockito.mock(ViewIf.class);
-        Mockito.when(view.getFullSchema()).thenReturn(schema);
-        Mockito.when(view.getFullQualifiers()).thenReturn(qualifiers);
-        return view;
+        return (ViewIf) Proxy.newProxyInstance(
+                ViewIf.class.getClassLoader(),
+                new Class<?>[] {ViewIf.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "getFullSchema": return schema;
+                        case "getFullQualifiers": return qualifiers;
+                        case "getViewText": return "";
+                        default: return null;
+                    }
+                });
     }
 
     /**
      * Build a mock LogicalPlan child whose {@code getOutput()} returns the given slots.
+     * Also stubs {@code getAllChildrenTypes()} so AbstractTreeNode's constructor does not
+     * crash with NPE when calling {@code containsTypes.or(childTypes)}.
      */
     private static LogicalPlan mockChild(List<Slot> slots) {
         LogicalPlan child = Mockito.mock(LogicalPlan.class);
         Mockito.when(child.getOutput()).thenReturn(slots);
+        Mockito.when(child.getAllChildrenTypes()).thenReturn(new BitSet());
         return child;
     }
 
