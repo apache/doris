@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -43,7 +44,6 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.zone.ZoneOffsetTransition;
 import java.util.List;
 
 /**
@@ -107,7 +107,7 @@ public class ConvertTz extends ScalarFunction
         if (fromZone == null || toZone == null) {
             return false;
         }
-        if (fromZone.getRules().isFixedOffset() && toZone.getRules().isFixedOffset()) {
+        if (toZone.getRules().isFixedOffset()) {
             return true;
         }
         if (lower == null || upper == null) {
@@ -124,17 +124,30 @@ public class ConvertTz extends ScalarFunction
         if (upperDateTime.isBefore(lowerDateTime)) {
             return false;
         }
-        // Partition pruning folds both endpoints as inclusive values, so a transition touching either boundary
-        // must disable the monotonic shortcut.
-        if (hasTransitionInLocalRange(fromZone, lowerDateTime, upperDateTime)) {
-            return false;
-        }
-        Instant lowerInstant = lowerDateTime.atZone(fromZone).toInstant();
-        Instant upperInstant = upperDateTime.atZone(fromZone).toInstant();
+        /*
+         * convert_tz can be treated as a composition of two mappings:
+         *
+         *   source local time x -> instant by from_tz -> target local time by to_tz.
+         *
+         * After PR #64029, the first mapping is monotonic non-decreasing. A spring gap in from_tz
+         * flattens skipped local times to the transition instant, and a fall-back overlap uses the
+         * pre-transition offset before jumping forward at the overlap end. Neither case makes the
+         * instant move backward as x increases.
+         *
+         * The second mapping, instant -> to_tz local time, is also monotonic non-decreasing except
+         * at a to_tz fall-back transition, where the displayed local time jumps backward. Therefore
+         * convert_tz is non-monotonic for a partition only when the instant interval obtained from
+         * interpreting the partition bounds in from_tz crosses a to_tz fall-back transition instant.
+         *
+         * Partition pruning folds both endpoints before deriving the function range, so a fall-back
+         * instant inside (fromInstant(lower), fromInstant(upper)] disables the monotonic shortcut.
+         */
+        Instant lowerInstant = DateTimeLiteral.convertLocalToInstant(lowerDateTime, fromZone);
+        Instant upperInstant = DateTimeLiteral.convertLocalToInstant(upperDateTime, fromZone);
         if (upperInstant.isBefore(lowerInstant)) {
             return false;
         }
-        return DateUtils.noTransitionInInstantRange(toZone, lowerInstant, upperInstant);
+        return !DateUtils.hasFallbackTransitionInInstantRange(toZone, lowerInstant, upperInstant);
     }
 
     @Override
@@ -163,32 +176,5 @@ public class ConvertTz extends ScalarFunction
 
     private LocalDateTime toLocalDateTime(Literal literal) {
         return literal instanceof DateLiteral ? ((DateLiteral) literal).toJavaDateType() : null;
-    }
-
-    private boolean hasTransitionInLocalRange(ZoneId zoneId, LocalDateTime lower, LocalDateTime upper) {
-        if (zoneId.getRules().isFixedOffset()) {
-            return false;
-        }
-        ZoneOffsetTransition transition = zoneId.getRules()
-                .previousTransition(lower.atZone(zoneId).toInstant().plusNanos(1));
-        if (transition == null) {
-            transition = zoneId.getRules().nextTransition(lower.atZone(zoneId).toInstant());
-        }
-        while (transition != null) {
-            LocalDateTime transitionBefore = transition.getDateTimeBefore();
-            LocalDateTime transitionAfter = transition.getDateTimeAfter();
-            LocalDateTime transitionStart = transitionBefore.isBefore(transitionAfter)
-                    ? transitionBefore : transitionAfter;
-            if (upper.isBefore(transitionStart)) {
-                return false;
-            }
-            LocalDateTime transitionEnd = transitionBefore.isAfter(transitionAfter)
-                    ? transitionBefore : transitionAfter;
-            if (!transitionEnd.isBefore(lower) && !upper.isBefore(transitionStart)) {
-                return true;
-            }
-            transition = zoneId.getRules().nextTransition(transition.getInstant());
-        }
-        return false;
     }
 }

@@ -39,7 +39,20 @@ class ConvertTzTest {
     }
 
     @Test
-    void testIsMonotonicWithDstFallbackInTargetZone() {
+    void testIsMonotonicWithFixedOffsetTargetZoneAndUnboundedSourceRange() {
+        ConvertTz convertTz = new ConvertTz(timestampSlot,
+                new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
+
+        Assertions.assertTrue(convertTz.isMonotonic(
+                null,
+                new DateTimeLiteral("2021-03-28 02:00:00")));
+        Assertions.assertTrue(convertTz.isMonotonic(
+                new DateTimeLiteral("2021-10-31 02:00:00"),
+                null));
+    }
+
+    @Test
+    void testIsMonotonicWithDstFallbackAtUpperBoundaryInTargetZone() {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("UTC"), new VarcharLiteral("Europe/Paris"));
 
@@ -49,21 +62,21 @@ class ConvertTzTest {
     }
 
     @Test
-    void testIsMonotonicWithDstFallbackAtBoundaryInTargetZone() {
+    void testIsMonotonicWithDstFallbackAtLowerBoundaryInTargetZone() {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("UTC"), new VarcharLiteral("Europe/Paris"));
 
-        Assertions.assertFalse(convertTz.isMonotonic(
+        Assertions.assertTrue(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-10-31 01:00:00"),
                 new DateTimeLiteral("2021-10-31 02:00:00")));
     }
 
     @Test
-    void testIsMonotonicWithDstFallbackAtBoundaryInTargetZone2() {
+    void testIsMonotonicWithDstFallbackAtLowerBoundaryInTargetZone2() {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("UTC"), new VarcharLiteral("Europe/Paris"));
 
-        Assertions.assertFalse(convertTz.isMonotonic(
+        Assertions.assertTrue(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-10-31 01:00:00"),
                 new DateTimeLiteral("2021-10-31 01:30:00")));
     }
@@ -99,11 +112,21 @@ class ConvertTzTest {
     }
 
     @Test
+    void testIsMonotonicWithDstSpringGapInTargetZone() {
+        ConvertTz convertTz = new ConvertTz(timestampSlot,
+                new VarcharLiteral("UTC"), new VarcharLiteral("Europe/Paris"));
+
+        Assertions.assertTrue(convertTz.isMonotonic(
+                new DateTimeLiteral("2021-03-28 00:00:00"),
+                new DateTimeLiteral("2021-03-28 02:00:00")));
+    }
+
+    @Test
     void testIsMonotonicWithDstGapInSourceZone() {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
 
-        Assertions.assertFalse(convertTz.isMonotonic(
+        Assertions.assertTrue(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-03-28 02:00:00"),
                 new DateTimeLiteral("2021-03-28 03:00:00")));
     }
@@ -113,7 +136,7 @@ class ConvertTzTest {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
 
-        Assertions.assertFalse(convertTz.isMonotonic(
+        Assertions.assertTrue(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-03-28 01:00:00"),
                 new DateTimeLiteral("2021-03-28 02:00:00")));
     }
@@ -123,7 +146,7 @@ class ConvertTzTest {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
 
-        Assertions.assertFalse(convertTz.isMonotonic(
+        Assertions.assertTrue(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-03-28 03:00:00"),
                 new DateTimeLiteral("2021-03-28 04:00:00")));
     }
@@ -133,8 +156,18 @@ class ConvertTzTest {
         ConvertTz convertTz = new ConvertTz(timestampSlot,
                 new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
 
-        Assertions.assertFalse(convertTz.isMonotonic(
+        Assertions.assertTrue(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-03-28 02:00:00"),
                 new DateTimeLiteral("2021-03-28 04:00:00")));
+    }
+
+    @Test
+    void testIsMonotonicWithDstFallbackInSourceZone() {
+        ConvertTz convertTz = new ConvertTz(timestampSlot,
+                new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
+
+        Assertions.assertTrue(convertTz.isMonotonic(
+                new DateTimeLiteral("2021-10-31 01:00:00"),
+                new DateTimeLiteral("2021-10-31 03:00:00")));
     }
 }

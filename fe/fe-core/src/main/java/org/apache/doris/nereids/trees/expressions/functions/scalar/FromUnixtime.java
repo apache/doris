@@ -135,7 +135,7 @@ public class FromUnixtime extends ScalarFunction
         if (lowerInstant == null || upperInstant == null || upperInstant.isBefore(lowerInstant)) {
             return false;
         }
-        return DateUtils.noTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
+        return !DateUtils.hasFallbackTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
     }
 
     @Override
