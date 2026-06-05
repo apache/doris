@@ -74,15 +74,14 @@ bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 }; // namespace s3_bvar
 
 AccessorRateLimiter::AccessorRateLimiter()
-        : _rate_limiters(
-                  {std::make_unique<S3RateLimiterHolder>(
-                           config::s3_get_token_per_second, config::s3_get_bucket_tokens,
-                           config::s3_get_token_limit,
-                           s3_rate_limiter_metric_func(S3RateLimitType::GET)),
-                   std::make_unique<S3RateLimiterHolder>(
-                           config::s3_put_token_per_second, config::s3_put_bucket_tokens,
-                           config::s3_put_token_limit,
-                           s3_rate_limiter_metric_func(S3RateLimitType::PUT))}) {}
+        : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                                  config::s3_get_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::GET)),
+                          std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                                  config::s3_put_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::PUT))}) {}
 
 S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
