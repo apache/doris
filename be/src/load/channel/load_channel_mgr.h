@@ -62,6 +62,9 @@ public:
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
+    // get the number of active load channels
+    size_t get_active_load_channel_num();
+
     void stop();
 
     std::vector<std::string> get_all_load_channel_ids() {

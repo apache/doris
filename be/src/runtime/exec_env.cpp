@@ -201,19 +201,22 @@ void ExecEnv::wait_for_all_fe_known() {
 void ExecEnv::wait_for_all_tasks_done() {
     LOG(INFO) << "begin to wait for all tasks done before shutdown. k_shutdown_fe_known: "
               << k_shutdown_fe_known << " k_in_graceful_shutdown: " << k_in_graceful_shutdown;
-    // For graceful shutdown, need to wait for all running queries to stop
+    // For graceful shutdown, need to wait for all running queries and load channels to stop
     int32_t wait_seconds_passed = 0;
     while (true) {
         int num_queries = _fragment_mgr->running_query_num();
-        if (num_queries < 1) {
+        size_t num_load_channels = _load_channel_mgr->get_active_load_channel_num();
+        if (num_queries < 1 && num_load_channels < 1) {
             break;
         }
         if (wait_seconds_passed > doris::config::grace_shutdown_wait_seconds) {
-            LOG(INFO) << "There are still " << num_queries << " queries running, but "
-                      << wait_seconds_passed << " seconds passed, has to exist now";
+            LOG(INFO) << "There are still " << num_queries << " queries running and "
+                      << num_load_channels << " load channels active, but "
+                      << wait_seconds_passed << " seconds passed, has to exit now";
             break;
         }
-        LOG(INFO) << "There are still " << num_queries << " queries running, waiting...";
+        LOG(INFO) << "There are still " << num_queries << " queries running, "
+                  << num_load_channels << " load channels active, waiting...";
         sleep(1);
         ++wait_seconds_passed;
     }

@@ -266,17 +266,17 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
         // is also written by heartbeat thread with epoch checks, which will
         // self-correct any stale value we might race-write.
         _s_exec_env->cluster_info()->master_fe_addr = new_master;
-        LOG(INFO) << "fe RPC got NOT_MASTER from " << old_master
-                  << ", refreshed master_fe_addr to " << new_master;
+        LOG(INFO) << "fe RPC got NOT_MASTER from " << old_master << ", refreshed master_fe_addr to "
+                  << new_master;
     } else {
         // Transport failure or NOT_MASTER without master_address hint.
-        // During graceful shutdown, the heartbeat interval is reduced to ~1s,
+        // During graceful shutdown, the heartbeat interval is reduced to ~3s,
         // so BE will quickly pick up the new master FE address. Retry with
         // increasing backoff, relying on heartbeat to update master_fe_addr
         // which is read fresh by address_provider on each attempt.
-        constexpr int kMaxRetries = 3;
+        constexpr int kMaxRetries = 5;
         for (int i = 0; i < kMaxRetries; i++) {
-            int backoff_ms = 1000 * (1 << i);
+            int backoff_ms = 1000 * (2 * i + 1); // 1s, 3s, 5s, 7s, 9s
             std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
 
             Status retry_st = rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
@@ -284,8 +284,7 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
                 TStatus retry_resp = status_extractor();
                 if (retry_resp.status_code == TStatusCode::NOT_MASTER) {
                     const TNetworkAddress* hinted = master_addr_extractor();
-                    if (hinted != nullptr && !hinted->hostname.empty()
-                            && hinted->port != 0) {
+                    if (hinted != nullptr && !hinted->hostname.empty() && hinted->port != 0) {
                         _s_exec_env->cluster_info()->master_fe_addr = *hinted;
                         new_master = *hinted;
                         have_new_master = true;
@@ -307,8 +306,7 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
         }
 
         if (!have_new_master) {
-            LOG(WARNING) << "fe RPC failed against " << old_master
-                         << " after " << kMaxRetries
+            LOG(WARNING) << "fe RPC failed against " << old_master << " after " << kMaxRetries
                          << " backoff retries, returning original error.";
             return st.ok() ? Status::Error<ErrorCode::NOT_MASTER>(
                                      "FE returned NOT_MASTER but no new master address available")
