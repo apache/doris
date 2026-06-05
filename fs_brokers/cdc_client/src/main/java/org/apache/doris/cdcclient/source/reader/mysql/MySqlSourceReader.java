@@ -849,7 +849,12 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                 DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
         final StatefulTaskContext statefulTaskContext =
                 new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
-        return new BinlogSplitReader(statefulTaskContext, 0);
+        int readerTag = Math.abs(config.getJobId().hashCode());
+        LOG.info(
+                "create binlog reader for job {}, thread tag = binlog-reader-{}",
+                config.getJobId(),
+                readerTag);
+        return new BinlogSplitReader(statefulTaskContext, readerTag);
     }
 
     private MySqlSourceConfig getSourceConfig(JobBaseConfig config) {
