@@ -108,10 +108,10 @@ private:
     // DOCS_ONLY (support_phrase=false). Captured from the ctor's
     // omit_term_freq_and_positions arg (also forwarded to _encoder). When true,
     // the buffer omitted the prox slice chain, so EmitFromCompactDirect must NOT
-    // construct a prox ByteSliceReader and must skip the AddPosition loop. Equal
-    // to buffer.OmitTfap() (both derive from the field's support_phrase
-    // property; a DCHECK_EQ at the top of SpimiFulltextWriter::EmitSegment
-    // cross-checks the buffer flag against the emit flag).
+    // construct a prox ByteSliceReader and must skip the AddPosition loop. In
+    // production this equals buffer.OmitTfap() (both derive from the field's
+    // support_phrase property); a DCHECK in SpimiFulltextWriter::EmitSegment
+    // guards the only unsafe drift — emit reading a prox chain the buffer omitted.
     bool _omit_tfap;
 
     TermDictWriter _dict;

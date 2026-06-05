@@ -171,12 +171,15 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
     DCHECK(sink.segments_n != nullptr);
     DCHECK(sink.segments_gen != nullptr);
 
-    // Belt-and-suspenders: the buffer's omit flag MUST equal the emit flag. In DOCS_ONLY the buffer
-    // skipped writing the prox slice-chain, so a SegmentWriter built with omit=false here would try to
-    // read a chain that was never written (desync). All production callers single-source both from the
-    // field's support_phrase; this guard catches a future caller that does not.
-    DCHECK_EQ(buffer.OmitTfap(), omit_term_freq_and_positions)
-            << "SPIMI buffer/emit omit_tfap drift";
+    // Belt-and-suspenders against a prox-chain desync. Only the READ direction is unsafe: when emit
+    // reads the prox slice-chain (omit=false) the buffer MUST have written it (buffer omit=false),
+    // else the SegmentWriter reads a chain that was never written. The reverse is safe — an omit=true
+    // emit never touches the prox chain, so a non-omit buffer (whose positions we simply ignore) is
+    // fine; tests rely on this to emit a DOCS_ONLY segment from a generic buffer. Production callers
+    // single-source both flags from the field's support_phrase, so they always agree.
+    DCHECK(omit_term_freq_and_positions || !buffer.OmitTfap())
+            << "SPIMI omit_tfap desync: emit reads prox but buffer omitted it (buffer.OmitTfap()="
+            << buffer.OmitTfap() << " emit_omit=" << omit_term_freq_and_positions << ")";
 
     // Norms (.nrm) are derived from per-doc token lengths via
     // ComputeDocLengths(), which iterates buffer.records(). When norms will

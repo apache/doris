@@ -397,9 +397,9 @@ public:
     // the prox slice chain is never written (pos_start==pos_end==0 for every
     // term) and emit must NOT construct a prox ByteSliceReader. The emit side
     // also tracks the same flag (via FreqProxEncoder); both derive from the
-    // field's support_phrase property, and a DCHECK_EQ at the top of
-    // SpimiFulltextWriter::EmitSegment cross-checks this buffer flag against the
-    // emit flag.
+    // field's support_phrase property. A DCHECK at the top of
+    // SpimiFulltextWriter::EmitSegment guards the only unsafe drift: an emit that
+    // reads the prox chain (omit=false) while the buffer omitted it.
     bool OmitTfap() const { return _omit_tfap; }
 
     // Resolves the term text referenced by `text_ref`. The returned view is
