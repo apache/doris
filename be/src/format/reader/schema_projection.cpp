@@ -89,8 +89,7 @@ Status project_column_definition(const ColumnDefinition& field, const LocalColum
         }
         const auto child_it =
                 std::ranges::find_if(field.children, [&](const ColumnDefinition& child) {
-                    return child.identifier.has_field_id() &&
-                           child.identifier.field_id == child_projection.field_id();
+                    return child.file_local_id() == child_projection.field_id();
                 });
         if (child_it == field.children.end()) {
             return Status::InvalidArgument("Invalid projection child id {} for field {}",

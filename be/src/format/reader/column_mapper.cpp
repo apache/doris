@@ -265,7 +265,8 @@ std::string TableColumnMapper::debug_string(const ColumnDefinition& column) {
     std::ostringstream out;
     out << "ColumnDefinition{name=" << column.name
         << ", identifier_kind=" << static_cast<int>(column.identifier.kind)
-        << ", type=" << data_type_debug_string(column.type) << ", children="
+        << ", local_id=" << column.local_id << ", type=" << data_type_debug_string(column.type)
+        << ", children="
         << join_debug_strings(column.children,
                               [](const ColumnDefinition& child) {
                                   return TableColumnMapper::debug_string(child);
@@ -329,7 +330,7 @@ std::string TableColumnMapper::debug_string(const FileScanRequest& request) {
 std::string ColumnMapping::debug_string() const {
     std::ostringstream out;
     out << "ColumnMapping{global_index=" << global_index
-        << ", table_column_name=" << table_column_name << ", field_id=";
+        << ", table_column_name=" << table_column_name << ", local_id=";
     if (field_id.has_value()) {
         out << *field_id;
     } else {
@@ -740,7 +741,7 @@ static Status build_filter_projection_path(const std::vector<ColumnDefinition>& 
     if (child == nullptr) {
         return Status::OK();
     }
-    *projection = LocalColumnIndex::field(child->field_id());
+    *projection = LocalColumnIndex::field(child->file_local_id());
     projection->project_all_children = selectors.size() == 1;
     projection->children.clear();
     if (selectors.size() == 1) {
@@ -1891,7 +1892,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                                                  const ColumnDefinition& file_field,
                                                  ColumnMapping* mapping) const {
     DORIS_CHECK(mapping != nullptr);
-    mapping->field_id = file_field.field_id();
+    mapping->field_id = file_field.file_local_id();
     mapping->table_column_name = table_column.name;
     mapping->file_column_name = file_field.name;
     mapping->original_file_type = file_field.type;

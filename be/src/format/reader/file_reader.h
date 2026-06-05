@@ -53,8 +53,9 @@ namespace doris::reader {
 // predicates are pruning hints only and are not row-level conjuncts.
 struct FileColumnPredicateFilter {
     LocalColumnId file_column_id = LocalColumnId::invalid();
-    // File-local child field-id path under file_column_id. Empty means top-level scalar.
-    // The ids are Parquet/Doris file schema child ids, not table ids and not child ordinals.
+    // Reader-local child id path under file_column_id. Empty means top-level scalar.
+    // Each id is interpreted by the concrete FileReader inside the current parent node. For
+    // Parquet this is the child ordinal under that parent, not the optional Parquet field_id.
     std::vector<int32_t> file_child_id_path;
     std::vector<std::shared_ptr<ColumnPredicate>> predicates;
 };
@@ -163,7 +164,12 @@ public:
     // Initialize file reader and parse file metadata.
     virtual Status init(RuntimeState* state);
 
-    // Get file-local schema from file metadata. The file schema is determined by file format and file content, and does not contain table/global schema semantics. For example, Iceberg field id, name mapping, default/generated/partition columns are not interpreted in file reader. This method can only be called after init() successfully, but does not require open() to be called.
+    // Get file-local schema from file metadata. The file schema is determined by file format and
+    // file content, and does not contain table/global schema semantics. A file reader may expose
+    // raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier, but it
+    // must not interpret table-format semantics such as Iceberg name mapping, default/generated
+    // columns, or partition columns. This method can only be called after init() successfully, but
+    // does not require open() to be called.
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
 
     // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.

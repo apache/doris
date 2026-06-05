@@ -482,7 +482,7 @@ void write_page_index_filter_parquet_file(const std::string& file_path) {
 
 parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
     parquet::ParquetColumnSchema schema;
-    schema.field_id = 0;
+    schema.local_id = 0;
     schema.name = "c0";
     schema.type = type;
     schema.leaf_column_id = 0;
@@ -1336,10 +1336,10 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 2);
-    EXPECT_EQ(schema[0].identifier.field_id, 0);
+    EXPECT_EQ(schema[0].local_id, 0);
     EXPECT_EQ(schema[0].name, "id");
     EXPECT_EQ(schema[0].type->get_primitive_type(), TYPE_INT);
-    EXPECT_EQ(schema[1].identifier.field_id, 1);
+    EXPECT_EQ(schema[1].local_id, 1);
     EXPECT_EQ(schema[1].name, "value");
     EXPECT_EQ(schema[1].type->get_primitive_type(), TYPE_STRING);
 }

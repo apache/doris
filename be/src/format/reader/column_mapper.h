@@ -107,8 +107,13 @@ struct ColumnMapping {
     // the scanner boundary.
     GlobalIndex global_index;
     std::string table_column_name;
-    // File-local field id for the mapped node. For a root mapping it is convertible to
-    // LocalColumnId; for a nested child mapping it is the child id under its parent projection.
+    // File-reader local id for the mapped node.
+    //
+    // For a root mapping it is convertible to LocalColumnId. For a nested mapping it is the
+    // LocalColumnIndex child id under the parent projection. This is deliberately separated from
+    // ColumnDefinition::identifier, which is the table-to-file matching key such as Parquet/Iceberg
+    // field_id or column name.
+    //
     // Empty means the table column is constant, missing, partition-only, or virtual.
     std::optional<int32_t> field_id;
     std::string file_column_name;
@@ -129,7 +134,7 @@ struct ColumnMapping {
     VExprContextSPtr projection;
 
     // Mapping tree for nested table children. The order follows table output children, while file
-    // children can be pruned/reordered through each child mapping's field_id.
+    // children can be pruned/reordered through each child mapping's file-reader local id.
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;

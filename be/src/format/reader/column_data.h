@@ -254,7 +254,17 @@ struct ColumnDefinition {
     };
 
     // Matching key from table/global schema to file-local schema.
+    //
+    // This is not the id that FileReader uses to read data. For example, a Parquet
+    // column can be matched by its optional Parquet field_id, while the reader still
+    // addresses it by a file-local ordinal.
     Identifier identifier;
+    // Reader-local id of this node inside the file schema returned by FileReader::get_schema().
+    // Top-level fields use the root column ordinal and nested fields use the child ordinal under
+    // their parent. -1 means unset; special virtual file columns may use other negative ids.
+    // Table/global ColumnDefinition values can leave this as -1 because they are not read directly
+    // by a FileReader.
+    int32_t local_id = -1;
     // Logical table column name. This is also the matching name for by-name file formats.
     std::string name;
     DataTypePtr type;
@@ -282,6 +292,14 @@ struct ColumnDefinition {
     }
     // Helper for BY_NAME matching.
     const std::string& match_name() const { return identifier.has_name() ? identifier.name : name; }
+    // Helper for reader-local projection and scan requests.
+    int32_t file_local_id() const {
+        if (local_id != -1) {
+            return local_id;
+        }
+        DORIS_CHECK(identifier.has_field_id());
+        return identifier.field_id;
+    }
 };
 
 // Recursive file-local projection path.

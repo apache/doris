@@ -113,7 +113,7 @@ TEST(LocalColumnIndexTest, FindsProjectedChildren) {
     EXPECT_FALSE(is_child_projected(&projection, 3));
 }
 
-TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByFieldId) {
+TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByLocalId) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto string_type = std::make_shared<DataTypeString>();
     ColumnDefinition field;
@@ -123,10 +123,12 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByFieldId) {
             std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
     ColumnDefinition a_child;
     a_child.identifier = ColumnDefinition::Identifier::by_field_id(10);
+    a_child.local_id = 0;
     a_child.name = "a";
     a_child.type = int_type;
     ColumnDefinition b_child;
     b_child.identifier = ColumnDefinition::Identifier::by_field_id(20);
+    b_child.local_id = 1;
     b_child.name = "b";
     b_child.type = string_type;
     field.children = {
@@ -134,7 +136,7 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByFieldId) {
             b_child,
     };
     LocalColumnIndex projection {.index = 5, .project_all_children = false};
-    projection.children.push_back({.index = 20});
+    projection.children.push_back({.index = 1});
 
     ColumnDefinition projected_field;
     ASSERT_TRUE(project_column_definition(field, projection, &projected_field).ok());
@@ -801,6 +803,7 @@ ColumnDefinition make_table_column(int32_t id, const std::string& name, const Da
 ColumnDefinition make_file_column(int32_t id, const std::string& name, const DataTypePtr& type) {
     ColumnDefinition field;
     field.identifier = ColumnDefinition::Identifier::by_field_id(id);
+    field.local_id = id;
     field.name = name;
     field.type = type;
     return field;

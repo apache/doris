@@ -68,18 +68,24 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
     const auto& child_projection = projection.children[0];
     const auto child_schema_it =
             std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
-                return child_schema->field_id == child_projection.field_id();
+                return child_schema->local_id == child_projection.field_id();
             });
     if (child_schema_it != column_schema.children.end()) {
         return find_projected_minmax_leaf(**child_schema_it, child_projection, leaf_schema);
     }
-    return Status::InvalidArgument("Invalid parquet aggregate projection field id {} for column {}",
+    return Status::InvalidArgument("Invalid parquet aggregate projection local id {} for column {}",
                                    child_projection.field_id(), column_schema.name);
 }
 
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
                                             reader::ColumnDefinition* field) const {
-    field->identifier = reader::ColumnDefinition::Identifier::by_field_id(column_schema.field_id);
+    if (column_schema.parquet_field_id >= 0) {
+        field->identifier =
+                reader::ColumnDefinition::Identifier::by_field_id(column_schema.parquet_field_id);
+    } else {
+        field->identifier = reader::ColumnDefinition::Identifier::by_name(column_schema.name);
+    }
+    field->local_id = column_schema.local_id;
     field->name = column_schema.name;
     field->type = column_schema.type;
     field->children.clear();
@@ -123,8 +129,7 @@ Status ParquetReader::get_schema(std::vector<reader::ColumnDefinition>* file_sch
     for (size_t column_idx = 0; column_idx < _state->file_schema.size(); ++column_idx) {
         reader::ColumnDefinition field;
         _fill_column_definition(*_state->file_schema[column_idx], &field);
-        field.identifier =
-                reader::ColumnDefinition::Identifier::by_field_id(static_cast<int32_t>(column_idx));
+        DORIS_CHECK(field.local_id == static_cast<int32_t>(column_idx));
         file_schema->push_back(std::move(field));
     }
     return Status::OK();
@@ -141,7 +146,7 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     for (const auto& column_filter : _request->column_predicate_filters) {
         const auto file_column_id = column_filter.file_column_id;
         if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
-            return Status::InvalidArgument("Invalid parquet filter top-level field id {}",
+            return Status::InvalidArgument("Invalid parquet filter top-level local id {}",
                                            file_column_id.value());
         }
     }
@@ -160,17 +165,19 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
 
     for (const auto& col : _request->predicate_columns) {
         DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
-        if (col.field_id() == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        const auto local_id = col.field_id();
+        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.field_id() >= 0 && col.field_id() < num_fields);
+        DORIS_CHECK(local_id >= 0 && local_id < num_fields);
     }
     for (const auto& col : _request->non_predicate_columns) {
         DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
-        if (col.field_id() == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        const auto local_id = col.field_id();
+        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(col.field_id() >= 0 && col.field_id() < num_fields);
+        DORIS_CHECK(local_id >= 0 && local_id < num_fields);
     }
 
     RowGroupScanPlan row_group_plan;

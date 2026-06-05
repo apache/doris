@@ -51,8 +51,8 @@ class ParquetColumnReader {
 public:
     virtual ~ParquetColumnReader() = default;
 
-    // file-local column id. Only top-level columns have valid file column ids; nested columns return -1.
-    // For example, for a nested column like `a.b.c`, only `a` has a valid file column id that can be used to access ColumnDescriptor and column chunk metadata; `b` and `c` return -1.
+    // Reader-local schema id. Top-level readers return the root column ordinal; nested readers
+    // return the child ordinal under their parent.
     virtual int file_column_id() const { return _field_id; }
 
     // Parquet leaf column id. This is the column id of the leaf column in the Parquet file schema, and can be used to access ColumnDescriptor, RecordReader, column chunk metadata and statistics.

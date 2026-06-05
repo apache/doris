@@ -892,7 +892,7 @@ private:
     static const ColumnDefinition* _find_column_definition(
             const std::vector<ColumnDefinition>& schema, LocalColumnId column_id) {
         for (const auto& field : schema) {
-            if (field.identifier.has_field_id() && field.identifier.field_id == column_id.value()) {
+            if (field.file_local_id() == column_id.value()) {
                 return &field;
             }
         }
