@@ -5004,7 +5004,7 @@ public class SessionVariable implements Serializable, Writable {
         this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode)
                 .getOption();
     }
-    
+
     public boolean isEnableEventualConsistentChange() {
         return enableEventualConsistentChange;
     }
