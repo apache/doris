@@ -1828,6 +1828,32 @@ TEST(TableColumnMapperMatcherTest, NestedFieldIdModeDoesNotFallbackToName) {
     EXPECT_FALSE(status.ok());
 }
 
+TEST(TableColumnMapperMatcherTest, NestedIndexMappingUsesTableStructChildIndex) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+
+    auto table_b_child = make_table_column(2, "b", int_type);
+    auto table_root = make_table_column(100, "root", struct_type);
+    table_root.children = {table_b_child};
+
+    auto file_a_child = make_file_column(1, "a", int_type);
+    auto file_b_child = make_file_column(2, "b", int_type);
+    auto file_root = make_file_column(100, "root", struct_type);
+    file_root.children = {file_a_child, file_b_child};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_root}, {}, {file_root}).ok());
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_root}, &file_request).ok());
+
+    const auto& mapping = mapper.result_mapping().global_to_local.at(GlobalIndex(0)).mapping;
+    EXPECT_FALSE(mapping.child_mapping.contains(0));
+    ASSERT_TRUE(mapping.child_mapping.contains(1));
+    EXPECT_EQ(mapping.child_mapping.at(1)->index, 2);
+}
+
 TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<ColumnDefinition> projected_columns = {

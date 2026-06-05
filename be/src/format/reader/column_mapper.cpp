@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "core/data_type/convert_field_to_type.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/vin_predicate.h"
 #include "format/reader/expr/cast.h"
@@ -198,13 +199,6 @@ struct StructChildSelector {
 struct NestedStructPath {
     GlobalIndex root_global_index;
     std::vector<StructChildSelector> selectors;
-};
-
-struct NestedPredicateTargetInfo {
-    int32_t root_file_column_id = -1;
-    std::vector<int32_t> file_child_id_path;
-    std::string leaf_name;
-    DataTypePtr file_leaf_type;
 };
 
 // A split-local literal produced by slot-literal predicate localization.
@@ -591,18 +585,148 @@ static const ColumnDefinition* resolve_file_child(const std::vector<ColumnDefini
     return &children[selector.ordinal - 1];
 }
 
-static const ColumnMapping* resolve_mapped_child(const std::vector<ColumnMapping>& child_mappings,
-                                                 const StructChildSelector& selector) {
-    if (selector.by_name) {
-        const auto child_it = std::ranges::find_if(child_mappings, [&](const auto& child_mapping) {
-            return child_mapping.table_column_name == selector.name;
-        });
-        return child_it == child_mappings.end() ? nullptr : &*child_it;
-    }
-    if (selector.ordinal == 0 || selector.ordinal > child_mappings.size()) {
+static const DataTypeStruct* struct_type_or_null(const DataTypePtr& type) {
+    if (type == nullptr) {
         return nullptr;
     }
-    return &child_mappings[selector.ordinal - 1];
+    const auto nested_type = remove_nullable(type);
+    if (nested_type->get_primitive_type() != TYPE_STRUCT) {
+        return nullptr;
+    }
+    return assert_cast<const DataTypeStruct*>(nested_type.get());
+}
+
+static std::optional<int32_t> struct_child_index(const ColumnMapping& mapping,
+                                                 const StructChildSelector& selector) {
+    const auto* struct_type = struct_type_or_null(mapping.table_type);
+    if (struct_type == nullptr) {
+        return std::nullopt;
+    }
+    if (selector.by_name) {
+        const auto position = struct_type->try_get_position_by_name(selector.name);
+        if (!position.has_value()) {
+            return std::nullopt;
+        }
+        return cast_set<int32_t>(*position);
+    }
+    if (selector.ordinal == 0 || selector.ordinal > struct_type->get_elements().size()) {
+        return std::nullopt;
+    }
+    return cast_set<int32_t>(selector.ordinal - 1);
+}
+
+static int32_t child_mapping_global_index(const ColumnMapping& mapping,
+                                          const ColumnMapping& child_mapping,
+                                          size_t fallback_child_idx) {
+    const auto* struct_type = struct_type_or_null(mapping.table_type);
+    if (struct_type == nullptr) {
+        return cast_set<int32_t>(fallback_child_idx);
+    }
+    const auto position = struct_type->try_get_position_by_name(child_mapping.table_column_name);
+    DORIS_CHECK(position.has_value()) << "Cannot find child '" << child_mapping.table_column_name
+                                      << "' in table type " << mapping.table_type->get_name();
+    return cast_set<int32_t>(*position);
+}
+
+static const ColumnMapping* resolve_mapped_child(const ColumnMapping& mapping,
+                                                 int32_t global_child_index) {
+    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
+        const auto& child_mapping = mapping.child_mappings[child_idx];
+        if (child_mapping_global_index(mapping, child_mapping, child_idx) == global_child_index) {
+            return &child_mapping;
+        }
+    }
+    return nullptr;
+}
+
+static const ColumnMapping* resolve_mapped_child(const ColumnMapping& mapping,
+                                                 const StructChildSelector& selector) {
+    const auto global_child_index = struct_child_index(mapping, selector);
+    if (!global_child_index.has_value()) {
+        return nullptr;
+    }
+    return resolve_mapped_child(mapping, *global_child_index);
+}
+
+static std::shared_ptr<IndexMapping> build_child_index_mapping(const ColumnMapping& mapping) {
+    DORIS_CHECK(mapping.field_id.has_value());
+    auto result = std::make_shared<IndexMapping>();
+    result->index = *mapping.field_id;
+    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
+        const auto& child_mapping = mapping.child_mappings[child_idx];
+        if (!child_mapping.field_id.has_value()) {
+            continue;
+        }
+        result->child_mapping.emplace(child_mapping_global_index(mapping, child_mapping, child_idx),
+                                      build_child_index_mapping(child_mapping));
+    }
+    return result;
+}
+
+static IndexMapping build_index_mapping(const ColumnMapping& mapping, LocalIndex block_position) {
+    DORIS_CHECK(mapping.field_id.has_value());
+    IndexMapping result;
+    result.index = cast_set<int32_t>(block_position.value());
+    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
+        const auto& child_mapping = mapping.child_mappings[child_idx];
+        if (!child_mapping.field_id.has_value()) {
+            continue;
+        }
+        result.child_mapping.emplace(child_mapping_global_index(mapping, child_mapping, child_idx),
+                                     build_child_index_mapping(child_mapping));
+    }
+    return result;
+}
+
+static bool resolve_nested_projection_with_index_mapping(const NestedStructPath& path,
+                                                         const std::vector<ColumnMapping>& mappings,
+                                                         LocalColumnIndex* root_projection,
+                                                         const ColumnMapping** leaf_mapping) {
+    DORIS_CHECK(root_projection != nullptr);
+    DORIS_CHECK(leaf_mapping != nullptr);
+    *root_projection = {};
+    *leaf_mapping = nullptr;
+    if (path.selectors.empty()) {
+        return false;
+    }
+    const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
+        return mapping.global_index == path.root_global_index;
+    });
+    if (mapping_it == mappings.end() || !mapping_it->field_id.has_value()) {
+        return false;
+    }
+
+    const auto root_index_mapping = build_index_mapping(*mapping_it, LocalIndex(0));
+    *root_projection = LocalColumnIndex::partial_field(*mapping_it->field_id);
+    auto* current_projection = root_projection;
+    const auto* current_mapping = &*mapping_it;
+    const auto* current_index_mapping = &root_index_mapping;
+    for (size_t selector_idx = 0; selector_idx < path.selectors.size(); ++selector_idx) {
+        const auto global_child_index =
+                struct_child_index(*current_mapping, path.selectors[selector_idx]);
+        if (!global_child_index.has_value()) {
+            *root_projection = {};
+            return false;
+        }
+        const auto index_mapping_it =
+                current_index_mapping->child_mapping.find(*global_child_index);
+        if (index_mapping_it == current_index_mapping->child_mapping.end()) {
+            *root_projection = {};
+            return false;
+        }
+        const auto* child_mapping = resolve_mapped_child(*current_mapping, *global_child_index);
+        DORIS_CHECK(child_mapping != nullptr);
+        DORIS_CHECK(child_mapping->field_id.has_value());
+
+        auto child_projection = LocalColumnIndex::partial_field(index_mapping_it->second->index);
+        child_projection.project_all_children = selector_idx + 1 == path.selectors.size();
+        current_projection->children.push_back(std::move(child_projection));
+        current_projection = &current_projection->children.back();
+        current_mapping = child_mapping;
+        current_index_mapping = index_mapping_it->second.get();
+    }
+    *leaf_mapping = current_mapping;
+    return true;
 }
 
 static Status build_filter_projection_path(const std::vector<ColumnDefinition>& children,
@@ -649,7 +773,7 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
     if (selectors.empty()) {
         return Status::InvalidArgument("Nested struct selector path is empty");
     }
-    const auto* child_mapping = resolve_mapped_child(mapping.child_mappings, selectors.front());
+    const auto* child_mapping = resolve_mapped_child(mapping, selectors.front());
     if (child_mapping == nullptr) {
         return build_filter_projection_path(mapping.original_file_children, selectors, projection);
     }
@@ -677,116 +801,6 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
     }
     projection->children.push_back(std::move(child_projection));
     return Status::OK();
-}
-
-static const ColumnDefinition* resolve_filter_schema_path(
-        const std::vector<ColumnDefinition>& children,
-        std::span<const StructChildSelector> selectors, std::vector<int32_t>* file_child_id_path) {
-    DORIS_CHECK(file_child_id_path != nullptr);
-    if (selectors.empty()) {
-        return nullptr;
-    }
-    const auto* child = resolve_file_child(children, selectors.front());
-    if (child == nullptr) {
-        return nullptr;
-    }
-    file_child_id_path->push_back(child->field_id());
-    if (selectors.size() == 1) {
-        return child;
-    }
-    if (child->children.empty() ||
-        remove_nullable(child->type)->get_primitive_type() != TYPE_STRUCT) {
-        file_child_id_path->clear();
-        return nullptr;
-    }
-    const auto* leaf =
-            resolve_filter_schema_path(child->children, selectors.subspan(1), file_child_id_path);
-    if (leaf == nullptr) {
-        file_child_id_path->clear();
-    }
-    return leaf;
-}
-
-// Resolve a nested predicate through ColumnMapping when possible. The returned child-id path and
-// leaf type are file-local, so parquet pruning can stay independent from table/global schema.
-static bool resolve_mapped_filter_schema_path(const ColumnMapping& mapping,
-                                              std::span<const StructChildSelector> selectors,
-                                              std::vector<int32_t>* file_child_id_path,
-                                              std::string* leaf_name, DataTypePtr* leaf_type) {
-    DORIS_CHECK(file_child_id_path != nullptr);
-    DORIS_CHECK(leaf_name != nullptr);
-    DORIS_CHECK(leaf_type != nullptr);
-    if (selectors.empty()) {
-        return false;
-    }
-    const auto* child_mapping = resolve_mapped_child(mapping.child_mappings, selectors.front());
-    if (child_mapping == nullptr) {
-        return false;
-    }
-    if (!child_mapping->field_id.has_value()) {
-        file_child_id_path->clear();
-        return false;
-    }
-    file_child_id_path->push_back(*child_mapping->field_id);
-    if (selectors.size() == 1) {
-        if (child_mapping->file_type == nullptr ||
-            is_complex_type(remove_nullable(child_mapping->file_type)->get_primitive_type())) {
-            file_child_id_path->clear();
-            return false;
-        }
-        *leaf_name = child_mapping->file_column_name;
-        *leaf_type = remove_nullable(child_mapping->file_type);
-        return true;
-    }
-    if (child_mapping->child_mappings.empty()) {
-        file_child_id_path->clear();
-        return false;
-    }
-    if (!resolve_mapped_filter_schema_path(*child_mapping, selectors.subspan(1), file_child_id_path,
-                                           leaf_name, leaf_type)) {
-        file_child_id_path->clear();
-        return false;
-    }
-    return true;
-}
-
-static bool resolve_nested_predicate_target(const NestedStructPath& path,
-                                            const std::vector<ColumnMapping>& mappings,
-                                            NestedPredicateTargetInfo* target) {
-    DORIS_CHECK(target != nullptr);
-    if (path.selectors.empty()) {
-        return false;
-    }
-    const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
-        return mapping.global_index == path.root_global_index;
-    });
-    if (mapping_it == mappings.end() || !mapping_it->field_id.has_value()) {
-        return false;
-    }
-    std::vector<int32_t> file_child_id_path;
-    std::string leaf_name;
-    DataTypePtr file_leaf_type;
-    if (resolve_mapped_filter_schema_path(*mapping_it, path.selectors, &file_child_id_path,
-                                          &leaf_name, &file_leaf_type)) {
-        target->root_file_column_id = *mapping_it->field_id;
-        target->file_child_id_path = std::move(file_child_id_path);
-        target->leaf_name = std::move(leaf_name);
-        target->file_leaf_type = std::move(file_leaf_type);
-        return true;
-    }
-
-    const auto* leaf = resolve_filter_schema_path(mapping_it->original_file_children,
-                                                  path.selectors, &file_child_id_path);
-    if (leaf == nullptr || leaf->type == nullptr ||
-        is_complex_type(remove_nullable(leaf->type)->get_primitive_type())) {
-        return false;
-    }
-
-    target->root_file_column_id = *mapping_it->field_id;
-    target->file_child_id_path = std::move(file_child_id_path);
-    target->leaf_name = leaf->name;
-    target->file_leaf_type = remove_nullable(leaf->type);
-    return true;
 }
 
 static std::optional<PredicateType> to_column_predicate_type(TExprOpcode::type opcode) {
@@ -850,11 +864,26 @@ static std::shared_ptr<ColumnPredicate> create_comparison_column_predicate(
     }
 }
 
+static bool extract_child_id_path_from_projection(const LocalColumnIndex& root_projection,
+                                                  std::vector<int32_t>* file_child_id_path) {
+    DORIS_CHECK(file_child_id_path != nullptr);
+    file_child_id_path->clear();
+    const auto* current_projection = &root_projection;
+    while (!current_projection->children.empty()) {
+        if (current_projection->children.size() != 1) {
+            file_child_id_path->clear();
+            return false;
+        }
+        current_projection = &current_projection->children[0];
+        file_child_id_path->push_back(current_projection->field_id());
+    }
+    return !file_child_id_path->empty();
+}
+
 static std::shared_ptr<ColumnPredicate> build_nested_comparison_predicate(
-        const VExprSPtr& literal_expr, TExprOpcode::type opcode,
-        const NestedPredicateTargetInfo& target) {
-    if (literal_expr == nullptr || !literal_expr->is_literal() ||
-        target.file_leaf_type == nullptr) {
+        const VExprSPtr& literal_expr, TExprOpcode::type opcode, LocalColumnId root_file_column_id,
+        const std::string& leaf_name, const DataTypePtr& file_leaf_type) {
+    if (literal_expr == nullptr || !literal_expr->is_literal() || file_leaf_type == nullptr) {
         return nullptr;
     }
     const auto predicate_type = to_column_predicate_type(opcode);
@@ -865,7 +894,7 @@ static std::shared_ptr<ColumnPredicate> build_nested_comparison_predicate(
     const Field original_field = literal_field(original_literal);
     Field file_field;
     try {
-        convert_field_to_type(original_field, *target.file_leaf_type, &file_field,
+        convert_field_to_type(original_field, *file_leaf_type, &file_field,
                               original_literal->data_type().get());
     } catch (const Exception&) {
         return nullptr;
@@ -874,21 +903,22 @@ static std::shared_ptr<ColumnPredicate> build_nested_comparison_predicate(
         return nullptr;
     }
     try {
-        return create_comparison_column_predicate(
-                *predicate_type, cast_set<uint32_t>(target.root_file_column_id), target.leaf_name,
-                target.file_leaf_type, file_field);
+        return create_comparison_column_predicate(*predicate_type,
+                                                  cast_set<uint32_t>(root_file_column_id.value()),
+                                                  leaf_name, file_leaf_type, file_field);
     } catch (const Exception&) {
         return nullptr;
     }
 }
 
 static std::shared_ptr<ColumnPredicate> build_nested_in_list_predicate(
-        const VExprSPtrs& literal_exprs, const NestedPredicateTargetInfo& target) {
-    if (literal_exprs.empty() || target.file_leaf_type == nullptr) {
+        const VExprSPtrs& literal_exprs, LocalColumnId root_file_column_id,
+        const std::string& leaf_name, const DataTypePtr& file_leaf_type) {
+    if (literal_exprs.empty() || file_leaf_type == nullptr) {
         return nullptr;
     }
 
-    auto value_column = target.file_leaf_type->create_column();
+    auto value_column = file_leaf_type->create_column();
     for (const auto& literal_expr : literal_exprs) {
         if (literal_expr == nullptr || !literal_expr->is_literal()) {
             return nullptr;
@@ -897,7 +927,7 @@ static std::shared_ptr<ColumnPredicate> build_nested_in_list_predicate(
         const Field original_field = literal_field(original_literal);
         Field file_field;
         try {
-            convert_field_to_type(original_field, *target.file_leaf_type, &file_field,
+            convert_field_to_type(original_field, *file_leaf_type, &file_field,
                                   original_literal->data_type().get());
         } catch (const Exception&) {
             return nullptr;
@@ -910,13 +940,12 @@ static std::shared_ptr<ColumnPredicate> build_nested_in_list_predicate(
 
     std::shared_ptr<HybridSetBase> values;
     try {
-        values.reset(create_set(target.file_leaf_type->get_primitive_type(), literal_exprs.size(),
-                                false));
+        values.reset(create_set(file_leaf_type->get_primitive_type(), literal_exprs.size(), false));
         ColumnPtr value_column_ptr = std::move(value_column);
         values->insert_range_from(value_column_ptr, 0, value_column_ptr->size());
         return create_in_list_predicate<PredicateType::IN_LIST>(
-                cast_set<uint32_t>(target.root_file_column_id), target.leaf_name,
-                target.file_leaf_type, values, false);
+                cast_set<uint32_t>(root_file_column_id.value()), leaf_name, file_leaf_type, values,
+                false);
     } catch (const Exception&) {
         return nullptr;
     }
@@ -943,16 +972,26 @@ static bool extract_nested_binary_comparison_filter(const VExprSPtr& expr,
         return false;
     }
 
-    NestedPredicateTargetInfo target;
-    if (!resolve_nested_predicate_target(path, mappings, &target)) {
+    LocalColumnIndex file_projection;
+    const ColumnMapping* leaf_mapping = nullptr;
+    if (!resolve_nested_projection_with_index_mapping(path, mappings, &file_projection,
+                                                      &leaf_mapping) ||
+        leaf_mapping == nullptr || leaf_mapping->file_type == nullptr ||
+        is_complex_type(remove_nullable(leaf_mapping->file_type)->get_primitive_type())) {
         return false;
     }
-    auto predicate = build_nested_comparison_predicate(literal_expr, opcode, target);
+    auto predicate = build_nested_comparison_predicate(
+            literal_expr, opcode, file_projection.column_id(), leaf_mapping->file_column_name,
+            remove_nullable(leaf_mapping->file_type));
     if (predicate == nullptr) {
         return false;
     }
-    column_filter->file_column_id = LocalColumnId(target.root_file_column_id);
-    column_filter->file_child_id_path = std::move(target.file_child_id_path);
+    std::vector<int32_t> file_child_id_path;
+    if (!extract_child_id_path_from_projection(file_projection, &file_child_id_path)) {
+        return false;
+    }
+    column_filter->file_column_id = file_projection.column_id();
+    column_filter->file_child_id_path = std::move(file_child_id_path);
     column_filter->predicates.push_back(std::move(predicate));
     return true;
 }
@@ -984,16 +1023,26 @@ static bool extract_nested_in_list_filter(const VExprSPtr& expr,
         literal_exprs.push_back(expr->children()[child_idx]);
     }
 
-    NestedPredicateTargetInfo target;
-    if (!resolve_nested_predicate_target(path, mappings, &target)) {
+    LocalColumnIndex file_projection;
+    const ColumnMapping* leaf_mapping = nullptr;
+    if (!resolve_nested_projection_with_index_mapping(path, mappings, &file_projection,
+                                                      &leaf_mapping) ||
+        leaf_mapping == nullptr || leaf_mapping->file_type == nullptr ||
+        is_complex_type(remove_nullable(leaf_mapping->file_type)->get_primitive_type())) {
         return false;
     }
-    auto predicate = build_nested_in_list_predicate(literal_exprs, target);
+    auto predicate = build_nested_in_list_predicate(literal_exprs, file_projection.column_id(),
+                                                    leaf_mapping->file_column_name,
+                                                    remove_nullable(leaf_mapping->file_type));
     if (predicate == nullptr) {
         return false;
     }
-    column_filter->file_column_id = LocalColumnId(target.root_file_column_id);
-    column_filter->file_child_id_path = std::move(target.file_child_id_path);
+    std::vector<int32_t> file_child_id_path;
+    if (!extract_child_id_path_from_projection(file_projection, &file_child_id_path)) {
+        return false;
+    }
+    column_filter->file_column_id = file_projection.column_id();
+    column_filter->file_child_id_path = std::move(file_child_id_path);
     column_filter->predicates.push_back(std::move(predicate));
     return true;
 }
@@ -1451,16 +1500,19 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
                 continue;
             }
 
-            LocalColumnIndex child_projection;
-            RETURN_IF_ERROR(
-                    build_filter_projection_path(*mapping_it, path.selectors, &child_projection));
-            if (child_projection.field_id() < 0) {
-                continue;
+            LocalColumnIndex root_projection;
+            const ColumnMapping* leaf_mapping = nullptr;
+            if (!resolve_nested_projection_with_index_mapping(path, *mappings, &root_projection,
+                                                              &leaf_mapping)) {
+                LocalColumnIndex child_projection;
+                RETURN_IF_ERROR(build_filter_projection_path(*mapping_it, path.selectors,
+                                                             &child_projection));
+                if (child_projection.field_id() < 0) {
+                    continue;
+                }
+                root_projection = LocalColumnIndex::partial_field(*mapping_it->field_id);
+                root_projection.children.push_back(std::move(child_projection));
             }
-
-            LocalColumnIndex root_projection =
-                    LocalColumnIndex::partial_field(*mapping_it->field_id);
-            root_projection.children.push_back(std::move(child_projection));
             auto filter_projection_it = filter_projections->find(root_projection.column_id());
             if (filter_projection_it == filter_projections->end()) {
                 filter_projections->emplace(root_projection.column_id(),
@@ -1488,36 +1540,6 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
                                                 cast_set<int>(block_position.value()), -1,
                                                 mapping->file_type, mapping->file_column_name));
     mapping->projection = VExprContext::create_shared(expr);
-}
-
-static std::shared_ptr<IndexMapping> build_child_index_mapping(const ColumnMapping& mapping) {
-    DORIS_CHECK(mapping.field_id.has_value());
-    auto result = std::make_shared<IndexMapping>();
-    result->index = *mapping.field_id;
-    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
-        const auto& child_mapping = mapping.child_mappings[child_idx];
-        if (!child_mapping.field_id.has_value()) {
-            continue;
-        }
-        result->child_mapping.emplace(cast_set<int32_t>(child_idx),
-                                      build_child_index_mapping(child_mapping));
-    }
-    return result;
-}
-
-static IndexMapping build_index_mapping(const ColumnMapping& mapping, LocalIndex block_position) {
-    DORIS_CHECK(mapping.field_id.has_value());
-    IndexMapping result;
-    result.index = cast_set<int32_t>(block_position.value());
-    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
-        const auto& child_mapping = mapping.child_mappings[child_idx];
-        if (!child_mapping.field_id.has_value()) {
-            continue;
-        }
-        result.child_mapping.emplace(cast_set<int32_t>(child_idx),
-                                     build_child_index_mapping(child_mapping));
-    }
-    return result;
 }
 
 static Status build_column_map_result(const ColumnMapping& mapping,

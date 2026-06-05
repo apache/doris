@@ -45,10 +45,13 @@ DuckDB 在 `src/common/multi_file/multi_file_column_mapper.cpp` 中把 column ma
 4. 根据 `global -> local/constant` 映射重写 filter。
 5. 对 constant filter 在打开 file reader 前求值，对 local filter 下推给 file reader。
 
-Doris 当前 `TableColumnMapper` 已经完成了 schema definition 和 local/global index 的第一轮
-拆分，但 mapper strategy、constant map、filter target 和 recursive map result 仍混在
-`ColumnMapping` flags、`optional<int32_t>` 和临时局部 map 中。后续优化应继续沿 DuckDB 的
-方向拆分这些职责。
+DuckDB 的 nested filter 转换没有额外维护一套 filter target path。`STRUCT_EXTRACT` filter
+会沿 `IndexMapping::child_mapping` 把 table/global child index 转成 file-local child index；
+找不到对应 child mapping 时，表示该 child 对当前文件是常量、缺失或不能下推。
+
+Doris 当前 `TableColumnMapper` 已经完成 schema definition、local/global index、constant map、
+filter target 和 recursive map result 的拆分。后续优化应继续减少 `ColumnMapping` 中的构造态
+字段，让最终消费尽量依赖 `ColumnMapResult` / `ResultColumnMapping`。
 
 ## 当前实现
 
@@ -208,6 +211,17 @@ table/global output 顺序。
 - 保存 `ColumnMapping::original_file_children`，用于后续 projected type 重建和 nested
   filter localization。
 
+Nested filter localization 已经改成接近 DuckDB 的组织方式：先从 VExpr 中抽出
+`struct_element` 的 table/global selector path，然后沿 `IndexMapping::child_mapping` 把 table
+struct child ordinal 转成 file-local child id。`NestedPredicateTargetInfo` 这类单独的 filter
+target path 已删除；nested column predicate pruning 直接由 `LocalColumnIndex` projection、
+leaf file column name 和 leaf file type 生成。
+
+对于 `SELECT s.name WHERE s.id > 5` 这类 filter-only child，Doris 仍会通过
+`original_file_children` 构造额外 file projection，保证 row-level conjunct 能看到需要的
+file child。该 child 不会塞进 `ColumnMapping::child_mappings`，因为 `child_mappings` 还参与
+TableReader 输出 struct/list/map 的 materialization，混入非输出 child 会改变最终输出 shape。
+
 new parquet reader 使用 `LocalColumnIndex` 创建 column reader。`STRUCT` 已按 projection
 裁剪 child reader：full projection 读取全部 children，partial projection 只为选中的 child
 创建 reader。`LIST` 和 `MAP` 已有 projection 校验和部分递归传递，但支持范围更保守。
@@ -262,6 +276,11 @@ projection 和 local block position 确定后，生成两份结果：
   其中 local 物理列包含 `LocalColumnId`、`LocalColumnIndex` 和 root 指向 file-local block
   position 的 `IndexMapping`；constant/missing/virtual 列不生成 local mapping。
 - `result_mapping()`：只保存真实 file-local source 到 global result column 的最终映射。
+
+`IndexMapping::child_mapping` 的 key 是 table/global struct child ordinal，value 是对应的
+file-local child mapping。它不再使用 `ColumnMapping::child_mappings` 的 projected vector
+下标，因此只投影部分 struct child 时，filter 中的 `STRUCT_EXTRACT` 仍能按 table/global child
+index 转到正确的 file child。
 
 Filter localization 已经接入 `FilterEntry`：`filter_entries()` 会记录 `GlobalIndex` 到
 `LOCAL` / `CONSTANT` / `UNSET` target 的映射，row-level conjunct 和 column predicate pruning
