@@ -1764,10 +1764,9 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 partitionCommitInfo.setVersion(partition.getNextVersion());
+                partitionCommitInfo.setVersionTime(System.currentTimeMillis());
                 if (Config.enable_feature_binlog && table.enableTso()) {
-                    partitionCommitInfo.setVersionTime(commitTSO);
-                } else {
-                    partitionCommitInfo.setVersionTime(System.currentTimeMillis());
+                    partitionCommitInfo.setTso(commitTSO);
                 }
             }
         }

@@ -78,6 +78,10 @@ public class PartitionCommitInfo {
         this.versionTime = versionTime;
     }
 
+    public void setTso(long tso) {
+        this.tso = tso;
+    }
+
     public long getTso() {
         return tso;
     }
