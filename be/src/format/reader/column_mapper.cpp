@@ -355,15 +355,13 @@ std::string ColumnMapping::debug_string() const {
                               [](const ColumnDefinition& child) {
                                   return TableColumnMapper::debug_string(child);
                               })
-        << ", file_path=" << int_vector_debug_string(file_path)
         << ", file_type=" << data_type_debug_string(file_type)
         << ", table_type=" << data_type_debug_string(table_type)
-        << ", has_projection=" << (projection != nullptr)
-        << ", has_reader_filter_expr=" << (reader_filter_expr != nullptr) << ", child_mappings="
+        << ", has_projection=" << (projection != nullptr) << ", child_mappings="
         << join_debug_strings(child_mappings,
                               [](const ColumnMapping& child) { return child.debug_string(); })
-        << ", is_trivial=" << is_trivial << ", is_constant=" << is_constant
-        << ", is_missing=" << is_missing << ", has_complex_projection=" << has_complex_projection
+        << ", is_trivial=" << is_trivial << ", is_constant=" << constant_index.has_value()
+        << ", has_complex_projection=" << has_complex_projection
         << ", filter_conversion=" << filter_conversion_type_to_string(filter_conversion)
         << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
         << ", has_default_expr=" << (default_expr != nullptr) << "}";
@@ -1601,7 +1599,6 @@ Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table
 void TableColumnMapper::_set_constant_mapping(ColumnMapping* mapping, VExprContextSPtr expr) {
     DORIS_CHECK(mapping != nullptr);
     DORIS_CHECK(expr != nullptr);
-    mapping->is_constant = true;
     mapping->default_expr = std::move(expr);
     mapping->constant_index = _constant_map.add(ConstantEntry {
             .global_index = mapping->global_index,
@@ -1771,7 +1768,6 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.file_column_name = table_child.name;
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
-                child_mapping.is_missing = true;
                 child_mapping.has_complex_projection = !table_child.children.empty();
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
                 mapping->child_mappings.push_back(std::move(child_mapping));

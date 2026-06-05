@@ -71,6 +71,43 @@ enum class FilterConversionType {
     CONSTANT,
 };
 
+// Nested global-to-local child mapping. The root index points either to a request-local slot or to
+// a child id, depending on the owner. child_mapping keeps the recursive table-child to file-child
+// relationship explicit instead of encoding it in ColumnMapping flags.
+struct IndexMapping {
+    int32_t index = -1;
+    std::map<int32_t, std::shared_ptr<IndexMapping>> child_mapping;
+};
+
+// Recursive result produced while matching one table/global column against one file-local schema.
+//
+// This mirrors DuckDB's split between temporary recursive mapping and final output mapping, but
+// uses Doris column/index types. It should absorb construction-only state currently stored in
+// ColumnMapping, such as original file children and default/projection expressions.
+struct ColumnMapResult {
+    std::optional<LocalColumnId> local_column_id;
+    std::optional<LocalColumnIndex> column_index;
+    std::optional<IndexMapping> mapping;
+    VExprContextSPtr projection;
+    VExprContextSPtr default_expr;
+};
+
+// Final mapping from one global result column to one file-local source.
+struct ColumnMap {
+    IndexMapping mapping;
+    DataTypePtr local_type;
+    DataTypePtr global_type;
+    FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
+};
+
+// Collection of final result-column mappings produced for one file/split.
+struct ResultColumnMapping {
+    std::map<GlobalIndex, ColumnMap> global_to_local;
+    std::string error;
+
+    bool has_error() const { return !error.empty(); }
+};
+
 // 单个 table column 到 file column 的映射结果。
 // 这是 table 层和 file 层的核心边界对象。
 struct ColumnMapping {
@@ -88,9 +125,6 @@ struct ColumnMapping {
     // and to localize nested filters that reference children not present in the output projection.
     DataTypePtr original_file_type;
     std::vector<ColumnDefinition> original_file_children;
-    // File-local nested child id path from the top-level file column to this mapping.
-    // The root top-level column id is stored in field_id of the root mapping, not repeated here.
-    std::vector<int32_t> file_path;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;
@@ -103,19 +137,11 @@ struct ColumnMapping {
     // default、partition、generated column 或复杂列 remap。
     VExprContextSPtr projection;
 
-    // 读时过滤 fallback 表达式。只在 table filter 不能安全转换成 file-local predicate
-    // 时使用，服务 reader_expression_map，不等价于 finalize_expr。
-    VExprContextSPtr reader_filter_expr;
-
     // Mapping tree for nested table children. The order follows table output children, while file
-    // children can be pruned/reordered through each child mapping's field_id/file_path.
+    // children can be pruned/reordered through each child mapping's field_id.
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
-    // True when value is produced from split metadata/default expression instead of file data.
-    bool is_constant = false;
-    // True when a table child is not present in the file and will be filled by default/null logic.
-    bool is_missing = false;
     // True when the nested value read from file has a pruned/remapped child layout and must be
     // reconstructed before returning to table/global schema.
     bool has_complex_projection = false;

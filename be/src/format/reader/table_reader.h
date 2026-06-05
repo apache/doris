@@ -500,7 +500,7 @@ protected:
                 RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
                 *column = current_block->get_columns()[res_id];
             } else {
-                DORIS_CHECK(mapping.is_constant);
+                DORIS_CHECK(mapping.constant_index.has_value());
                 Block eval_block;
                 eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
                                    mapping.table_type, "__table_reader_const_rows"});

@@ -172,18 +172,18 @@ private:
 //
 // A filter can either reference a file-local Block position or a constant entry. Unset entries mean
 // the filter cannot be evaluated below the table-reader finalize stage.
-struct LocalFilterEntry {
+struct FilterEntry {
     enum class Kind {
         UNSET,
         LOCAL,
         CONSTANT,
     };
 
-    static LocalFilterEntry local(LocalIndex index) {
+    static FilterEntry local(LocalIndex index) {
         return {.kind = Kind::LOCAL, .index = index.value()};
     }
 
-    static LocalFilterEntry constant(ConstantIndex index) {
+    static FilterEntry constant(ConstantIndex index) {
         return {.kind = Kind::CONSTANT, .index = index.value()};
     }
 
