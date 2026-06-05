@@ -470,23 +470,35 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     return Status::OK();
 }
 
-Status SegmentIterator::_init_project_schema() {
+void SegmentIterator::_init_schema_block_id_map() {
     _schema_block_id_map.assign(_schema->columns().size(), -1);
     for (int i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         _schema_block_id_map[cid] = i;
     }
+}
 
-    _project_schema = _opts.project_columns != nullptr
-                              ? std::make_shared<Schema>(_opts.tablet_schema->columns(),
-                                                         *_opts.project_columns)
-                              : _schema;
+Status SegmentIterator::_init_project_schema() {
+    _init_schema_block_id_map();
+    if (_opts.project_columns == nullptr || *_opts.project_columns == _schema->column_ids()) {
+        _project_schema = _schema;
+    } else {
+        _project_schema =
+                std::make_shared<Schema>(_opts.tablet_schema->columns(), *_opts.project_columns);
+    }
     return Status::OK();
 }
 
-Status SegmentIterator::_build_project_block(Block* block, Block* project_block) {
-    project_block->clear();
+Status SegmentIterator::_build_project_block(Block* block, Block* project_block,
+                                             Block** project_block_or_origin) {
+    DORIS_CHECK(project_block_or_origin != nullptr);
     DORIS_CHECK(_project_schema != nullptr);
+    if (_project_schema == _schema) {
+        *project_block_or_origin = block;
+        return Status::OK();
+    }
+
+    project_block->clear();
     for (auto cid : _project_schema->column_ids()) {
         auto loc = _schema_block_id_map[cid];
         auto& output_column = block->get_by_position(loc);
@@ -500,7 +512,20 @@ Status SegmentIterator::_build_project_block(Block* block, Block* project_block)
         }
         project_block->insert({std::move(column), type, _schema->column(cid)->name()});
     }
+    *project_block_or_origin = project_block;
     return Status::OK();
+}
+
+void SegmentIterator::_sync_project_block_column(Block* project_block, ColumnId cid,
+                                                 const ColumnPtr& column) {
+    if (_project_schema == _schema) {
+        return;
+    }
+    const auto& project_column_ids = _project_schema->column_ids();
+    auto it = std::find(project_column_ids.begin(), project_column_ids.end(), cid);
+    DORIS_CHECK(it != project_column_ids.end());
+    project_block->replace_by_position(
+            static_cast<size_t>(std::distance(project_column_ids.begin(), it)), column);
 }
 
 void SegmentIterator::_initialize_predicate_results() {
@@ -1976,19 +2001,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         _is_need_short_eval = true;
     }
 
-    // ColumnId to column index in block
-    // ColumnId will contail all columns in tablet schema, including virtual columns and global rowid column,
-    _schema_block_id_map.assign(_schema->columns().size(), -1);
-    // Use cols read by query to initialize _schema_block_id_map.
-    // We need to know the index of each column in the block.
-    // There is an assumption here that the columns in the block are in the same order as in the read schema.
-    // TODO: A probelm is that, delete condition columns will exist in _schema->column_ids but not in block if
-    // delete column is not read by the query.
-    for (int i = 0; i < _schema->num_column_ids(); i++) {
-        auto cid = _schema->column_id(i);
-        _schema_block_id_map[cid] = i;
-    }
-
     // Step2: extract columns that can execute expr context
     _is_common_expr_column.resize(_schema->columns().size(), false);
     if (!_common_expr_ctxs_push_down.empty()) {
@@ -3112,7 +3124,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_common_expr_ctxs_push_down.empty());
     Block project_block;
-    RETURN_IF_ERROR(_build_project_block(block, &project_block));
+    Block* project_block_or_origin = nullptr;
+    RETURN_IF_ERROR(_build_project_block(block, &project_block, &project_block_or_origin));
     std::vector<VExprContext*> common_ctxs;
     common_ctxs.reserve(_common_expr_ctxs_push_down.size());
     for (auto& ctx : _common_expr_ctxs_push_down) {
@@ -3126,8 +3139,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     IColumn::Filter filter(selected_size, 1);
     bool can_filter_all = false;
     for (const auto& ctx : _common_expr_ctxs_push_down) {
-        RETURN_IF_ERROR(ctx->execute_filter(&project_block, filter.data(), selected_size, false,
-                                            &can_filter_all));
+        RETURN_IF_ERROR(ctx->execute_filter(project_block_or_origin, filter.data(), selected_size,
+                                            false, &can_filter_all));
         if (can_filter_all) {
             break;
         }
@@ -3495,6 +3508,9 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
         return Status::OK();
     }
 
+    Block project_block;
+    Block* project_block_or_origin = nullptr;
+    bool project_block_ready = false;
     for (const auto& cid_and_expr : _virtual_column_exprs) {
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;
@@ -3503,13 +3519,22 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
         if (check_and_get_column<const ColumnNothing>(column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
                                       cid, idx_in_block);
+            if (!project_block_ready) {
+                RETURN_IF_ERROR(
+                        _build_project_block(block, &project_block, &project_block_or_origin));
+                project_block_ready = true;
+            }
             ColumnPtr result_column;
-            Block project_block;
-            RETURN_IF_ERROR(_build_project_block(block, &project_block));
-            RETURN_IF_ERROR(column_expr->root()->execute_column(
-                    column_expr.get(), &project_block, nullptr, _selected_size, result_column));
+            Status st;
+            RETURN_IF_CATCH_EXCEPTION({
+                st = column_expr->root()->execute_column(column_expr.get(), project_block_or_origin,
+                                                         nullptr, _selected_size, result_column);
+            });
+            RETURN_IF_ERROR(st);
 
+            auto project_column = result_column;
             block->replace_by_position(idx_in_block, std::move(result_column));
+            _sync_project_block_column(&project_block, cid, project_column);
         }
     }
     return Status::OK();
