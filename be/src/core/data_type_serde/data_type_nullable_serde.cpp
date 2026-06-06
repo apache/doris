@@ -363,7 +363,6 @@ Status DataTypeNullableSerDe::read_column_from_decoded_values(IColumn& column,
         memcpy(dst, view.null_map, view.row_count);
     }
     DecodedColumnView nested_view = view;
-    nested_view.null_map = nullptr;
     return nested_serde->read_column_from_decoded_values(nullable_column.get_nested_column(),
                                                          nested_view);
 }

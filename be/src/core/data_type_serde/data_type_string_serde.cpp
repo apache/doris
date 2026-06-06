@@ -29,11 +29,15 @@ namespace {
 
 template <typename ColumnType>
 Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view) {
-    if (view.binary_values == nullptr && view.row_count > 0) {
+    if (view.binary_values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded binary values are null for {}", column.get_name());
     }
     auto& string_column = assert_cast<ColumnType&>(column);
     for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            string_column.insert_default();
+            continue;
+        }
         const auto& value = (*view.binary_values)[row];
         string_column.insert_data(value.data, value.size);
     }

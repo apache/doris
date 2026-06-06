@@ -34,6 +34,7 @@
 
 namespace doris {
 class ColumnPredicate;
+class RuntimeState;
 } // namespace doris
 
 namespace doris::reader {
@@ -64,10 +65,10 @@ enum TableVirtualColumnType {
 };
 
 enum class FilterConversionType {
-    COPY_DIRECTLY,
-    CAST_FILTER,
+    COPY_DIRECTLY, // filter can be copied directly from file layer without any change, e.g. column type and table type are the same and no complex nested projection is involved.
+    CAST_FILTER,   // filter can be converted from file layer by adding a cast, e.g. column type is nullable but table type is not, or file column has a trivial nested projection but table column has a complex nested projection.
     READER_EXPRESSION,
-    FINALIZE_ONLY,
+    FINALIZE_ONLY, // filter cannot be converted to file layer and should be evaluated at table reader finalize phase, e.g. a child column of a nested column is null in file schema.
     CONSTANT,
 };
 
@@ -157,6 +158,8 @@ struct TableColumnMapperOptions {
     std::string debug_string() const;
 };
 
+Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr);
+
 // 通用 table schema 到 file schema 映射层。
 // Iceberg 会使用 BY_FIELD_ID；普通 by-name 场景可以复用该组件，但不应把它命名成
 // Iceberg-only 组件。
@@ -179,14 +182,16 @@ public:
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const TableColumnPredicates& table_column_predicates,
                                        const std::vector<ColumnDefinition>& projected_columns,
-                                       FileScanRequest* file_request);
+                                       FileScanRequest* file_request,
+                                       RuntimeState* runtime_state = nullptr);
 
     // 将 table-level filter 定位到文件 schema。
     // trivial mapping 可以直接复制结构化谓词；类型变化时可以尝试安全 cast；无法安全
     // 下推的表达式应通过 reader_expression_map 或 table-level finalize/filter fallback 处理。
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
                                     const TableColumnPredicates& table_column_predicates,
-                                    FileScanRequest* file_request);
+                                    FileScanRequest* file_request,
+                                    RuntimeState* runtime_state = nullptr);
     void clear() {
         _mappings.clear();
         _constant_map.clear();
@@ -226,13 +231,8 @@ private:
     ColumnMapping* _find_mapping(GlobalIndex global_index);
     const ColumnMapping* _find_mapping(GlobalIndex global_index) const;
 
-    bool _is_same_type(const DataTypePtr& table_type, const DataTypePtr& file_type) const {
-        DORIS_CHECK(table_type != nullptr);
-        DORIS_CHECK(file_type != nullptr);
-        return table_type->equals(*file_type);
-    }
-
     TableColumnMapperOptions _options;
+    // Column mapping for each projected column, in the same order as projected_columns. Each entry describes how to get one table/global column from file-local sources, and carries metadata for filter localization and result finalize.
     std::vector<ColumnMapping> _mappings;
     std::map<GlobalIndex, FilterEntry> _filter_entries;
     std::map<GlobalIndex, ColumnMapResult> _column_map_results;

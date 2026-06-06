@@ -397,6 +397,15 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
+void VExpr::reset_prepare_state() {
+    _prepared = false;
+    _prepare_finished = false;
+    _open_finished = false;
+    for (auto& child : _children) {
+        child->reset_prepare_state();
+    }
+}
+
 void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     for (auto& i : _children) {
         i->close(context, scope);

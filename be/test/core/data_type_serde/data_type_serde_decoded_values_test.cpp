@@ -245,9 +245,45 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadNullableInt32Values) {
     EXPECT_FALSE(nullable_column.is_null_at(2));
     EXPECT_TRUE(nullable_column.is_null_at(3));
     EXPECT_EQ(nested_column.get_element(0), 1);
-    EXPECT_EQ(nested_column.get_element(1), 2);
+    EXPECT_EQ(nested_column.get_element(1), 0);
     EXPECT_EQ(nested_column.get_element(2), 3);
-    EXPECT_EQ(nested_column.get_element(3), 4);
+    EXPECT_EQ(nested_column.get_element(3), 0);
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, ReadNullableDecimalBinaryValues) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimal128>(18, 2));
+    auto column = type->create_column();
+    const uint8_t positive[] = {0x30, 0x39};
+    const uint8_t negative[] = {0xff, 0xbd};
+    std::vector<StringRef> values = {
+            StringRef(reinterpret_cast<const char*>(positive), 2),
+            StringRef(static_cast<const char*>(nullptr), 0),
+            StringRef(reinterpret_cast<const char*>(negative), 2),
+    };
+    const uint8_t null_map[] = {0, 1, 0};
+
+    DecodedColumnView view;
+    view.value_kind = DecodedValueKind::FIXED_BINARY;
+    view.row_count = values.size();
+    view.binary_values = &values;
+    view.fixed_length = 2;
+    view.decimal_precision = 18;
+    view.decimal_scale = 2;
+    view.null_map = null_map;
+
+    auto st = type->get_serde()->read_column_from_decoded_values(*column, view);
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    const auto& decimal_column =
+            assert_cast<const ColumnDecimal128V3&>(nullable_column.get_nested_column());
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    EXPECT_EQ(decimal_column.get_element(0), Decimal128V3(12345));
+    EXPECT_EQ(decimal_column.get_element(1), Decimal128V3(0));
+    EXPECT_EQ(decimal_column.get_element(2), Decimal128V3(-67));
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, RejectMismatchedValueKind) {

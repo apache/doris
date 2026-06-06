@@ -53,7 +53,7 @@ const NativeType* decoded_values_as(const DecodedColumnView& view) {
 
 template <PrimitiveType DorisType, typename SourceType>
 Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view) {
-    if (view.values == nullptr && view.row_count > 0) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
     auto& data =
@@ -61,6 +61,10 @@ Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view
     const auto* values = decoded_values_as<SourceType>(view);
     for (int64_t row = 0; row < view.row_count; ++row) {
         using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DorisCppType());
+            continue;
+        }
         data.push_back(static_cast<DorisCppType>(values[row]));
     }
     return Status::OK();
@@ -188,13 +192,14 @@ Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
         if (view.value_kind == DecodedValueKind::BOOL) {
             return read_number_decoded_values<TYPE_BOOLEAN, bool>(column, view);
         }
-    } else if constexpr (T == TYPE_INT) {
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT) {
         if (view.value_kind == DecodedValueKind::INT32) {
-            return read_number_decoded_values<TYPE_INT, int32_t>(column, view);
+            return read_number_decoded_values<T, int32_t>(column, view);
         }
-    } else if constexpr (T == TYPE_BIGINT) {
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT) {
         if (view.value_kind == DecodedValueKind::INT64) {
-            return read_number_decoded_values<TYPE_BIGINT, int64_t>(column, view);
+            return read_number_decoded_values<T, int64_t>(column, view);
         }
     } else if constexpr (T == TYPE_FLOAT) {
         if (view.value_kind == DecodedValueKind::FLOAT) {

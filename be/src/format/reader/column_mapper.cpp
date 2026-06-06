@@ -32,7 +32,11 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/vcompound_pred.h"
+#include "exprs/vdirect_in_predicate.h"
+#include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
+#include "exprs/vectorized_fn_call.h"
 #include "format/reader/expr/cast.h"
 #include "format/reader/expr/literal.h"
 #include "format/reader/expr/slot_ref.h"
@@ -154,6 +158,30 @@ std::string data_type_debug_string(const DataTypePtr& type) {
     return type == nullptr ? "null" : type->get_name();
 }
 
+std::string field_debug_string(const Field& field) {
+    std::ostringstream out;
+    out << "Field{type=" << type_to_string(field.get_type()) << ", value=";
+    switch (field.get_type()) {
+    case TYPE_NULL:
+        out << "null";
+        break;
+    case TYPE_INT:
+        out << field.get<TYPE_INT>();
+        break;
+    case TYPE_BIGINT:
+        out << field.get<TYPE_BIGINT>();
+        break;
+    case TYPE_STRING:
+        out << field.get<TYPE_STRING>();
+        break;
+    default:
+        out << field.to_debug_string(0);
+        break;
+    }
+    out << "}";
+    return out.str();
+}
+
 template <typename T, typename Formatter>
 std::string join_debug_strings(const std::vector<T>& values, Formatter formatter) {
     std::ostringstream out;
@@ -190,6 +218,27 @@ struct FileSlotRewriteInfo {
     std::string file_column_name;
 };
 
+struct RewriteContext {
+    RuntimeState* runtime_state = nullptr;
+    std::vector<VExprSPtr> created_exprs {};
+
+    void add_created_expr(VExprSPtr expr) { created_exprs.push_back(std::move(expr)); }
+
+    Status prepare_created_exprs(VExprContext* context) const {
+        DORIS_CHECK(context != nullptr);
+        RowDescriptor row_desc;
+        for (const auto& expr : created_exprs) {
+            if (dynamic_cast<const Cast*>(expr.get()) != nullptr && runtime_state == nullptr) {
+                return Status::InvalidArgument(
+                        "RuntimeState is required to prepare rewritten cast expression {}",
+                        expr->expr_name());
+            }
+            RETURN_IF_ERROR(expr->prepare(runtime_state, row_desc, context));
+        }
+        return Status::OK();
+    }
+};
+
 struct StructChildSelector {
     bool by_name = true;
     std::string name;
@@ -201,12 +250,8 @@ struct NestedStructPath {
     std::vector<StructChildSelector> selectors;
 };
 
-// A split-local literal produced by slot-literal predicate localization.
-//
-// TableColumnMapper currently rewrites VExpr trees in-place because VExpr has no generic deep
-// clone API. The same table-level conjunct can therefore be localized repeatedly for different
-// splits. This wrapper keeps the original table literal so the next split can restore table
-// semantics before trying its own file-type literal rewrite.
+// A split-local literal produced by slot-literal predicate localization. This wrapper keeps the
+// original table literal so a cloned conjunct can be localized again for another split.
 class SplitLocalFileLiteral final : public TableLiteral {
 public:
     SplitLocalFileLiteral(const DataTypePtr& file_type, const Field& file_field,
@@ -214,7 +259,6 @@ public:
             : TableLiteral(file_type, file_field),
               _original_type(std::move(original_type)),
               _original_field(std::move(original_field)) {}
-
     const DataTypePtr& original_type() const { return _original_type; }
     const Field& original_field() const { return _original_field; }
 
@@ -224,10 +268,13 @@ private:
 };
 
 static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
-                                      const FileSlotRewriteInfo& rewrite_info) {
-    return TableSlotRef::create_shared(slot_ref.slot_id(),
-                                       cast_set<int>(rewrite_info.block_position), -1,
-                                       rewrite_info.file_type, rewrite_info.file_column_name);
+                                      const FileSlotRewriteInfo& rewrite_info,
+                                      RewriteContext* rewrite_context) {
+    auto ref = TableSlotRef::create_shared(slot_ref.slot_id(),
+                                           cast_set<int>(rewrite_info.block_position), -1,
+                                           rewrite_info.file_type, rewrite_info.file_column_name);
+    rewrite_context->add_created_expr(ref);
+    return ref;
 }
 
 static bool is_cast_expr(const VExprSPtr& expr) {
@@ -263,8 +310,8 @@ std::string TableColumnMapperOptions::debug_string() const {
 
 std::string TableColumnMapper::debug_string(const ColumnDefinition& column) {
     std::ostringstream out;
-    out << "ColumnDefinition{name=" << column.name
-        << ", identifier_type=" << static_cast<int>(column.identifier.get_type())
+    out << "ColumnDefinition{name=" << column.name << ", identifier="
+        << field_debug_string(column.identifier)
         << ", local_id=" << column.local_id << ", type=" << data_type_debug_string(column.type)
         << ", children="
         << join_debug_strings(column.children,
@@ -463,15 +510,73 @@ static Field literal_field(const VExprSPtr& literal_expr) {
     return field;
 }
 
-static VExprSPtr original_table_literal(const VExprSPtr& literal_expr) {
+Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
+    DORIS_CHECK(cloned_expr != nullptr);
+    if (expr == nullptr) {
+        *cloned_expr = nullptr;
+        return Status::OK();
+    }
+
+    VExprSPtr cloned;
+    if (const auto* table_slot_ref = dynamic_cast<const TableSlotRef*>(expr.get())) {
+        cloned = TableSlotRef::create_shared(
+                table_slot_ref->slot_id(), table_slot_ref->column_id(),
+                table_slot_ref->column_uniq_id(), table_slot_ref->data_type(),
+                table_slot_ref->column_name());
+    } else if (const auto* vslot_ref = dynamic_cast<const VSlotRef*>(expr.get())) {
+        cloned = TableSlotRef::create_shared(vslot_ref->slot_id(), vslot_ref->column_id(),
+                                             vslot_ref->column_uniq_id(), vslot_ref->data_type(),
+                                             vslot_ref->column_name());
+    } else if (const auto* split_literal = dynamic_cast<const SplitLocalFileLiteral*>(expr.get())) {
+        cloned = std::make_shared<SplitLocalFileLiteral>(
+                split_literal->data_type(), literal_field(expr), split_literal->original_type(),
+                split_literal->original_field());
+    } else if (dynamic_cast<const TableLiteral*>(expr.get()) != nullptr) {
+        cloned = TableLiteral::create_shared(expr->data_type(), literal_field(expr));
+    } else if (expr->is_literal()) {
+        cloned = TableLiteral::create_shared(expr->data_type(), literal_field(expr));
+    } else if (const auto* cast_expr = dynamic_cast<const Cast*>(expr.get())) {
+        cloned = std::make_shared<Cast>(*cast_expr);
+    } else if (const auto* in_pred = dynamic_cast<const VInPredicate*>(expr.get())) {
+        cloned = std::make_shared<VInPredicate>(*in_pred);
+    } else if (const auto* direct_in_pred = dynamic_cast<const VDirectInPredicate*>(expr.get())) {
+        cloned = std::make_shared<VDirectInPredicate>(*direct_in_pred);
+    } else if (const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get())) {
+        cloned = std::make_shared<VCompoundPred>(*compound_pred);
+    } else if (const auto* fn_call = dynamic_cast<const VectorizedFnCall*>(expr.get())) {
+        cloned = std::make_shared<VectorizedFnCall>(*fn_call);
+    } else {
+        return Status::NotSupported("Cannot clone expression {} for file-local rewrite",
+                                    expr->expr_name());
+    }
+
+    VExprSPtrs cloned_children;
+    cloned_children.reserve(expr->children().size());
+    for (const auto& child : expr->children()) {
+        VExprSPtr cloned_child;
+        RETURN_IF_ERROR(clone_table_expr_tree(child, &cloned_child));
+        cloned_children.push_back(std::move(cloned_child));
+    }
+    cloned->set_children(std::move(cloned_children));
+    cloned->reset_prepare_state();
+    *cloned_expr = std::move(cloned);
+    return Status::OK();
+}
+
+static VExprSPtr original_table_literal(const VExprSPtr& literal_expr,
+                                        RewriteContext* rewrite_context = nullptr) {
     DORIS_CHECK(literal_expr != nullptr);
     DORIS_CHECK(literal_expr->is_literal());
     const auto* rewritten_literal = dynamic_cast<const SplitLocalFileLiteral*>(literal_expr.get());
     if (rewritten_literal == nullptr) {
         return literal_expr;
     }
-    return TableLiteral::create_shared(rewritten_literal->original_type(),
-                                       rewritten_literal->original_field());
+    auto literal = TableLiteral::create_shared(rewritten_literal->original_type(),
+                                               rewritten_literal->original_field());
+    if (rewrite_context != nullptr) {
+        rewrite_context->add_created_expr(literal);
+    }
+    return literal;
 }
 
 static bool is_struct_element_expr(const VExprSPtr& expr) {
@@ -1101,10 +1206,11 @@ static Status build_projected_type_from_projection(const DataTypePtr& file_type,
 }
 
 static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
-                                              const FileSlotRewriteInfo& rewrite_info) {
+                                              const FileSlotRewriteInfo& rewrite_info,
+                                              RewriteContext* rewrite_context) {
     DORIS_CHECK(literal_expr != nullptr);
     DORIS_CHECK(literal_expr->is_literal());
-    const auto original_literal = original_table_literal(literal_expr);
+    const auto original_literal = original_table_literal(literal_expr, rewrite_context);
     const Field original_field = literal_field(original_literal);
     if (rewrite_info.file_type->equals(*original_literal->data_type())) {
         return original_literal;
@@ -1119,13 +1225,16 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
     if (file_field.is_null()) {
         return nullptr;
     }
-    return std::make_shared<SplitLocalFileLiteral>(rewrite_info.file_type, file_field,
-                                                   original_literal->data_type(), original_field);
+    auto literal = std::make_shared<SplitLocalFileLiteral>(
+            rewrite_info.file_type, file_field, original_literal->data_type(), original_field);
+    rewrite_context->add_created_expr(literal);
+    return literal;
 }
 
 static bool rewrite_binary_slot_literal_predicate(
         const VExprSPtr& expr,
-        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot) {
+        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
+        RewriteContext* rewrite_context) {
     if (!is_binary_comparison_predicate(expr)) {
         return false;
     }
@@ -1149,14 +1258,15 @@ static bool rewrite_binary_slot_literal_predicate(
         return false;
     }
 
-    auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info);
+    auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info,
+                                                         rewrite_context);
     if (rewritten_literal == nullptr) {
-        children[literal_child_idx] = original_table_literal(literal_expr);
+        children[literal_child_idx] = original_table_literal(literal_expr, rewrite_context);
         expr->set_children(std::move(children));
         return false;
     }
 
-    children[slot_child_idx] = create_file_slot_ref(*slot_ref, *rewrite_info);
+    children[slot_child_idx] = create_file_slot_ref(*slot_ref, *rewrite_info, rewrite_context);
     children[literal_child_idx] = std::move(rewritten_literal);
     expr->set_children(std::move(children));
     return true;
@@ -1164,7 +1274,8 @@ static bool rewrite_binary_slot_literal_predicate(
 
 static bool rewrite_in_slot_literal_predicate(
         const VExprSPtr& expr,
-        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot) {
+        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
+        RewriteContext* rewrite_context) {
     if (expr->node_type() != TExprNodeType::IN_PRED || expr->get_num_children() < 2) {
         return false;
     }
@@ -1184,13 +1295,15 @@ static bool rewrite_in_slot_literal_predicate(
         if (literal_expr == nullptr) {
             return false;
         }
-        auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info);
+        auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info,
+                                                             rewrite_context);
         if (rewritten_literal == nullptr) {
             for (size_t restore_idx = 1; restore_idx < children.size(); ++restore_idx) {
                 auto restore_literal = unwrap_literal_for_file_cast(children[restore_idx],
                                                                     rewrite_info->table_type);
                 if (restore_literal != nullptr) {
-                    children[restore_idx] = original_table_literal(restore_literal);
+                    children[restore_idx] = original_table_literal(restore_literal,
+                                                                   rewrite_context);
                 }
             }
             expr->set_children(std::move(children));
@@ -1199,7 +1312,7 @@ static bool rewrite_in_slot_literal_predicate(
         rewritten_literals.push_back(std::move(rewritten_literal));
     }
 
-    children[0] = create_file_slot_ref(*slot_ref, *rewrite_info);
+    children[0] = create_file_slot_ref(*slot_ref, *rewrite_info, rewrite_context);
     for (size_t literal_idx = 0; literal_idx < rewritten_literals.size(); ++literal_idx) {
         children[literal_idx + 1] = std::move(rewritten_literals[literal_idx]);
     }
@@ -1209,14 +1322,16 @@ static bool rewrite_in_slot_literal_predicate(
 
 static VExprSPtr rewrite_table_expr_to_file_expr(
         const VExprSPtr& expr,
-        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot) {
+        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
+        RewriteContext* rewrite_context) {
     if (expr == nullptr) {
         return nullptr;
     }
-    if (rewrite_binary_slot_literal_predicate(expr, global_to_file_slot)) {
+    DORIS_CHECK(rewrite_context != nullptr);
+    if (rewrite_binary_slot_literal_predicate(expr, global_to_file_slot, rewrite_context)) {
         return expr;
     }
-    if (rewrite_in_slot_literal_predicate(expr, global_to_file_slot)) {
+    if (rewrite_in_slot_literal_predicate(expr, global_to_file_slot, rewrite_context)) {
         return expr;
     }
     if (is_struct_element_expr(expr)) {
@@ -1229,12 +1344,14 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
                 // struct_element must see the actual file struct layout. Casting the parent struct
                 // to the output projection can hide filter-only children such as `s.id` in
                 // `SELECT s.name WHERE s.id > 5`.
-                children[0] = create_file_slot_ref(*slot_ref, rewrite_it->second);
+                children[0] = create_file_slot_ref(*slot_ref, rewrite_it->second,
+                                                   rewrite_context);
                 expr->set_children(std::move(children));
                 return expr;
             }
         }
-        children[0] = rewrite_table_expr_to_file_expr(children[0], global_to_file_slot);
+        children[0] =
+                rewrite_table_expr_to_file_expr(children[0], global_to_file_slot, rewrite_context);
         expr->set_children(std::move(children));
         return expr;
     }
@@ -1244,21 +1361,20 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
                 global_to_file_slot.find(GlobalIndex(cast_set<size_t>(slot_ref->slot_id())));
         if (rewrite_it != global_to_file_slot.end()) {
             const auto& rewrite_info = rewrite_it->second;
-            auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info);
+            auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info, rewrite_context);
             if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
                 return file_slot;
             }
             auto cast_expr = Cast::create_shared(rewrite_info.table_type);
             cast_expr->add_child(std::move(file_slot));
+            rewrite_context->add_created_expr(cast_expr);
             return cast_expr;
         }
         return expr;
     }
-    // rewrite_table_expr_to_file_expr localizes the expression tree in-place because VExpr does
-    // not provide a generic deep-clone API. A previous split may already have inserted Cast(slot)
-    // for the same table-level conjunct. Keep that rewrite idempotent: rewrite the cast child
-    // from table slot to the current split's file slot, and drop the cast when the current split
-    // no longer needs it.
+    // The input is a split-local cloned tree. A previous split-local clone may already have
+    // inserted Cast(slot). Keep that rewrite idempotent: rewrite the cast child from table slot to
+    // the current split's file slot, and drop the cast when the current split no longer needs it.
     if (is_cast_expr(expr) && expr->get_num_children() == 1) {
         const auto& child = expr->children()[0];
         if (child->is_slot_ref()) {
@@ -1267,7 +1383,8 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
                     global_to_file_slot.find(GlobalIndex(cast_set<size_t>(slot_ref->slot_id())));
             if (rewrite_it != global_to_file_slot.end() &&
                 expr->data_type()->equals(*rewrite_it->second.table_type)) {
-                auto rewritten_child = create_file_slot_ref(*slot_ref, rewrite_it->second);
+                auto rewritten_child = create_file_slot_ref(*slot_ref, rewrite_it->second,
+                                                            rewrite_context);
                 if (rewrite_it->second.file_type->equals(*rewrite_it->second.table_type)) {
                     return rewritten_child;
                 }
@@ -1277,13 +1394,11 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
         }
     }
 
-    // VExpr currently does not provide a generic deep-clone API for arbitrary expression types.
-    // Keep all slot-localization mutation inside ColumnMapper and rebuild it for every split
-    // before the localized expression is prepared/opened by TableReader.
     VExprSPtrs rewritten_children;
     rewritten_children.reserve(expr->children().size());
     for (const auto& child : expr->children()) {
-        rewritten_children.push_back(rewrite_table_expr_to_file_expr(child, global_to_file_slot));
+        rewritten_children.push_back(
+                rewrite_table_expr_to_file_expr(child, global_to_file_slot, rewrite_context));
     }
     expr->set_children(std::move(rewritten_children));
     return expr;
@@ -1309,6 +1424,8 @@ static bool complex_projection_has_pruned_children(const ColumnMapping& mapping)
         return true;
     }
     for (const auto& child_mapping : mapping.child_mappings) {
+        // `child_mapping.table_column_name != child_mapping.file_column_name` means this column is renamed
+        // `!child_mapping.file_local_id.has_value()` means this column is miss in file
         if (child_mapping.table_column_name != child_mapping.file_column_name ||
             !child_mapping.file_local_id.has_value() ||
             complex_projection_has_pruned_children(child_mapping)) {
@@ -1453,10 +1570,12 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
     if (mapping->has_complex_projection || complex_projection_has_pruned_children(*mapping)) {
         if (!mapping->has_complex_projection) {
             RETURN_IF_ERROR(rebuild_projected_file_type(mapping));
+            DCHECK(scan_columns == &file_request->predicate_columns);
         }
         RETURN_IF_ERROR(build_complex_projection(*mapping, &projection));
     }
     if (scan_columns == &file_request->predicate_columns) {
+        DCHECK(filter_projections != nullptr);
         RETURN_IF_ERROR(merge_filter_projection(filter_projections, &projection));
     }
     RETURN_IF_ERROR(apply_projection_to_mapping_file_type(projection, mapping));
@@ -1599,13 +1718,8 @@ static const ColumnDefinition* find_file_child_by_table_column(
 static const ColumnDefinition* find_file_child_for_complex_wrapper(
         const ColumnDefinition& table_child, const ColumnDefinition& file_field,
         TableColumnMappingMode mode) {
-    const auto primitive_type = remove_nullable(file_field.type)->get_primitive_type();
-    if (primitive_type == TYPE_ARRAY || primitive_type == TYPE_MAP) {
-        if (file_field.children.empty()) {
-            return nullptr;
-        }
-        DORIS_CHECK(file_field.children.size() == 1);
-        return &file_field.children[0];
+    if (file_field.children.empty()) {
+        return nullptr;
     }
     return find_file_child_by_table_column(table_child, file_field.children, mode);
 }
@@ -1627,15 +1741,16 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
                                       mapping.table_type, partition_values.at(table_column.name))));
         } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
                    !table_column.is_partition_key) {
+            // 2. BY_INDEX mapping, use the file column at the position specified by `ColumnDefinition::identifier` as a direct mapping. This mode is only used by Hive.
             RETURN_IF_ERROR(_create_by_index_mapping(table_column, file_schema, &mapping));
         } else if (const auto* file_field = _find_file_field(table_column, file_schema)) {
-            // 2. Table column has a matching file column, use it as a direct mapping.
+            // 3. Table column has a matching file column, use it as a direct mapping.
             RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &mapping));
         } else if (table_column.default_expr != nullptr) {
-            // 3. Table column does not exist in file (column adding by schema evolution), which has a default expression, use it as a constant mapping.
+            // 4. Table column does not exist in file (column adding by schema evolution), which has a default expression, use it as a constant mapping.
             _set_constant_mapping(&mapping, table_column.default_expr);
         } else if (table_column.name == ROW_LINEAGE_ROW_ID) {
-            // 4. Virtual column, use special mapping to indicate it should be materialized by table reader instead of read from file or evaluated from expression.
+            // 5. Virtual column, use special mapping to indicate it should be materialized by table reader instead of read from file or evaluated from expression.
             mapping.virtual_column_type = TableVirtualColumnType::ROW_ID;
         } else if (table_column.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
             mapping.virtual_column_type = TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
@@ -1755,7 +1870,8 @@ Status TableColumnMapper::_build_result_column_mapping(const FileScanRequest& fi
 Status TableColumnMapper::create_scan_request(
         const std::vector<TableFilter>& table_filters,
         const TableColumnPredicates& table_column_predicates,
-        const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request) {
+        const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
+        RuntimeState* runtime_state) {
     // FileReader evaluates expressions against a file-local block. This mapper owns the
     // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
@@ -1790,7 +1906,8 @@ Status TableColumnMapper::create_scan_request(
         }
     }
     // 2. Build referenced predicate columns
-    RETURN_IF_ERROR(localize_filters(table_filters, table_column_predicates, file_request));
+    RETURN_IF_ERROR(
+            localize_filters(table_filters, table_column_predicates, file_request, runtime_state));
     // 3. Re-build projections for all referenced file columns to point to the correct file-local block positions.
     for (auto& mapping : _mappings) {
         if (!mapping.file_local_id.has_value()) {
@@ -1826,7 +1943,8 @@ const ColumnMapping* TableColumnMapper::_find_mapping(GlobalIndex global_index) 
 
 Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
                                            const TableColumnPredicates& table_column_predicates,
-                                           FileScanRequest* file_request) {
+                                           FileScanRequest* file_request,
+                                           RuntimeState* runtime_state) {
     FilterProjectionMap filter_projections;
     RETURN_IF_ERROR(build_filter_projection_map(table_filters, &_mappings, &filter_projections));
     for (const auto& table_filter : table_filters) {
@@ -1848,10 +1966,19 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     for (const auto& table_filter : table_filters) {
         if (table_filter.conjunct != nullptr &&
             table_filter_has_only_local_entries(table_filter, _filter_entries)) {
-            file_request->conjuncts.push_back(
-                    VExprContext::create_shared(rewrite_table_expr_to_file_expr(
-                            table_filter.conjunct->root(), global_to_file_slot)));
-            table_filter.conjunct->clone_fn_contexts(file_request->conjuncts.back().get());
+            RewriteContext rewrite_context {.runtime_state = runtime_state};
+            VExprSPtr rewrite_root;
+            const auto clone_status =
+                    clone_table_expr_tree(table_filter.conjunct->root(), &rewrite_root);
+            if (!clone_status.ok()) {
+                continue;
+            }
+            auto localized_root =
+                    rewrite_table_expr_to_file_expr(rewrite_root, global_to_file_slot,
+                                                    &rewrite_context);
+            auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
+            RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
+            file_request->conjuncts.push_back(std::move(localized_conjunct));
         }
     }
     for (const auto& [global_index, predicates] : table_column_predicates) {
@@ -1899,7 +2026,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_type = file_field.type;
     mapping->original_file_children = file_field.children;
     mapping->file_type = file_field.type;
-    mapping->is_trivial = _is_same_type(mapping->table_type, mapping->file_type);
+    mapping->is_trivial = mapping->table_type->equals(*mapping->file_type);
     mapping->filter_conversion = mapping->is_trivial ? FilterConversionType::COPY_DIRECTLY
                                                      : FilterConversionType::CAST_FILTER;
     mapping->child_mappings.clear();
@@ -1933,10 +2060,13 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
         }
         if (complex_projection_has_pruned_children(*mapping)) {
             mapping->has_complex_projection = true;
+            // If complex projection prunes some children, we have to rebuild the projected file type to make sure the reader expression can find the correct child types by name.
             RETURN_IF_ERROR(build_projected_child_type(mapping->file_type, mapping->child_mappings,
                                                        &mapping->file_type));
-            mapping->is_trivial = mapping->table_type != nullptr &&
-                                  mapping->table_type->equals(*mapping->file_type);
+            DCHECK(!complex_projection_has_pruned_children(*mapping));
+            DCHECK(mapping->table_type != nullptr);
+            mapping->is_trivial = mapping->table_type->equals(*mapping->file_type);
+            // TODO: ? READER_EXPRESSION
             mapping->filter_conversion = mapping->is_trivial
                                                  ? FilterConversionType::COPY_DIRECTLY
                                                  : FilterConversionType::READER_EXPRESSION;
