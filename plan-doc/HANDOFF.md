@@ -1,130 +1,118 @@
 # 🤝 Session Handoff
 
-> 这是**滚动文档**：每次 session 结束时覆盖更新；历史通过 `git log plan-doc/HANDOFF.md` 查看。
-> 新 session 开始时必读：[PROGRESS.md](./PROGRESS.md) → 本文件 → 对应 task 文件。
+> 滚动文档：每次 session 结束覆盖更新；历史见 `git log plan-doc/HANDOFF.md`。
+> 新 session 必读：[PROGRESS.md](./PROGRESS.md) → 本文件 → [写-SPI RFC](./tasks/designs/connector-write-spi-rfc.md) / [recon](./research/connector-write-spi-recon.md)。
 > 协作规范：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)
 
 ---
 
 ## 📅 最后一次 handoff
 
-- **日期 / 时间**：2026-06-05
-- **本 session 主题**：**P3 批 D 完成（T08，design-only）**——`tableFormatType` 分流消费设计备忘 + **[D-020]**（用户签字 M2=方案 B per-table SPI provider）。**P3 hybrid in-scope（批 A–D）全部完成**；剩批 E（live cutover）并入 P7。**P3 PR [#64143](https://github.com/apache/doris/pull/64143) 已开**（base branch-catalog-spi）。
-- **分支**：`catalog-spi-04`（P3 工作分支，基于 `branch-catalog-spi`）。工作树预期 clean（仅本地未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.bak`；**`plan-doc/research/` 本 session 已纳入 git 跟踪**）。
+- **日期 / 时间**：2026-06-06（**实现 session**）
+- **本 session 主题**：**W-phase W1+W2 落地**——写/事务 SPI 面（fe-connector-api）+ fe-core `Transaction` 泛化 + MC/HMS/Iceberg 三 txn override。**behind gate、零行为变更、golden 等价 by construction**。守门全绿（真实 exit code 核验）。**未提交**（待用户决定）。W3–W7 留下一 session。
+- **分支**：`catalog-spi-05`（基于 `branch-catalog-spi`，含 P0–P3 #64143 `5c240dc7a34`）。工作树：6 个 .java 改动（fe-connector-api×2 + fe-core×4）+ PROGRESS/HANDOFF；未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.bak`（沿用，非本场）。
 
 ---
 
-## ✅ 本 session 完成项
+## ✅ 本 session 完成项（behind gate，零行为变更）
 
-| Task | 结果 | commits |
+| 项 | 结果 | 文件 |
 |---|---|---|
-| **P3-T08** tableFormatType 分流消费设计备忘 | ✅ design-only（零代码）；产出设计备忘 + [D-020]（M2=方案 B）；核心拆解 M1⊥M2 | 本 doc commit |
+| **W1** SPI 写/事务面 | ✅ gated（compile + import-gate + checkstyle 0） | `fe-connector-api`：`handle/ConnectorTransaction.java`(+4 default)·`Connector.java`(+getWritePlanProvider)·新 `write/ConnectorWritePlanProvider.java`·`write/ConnectorSinkPlan.java`(包 TDataSink)·`handle/ConnectorWriteHandle.java` |
+| **W2** fe-core Transaction 泛化 + 3 override | ✅ gated（fe-core compile BUILD SUCCESS + checkstyle 0） | `transaction/Transaction.java`(+4 default)·`maxcompute/MCTransaction.java`·`hive/HMSTransaction.java`·`iceberg/IcebergTransaction.java` |
 
-**净产出** = 设计备忘 `designs/P3-T08-tableformat-dispatch-design.md` + 决策 D-020 + 把上 session 的 recon 研究文件纳入跟踪。**P3 hybrid 全部 in-scope（批 A–D）完成**：2 正确性修（T02/T05）+ 2 fail-loud/决策（T04/T06）+ 测试网零→59 测（T07）+ 模型 dispatch 设计（T08/D-020）。
+**W1 细节**：4 个 SPI default = `addCommitData(byte[])` no-op / `supportsWriteBlockAllocation()` false / `allocateWriteBlockRange(String,long)` throws / `getUpdateCnt()` 0。`ConnectorWriteHandle` 字段 minimal（`getTableHandle`/`getColumns`/`isOverwrite`/`getWriteContext`），**W5 据 `bindDataSink` 真实入参细化**（接口零 implementer，改 free）。`ConnectorSinkPlan` 已 pin（仅包 `TDataSink`）。
 
-**commit stack**（新→旧）：本 doc commit→`76586b2`(批 C handoff)→`435065f`(T07 feat)→`04f6576`(批 B handoff)→`10b72d4`(T05)→`301fe38`(批 A handoff)→`2758cf9`(T04 doc)→`feceabb`(T04)→`517c9cf`(T03 defer)→`ac0dc7c`(T02 doc)→`95f23e9`(T02)→`9fcf21a`(recon/D-019)→`0793f03`(P2)→`2b1a3bb`(P1)→`72d6d01`(P0)。
-
----
-
-## 🚧 未完成 / 待办（下一 session：三选一，待用户定）
-
-**P3 hybrid in-scope（批 A–D）已全部完成，PR #64143 已开。** 没有"批 D 之后的批"——批 E 是 deferred、并入 P7。下一 session：
-
-1. **监控 [PR #64143](https://github.com/apache/doris/pull/64143)**：base = `apache/doris:branch-catalog-spi`、head = `morningman:catalog-spi-04`，26 files +3065/−154、12 commits。盯 CI、处理 review comment（review 改动在本分支 `catalog-spi-04` 续 commit + push 即自动进 PR）。前序 P0/P1/P2 PR 均 **squash-merge**。
-2. **批 E 并入 P7**（不在 P3 编码）：live cutover——见下「批 E backlog」。属 hive/HMS migration（P7 或专门子阶段），不在本 PR 内。
-3. **启 P4**（maxcompute）：若 P3 告一段落，按 master plan 进下一连接器。
-
-> ⚠️ 三选项**都不应**在 P3 分支内碰 `SPI_READY_TYPES` / fe-core 消费实现 / legacy `datasource/hudi/` / 非 hudi 连接器——皆批 E。
-
-### 批 E backlog（登记，不在 P3 编码；T08/D-020 已为其出设计）
-- **M1**（T08 设计）：fe-core `PluginDrivenExternalTable` 消费 `tableFormatType`——`PluginDrivenSchemaCacheValue` 缓存格式 + `getEngine/getEngineTableTypeName` per-table 化（opaque 串、热路径不读）。
-- **M2**（T08/D-020 设计）：新增 default `ConnectorMetadata.getScanPlanProvider(handle)` + fe-core `PluginDrivenScanNode.getSplits` 优先 per-table 回落 per-catalog + hms 网关按 `handle.getTableType()` 委派。
-- T03 schema_id/history 完整 field-id evolution（DV-006）
-- T05 `listPartitions*` override（DV-007）；T06 完整 MVCC（DV-007）；T04 完整 snapshot 透传 + 增量 SPI
-- **T07 gap-2**：Hudi meta-field 纳入（`getTableAvroSchema()` 无参 vs legacy `(true)`）真实 fixture 实证（DV-008）；gap-1 余项 `ThriftHmsClient` 源头防御降字（DV-008）
-- T09–T11（模型落地/gate flip/删 legacy/集群验证）；Iceberg-on-hms 经 SPI 依赖 **P6** 补 `IcebergScanPlanProvider`（M3）；探测共享化消 drift（M5，P7）
-- 端到端/集群验证（COW/MOR schema vs live legacy、BE JNI parse parity、混合多格式 catalog）
+**W2 细节 + golden 等价机制**：
+- `Transaction` 接口加 4 同名 default；`allocateWriteBlockRange(String,long) throws UserException`（对齐 MC `allocateBlockIdRange` 的 checked 异常 + `FrontendServiceImpl` 既有 `catch(UserException)`）。
+- 3 个 `addCommitData(byte[])` override：`new TDeserializer(new TBinaryProtocol.Factory()).deserialize(typed, bytes)` → 走**既有** `updateXxxCommitData(Collections.singletonList(typed))`。既有方法 = `internalList.addAll(arg)`，故 `addAll(整 list)` ≡ 逐元素 `add` → **逐位等价**。MC 另 override `supportsWriteBlockAllocation()=true` + `allocateWriteBlockRange→allocateBlockIdRange`；3 处 `getUpdateCnt` 加 `@Override`。
+- **⚠️ W2 override 现为 dead code**：W3 接线前 `Coordinator`/`LoadProcessor` 仍 concrete cast 直调 `updateXxxCommitData` → `addCommitData` 不被调用 → **本 session 零行为变更**，亦无 round-trip 故无协议失配风险（风险在 W3 落地时）。
 
 ---
 
-## ⚠️ 关键认知 / 临时发现
+## 🚧 未完成 / 待办（下一 session 第一件事 = W3 + W6）
 
-### 1.【T08/D-020 新结论】keystone gap = M1（身份消费）⊥ M2（scan 路由），可分离
-- `tableFormatType` **产而不用**：`HiveConnectorMetadata.getTableSchema` 设了它，但 `PluginDrivenExternalTable.initSchema:79-109` **只读 `getColumns()`**、丢 `getTableFormatType()`（本 session firsthand 核读确认）。第二缺口：`getEngine:195-215`/`getEngineTableTypeName:217-231` switch **catalog type** 非 per-table format。
-- **M1**（fe-core 读格式做 per-table 引擎名/身份，**opaque 串、热路径不读**）在 A/B/C **三方案通用**；**M2**（单 hms connector 产 Hudi/Iceberg scan plan）才是 A/B/C 分歧处。→ keystone 可控化。
-- **M2 = 方案 B**（[D-020]，用户签字）：新增向后兼容 default `ConnectorMetadata.getScanPlanProvider(handle)`（默认 null→回落 per-catalog `Connector.getScanPlanProvider()`），fe-core `PluginDrivenScanNode.getSplits` 优先 per-table、回落 per-catalog。前提：`ConnectorScanPlanProvider.planScan:62-66` 入参已带 per-table handle（本 session 核实）。**A 备选**（连接器内 router，零 SPI churn）；**C 否决**（fe-core 长格式分派，违瘦 fe-core）。
-- **D-020 细化 D-005**（非推翻）：tableFormatType 区分符沿用；D-005 的"fe-core→PhysicalXxxScan"措辞早于 P1 scan-node 统一，由 per-table provider seam 取代。**批 E 实现别按 D-005 旧措辞做 PhysicalXxxScan**。
+### W3 解耦热路径（**golden 等价红线**，behind gate）— 精确锚点（本 session 核实）
 
-### 2.【批 C 已用，批 E 仍需】parity 可行性 = golden-value（无跨模块编译路径）
-- `fe-core` 只依赖 `fe-connector-api` + `fe-connector-spi`，**不依赖**具体 `-hudi`/`-hms`/`-hive` 模块；连接器模块不依赖 fe-core。import-gate（`tools/check-connector-imports.sh`）**只扫 `*/src/main/java`、只禁 connector→fe-core 单向**（test 豁免，但无编译路径仍使跨模块 parity 不可行）。
-- → legacy↔SPI parity 用 **golden 值**（注 legacy `file:line`）。测试栈 **JUnit5 only，无 mockito**，替身手写（`FakeHmsClient` 先例）。checkstyle **含 test 源**（`fe/pom.xml:162`）、**禁 static import**（用 `Assertions.assertX`）、**test 阶段不跑 checkstyle** → 单独 `mvn -pl <module> checkstyle:check`。
+- `qe/Coordinator.java:2530-2541`：3 个**独立 if**
+  ```
+  if (params.isSetHivePartitionUpdates()) ((HMSTransaction)   …getTxnById(txnId)).updateHivePartitionUpdates(params.getHivePartitionUpdates());
+  if (params.isSetIcebergCommitDatas())   ((IcebergTransaction)…getTxnById(txnId)).updateIcebergCommitData(params.getIcebergCommitDatas());
+  if (params.isSetMcCommitDatas())        ((MCTransaction)    …getTxnById(txnId)).updateMCCommitData(params.getMcCommitDatas());
+  ```
+- `qe/runtime/LoadProcessor.java:231-242`：同结构（`long txnId = loadContext.getTransactionId();`）。
+- `service/FrontendServiceImpl.java:3697-3703`：`if (!(transaction instanceof MCTransaction)) throw new UserException(...); long start = ((MCTransaction) transaction).allocateBlockIdRange(request.getWriteSessionId(), request.getLength());`（`transaction` 已是 fe-core `Transaction`，见 :3695-3696；外层已 `catch(UserException)`）。
 
-### 3.【批 C 关键结论】COW/MOR schema = type-agnostic
-- legacy `HMSExternalTable.initHudiSchema` 与 SPI `HudiConnectorMetadata.getTableSchema`→`avroSchemaToColumns` 都从**同一 avro schema** 推导列表，**零表型分支**。COW/MOR 区别**只在 scan planning**（`HudiScanPlanProvider.planScan:92`：COW=base files native、MOR=merged slices + delta logs JNI）。→ schema parity 是 avro→column 纯函数；表型只影响 `detectHudiTableType` + split 收集。
+**改法**：
+1. **Coordinator / LoadProcessor**：取 `Transaction txn = …getTxnById(txnId);`，对每个 set 的字段**逐元素** `txn.addCommitData(serializer.serialize(elem))`。**序列化协议必须 `new TSerializer(new TBinaryProtocol.Factory())`**（对齐 W2 反序列化）。fail-loud：`catch (TException) → throw new RuntimeException(...)`。删 3 个 cast + 删 `import …{HMSTransaction, IcebergTransaction, MCTransaction}`。
+   - 仍枚举 3 个 thrift 字段 = RFC §5.3 认可的 transitional serialization shim（W3 目标 = 消除 concrete **cast**，非字段枚举；后者待 BE 加通用 `connector_commit_data` 字段后退休）。
+   - **建议**：抽一个共享 static helper（serialize-list → `txn.addCommitData`），避免 Coordinator/LoadProcessor 重复且**协议单点定义**（保 golden）。位置自定（`org.apache.doris.transaction` 下小 util，或 `Transaction` 的 static）。
+2. **FrontendServiceImpl**：`if (!transaction.supportsWriteBlockAllocation()) throw new UserException(... "is not a MaxCompute transaction"); long start = transaction.allocateWriteBlockRange(request.getWriteSessionId(), request.getLength());`。删 `import …MCTransaction`。
+3. 守门：fe-core compile + checkstyle（**绝对 -f**，见坑 1）；验三文件无 concrete import：`grep -nE "import .*(MCTransaction|HMSTransaction|IcebergTransaction)" Coordinator.java LoadProcessor.java FrontendServiceImpl.java` 应空。
 
-### 4.（沿用）SPI 分区裁剪链路 + Hive parity 基准（T05）
-- `PluginDrivenScanNode.applyFilter`→`currentHandle`→`getSplits`→`HudiScanPlanProvider.resolvePartitions` 读 `getPrunedPartitionPaths()`。Hudi `applyFilter` 镜像 `HiveConnectorMetadata.applyFilter`（7 步 + 7 helper duplicate，hudi 仅依赖 fe-connector-hms）。
+### W6 golden 测（与 W3 同验）
+- `FakeConnector` 写 default 行为测。
+- 3 txn golden 等价：构造 typed（`TMCCommitData`/`THivePartitionUpdate`/`TIcebergCommitData`）→ `TSerializer(TBinaryProtocol)` → `addCommitData(bytes)` → `getCommitDataList()`/`getHivePartitionUpdates()` **==** `updateXxxCommitData([typed])` 路径。checkstyle 含 test 源。
+- 跑：`mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -Dtest=Xxx -DfailIfNoTests=false test`（慢，后台）。
 
-### 5.（沿用）BE Hudi JNI column_types/names/delta 契约（T02）
-- `THudiFileDesc.{delta_logs,column_names,column_types}` thrift `list<string>`；**BE 自做 join**：names `,` / types **`#`** / delta `,`（`hudi_jni_reader.cpp:52-54`）。FE 传 typed list、类型串用 Hive 串（`HudiTypeMapping.toHiveTypeString`，非 `getTypeName()`）。
+### W4 PluginDrivenTransaction 桥（**已存在，扩展非新建**）
+- `transaction/PluginDrivenTransactionManager.java:112` 已有 `private static final class PluginDrivenTransaction implements Transaction`（P0-T11）。现继承 4 个新 default（no-op，编译过）。
+- W4：override 4 方法委派给 wrap 的 SPI `ConnectorTransaction`（`addCommitData`/`supportsWriteBlockAllocation`/`allocateWriteBlockRange`/`getUpdateCnt`）。
 
-### 6.（沿用）批 E 去向 + 沿用坑
-- rebase 后 fe-core `target/generated-sources/.../DorisParser.java` 残留 → cannot find symbol：**clean fe-core**（非 fe-sql-parser），别当代码 bug 查。
-- `PhysicalPlanTranslator` 里 hudi **之外**的连接器 `instanceof` 分支待各自 P 阶段迁完再删，**本场只动 hudi**。
-- 用户向文档在 doris-website 仓（DV-004）。
-- connectors/hudi.md 的 §关联「偏差：（暂无）」是 pre-existing 陈旧（实际 DV-005..008 相关），本场未顺手改（surgical）；下次清 kanban 时一并修。
+### W5 PluginDrivenTableSink + PhysicalPlanTranslator（写 sink 收口）
+- 新 fe-core `PluginDrivenTableSink`；`PhysicalPlanTranslator.visitPhysicalXxxTableSink` → `ConnectorWritePlanProvider.planWrite()`（仿 scan），保 PhysicalXxxSink fallback。
+- **此处定 `ConnectorWriteHandle`/`ConnectorSinkPlan` 最终字段形**（据 `*TableSink.bindDataSink()` 真实入参）。
+
+### W7 文档
+- `decisions-log`：**D-021**(scope=C) + **D-022**(写 SPI A/B1/C1/D/E)——上 session 用户已签字但**至今未 log**（traceability 缺口，优先补）。
+- `01-spi-extensions-rfc.md`：加「E11 写/事务 SPI」节（脚注引 D-022；§5.2 纪律「先 log 再改 RFC」）。
+- 同步 PROGRESS / connectors/maxcompute / 本 HANDOFF。
 
 ---
 
-## 🎯 下一个 session 第一件事
+## ⚠️ 关键认知 / 坑（务必读）
+
+1. **maven 必用绝对 `-f` 路径**：`mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl <m> -am -Dmaven.build.cache.enabled=false ...`。Bash cwd 跨调用持久化——一旦某命令 `cd` 进子目录，后续相对 `-f fe/pom.xml` 即 "does not exist" 假失败（本 session 因此踩 3 次）。**勿在命令里 `cd` 子目录**。
+2. **读真实 exit code，非后台通知**：后台 `mvn … | tail; echo MVN_EXIT=$?` 的 task-notification "exit code 0" 是**整条 pipeline（末尾 echo）**的退出码，**非 maven 的**。必须 `grep -E "BUILD SUCCESS|BUILD FAILURE|MVN_EXIT|Checkstyle violations|CS_EXIT"` 输出文件确认。
+3. **序列化协议契约（golden 红线）**：W2 反序列化用 `new TDeserializer(new TBinaryProtocol.Factory())`；W3 序列化**必须**同协议 `TBinaryProtocol`。建议 W3 抽共享 helper 单点定义协议。
+4. **W3 仍枚举 3 thrift 字段**：B1 消除的是 concrete `*Transaction` **cast**，非字段枚举（后者是 RFC §5.3 认可的 transitional shim）。
+5. **W2 override 现 dead**：W3 接线后才 live；W3 落地即需 W6 golden 测护住。
+6. **getUpdateCnt 已半多态**：5 个 executor（Hive/Iceberg×3/MC `*InsertExecutor` 等）已 `transaction.getUpdateCnt()`；W2 加接口 default 后可纯多态，无需改它们（编译前后均过）。
+7. **checkstyle 规则**：`MissingOverride`（default 模式，仅 `{@inheritDoc}` 强制 @Override）；`CustomImportOrder` = `org.apache.doris.*` → 第三方(`com.*`/`io.*`/`org.apache.hadoop.*`/`org.apache.thrift.*`...) → `java.*`，**组间空行、组内字母序**；`UnusedImports`/`RedundantImport` 开；**无** IllegalThrows/IllegalCatch（`throw new RuntimeException` 可用）。注意 `org.apache.doris.thrift.*` 属 doris 组，`org.apache.thrift.*` 属第三方组。
+8.（沿用坑）rebase 后 fe-core stale `DorisParser` → clean fe-core；import-gate 只禁 connector→fe-core 单向、只扫 main。
+
+---
+
+## 📂 关键文件锚点
 
 ```
-1. 自检：
-   git branch --show-current → catalog-spi-04
-   git log --oneline -6 → <本 doc>(T08/D-020) 76586b2(批 C handoff) 435065f(T07 feat) 04f6576 10b72d4 301fe38
-   git status → clean（除 .audit-scratch/ conf.cmy/ regression-conf.bak；research/ 现已跟踪）
-   Read PROGRESS.md §一/§三 + 本文件关键认知 1（M1⊥M2 + D-020）
-
-2. PR #64143 已开（base apache/doris:branch-catalog-spi、head morningman:catalog-spi-04）：
-   gh pr view 64143 --repo apache/doris   → 盯 CI / review
-   review 改动在 catalog-spi-04 续 commit + push 即自动进 PR（前序均 squash-merge）
-   合入后：批 E 并入 P7（T08/D-020 已出 M1+M2 设计）或启 P4
-   → P3 内不碰 SPI_READY_TYPES / fe-core 消费实现 / legacy / 非 hudi 连接器（皆批 E）
-
-3. 若走 (2) 批 E：实现序见本文件「批 E backlog」M1→M2→M4→翻闸；
-   设计直接读 designs/P3-T08-tableformat-dispatch-design.md（M1+M2 + Implementation Plan + Open）。
-```
-
----
-
-## 📂 P3 关键文件锚点
-
-```
-T02（已修）:  HudiTypeMapping.toHiveTypeString / HudiScanRange（typed list）/ BE hudi_jni_reader.cpp:52-54
-T03（批 E）:  ExternalUtil.initSchemaInfo / BE table_schema_change_helper.h:219-267 / HudiColumnHandle（无 field id）
-T04（已修）:  PhysicalPlanTranslator.visitPhysicalHudiScan SPI 分支（两守卫）
-T05（已修）:  HudiConnectorMetadata.applyFilter（7 步 + 7 helper）/ HudiPartitionPruningTest（FakeHmsClient 先例）
-T06（决策）:  ConnectorMetadata MVCC 三 default / 无 override（opt-out）
-T07（已修）:  HudiConnectorMetadata.avroSchemaToColumns（顶层降字 + package-private static）
-              测试: hudi HudiTypeMappingTest/HudiSchemaParityTest/HudiTableTypeTest；hms HmsTypeMappingTest；hive HiveFileFormatTest/HiveConnectorMetadataPartitionPruningTest
-              设计: designs/P3-T07-test-baseline-design.md
-T08（本场，设计）: 设计 designs/P3-T08-tableformat-dispatch-design.md；决策 D-020
-   keystone:   PluginDrivenExternalTable.initSchema:79-109（只读 columns）/ getEngine:195-215 / getEngineTableTypeName:217-231（switch catalog type）
-   M2 seam:    ConnectorMetadata:37-44（加 default getScanPlanProvider(handle)）/ Connector.getScanPlanProvider:40-42（per-catalog 回落）
-               ConnectorScanPlanProvider.planScan:62-66（入参带 handle）/ PluginDrivenScanNode.getSplits（~356-378，fe-core 改动点，批 E）
-   载体:       ConnectorTableSchema.getTableFormatType:58-60
-   素材:       plan-doc/research/spi-multi-format-hms-catalog-analysis.md（本场已跟踪）
-gate:         CatalogFactory.java:52（SPI_READY_TYPES，不含 hms/hudi——别动）
-设计备忘:     plan-doc/tasks/designs/P3-T02-*.md / T04 / T05 / T06 / T07 / T08
-scratch:      .audit-scratch/p3-t0X-*.workflow.js（本地 workflow 脚本，未跟踪）
+RFC：     tasks/designs/connector-write-spi-rfc.md（§5 API / §8 fe-core 改动表 / §12 W1→W7）
+recon：   research/connector-write-spi-recon.md（§4 对比矩阵 / §5 现存 SPI / §6 leak）
+          research/p4-maxcompute-migration-recon.md（P4 adopter：翻闸/gson §5、反向引用 §3）
+W1(已改)：fe-connector/fe-connector-api/.../connector/api/
+            handle/ConnectorTransaction.java · Connector.java · write/ConnectorWritePlanProvider.java
+            write/ConnectorSinkPlan.java · handle/ConnectorWriteHandle.java
+W2(已改)：fe-core/.../transaction/Transaction.java · datasource/{maxcompute/MCTransaction,
+            hive/HMSTransaction, iceberg/IcebergTransaction}.java
+W3(待改)：qe/Coordinator.java:2530-2541 · qe/runtime/LoadProcessor.java:231-242 ·
+            service/FrontendServiceImpl.java:3697-3703
+W4(待改)：transaction/PluginDrivenTransactionManager.java:112（PluginDrivenTransaction 内类）
+不动：     CatalogFactory.SPI_READY_TYPES / datasource/{maxcompute,hive,iceberg} legacy /
+            RewriteDataFileExecutor(procedure, P6)
+守门命令： mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -am \
+            -DskipTests -Dmaven.build.cache.enabled=false compile        # 慢，后台
+          mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core \
+            -Dmaven.build.cache.enabled=false checkstyle:check            # 含 test 源
+          bash tools/check-connector-imports.sh                           # 从 repo 根跑
 ```
 
 ---
 
 ## 🧠 给下一个 agent 的 meta 建议
 
-- **P3 hybrid 收尾**：批 A–D 已全部 in-scope 完成。下一步是**分叉决策**（PR / 批 E→P7 / P4），**先问用户**，别默认开 PR 或自动进 P4。
-- **批 E 实现按 T08 设计走**（M1⊥M2，M2=方案 B），**别按 D-005 旧"PhysicalXxxScan"措辞**（已被 D-020 supersede）。新 default 方法保持 D-009（不破签名）。
-- 偏差先记 `deviations-log.md` 再改文档；架构/可行性 fork 先问用户（本场 M2 方案 B 已签字 → D-020）。
-- Maven：cwd=`fe/`；`-pl <module> -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`；**checkstyle 单独跑**（含 test 源）；**禁 static import**。
-```
+- **W3 是 golden 红线**（Rule 9）：建议先写 W6 golden 测（或同步），改一处验一处，逐位对齐 legacy。
+- **守门循环**：fe-core compile（慢，后台）+ checkstyle（绝对 -f）；**读真实 BUILD/exit 行**，勿信后台 "exit code" 通知（坑 2）。
+- **别越界**：W-phase 不翻闸（`SPI_READY_TYPES` 不动）/不搬连接器类/不删 legacy——那是 P4 maxcompute adopter 阶段（W-phase 之后）。RFC §12 已分清 W-phase / P4 / P6-P7。
+- **提交**：W1+W2 已 gated 但未提交，由用户决定时机/粒度（建议把 W1–W3+W6 合成一个 behind-gate、零行为变更的 commit，title 形如 `[feat](connector) W-phase 写/事务 SPI 解耦 (W1-W6)`）。
+- **决策待补**：D-021(scope=C) + D-022(写 SPI 设计) 上 session 已签字但仍未入 decisions-log（W7 补；§5.2「先 log 再改 01-spi-rfc」）。
+- Maven：cwd 无关（用绝对 `-f`）；`-pl <module> -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`；checkstyle 单独跑。
