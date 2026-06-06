@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import com.aliyun.odps.Column;
@@ -229,6 +230,25 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
             result.add(values);
         }
         return result;
+    }
+
+    // ==================== Write / Transaction (P4-T03) ====================
+
+    /**
+     * Opens a connector transaction for a MaxCompute write statement. The
+     * transaction id is the engine-side id allocated through the session, so it
+     * matches the id registered in the engine transaction registry and stamped
+     * into the data sink (see {@link MaxComputeConnectorTransaction}).
+     *
+     * <p>Gate-closed / dormant until the {@code max_compute} cutover: nothing
+     * routes plugin-driven MaxCompute writes through this path yet. The ODPS
+     * write session that backs commit / block allocation is created by the write
+     * plan (P4-T04), which binds it via
+     * {@link MaxComputeConnectorTransaction#setWriteSession}.</p>
+     */
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        return new MaxComputeConnectorTransaction(session.allocateTransactionId());
     }
 
     // ==================== DDL: Create/Drop Table ====================

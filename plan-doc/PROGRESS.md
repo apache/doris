@@ -44,14 +44,14 @@
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
 
-### P4 — maxcompute 迁移（🚧 full adopter；**设计已批准** [D-023]，5 批/11 task；Batch A ✅，下一步 Batch B）
+### P4 — maxcompute 迁移（🚧 full adopter；**设计已批准** [D-023]，5 批/11 task；Batch A ✅，Batch B T03 ✅，下一步 T04）
 
 > 策略 = **full adopter + 翻闸**（[D-023]，非 P3 hybrid）；前置 W-phase（W1–W7）✅。批次计划 + 完整 task 表见 [tasks/P4](./tasks/P4-maxcompute-migration.md)。
 
 | 批 | 范围 | gate | task | 状态 |
 |---|---|---|---|---|
 | A | 连接器 DDL + 分区 parity | 🔒 关 | P4-T01 ✅ / T02 ✅ | ✅ T01 DDL + T02 分区 listing 完成（gate 全绿：compile + checkstyle 0 + import-gate）|
-| B | 写/事务 SPI（`ConnectorTransaction`/`WriteOps` + `WritePlanProvider`→`TMaxComputeTableSink`）| 🔒 关 | P4-T03/T04 | ⏳ |
+| B | 写/事务 SPI（`ConnectorTransaction`/`WriteOps` + `WritePlanProvider`→`TMaxComputeTableSink`）| 🔒 关 | P4-T03 ✅ / T04 ⏳ | 🚧 T03 写/事务 SPI 完成（`MaxComputeConnectorTransaction`+`beginTransaction`，gate 全绿）；T04 写计划待做 |
 | C | 翻闸（`SPI_READY_TYPES` + GSON + `getEngine`；含 R-004 防御测）| 🔓 **live** | P4-T05/T06 | ⏳ |
 | D | 清 ~19 反向引用 + 删 `datasource/maxcompute/`（收口 P1-T02）| 🔓 live | P4-T07/T08/T09 | ⏳ |
 | E | 连接器测试基线 + PR | — | P4-T10/T11 | ⏳ |
@@ -140,6 +140,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-06-06（实现 ⑥·P4-T03）** ✅ **P4 Batch B 启动 — P4-T03 连接器写/事务 SPI 完成**（gate 关、dormant、零 live 风险）：新建 `MaxComputeConnectorTransaction implements ConnectorTransaction`（港 legacy `MCTransaction` 写生命周期：`addCommitData` `TDeserializer(TBinaryProtocol)`→`TMCCommitData` 累积【commit 协议红线】、block 分配 CAS+上限校验、`commit` 港 `finishInsert`、rollback/close/getUpdateCnt）+ `MaxComputeConnectorMetadata.beginTransaction`，over W4 委派。**两 fork 用户签字 [D-024]**：(1) txn id 经新增 SPI `ConnectorSession.allocateTransactionId()`（fe-core `ConnectorSessionImpl` override `Env.getNextId`）分配——尊重 [D-015]，补 id-less 连接器机制（E11 登记）；(2) ODPS 写 session 创建挪 T04 planWrite（T03 纯事务容器，槽由 T04 经 `setWriteSession` 填）。**偏差 [DV-011]**：block 上限 fe-core `Config`(20000)→连接器常量、`UserException`→`DorisConnectorException`（import-gate 禁 `common.*`）。**JDBC 仅半样板**（无 `ConnectorTransaction`），MC 首个有状态事务 adopter。守门全绿（fe-connector-maxcompute+api+fe-core compile BUILD SUCCESS/MVN_EXIT=0 + checkstyle 0 + import-gate 0，真实 EXIT 核验）。单测延 **P4-T10**（write-txn golden、TBinaryProtocol round-trip）。**下一步 = P4-T04 写计划**（planWrite 产 `TMaxComputeTableSink` + OQ-2 write-context + 建 ODPS 写 session 绑事务）。
 - **2026-06-06（实现 ⑤·P4-T02）** ✅ **P4 Batch A 收尾 — P4-T02 连接器分区 listing 完成**（gate 关、dormant、零 live 风险）：`MaxComputeConnectorMetadata` impl SPI `listPartitionNames`/`listPartitions`/`listPartitionValues`，三方法均直取 `structureHelper.getPartitions(odps, db, tbl)`：names = `PartitionSpec.toString(false,true)`（镜像 legacy `MaxComputeExternalCatalog:283`/`MaxComputeExternalTable:201`）；`listPartitions` filter **忽略**返全量（values 由 `PartitionSpec.keys()`/`get(k)` 抽、props=emptyMap，镜像 SHOW PARTITIONS 不裁剪）；`listPartitionValues` 按入参 `partitionColumns` 列序取 `spec.get(col)`。**OQ-4 定**：不建连接器自有 cache，直取 ODPS（Rule 2 不投机）。**保真说明**：legacy 双路径分歧（catalog:266 无 emptiness guard / table:200 有 `!partitionColumns.isEmpty()` guard），SPI 锚 catalog SHOW PARTITIONS 路径故**不加** guard；写前 javap 核 ODPS `PartitionSpec` 真实 API（`Set keys()`/`String get(String)`/`toString(boolean,boolean)`）。**测试**：按计划延至 **P4-T10** 连接器测试基线（无 mockito 手写替身），T02 gate = compile + checkstyle + import（R12 不静默）。守门全绿（连接器 compile BUILD SUCCESS/MVN_EXIT=0 + checkstyle 0/CS_EXIT=0 + import-gate 0，真实 EXIT 核验）。**下一步 = Batch B（P4-T03 写/事务 SPI）**。
 - **2026-06-06（实现 ④·P4-T01）** ✅ **P4 Batch A 启动 — P4-T01 连接器 DDL 完成**（gate 关、dormant、零 live 风险）：`MaxComputeConnectorMetadata` impl SPI `createTable(ConnectorCreateTableRequest)` / `dropTable` / `createDatabase` / `dropDatabase`（忠实港 legacy `MaxComputeMetadataOps` 的 create/drop/validate/schema-build/lifecycle/bucket，**消费 P0 request 非 fe-core `CreateTableInfo`**）+ 新 `MCTypeMapping.toMcType(ConnectorType)` 反向类型映射（按 `PrimitiveType.toString()` switch，递归 ARRAY/MAP/STRUCT，不支持类型抛异常）；连接器 `McStructureHelper` 已含全部 ODPS DDL 原语，无需新建。**附带修 fe-core 共享转换器 `ConnectorColumnConverter.toConnectorType` 丢 CHAR/VARCHAR 长度 [DV-010]**（用户 AskUserQuestion 签字；逆一致性 bug，影响 live jdbc/es CREATE TABLE，更正确）+ 回归测 `testCharVarcharLengthPreserved`。守门全绿（连接器 compile + checkstyle 0 + import-gate + fe-core `ConnectorColumnConverterTest` **9/0F0E**，真实 EXIT 核验）。**坑**：守门 maven `-pl` 须用 `:fe-connector-maxcompute`（冒号=artifactId）；裸名被当相对路径 → reactor-not-found。下一步 = **P4-T02** 分区 listing。
 - **2026-06-06（设计 ④）** ✅ **P4 maxcompute adopter 设计批准**（[D-023]）：读 HANDOFF/PROGRESS/playbook + recon + 写-RFC §12，code-grounded re-grep（反向引用 post-W-phase **~19**，证 W-phase 灭 `Coordinator`/`LoadProcessor`/`FrontendServiceImpl` 3 热点 txn 站；`MCTransaction` 已含 W2 `addCommitData(byte[])`；`TMaxComputeTableSink` 18 字段齐）。产 [tasks/P4](./tasks/P4-maxcompute-migration.md)：**5 批/11 task**（A 读/DDL parity → B 写/事务 → **C 翻闸（唯一 live 切点，含 R-004 防御测）** → D 清 ~19 引用+删 legacy → E 测+PR），用户批准。同步跟踪文档 + 修 §三 stale「P3 CI中」→ 已合 `5c240dc7a34`。**下一步 = Batch A**（P4-T01 DDL + P4-T02 分区，gate 关）。未动代码。
@@ -198,8 +199,8 @@
 
 | 类型 | 总数 | 最新条目 | 文档 |
 |---|---|---|---|
-| **决策**（D-NNN） | 23 | D-023（P4 启 full adopter / option A，5 批 cutover）；D-022（写/事务 SPI 设计 A/B1/C1/D/E）| [decisions-log.md](./decisions-log.md) |
-| **偏差**（DV-NNN） | 10 | DV-010（P4-T01 修 fe-core 转换器 CHAR/VARCHAR 长度丢失）| [deviations-log.md](./deviations-log.md) |
+| **决策**（D-NNN） | 24 | D-024（P4-T03 两 fork：txn id 经 `ConnectorSession.allocateTransactionId` / 写 session 挪 T04）；D-023（P4 启 full adopter / option A）| [decisions-log.md](./decisions-log.md) |
+| **偏差**（DV-NNN） | 11 | DV-011（P4-T03 block 上限常量 + 异常 `DorisConnectorException`，import-gate 禁 `common.*`）| [deviations-log.md](./deviations-log.md) |
 | **风险**（R-NNN） | 14 | R-014（thrift sink 选择灵活性） | [risks.md](./risks.md) |
 
 ---
@@ -208,9 +209,9 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：**P4-T02 连接器分区 listing**（commit `a03c7279eaf`，Batch A 收尾，gate 关、dormant、零 live 风险）——`MaxComputeConnectorMetadata` impl SPI `listPartitionNames`/`listPartitions`/`listPartitionValues`（直取 ODPS `getPartitions`，镜像 legacy SHOW PARTITIONS 路径；OQ-4 定不建自有 cache）。守门全绿（compile + checkstyle 0 + import-gate，真实 EXIT）。doc-sync 3 文件（tasks/P4、PROGRESS、connectors/maxcompute）。测试延 P4-T10（R12 不静默）。**Batch A（DDL+分区）全完成**（用户选「提交 T02 然后停」）。
-- **下一个 session 应做**：**P4 Batch B**（写/事务 SPI，gate 关、dormant；A∥B，A 已完成）——**P4-T03** `ConnectorWriteOps.beginTransaction` + `ConnectorTransaction`（港 `MCTransaction`：`addCommitData` 必 `TBinaryProtocol`、block 分配、begin/finish/commit/rollback、getUpdateCnt）+ **P4-T04** `getWritePlanProvider`→`planWrite` 产 `TMaxComputeTableSink`（填 W5 seam；OQ-2 注入重建=核心难点）。**T03/T04 未 recon 逐行定稿（≠T02），首步先读 SPI 写接口 + MCTransaction + JDBC 参考实现**。见 [tasks/P4](./tasks/P4-maxcompute-migration.md) / [HANDOFF](./HANDOFF.md)。
-- **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（P4-T02 完成 + Batch B 首步锚点 + 写路径三红线/OQ-2 + 守门坑沿用）
+- **本 session 已完成**：**P4-T03 连接器写/事务 SPI**（Batch B 启，gate 关、dormant、零 live 风险）——新建 `MaxComputeConnectorTransaction`（港 `MCTransaction`：`addCommitData` 必 `TBinaryProtocol`、block 分配、commit/rollback/getUpdateCnt）+ `MaxComputeConnectorMetadata.beginTransaction`，over W4 委派。两 fork 用户签字 [D-024]（txn id 经新增 `ConnectorSession.allocateTransactionId()` / 写 session 创建挪 T04）；偏差 [DV-011]（block 上限常量、`DorisConnectorException`）。守门全绿（fe-connector-maxcompute+api+fe-core compile + checkstyle 0 + import-gate，真实 EXIT）。测试延 P4-T10（R12 不静默）。设计 [P4-T03 doc](./tasks/designs/P4-T03-write-txn-design.md)。
+- **下一个 session 应做**：**P4-T04 写计划**（Batch B 续，gate 关、dormant）——`Connector.getWritePlanProvider`→`planWrite` 产 `TMaxComputeTableSink`（填 W5 seam：txn_id/write_session_id/static_partition_spec/block_id）；**OQ-2 注入重建=核心难点**；在此创建 ODPS 写 session 并经 `MaxComputeConnectorTransaction.setWriteSession` 绑定事务（[D-024] fork2）。见 [tasks/P4](./tasks/P4-maxcompute-migration.md) / [HANDOFF](./HANDOFF.md)。
+- **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（P4-T03 完成 + T04 首步锚点 + OQ-2 + 守门坑沿用）
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---

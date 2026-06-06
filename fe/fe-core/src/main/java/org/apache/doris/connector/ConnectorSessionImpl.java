@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.connector.api.ConnectorSession;
 
 import java.util.Collections;
@@ -121,6 +122,11 @@ public class ConnectorSessionImpl implements ConnectorSession {
     @Override
     public Map<String, String> getSessionProperties() {
         return sessionProperties;
+    }
+
+    @Override
+    public long allocateTransactionId() {
+        return Env.getCurrentEnv().getNextId();
     }
 
     @Override

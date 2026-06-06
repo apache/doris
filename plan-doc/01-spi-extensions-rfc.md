@@ -1258,6 +1258,7 @@ fi
 
 **SPI 面（default-only，[D-009]）**：
 - `ConnectorTransaction`（既有，+4 default）：`addCommitData(byte[])`（B1）、`supportsWriteBlockAllocation()` / `allocateWriteBlockRange(sid, count)`（C1）、`getUpdateCnt()`。fe-core `Transaction` 加同名 default；`PluginDrivenTransaction`（`PluginDrivenTransactionManager` 产）桥接委派（A）。
+- `ConnectorSession.allocateTransactionId()`（P4-T03 新增 default 抛；fe-core `ConnectorSessionImpl` override 回 `Env.getNextId`）：为**无外部 id 的连接器**（如 maxcompute）提供引擎全局 txn id 分配器，连接器经它在 `beginTransaction` 分配，id 即 Doris `txn_id`（与 sink / `GlobalExternalTransactionInfoMgr` 一致）。细化 [D-015]/U3「连接器分配」，见 [D-024]。
 - `ConnectorWritePlanProvider.planWrite(session, handle) → ConnectorSinkPlan(TDataSink)`（E，仿 `ConnectorScanPlanProvider`）；`Connector.getWritePlanProvider()` default null。`ConnectorWriteHandle` = {tableHandle, columns, overwrite, writeContext}；`ConnectorSinkPlan` 包 opaque `TDataSink`。
 - DML 覆盖 INSERT / DELETE / MERGE（D）；procedures defer（E2 / P6）。
 

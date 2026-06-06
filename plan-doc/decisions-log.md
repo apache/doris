@@ -15,6 +15,7 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-024 | — | P4-T03 两 fork（用户签字）：(1) txn id 经新增 `ConnectorSession.allocateTransactionId()`（fe-core `Env.getNextId` 背书）由连接器分配——尊重 [D-015]/U3，补 id-less 连接器（MC 无外部 id）的分配器机制；(2) ODPS 写 session 创建挪 T04 planWrite（T03 = 纯事务容器，over W4 委派、gate 关 dormant）| 2026-06-06 | ✅ |
 | D-023 | — | P4 maxcompute 启 full adopter（recon §9 option A）：W-phase 后按 5 批（A 读/DDL parity → B 写/事务 → C 翻闸 → D 清引用+删 legacy → E 测）落地 + cutover；批次计划 tasks/P4 | 2026-06-06 | ✅ |
 | D-022 | — | 写/事务 SPI 设计：A 连接器事务为源·桥接 / B1 commit 载荷 opaque bytes / C1 block-id 窄 callback seam / D INSERT·DELETE·MERGE（defer procedures）/ E 写-plan-provider 仿 scan | 2026-06-06 | ✅ |
 | D-021 | — | P4 maxcompute 采 scope=C（写-SPI RFC 先行）：先做共享写/事务 SPI + 通用层解耦（W-phase），再逐连接器 adopter | 2026-06-06 | ✅ |
@@ -42,6 +43,19 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-024 — P4-T03 写/事务 SPI 两 fork（txn id 机制 + T03/T04 边界）
+
+- **日期**：2026-06-06
+- **状态**：✅ 生效
+- **关联**：[tasks/P4 P4-T03](./tasks/P4-maxcompute-migration.md)、[P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md)、[D-015]/U3（getTransactionId 连接器分配）、[D-022]（写 SPI）、[01-spi-extensions-rfc E11](./01-spi-extensions-rfc.md)
+- **背景**：handoff 标注 T03/T04 未逐行定稿；recon 暴两处需拍板的 fork（[D-015]「连接器分配 id」对 MC 不成立——MC 无外部 id 且连接器够不到 `Env.getNextId`；写 session 创建需 overwrite/静态分区 context = OQ-2）。
+- **决策**（用户 AskUserQuestion 签字 2026-06-06）：
+  - **Fork 1（txn id）**：给 `ConnectorSession` 加 `default long allocateTransactionId()`（default 抛；fe-core `ConnectorSessionImpl` override 回 `Env.getCurrentEnv().getNextId()`），MC `beginTransaction` 经它分配。**仍属「连接器分配」语义**（经注入的引擎分配器），尊重 [D-015]；id 即 Doris 全局 txn_id，与 sink `txn_id` / `GlobalExternalTransactionInfoMgr` 一致。SPI 加面记 E11。
+  - **Fork 2（T03/T04 边界）**：ODPS 写 session 创建挪 **T04 planWrite**（`ConnectorWriteHandle` 带 overwrite+writeContext，顺解 OQ-2）；**T03 = 纯事务容器**（commitDataList/nextBlockId/writeSessionId 槽 + addCommitData[TBinaryProtocol]/block-alloc/commit[港 finishInsert]/rollback/getUpdateCnt）+ `beginTransaction`。
+- **影响**：executor 接线（`beginTransaction`→`begin(connectorTx)`）+ `GlobalExternalTransactionInfoMgr` 注册推迟翻闸期（Batch C），保 T03 dormant、不破 JDBC/ES。立 paimon/iceberg/hive 后续事务 adopter 的 id-source 样板。
+
+---
 
 ### D-023 — P4 maxcompute 启 full adopter（option A，5 批 cutover）
 

@@ -13,10 +13,11 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **10** 项。
+> 时间倒序；当前共 **11** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-011 | P4-T03 连接器事务 block 上限源：legacy fe-core `Config.max_compute_write_max_block_count`（fe.conf 可调，默认 20000）→ 连接器常量 `MAX_BLOCK_COUNT=20000L`（import-gate 禁 `common.Config`，丢可调性）；附 legacy `throws UserException`→`DorisConnectorException`（unchecked，SPI 面无 checked throws）| [tasks/P4 P4-T03](./tasks/P4-maxcompute-migration.md) / [P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md) | 2026-06-06 | 🟢 已修正（P4-T03）|
 | DV-010 | P4-T01 修共享 fe-core `ConnectorColumnConverter.toConnectorType` 丢 CHAR/VARCHAR 长度（写 `precision=0`；长度存 `len` 非 `precision`）→ CREATE TABLE 经 SPI 丢长度。特判 CHAR/VARCHAR 把 `getLength()` 写入 precision 字段（与逆 `convertScalarType`+`MCTypeMapping` 约定一致）| [tasks/P4 P4-T01](./tasks/P4-maxcompute-migration.md) / `ConnectorColumnConverter` | 2026-06-06 | 🟢 已修正（P4-T01）|
 | DV-009 | W5 写 sink 收口位置：RFC/handoff「route 3 个 visitPhysicalXxxTableSink + 新建 PluginDrivenTableSink」与代码不符；plugin-driven 写经 `visitPhysicalConnectorTableSink` + 既有 `PluginDrivenTableSink`，W5 改为在其上 layer `planWrite()` | [写 RFC §5.5/§12 W5](./tasks/designs/connector-write-spi-rfc.md) / [HANDOFF W5](./HANDOFF.md) | 2026-06-06 | 🟢 已修正（W5 `9ebe5e27fa4`）|
 | DV-008 | P3-T07 parity 两处 SPI↔legacy 偏差：列名 casing 当场修；Hudi meta-field 推迟批 E | [tasks/P3 §批C/T07](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正 |
@@ -31,6 +32,19 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-011 — P4-T03：连接器事务 block 上限 + 异常类型（import-gate 禁 fe-core common）
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：P4 Batch B session（P4-T03 写前核实 import-gate 边界：`org.apache.doris.common.{Config,UserException}` 均在禁列）
+- **当前状态**：🟢 已修正（P4-T03）
+- **原计划位置**：[P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md)（港 legacy `MCTransaction` block 分配 + commit）
+- **偏差描述**：legacy `MCTransaction.allocateBlockIdRange` 用 fe-core `Config.max_compute_write_max_block_count`（默认 20000，fe.conf 可调）作上限、并 `throws UserException`。连接器 import-gate 禁 `org.apache.doris.common.*`（含 `Config`/`UserException`），二者均不可 import。
+- **新方案**：① 上限改连接器常量 `MaxComputeConnectorTransaction.MAX_BLOCK_COUNT = 20000L`（镜像 legacy 默认值，**丢 fe.conf 可调性**；Rule 2 不投机，如需再经 `MCConnectorProperties` 暴露）。② 校验失败抛 `DorisConnectorException`（unchecked；SPI `ConnectorTransaction.allocateWriteBlockRange` 面无 checked throws，W4 `PluginDrivenTransaction` 适配）。
+- **影响范围**：连接器 `MaxComputeConnectorTransaction`（dormant，gate 关，零 live）。行为：block 上限值不变（20000），仅来源 Config→常量；异常类型 UserException→DorisConnectorException（语义等价的写失败）。
+- **关联**：P4-T03、[P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md)、[D-024]
+- **后续动作**：
+  - [ ] 如运维需可调 block 上限：经 `MCConnectorProperties` 暴露（非本 task）
 
 ### DV-010 — P4-T01：共享 fe-core ConnectorColumnConverter 丢 CHAR/VARCHAR 长度，特判修复（用户签字）
 
