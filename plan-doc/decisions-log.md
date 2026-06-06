@@ -15,6 +15,8 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-022 | — | 写/事务 SPI 设计：A 连接器事务为源·桥接 / B1 commit 载荷 opaque bytes / C1 block-id 窄 callback seam / D INSERT·DELETE·MERGE（defer procedures）/ E 写-plan-provider 仿 scan | 2026-06-06 | ✅ |
+| D-021 | — | P4 maxcompute 采 scope=C（写-SPI RFC 先行）：先做共享写/事务 SPI + 通用层解耦（W-phase），再逐连接器 adopter | 2026-06-06 | ✅ |
 | D-020 | — | 单 `hms` catalog 多格式 scan 路由 = 方案 B（`ConnectorMetadata.getScanPlanProvider(handle)` per-table default）；细化 D-005（design-only，实现批 E/P7）| 2026-06-05 | ✅ |
 | D-019 | — | P3 hudi 采用 hybrid：现做 model-agnostic 连接器硬化+测试（behind gate），推迟 catalog 模型落地+cutover 到 hive/HMS migration | 2026-06-04 | ✅ |
 | D-018 | U6 | `ConnectorColumnStatistics` 用 javadoc 类型映射表 + IAE 保证类型安全 | 2026-05-24 | ✅ |
@@ -39,6 +41,34 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-022 — 写/事务 SPI 设计（A / B1 / C1 / D / E）
+
+- **日期**：2026-06-06
+- **状态**：✅ 生效
+- **关联**：[写/事务 SPI RFC](./tasks/designs/connector-write-spi-rfc.md)、[research/connector-write-spi-recon.md](./research/connector-write-spi-recon.md)、[D-021]（scope=C）、[D-009]（default-only）、[01-spi-extensions-rfc.md E11](./01-spi-extensions-rfc.md)、W-phase commits（W1+W2 `be945476ba7`、W3+W6 `9ad2bbe40ec`、W4 `759cc0874c8`、W5 `9ebe5e27fa4`）
+- **背景**：P4 maxcompute recon 证它在热路径会写（`MCTransaction` 在 `Coordinator`/`FrontendServiceImpl`/`LoadProcessor` concrete cast）；写路径 = 翻闸 keystone。三现存写者 maxcompute/hive/iceberg 同写生命周期 ⊥ 三处分歧（commit 载荷型 / mc block-id / iceberg procedures+delete/merge），paimon 今读后写需前瞻。须定写/事务 SPI 形状。
+- **决策**（用户签字 2026-06-06）：
+  - **A 事务模型统一·桥接**：连接器 `ConnectorTransaction` 为单一事实源；fe-core 通用写编排经 `PluginDrivenTransaction`（`PluginDrivenTransactionManager` 产）桥接，只调多态 fe-core `Transaction`；现存 `MC/HMS/IcebergTransaction` 过渡期 override 适配，逐连接器迁入 plugin。
+  - **B1 commit 载荷 opaque bytes**：BE→FE commit 载荷（`TMCCommitData`/`THivePartitionUpdate`/`TIcebergCommitData`）`TBinaryProtocol` 序列化为 `byte[]`，经 `Transaction.addCommitData(byte[])` / `ConnectorTransaction.addCommitData` 交连接器反序列化。零 BE 改、保全富信息、消除 3 处 concrete cast。留一处序列化 shim（fail-loud，Open-1）。
+  - **C1 block-id 窄 callback seam**：`Transaction.supportsWriteBlockAllocation()` + `allocateWriteBlockRange()` 默认方法，仅 maxcompute override，消 `FrontendServiceImpl` `instanceof MCTransaction`。拒 C2 过度泛化 / C3 留特例。
+  - **D INSERT/DELETE/MERGE**：SPI 形状定全；实现 mc/hive=insert、iceberg=+delete/merge（P6）。**defer**：iceberg procedures（E2/P6）、hive 行级 ACID、各连接器代码搬迁（adopter 阶段）。
+  - **E 写-plan-provider 仿 scan**：连接器经 `ConnectorWritePlanProvider.planWrite()` 产 opaque `TDataSink`（仿 `ConnectorScanPlanProvider`）；`Connector.getWritePlanProvider()` default null。
+- **替代方案**：B2 中立 envelope（丢富信息，否决）/ B3 thrift union 漏进 SPI（否决）；C2/C3（否决）。见 RFC §11。
+- **影响**：W-phase（W1–W7）落地共享 SPI 面 + 通用层解耦，**behind gate、零行为变更、golden 等价**；逐连接器 adopter（P4 mc / P6 iceberg / P7 hive）后续。新方法均 default（满足 [D-009]），BE 契约不变。W5 落地暴露 [DV-009]（写 sink 收口位置修正）。
+
+---
+
+### D-021 — P4 maxcompute 采 scope=C（写-SPI RFC 先行）
+
+- **日期**：2026-06-06
+- **状态**：✅ 生效
+- **关联**：[research/p4-maxcompute-migration-recon.md](./research/p4-maxcompute-migration-recon.md)、[写/事务 SPI RFC](./tasks/designs/connector-write-spi-rfc.md)、[D-022]（写 SPI 设计）、[connectors/maxcompute.md](./connectors/maxcompute.md)
+- **背景**：P4 启动 recon 发现 maxcompute 在热路径**会写**（非只读骨架），写路径是翻闸前提。可选 scope：A 仅迁读+推迟写；B 连写一起但不先定 SPI；**C 写-SPI RFC 先行**（先设计共享写/事务 SPI + 通用层解耦，再迁连接器）。
+- **决策**（用户签字 2026-06-06）：采 **scope=C**——先出写/事务 SPI RFC（[D-022]）并落 **W-phase**（共享解耦 + SPI 面，gate 不动、零行为变更），再做 maxcompute full adopter（搬类 + impl 写 SPI + 翻闸）。理由：写面是 mc/hive/iceberg 共享 keystone，先收口避免每连接器重造、降低反向 instanceof 清理风险。
+- **影响**：P4 在 adopter 前插入 W-phase（写 RFC 直接后续）；hive(P7)/iceberg(P6) 复用同一 SPI。W-phase 不翻闸、不搬类、不删 legacy。
+
+---
 
 ### D-020 — 单 `hms` catalog 多格式 scan 路由 = 方案 B（per-table SPI provider）
 

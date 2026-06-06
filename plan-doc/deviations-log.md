@@ -13,10 +13,12 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **7** 项。
+> 时间倒序；当前共 **9** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-009 | W5 写 sink 收口位置：RFC/handoff「route 3 个 visitPhysicalXxxTableSink + 新建 PluginDrivenTableSink」与代码不符；plugin-driven 写经 `visitPhysicalConnectorTableSink` + 既有 `PluginDrivenTableSink`，W5 改为在其上 layer `planWrite()` | [写 RFC §5.5/§12 W5](./tasks/designs/connector-write-spi-rfc.md) / [HANDOFF W5](./HANDOFF.md) | 2026-06-06 | 🟢 已修正（W5 `9ebe5e27fa4`）|
+| DV-008 | P3-T07 parity 两处 SPI↔legacy 偏差：列名 casing 当场修；Hudi meta-field 推迟批 E | [tasks/P3 §批C/T07](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正 |
 | DV-007 | P3 批 B scope 校正：T05 `listPartitions*` override 推迟批 E（零 live caller、Hive 不 override）；T06 MVCC 保持 default opt-out（非抛异常 override）| [HANDOFF 未完成 #1/#2](./HANDOFF.md) / [tasks/P3 T05/T06](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正（T05 裁剪已落地；list*/MVCC 入批 E）|
 | DV-006 | P3-T03 schema_id/history 非批 A 可修（连接器缺 field-id/InternalSchema/type→thrift；裸基线会回归）；推迟批 E | [HANDOFF 1b ①](./HANDOFF.md) / [tasks/P3 T03](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟡 推迟（批 E）|
 | DV-005 | P3 hudi「HMS-over-SPI 前置依赖」与代码不符；真阻塞=catalog 模型错配 | [connectors/hudi.md](./connectors/hudi.md) / [master plan §3.4](./00-connector-migration-master-plan.md) / D-005 | 2026-06-04 | 🟡 待修正（P3 模型决策）|
@@ -28,6 +30,21 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-009 — W5 写 sink 收口位置与 RFC/handoff 措辞不符：plugin-driven 写已有专路，改为 layer planWrite
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：W-phase 实现 session（W5 启动前 2 路 Explore code-grounded recon：sink 入参 + nereids 写 sink 接线；主线 firsthand 核读 `PhysicalPlanTranslator.visitPhysicalConnectorTableSink` / `planner/PluginDrivenTableSink`）
+- **当前状态**：🟢 已修正（W5 commit `9ebe5e27fa4`；用户 AskUserQuestion 签字「Corrected W5 (layer planWrite)」）
+- **原计划位置**：[写 RFC §5.5 / §12 W5](./tasks/designs/connector-write-spi-rfc.md)、[HANDOFF W5 锚点](./HANDOFF.md)——原措辞：「新建 fe-core `PluginDrivenTableSink` + `PhysicalPlanTranslator` 各 `visitPhysicalXxxTableSink`（hive/iceberg/mc）→ `planWrite()`，保 PhysicalXxxSink fallback」。
+- **偏差描述**：RFC/handoff 写于不知既有路径之时。实测（recon + firsthand 核读）：
+  1. `PluginDrivenTableSink` **已存在**（`planner/PluginDrivenTableSink.java`，P0/P1 JDBC 期建），非新建。
+  2. plugin-driven 写 INSERT **不**走 `visitPhysicalHive/Iceberg/MaxComputeTableSink`（那 3 个服务 legacy 非 plugin-driven 表）；走专路 `UnboundConnectorTableSink → LogicalConnectorTableSink → PhysicalConnectorTableSink → visitPhysicalConnectorTableSink`（`PhysicalPlanTranslator:644`），已据 `ConnectorWriteConfig`（config-bag）建 `PluginDrivenTableSink`。mc/hive/iceberg 迁 plugin-driven 后走此专路 → 在那 3 个 concrete 方法加 planWrite 路由是**死代码**。
+  3. 两写-sink 模型并存：既有 **config-bag**（连接器返 `ConnectorWriteConfig` 属性包，fe-core 建 `THiveTableSink`/`TJdbcTableSink`；表达不了 mc/iceberg）⊥ 新 **opaque-sink**（W1 `ConnectorWritePlanProvider.planWrite()` 连接器自建 `TDataSink`，RFC §5.5 E 决策，可泛化）。RFC 未察 config-bag 已存在，故未调和二者。
+- **新方案**（用户签字）：在既有 `visitPhysicalConnectorTableSink` + `PluginDrivenTableSink.bindDataSink` 上 **layer** `planWrite()` 为优先路径（`connector.getWritePlanProvider() != null` 时），config-bag 为 fallback。**不动** 3 个 concrete visit 方法。零行为变更（无连接器 override `getWritePlanProvider`，jdbc 仍走 config-bag）。`ConnectorWriteHandle`/`ConnectorSinkPlan`（W1）形状经使用确认充分，无需改。
+- **缩界（R12 不静默）**：overwrite / 静态分区 / writePath 等 connector-specific write context 的 handle 填充留 P4 adopter（base `InsertCommandContext` 为空 marker，无通用 overwrite；强行 instanceof 子类会再耦合 fe-core）。W5 仅建 seam（空 context）。
+
+---
 
 ### DV-008 — P3-T07 parity 暴露两处 SPI↔legacy 偏差：列名 casing 当场修；Hudi meta-field 纳入推迟批 E
 

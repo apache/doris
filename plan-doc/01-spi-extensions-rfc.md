@@ -99,6 +99,7 @@ fe-connector-api/src/main/java/org/apache/doris/connector/api/
 | E8 | `ConnectorColumnStatistics` | `ConnectorStatisticsOps.setColumnStatistics(...)` |
 | E9 | `ConnectorWriteType.DELETE` / `MERGE_DELETE` / `MERGE_INSERT` 三个新枚举值 | `ConnectorWriteOps.getDeleteConfig / getMergeConfig` |
 | E10 | — | `ConnectorTableOps.listPartitionNames` + `listPartitions(handle, filter)` |
+| E11 | `ConnectorWritePlanProvider`、`ConnectorSinkPlan`、`ConnectorWriteHandle`（写包）| `Connector.getWritePlanProvider()`、`ConnectorTransaction.addCommitData / supportsWriteBlockAllocation / allocateWriteBlockRange / getUpdateCnt`（[D-022]；详见 §20 + 写 RFC）|
 
 ---
 
@@ -1246,3 +1247,20 @@ fi
 | `range` | 显式范围分区，初始值在 `initialValues` | Doris |
 
 未列出的字符串视为 `CUSTOM`，由 connector 内部识别。
+
+---
+
+## 20. 扩展 E11：写/事务 SPI（写-plan-provider + ConnectorTransaction 写回调）
+
+> 后补节（2026-06-06），置于附录后以避免重排既有节号。完整设计见 [写/事务 SPI RFC](./tasks/designs/connector-write-spi-rfc.md)（§5 API / §8 fe-core 改动 / §12 W1→W7）。决策见 [D-022](./decisions-log.md)（A/B1/C1/D/E）；W5 收口位置修正见 [DV-009](./deviations-log.md)。
+
+把 fe-core 通用写编排（`Coordinator`/`LoadProcessor`/`FrontendServiceImpl`/`TransactionManager`）完全多态化，消除全部 `instanceof *Transaction` / concrete cast；定义连接器写/事务 SPI（maxcompute P4 / iceberg P6 / hive P7 实现，paimon P5 零 SPI 改动接入）。**保 BE 契约不变**。
+
+**SPI 面（default-only，[D-009]）**：
+- `ConnectorTransaction`（既有，+4 default）：`addCommitData(byte[])`（B1）、`supportsWriteBlockAllocation()` / `allocateWriteBlockRange(sid, count)`（C1）、`getUpdateCnt()`。fe-core `Transaction` 加同名 default；`PluginDrivenTransaction`（`PluginDrivenTransactionManager` 产）桥接委派（A）。
+- `ConnectorWritePlanProvider.planWrite(session, handle) → ConnectorSinkPlan(TDataSink)`（E，仿 `ConnectorScanPlanProvider`）；`Connector.getWritePlanProvider()` default null。`ConnectorWriteHandle` = {tableHandle, columns, overwrite, writeContext}；`ConnectorSinkPlan` 包 opaque `TDataSink`。
+- DML 覆盖 INSERT / DELETE / MERGE（D）；procedures defer（E2 / P6）。
+
+**三处 seam**：B1 commit 载荷 opaque bytes（`TBinaryProtocol` 序列化，单点 `CommitDataSerializer`，连接器反序列化）；C1 maxcompute block-id 窄 callback；E 写-plan-provider 产 opaque `TDataSink`。
+
+**W-phase 落地**（behind gate、零行为变更、golden 等价）：W1+W2（SPI 面 + `Transaction` 泛化）`be945476ba7`；W3+W6（解耦 3 热路径 + golden 测）`9ad2bbe40ec`；W4（`PluginDrivenTransaction` 委派）`759cc0874c8`；W5（`planWrite` layer 进 `visitPhysicalConnectorTableSink`，见 [DV-009]）`9ebe5e27fa4`；W7（本节 + [D-021]/[D-022]）。逐连接器 adopter（搬类 + impl 写 SPI + 翻闸）= P4 / P6 / P7。

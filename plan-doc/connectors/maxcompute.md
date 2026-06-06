@@ -73,5 +73,8 @@
 
 ## 进度日志
 
+### 2026-06-06
+- **W-phase（共享写/事务 SPI）全落地**（[D-021](../decisions-log.md) / [D-022](../decisions-log.md)）：maxcompute 是首个 adopter 的靶。**写接线 seam 已就位**——fe-core `Transaction` 写回调 + `PluginDrivenTransaction` 桥（W4 `759cc0874c8`）、写-plan-provider layer 进既有 plugin-driven 写路径（W5 `9ebe5e27fa4`，[DV-009](../deviations-log.md)）。**P4 adopter 待做**：搬 `datasource/maxcompute/` → `fe-connector-maxcompute`；impl `ConnectorWriteOps`(insert) / `ConnectorTransaction`(over `addCommitData` + `allocateWriteBlockRange`，仅 mc 需 block-id seam) / `ConnectorWritePlanProvider`(产 `TMaxComputeTableSink`)；翻闸 `SPI_READY_TYPES+="max_compute"` + 删 `CatalogFactory` case + GSON 兼容 + `getEngine` 分支；清 ~12 反向 instanceof；连接器测试基线。详见 [写 RFC §12](../tasks/designs/connector-write-spi-rfc.md)。
+
 ### 2026-05-24
 - 跟踪文件建立。60% 实现已就位；重复类 `McStructureHelper` 已在 P1 清单。
