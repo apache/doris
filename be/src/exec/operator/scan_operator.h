@@ -35,6 +35,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vin_predicate.h"
 #include "runtime/descriptors.h"
+#include "runtime/scan_filter_profile.h"
 #include "storage/predicate/filter_olap_param.h"
 
 namespace doris {
@@ -98,6 +99,8 @@ public:
 
     Status clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts);
 
+    std::shared_ptr<ScanFilterProfile> scan_filter_profile() const { return _scan_filter_profile; }
+
 protected:
     friend class ScannerContext;
     friend class Scanner;
@@ -110,6 +113,7 @@ protected:
     virtual Status _on_runtime_filter_update();
 
     Status _do_partition_pruning_by_rf();
+    virtual ScanRuntimeFilterPartitionPruningStats _runtime_filter_partition_pruning_stats() const;
 
     std::atomic<bool> _opened {false};
 
@@ -130,6 +134,8 @@ protected:
     RuntimeProfile::Counter* _filter_timer = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
+
+    std::shared_ptr<ScanFilterProfile> _scan_filter_profile;
 
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
@@ -185,6 +191,8 @@ protected:
         pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
+
+    ScanFilterHandle _register_scan_filter(const VExprSPtr& root, const SlotDescriptor* slot);
 
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
@@ -338,6 +346,7 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
+    phmap::flat_hash_map<int, std::vector<int32_t>> _slot_id_to_scan_filter_ids_for_key_range;
     std::vector<std::shared_ptr<MutilColumnBlockPredicate>> _or_predicates;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;

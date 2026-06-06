@@ -35,6 +35,7 @@ namespace doris {
 class RowCursor;
 class DeleteBitmap;
 class DeleteHandler;
+class ScanFilterProfile;
 class TabletSchema;
 
 struct RowsetReaderContext {
@@ -70,6 +71,8 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
+    std::shared_ptr<ScanFilterProfile> scan_filter_profile;
+    ScanFilterHandle key_range_scan_filter;
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;

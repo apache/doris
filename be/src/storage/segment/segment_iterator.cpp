@@ -826,7 +826,13 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     }
     size_t pre_size = _row_bitmap.cardinality();
     _row_bitmap &= RowRanges::ranges_to_roaring(result_ranges);
-    _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
+    const size_t post_size = _row_bitmap.cardinality();
+    _opts.stats->rows_key_range_filtered += (pre_size - post_size);
+    if (_opts.key_range_scan_filter) {
+        _opts.key_range_scan_filter.stats->record(ScanFilterStage::KEY_RANGE,
+                                                  static_cast<int64_t>(pre_size),
+                                                  static_cast<int64_t>(post_size));
+    }
 
     return Status::OK();
 }
@@ -1186,10 +1192,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 continue;
             }
             // get row ranges by bf index of this column,
-            RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
-                    _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges));
-            RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
+                    _opts.col_id_to_predicates.at(cid).get(), &bf_row_ranges));
         }
 
         pre_size = condition_row_ranges->count();
@@ -1219,16 +1223,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 continue;
             }
             // get row ranges by zone map of this column,
-            RowRanges column_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
                     _opts.col_id_to_predicates.at(cid).get(),
                     _opts.del_predicates_for_zone_map.count(cid) > 0
                             ? &(_opts.del_predicates_for_zone_map.at(cid))
                             : nullptr,
-                    &column_row_ranges));
-            // intersect different columns's row ranges to get final row ranges by zone map
-            RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
-                                           &zone_map_row_ranges);
+                    &zone_map_row_ranges));
         }
 
         pre_size = condition_row_ranges->count();
@@ -1333,7 +1333,14 @@ Status SegmentIterator::_apply_index_expr() {
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
             _opts.runtime_state->query_options().enable_ann_index_result_cache;
 
+    std::unique_ptr<roaring::Roaring> scan_filter_profile_bitmap;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+        const bool collect_scan_filter_stats = static_cast<bool>(expr_ctx->scan_filter_handle());
+        if (collect_scan_filter_stats && scan_filter_profile_bitmap == nullptr) {
+            scan_filter_profile_bitmap = std::make_unique<roaring::Roaring>(_row_bitmap);
+        }
+        const size_t origin_rows =
+                collect_scan_filter_stats ? scan_filter_profile_bitmap->cardinality() : 0;
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
@@ -1343,6 +1350,17 @@ Status SegmentIterator::_apply_index_expr() {
                              << expr_ctx->root()->debug_string()
                              << ", error msg: " << st.to_string();
                 return st;
+            }
+        }
+        if (collect_scan_filter_stats && expr_ctx->get_index_context() != nullptr &&
+            expr_ctx->root() != nullptr) {
+            const auto* result = expr_ctx->get_index_context()->get_index_result_for_expr(
+                    expr_ctx->root().get());
+            if (result != nullptr && result->get_data_bitmap() != nullptr) {
+                *scan_filter_profile_bitmap &= *result->get_data_bitmap();
+                expr_ctx->scan_filter_handle().stats->record(
+                        ScanFilterStage::INDEX_INVERTED, static_cast<int64_t>(origin_rows),
+                        static_cast<int64_t>(scan_filter_profile_bitmap->cardinality()));
             }
         }
     }
@@ -1376,6 +1394,11 @@ Status SegmentIterator::_apply_index_expr() {
                 _common_expr_to_slotref_map, _row_bitmap, ann_index_stats,
                 enable_ann_index_result_cache, &ann_range_search_executed));
         if (ann_range_search_executed) {
+            if (expr_ctx->scan_filter_handle()) {
+                expr_ctx->scan_filter_handle().stats->record(
+                        ScanFilterStage::INDEX_ANN, static_cast<int64_t>(origin_rows),
+                        static_cast<int64_t>(_row_bitmap.cardinality()));
+            }
             _opts.stats->ann_index_range_search_cnt++;
         }
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
@@ -1455,6 +1478,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     } else {
         bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
+        const size_t rows_before = _row_bitmap.cardinality();
         Status res =
                 pred->evaluate(_storage_name_and_type[pred->column_id()],
                                _index_iterators[pred->column_id()].get(), num_rows(), &_row_bitmap);
@@ -1467,6 +1491,12 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
                          << ", error msg: " << res;
             return res;
+        }
+        const size_t rows_after = _row_bitmap.cardinality();
+        if (pred->scan_filter_handle()) {
+            pred->scan_filter_handle().stats->record(ScanFilterStage::INDEX_INVERTED,
+                                                     static_cast<int64_t>(rows_before),
+                                                     static_cast<int64_t>(rows_after));
         }
 
         if (_row_bitmap.isEmpty()) {
@@ -2602,6 +2632,10 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
             all_pred_always_true = false;
         } else {
             pred->update_filter_info(0, 0, selected_size);
+            if (pred->scan_filter_handle()) {
+                pred->scan_filter_handle().stats->record(ScanFilterStage::EXEC_VECTOR,
+                                                         selected_size, selected_size);
+            }
         }
     }
 
@@ -2619,6 +2653,8 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     _ret_flags.resize(original_size);
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
+    int64_t current_selected_rows = original_size;
+    const bool collect_scan_filter_stats = _opts.scan_filter_profile != nullptr;
     for (auto& pred : _pre_eval_block_predicate) {
         if (pred->always_true()) {
             continue;
@@ -2630,6 +2666,15 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
             is_first = false;
         } else {
             pred->evaluate_and_vec(*column, original_size, (bool*)_ret_flags.data());
+        }
+        if (collect_scan_filter_stats) {
+            const int64_t output_rows =
+                    std::count(_ret_flags.begin(), _ret_flags.begin() + original_size, 1);
+            if (pred->scan_filter_handle()) {
+                pred->scan_filter_handle().stats->record(ScanFilterStage::EXEC_VECTOR,
+                                                         current_selected_rows, output_rows);
+            }
+            current_selected_rows = output_rows;
         }
     }
 
@@ -2680,7 +2725,12 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
+        const uint16_t rows_before = selected_size;
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+        if (predicate->scan_filter_handle()) {
+            predicate->scan_filter_handle().stats->record(ScanFilterStage::EXEC_SHORT_CIRCUIT,
+                                                          rows_before, selected_size);
+        }
     }
 
     _opts.stats->short_circuit_cond_input_rows += original_size;
@@ -3208,7 +3258,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
 
     IColumn::Filter filter;
     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-            _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
+            _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter,
+            ScanFilterStage::EXEC_COMMON_EXPR));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
     _opts.stats->rows_expr_cond_filtered += original_size - selected_size;

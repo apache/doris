@@ -27,6 +27,7 @@
 #include "exprs/runtime_filter_expr.h"
 #include "format/parquet/parquet_predicate.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/scan_filter_profile.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/zone_map/zone_map_index.h"
@@ -316,6 +317,10 @@ public:
 
     bool opposite() const { return _opposite; }
 
+    void attach_scan_filter(ScanFilterHandle handle) { _scan_filter_handle = std::move(handle); }
+
+    const ScanFilterHandle& scan_filter_handle() const { return _scan_filter_handle; }
+
     void attach_profile_counter(
             int filter_id, std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
             std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
@@ -422,6 +427,8 @@ protected:
     // without recalculating. At the beginning of the next period,
     // reset_judge_selectivity is used to reset these variables.
     mutable RuntimeFilterSelectivity _rf_selectivity;
+
+    ScanFilterHandle _scan_filter_handle;
 
     std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);

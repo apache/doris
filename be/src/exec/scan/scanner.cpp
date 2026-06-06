@@ -197,7 +197,8 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
 Status Scanner::_filter_output_block(Block* block) {
     auto old_rows = block->rows();
-    Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
+    Status st = VExprContext::filter_block(_conjuncts, block, block->columns(),
+                                           ScanFilterStage::EXEC_RESIDUAL);
     _counter.num_rows_unselected += old_rows - block->rows();
     return st;
 }

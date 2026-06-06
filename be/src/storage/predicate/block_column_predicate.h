@@ -60,6 +60,15 @@ public:
     virtual void get_all_column_predicate(
             std::set<std::shared_ptr<const ColumnPredicate>>& predicate_set) const = 0;
 
+    virtual ScanFilterHandle scan_filter_handle() const { return {}; }
+    virtual bool has_scan_filter() const { return static_cast<bool>(scan_filter_handle()); }
+    virtual void record_scan_filter(ScanFilterStage stage, int64_t input_rows,
+                                    int64_t output_rows) const {
+        if (auto handle = scan_filter_handle()) {
+            handle.stats->record(stage, input_rows, output_rows);
+        }
+    }
+
     virtual uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const {
         return selected_size;
     }
@@ -126,6 +135,10 @@ public:
         predicate_set.insert(_predicate);
     }
 
+    ScanFilterHandle scan_filter_handle() const override {
+        return _predicate->scan_filter_handle();
+    }
+
     uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const override;
     void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
@@ -175,6 +188,22 @@ public:
     }
 
     size_t num_of_column_predicate() const { return _block_column_predicate_vec.size(); }
+
+    bool has_scan_filter() const override {
+        for (const auto& child_block_predicate : _block_column_predicate_vec) {
+            if (child_block_predicate->has_scan_filter()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void record_scan_filter(ScanFilterStage stage, int64_t input_rows,
+                            int64_t output_rows) const override {
+        for (const auto& child_block_predicate : _block_column_predicate_vec) {
+            child_block_predicate->record_scan_filter(stage, input_rows, output_rows);
+        }
+    }
 
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         for (auto& child_block_predicate : _block_column_predicate_vec) {
@@ -235,9 +264,18 @@ public:
 
     bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override;
 
+    bool evaluate_and_with_scan_filter(const segment_v2::ZoneMap& zone_map, ScanFilterStage stage,
+                                       int64_t input_rows) const;
+
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
 
+    bool evaluate_and_with_scan_filter(const segment_v2::BloomFilter* bf, ScanFilterStage stage,
+                                       int64_t input_rows) const;
+
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
+
+    bool evaluate_and_with_scan_filter(const StringRef* dict_words, const size_t dict_num,
+                                       ScanFilterStage stage, int64_t input_rows) const;
 
     bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         for (auto& block_column_predicate : _block_column_predicate_vec) {

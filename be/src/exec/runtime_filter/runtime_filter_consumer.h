@@ -28,6 +28,8 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
+class ScanFilterProfile;
+
 // Work on ScanNode or MultiCastDataStreamSource, RuntimeFilterConsumerHelper will manage all RuntimeFilterConsumer
 // Used to create RuntimeFilterExpr to filter data
 class RuntimeFilterConsumer : public RuntimeFilter {
@@ -68,6 +70,7 @@ public:
 
     // Called by RuntimeFilterConsumerHelper
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
+    void collect_scan_filter_profile(ScanFilterProfile* scan_filter_profile);
 
     static std::string to_string(const State& state) {
         switch (state) {

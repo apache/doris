@@ -228,6 +228,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.runtime_state = _read_context->runtime_state;
+    _read_options.scan_filter_profile = _read_context->scan_filter_profile;
+    _read_options.key_range_scan_filter = _read_context->key_range_scan_filter;
     _read_options.output_columns = _read_context->output_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;

@@ -133,8 +133,10 @@ public:
     int64_t tablet_id() const { return _tablet_id; }
 
     void update_profile(RuntimeProfile* profile) override {
-        _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
-        _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
+        if (_opts.scan_filter_profile == nullptr) {
+            _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
+            _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
+        }
 
         if (_opts.delete_condition_predicates != nullptr) {
             std::set<std::shared_ptr<const ColumnPredicate>> delete_predicate_set;

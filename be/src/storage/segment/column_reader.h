@@ -261,7 +261,8 @@ private:
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts);
+            const RowRanges& input_row_ranges, std::vector<uint32_t>* page_indexes,
+            const ColumnIteratorOptions& iter_opts);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
                                  const ColumnIteratorOptions& iter_opts);

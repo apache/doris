@@ -28,6 +28,24 @@ namespace segment_v2 {
 class InvertedIndexIterator;
 } // namespace segment_v2
 
+namespace {
+
+template <typename EvaluateFunc>
+bool evaluate_and_with_scan_filter(
+        const std::vector<std::unique_ptr<BlockColumnPredicate>>& predicates, ScanFilterStage stage,
+        int64_t input_rows, EvaluateFunc&& evaluate_func) {
+    for (auto& predicate : predicates) {
+        const bool matched = evaluate_func(*predicate);
+        predicate->record_scan_filter(stage, input_rows, matched ? input_rows : 0);
+        if (!matched) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 uint16_t SingleColumnBlockPredicate::evaluate(MutableColumns& block, uint16_t* sel,
                                               uint16_t selected_size) const {
     auto column_id = _predicate->column_id();
@@ -181,6 +199,15 @@ bool AndBlockColumnPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) 
     return true;
 }
 
+bool AndBlockColumnPredicate::evaluate_and_with_scan_filter(const segment_v2::ZoneMap& zone_map,
+                                                            ScanFilterStage stage,
+                                                            int64_t input_rows) const {
+    return doris::evaluate_and_with_scan_filter(_block_column_predicate_vec, stage, input_rows,
+                                                [&zone_map](const BlockColumnPredicate& predicate) {
+                                                    return predicate.evaluate_and(zone_map);
+                                                });
+}
+
 bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {
         if (!block_column_predicate->evaluate_and(bf)) {
@@ -188,6 +215,14 @@ bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) co
         }
     }
     return true;
+}
+
+bool AndBlockColumnPredicate::evaluate_and_with_scan_filter(const segment_v2::BloomFilter* bf,
+                                                            ScanFilterStage stage,
+                                                            int64_t input_rows) const {
+    return doris::evaluate_and_with_scan_filter(
+            _block_column_predicate_vec, stage, input_rows,
+            [bf](const BlockColumnPredicate& predicate) { return predicate.evaluate_and(bf); });
 }
 
 bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
@@ -198,6 +233,17 @@ bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
         }
     }
     return true;
+}
+
+bool AndBlockColumnPredicate::evaluate_and_with_scan_filter(const StringRef* dict_words,
+                                                            const size_t dict_num,
+                                                            ScanFilterStage stage,
+                                                            int64_t input_rows) const {
+    return doris::evaluate_and_with_scan_filter(
+            _block_column_predicate_vec, stage, input_rows,
+            [dict_words, dict_num](const BlockColumnPredicate& predicate) {
+                return predicate.evaluate_and(dict_words, dict_num);
+            });
 }
 
 void AndBlockColumnPredicate::evaluate_or(MutableColumns& block, uint16_t* sel,

@@ -17,20 +17,24 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 
 #include "core/string_ref.h" // IWYU pragma: keep
 #include "exprs/function_context.h"
+#include "runtime/scan_filter_profile.h"
 
 namespace doris {
 
 class FunctionFilter {
 public:
     FunctionFilter(bool opposite, const std::string& col_name, doris::FunctionContext* fn_ctx,
-                   doris::StringRef string_param)
+                   doris::StringRef string_param,
+                   ScanFilterHandle scan_filter_handle = ScanFilterHandle())
             : _opposite(opposite),
               _col_name(col_name),
               _fn_ctx(fn_ctx),
-              _string_param(string_param) {}
+              _string_param(string_param),
+              _scan_filter_handle(std::move(scan_filter_handle)) {}
 
     bool _opposite;
     std::string _col_name;
@@ -38,6 +42,7 @@ public:
     doris::FunctionContext* _fn_ctx = nullptr;
     // only one param from conjunct, because now only support like predicate
     doris::StringRef _string_param;
+    ScanFilterHandle _scan_filter_handle;
 };
 
 } // namespace doris

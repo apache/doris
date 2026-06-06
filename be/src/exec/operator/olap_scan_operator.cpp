@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -53,6 +54,50 @@
 #include "util/to_string.h"
 
 namespace doris {
+
+namespace {
+
+constexpr int64_t MAX_PROFILE_KEY_RANGES = 32;
+
+int64_t key_range_count(const std::vector<std::unique_ptr<OlapScanRange>>& ranges) {
+    int64_t count = 0;
+    for (const auto& range : ranges) {
+        if (range->has_lower_bound) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+std::string scan_keys_profile_string(const std::vector<std::unique_ptr<OlapScanRange>>& ranges) {
+    fmt::memory_buffer scan_keys_buffer;
+    int64_t range_count = 0;
+    int64_t printed = 0;
+    for (const auto& range : ranges) {
+        if (!range->has_lower_bound) {
+            continue;
+        }
+        if (printed < MAX_PROFILE_KEY_RANGES) {
+            if (printed > 0) {
+                fmt::format_to(scan_keys_buffer, "; ");
+            }
+            fmt::format_to(scan_keys_buffer, "{}{} : {}{}", range->begin_include ? "[" : "(",
+                           range->begin_scan_range.debug_string(),
+                           range->end_scan_range.debug_string(), range->end_include ? "]" : ")");
+            ++printed;
+        }
+        ++range_count;
+    }
+    if (range_count > printed) {
+        if (printed > 0) {
+            fmt::format_to(scan_keys_buffer, "; ");
+        }
+        fmt::format_to(scan_keys_buffer, "... {} more", range_count - printed);
+    }
+    return fmt::to_string(scan_keys_buffer);
+}
+
+} // namespace
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
@@ -582,6 +627,27 @@ bool OlapScanLocalState::_read_mor_as_dup() {
     return p._olap_scan_node.__isset.read_mor_as_dup && p._olap_scan_node.read_mor_as_dup;
 }
 
+void OlapScanLocalState::_register_key_range_scan_filter() {
+    if (_scan_filter_profile == nullptr || _key_range_scan_filter) {
+        return;
+    }
+
+    std::vector<int32_t> source_filter_ids;
+    for (const auto& [_, filter_ids] : _slot_id_to_scan_filter_ids_for_key_range) {
+        source_filter_ids.insert(source_filter_ids.end(), filter_ids.begin(), filter_ids.end());
+    }
+    std::ranges::sort(source_filter_ids);
+    source_filter_ids.erase(std::ranges::unique(source_filter_ids).begin(),
+                            source_filter_ids.end());
+
+    ScanFilterDesc desc;
+    desc.kind = ScanFilterKind::KEY_RANGE;
+    desc.compact_info = scan_keys_profile_string(_cond_ranges);
+    desc.source_filter_ids = std::move(source_filter_ids);
+    desc.range_count = key_range_count(_cond_ranges);
+    _key_range_scan_filter = _scan_filter_profile->register_filter(std::move(desc));
+}
+
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
@@ -604,6 +670,10 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // key range to the tablet reader.
     if (_cond_ranges.empty()) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
+    }
+    if (std::ranges::any_of(_cond_ranges,
+                            [](const auto& range) { return range->has_lower_bound; })) {
+        _register_key_range_scan_filter();
     }
 
     // Filter out tablets whose partitions have been pruned by runtime filters.
@@ -1204,6 +1274,16 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                 for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
                     if (!can_erase_predicate(*it)) {
                         new_predicates.push_back(it);
+                    } else if (_scan_filter_profile != nullptr) {
+                        const auto& handle = it->scan_filter_handle();
+                        if (handle) {
+                            auto& source_ids =
+                                    _slot_id_to_scan_filter_ids_for_key_range[*key_to_erase];
+                            if (std::find(source_ids.begin(), source_ids.end(), handle.filter_id) ==
+                                source_ids.end()) {
+                                source_ids.push_back(handle.filter_id);
+                            }
+                        }
                     }
                 }
                 if (new_predicates.empty()) {
@@ -1224,7 +1304,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
     }
 
     if (state()->enable_profile()) {
-        custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
+        if (_scan_filter_profile == nullptr) {
+            custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
+        }
         custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
     VLOG_CRITICAL << _scan_keys.debug_string();
@@ -1291,6 +1373,13 @@ void OlapScanLocalState::_attach_partition_boundaries() {
         return;
     }
     COUNTER_SET(_total_partitions_rf_counter, parsed->total_partitions());
+}
+
+ScanRuntimeFilterPartitionPruningStats OlapScanLocalState::_runtime_filter_partition_pruning_stats()
+        const {
+    auto stats = ScanLocalStateBase::_runtime_filter_partition_pruning_stats();
+    stats.pruned_tablets = _tablets_pruned_by_rf_counter->value();
+    return stats;
 }
 
 } // namespace doris
