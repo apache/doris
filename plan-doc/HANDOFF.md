@@ -8,57 +8,71 @@
 
 ## 📅 最后一次 handoff
 
-- **日期 / 时间**：2026-06-04
-- **本 session 主题**：**P2 批 C+D+E 连续完成**（T07 翻闸 → T08-T10 删 legacy → T11 单测 → T13 文档），**T12 推迟**，**PR 待开**（分支基线对齐由用户处理）
-- **分支**：`catalog-spi-03`
+- **日期 / 时间**：2026-06-05
+- **本 session 主题**：**P3 批 D 完成（T08，design-only）**——`tableFormatType` 分流消费设计备忘 + **[D-020]**（用户签字 M2=方案 B per-table SPI provider）。**P3 hybrid in-scope（批 A–D）全部完成**；剩批 E（live cutover）并入 P7。**P3 PR [#64143](https://github.com/apache/doris/pull/64143) 已开**（base branch-catalog-spi）。
+- **分支**：`catalog-spi-04`（P3 工作分支，基于 `branch-catalog-spi`）。工作树预期 clean（仅本地未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.bak`；**`plan-doc/research/` 本 session 已纳入 git 跟踪**）。
 
 ---
 
 ## ✅ 本 session 完成项
 
-> 注：用户本 session 开始前把 `catalog-spi-03` **rebase 到了新 master**，所有旧 commit hash 已变。下方为 rebase 后的新 hash。
+| Task | 结果 | commits |
+|---|---|---|
+| **P3-T08** tableFormatType 分流消费设计备忘 | ✅ design-only（零代码）；产出设计备忘 + [D-020]（M2=方案 B）；核心拆解 M1⊥M2 | 本 doc commit |
 
-### 批 C — T07 翻闸（commit `0fe4b8a93d6`）
+**净产出** = 设计备忘 `designs/P3-T08-tableformat-dispatch-design.md` + 决策 D-020 + 把上 session 的 recon 研究文件纳入跟踪。**P3 hybrid 全部 in-scope（批 A–D）完成**：2 正确性修（T02/T05）+ 2 fail-loud/决策（T04/T06）+ 测试网零→59 测（T07）+ 模型 dispatch 设计（T08/D-020）。
 
-`CatalogFactory.java:53` `SPI_READY_TYPES` 加 `"trino-connector"`（顺手删上方注释里过时的 trino 列举）。这一步把 `CREATE CATALOG type='trino-connector'` 路由到 SPI（`PluginDrivenExternalCatalog`），关闭了批 B→批 C 的 regression window。compile + checkstyle 绿。
-
-### 批 D — 删 fe-core legacy trino 代码（commit `ed81a063fe8`，14 文件 / +1 −2508）
-
-- **T08** `PhysicalPlanTranslator`：删 `instanceof TrinoConnectorExternalTable` scan 分支 + 2 import（`PluginDrivenExternalTable` SPI 前置分支接管）。
-- **T09** `CatalogFactory`：删 `case "trino-connector"` + import。
-- **T10**：删 `datasource/trinoconnector/` 整目录（10 文件）+ 删 legacy 测试 `TrinoConnectorPredicateTest`。
-- **DV-001（HANDOFF 原计划漏项，recon 补回）**：`ExternalCatalog.java:948` `case TRINO_CONNECTOR` 改返 `PluginDrivenExternalDatabase`（照搬已迁移的 JDBC case，line 936）+ 删 import。
-- **有意保留**：`MetastoreProperties.Type.TRINO_CONNECTOR` + `TrinoConnectorPropertiesFactory`（属性子系统，不引用被删目录，SPI 路径可能仍需）；`InitCatalogLog.Type.TRINO_CONNECTOR` + `TableType.TRINO_CONNECTOR_EXTERNAL_TABLE` 枚举（image compat）；`GsonUtils` 3 个 label redirect（批 B 已处理，T10 **不碰** GsonUtils）。
-- 守门：fe-core `clean test-compile`（main+test）BUILD SUCCESS、checkstyle 0、fe-connector import-gate SUCCESS。
-
-### 批 E — T11 单测（commit `9bba12a44b2`，3 文件 / +441）
-
-3 个 JUnit5（Jupiter）纯转换器测试，**29 测试全绿**，checkstyle 0，本地 `mvn -pl fe-connector/fe-connector-trino -am test` 可跑：
-- `TrinoPredicateConverterTest`（14）— `ConnectorExpression` pushdown → Trino `TupleDomain`（EQ/range/NE/IN/NOT IN/IS [NOT] NULL/AND/OR、Slice 编码、null/unsupported 优雅降级到 `all()`）。
-- `TrinoTypeMappingTest`（11）— Trino type → Doris `ConnectorType`（标量、decimal 精度/scale、timestamp 精度 clamp 到 6、array/map/struct、unknown 抛错）。
-- `TrinoConnectorProviderTest`（4）— `validateProperties` 缺/空 `trino.connector.name` fail-fast（批 A T01）。
-- **DV-002**：fe-connector-trino 无 Mockito、`TrinoJsonSerializer` 非纯单元（需 plugin 的 HandleResolver+TypeRegistry）→ 砍 json/schema，用 `validateProperties` 替补第 3 类；plugin 依赖路径由现有 `external_table_p0/p2` trino_connector regression 套件覆盖。
-
-### T13 — 跟踪文档同步（本次提交）
-
-PROGRESS / tasks/P2 / connectors/trino-connector.md / deviations-log（DV-001..004）/ 本 HANDOFF 全部翻到 P2 完成态。
+**commit stack**（新→旧）：本 doc commit→`76586b2`(批 C handoff)→`435065f`(T07 feat)→`04f6576`(批 B handoff)→`10b72d4`(T05)→`301fe38`(批 A handoff)→`2758cf9`(T04 doc)→`feceabb`(T04)→`517c9cf`(T03 defer)→`ac0dc7c`(T02 doc)→`95f23e9`(T02)→`9fcf21a`(recon/D-019)→`0793f03`(P2)→`2b1a3bb`(P1)→`72d6d01`(P0)。
 
 ---
 
-## 🚧 未完成 / 待办
+## 🚧 未完成 / 待办（下一 session：三选一，待用户定）
 
-1. **PR 未开 —— 阻塞于分支基线错位（用户处理）**。`catalog-spi-03` 现基于**新 master**（含 `#63823 split fe-sql-parser`、`#64016 TLS` 等 master-only commit），而远端 `apache/doris:branch-catalog-spi` 仍停在 P1 merge `778c5dd610f`（旧 master 基线）；两者分叉于 `68d4eb308e5`（#63552）。`git rev-list --count upstream-apache/branch-catalog-spi..HEAD` = **191**（仅顶部 7 个是 P2）。**直接开 `catalog-spi-03 → branch-catalog-spi` 会是 191-commit 的错误巨型 PR**。等用户对齐分支后再开。
-2. **T12 回归测试推迟**（DV-003）——`trino_connector_migration_compat`（CREATE CATALOG→image→重启读回 + 旧 image 含 `TRINO_CONNECTOR` 枚举反序列化），需有 Trino plugin + docker/集群的环境。
+**P3 hybrid in-scope（批 A–D）已全部完成，PR #64143 已开。** 没有"批 D 之后的批"——批 E 是 deferred、并入 P7。下一 session：
+
+1. **监控 [PR #64143](https://github.com/apache/doris/pull/64143)**：base = `apache/doris:branch-catalog-spi`、head = `morningman:catalog-spi-04`，26 files +3065/−154、12 commits。盯 CI、处理 review comment（review 改动在本分支 `catalog-spi-04` 续 commit + push 即自动进 PR）。前序 P0/P1/P2 PR 均 **squash-merge**。
+2. **批 E 并入 P7**（不在 P3 编码）：live cutover——见下「批 E backlog」。属 hive/HMS migration（P7 或专门子阶段），不在本 PR 内。
+3. **启 P4**（maxcompute）：若 P3 告一段落，按 master plan 进下一连接器。
+
+> ⚠️ 三选项**都不应**在 P3 分支内碰 `SPI_READY_TYPES` / fe-core 消费实现 / legacy `datasource/hudi/` / 非 hudi 连接器——皆批 E。
+
+### 批 E backlog（登记，不在 P3 编码；T08/D-020 已为其出设计）
+- **M1**（T08 设计）：fe-core `PluginDrivenExternalTable` 消费 `tableFormatType`——`PluginDrivenSchemaCacheValue` 缓存格式 + `getEngine/getEngineTableTypeName` per-table 化（opaque 串、热路径不读）。
+- **M2**（T08/D-020 设计）：新增 default `ConnectorMetadata.getScanPlanProvider(handle)` + fe-core `PluginDrivenScanNode.getSplits` 优先 per-table 回落 per-catalog + hms 网关按 `handle.getTableType()` 委派。
+- T03 schema_id/history 完整 field-id evolution（DV-006）
+- T05 `listPartitions*` override（DV-007）；T06 完整 MVCC（DV-007）；T04 完整 snapshot 透传 + 增量 SPI
+- **T07 gap-2**：Hudi meta-field 纳入（`getTableAvroSchema()` 无参 vs legacy `(true)`）真实 fixture 实证（DV-008）；gap-1 余项 `ThriftHmsClient` 源头防御降字（DV-008）
+- T09–T11（模型落地/gate flip/删 legacy/集群验证）；Iceberg-on-hms 经 SPI 依赖 **P6** 补 `IcebergScanPlanProvider`（M3）；探测共享化消 drift（M5，P7）
+- 端到端/集群验证（COW/MOR schema vs live legacy、BE JNI parse parity、混合多格式 catalog）
 
 ---
 
 ## ⚠️ 关键认知 / 临时发现
 
-1. **rebase 后 fe-core 编译坑（非代码问题）**：本场最大时间消耗。rebase 拉入 `#63823`（nereids 语法从 fe-core 拆到新模块 `fe-sql-parser`）后，`fe-core/target/generated-sources/.../DorisParser.java` 旧生成物残留（git 不管 target/），FQCN 撞名盖过 fe-sql-parser 依赖里的新版 → `LogicalPlanBuilder` 报 `cannot find symbol HOT()/expression()`。**修法：`clean` fe-core**（旧生成物删除、fe-core 已无 grammar 不会再生成）。只 clean fe-sql-parser 不够。任何 rebase 后遇此症状先 clean fe-core，别当代码 bug 查。
-2. **`MetastoreProperties` trino 条目有意保留**：它在 `property/metastore/` 子系统、不引用被删目录、删之不影响编译，但 SPI 建 catalog 可能仍走它解析属性。批 D 不动它；是否死代码留待后续评估（DV-001 后续动作）。
-3. **docs-next 不在本代码仓**：用户向文档在 doris-website 仓（DV-004）。本仓只有 `docs/`。
-4. （沿用）`tools/check-connector-imports.sh` import gate：fe-core 不能 import `org.apache.doris.connector.*`。
-5. （沿用）P1 fallback：`PhysicalPlanTranslator` 里其余 6 个连接器的 instanceof 分支待 P3-P7 各自迁完时删；本场只清了 trino 那一支（T08）。
+### 1.【T08/D-020 新结论】keystone gap = M1（身份消费）⊥ M2（scan 路由），可分离
+- `tableFormatType` **产而不用**：`HiveConnectorMetadata.getTableSchema` 设了它，但 `PluginDrivenExternalTable.initSchema:79-109` **只读 `getColumns()`**、丢 `getTableFormatType()`（本 session firsthand 核读确认）。第二缺口：`getEngine:195-215`/`getEngineTableTypeName:217-231` switch **catalog type** 非 per-table format。
+- **M1**（fe-core 读格式做 per-table 引擎名/身份，**opaque 串、热路径不读**）在 A/B/C **三方案通用**；**M2**（单 hms connector 产 Hudi/Iceberg scan plan）才是 A/B/C 分歧处。→ keystone 可控化。
+- **M2 = 方案 B**（[D-020]，用户签字）：新增向后兼容 default `ConnectorMetadata.getScanPlanProvider(handle)`（默认 null→回落 per-catalog `Connector.getScanPlanProvider()`），fe-core `PluginDrivenScanNode.getSplits` 优先 per-table、回落 per-catalog。前提：`ConnectorScanPlanProvider.planScan:62-66` 入参已带 per-table handle（本 session 核实）。**A 备选**（连接器内 router，零 SPI churn）；**C 否决**（fe-core 长格式分派，违瘦 fe-core）。
+- **D-020 细化 D-005**（非推翻）：tableFormatType 区分符沿用；D-005 的"fe-core→PhysicalXxxScan"措辞早于 P1 scan-node 统一，由 per-table provider seam 取代。**批 E 实现别按 D-005 旧措辞做 PhysicalXxxScan**。
+
+### 2.【批 C 已用，批 E 仍需】parity 可行性 = golden-value（无跨模块编译路径）
+- `fe-core` 只依赖 `fe-connector-api` + `fe-connector-spi`，**不依赖**具体 `-hudi`/`-hms`/`-hive` 模块；连接器模块不依赖 fe-core。import-gate（`tools/check-connector-imports.sh`）**只扫 `*/src/main/java`、只禁 connector→fe-core 单向**（test 豁免，但无编译路径仍使跨模块 parity 不可行）。
+- → legacy↔SPI parity 用 **golden 值**（注 legacy `file:line`）。测试栈 **JUnit5 only，无 mockito**，替身手写（`FakeHmsClient` 先例）。checkstyle **含 test 源**（`fe/pom.xml:162`）、**禁 static import**（用 `Assertions.assertX`）、**test 阶段不跑 checkstyle** → 单独 `mvn -pl <module> checkstyle:check`。
+
+### 3.【批 C 关键结论】COW/MOR schema = type-agnostic
+- legacy `HMSExternalTable.initHudiSchema` 与 SPI `HudiConnectorMetadata.getTableSchema`→`avroSchemaToColumns` 都从**同一 avro schema** 推导列表，**零表型分支**。COW/MOR 区别**只在 scan planning**（`HudiScanPlanProvider.planScan:92`：COW=base files native、MOR=merged slices + delta logs JNI）。→ schema parity 是 avro→column 纯函数；表型只影响 `detectHudiTableType` + split 收集。
+
+### 4.（沿用）SPI 分区裁剪链路 + Hive parity 基准（T05）
+- `PluginDrivenScanNode.applyFilter`→`currentHandle`→`getSplits`→`HudiScanPlanProvider.resolvePartitions` 读 `getPrunedPartitionPaths()`。Hudi `applyFilter` 镜像 `HiveConnectorMetadata.applyFilter`（7 步 + 7 helper duplicate，hudi 仅依赖 fe-connector-hms）。
+
+### 5.（沿用）BE Hudi JNI column_types/names/delta 契约（T02）
+- `THudiFileDesc.{delta_logs,column_names,column_types}` thrift `list<string>`；**BE 自做 join**：names `,` / types **`#`** / delta `,`（`hudi_jni_reader.cpp:52-54`）。FE 传 typed list、类型串用 Hive 串（`HudiTypeMapping.toHiveTypeString`，非 `getTypeName()`）。
+
+### 6.（沿用）批 E 去向 + 沿用坑
+- rebase 后 fe-core `target/generated-sources/.../DorisParser.java` 残留 → cannot find symbol：**clean fe-core**（非 fe-sql-parser），别当代码 bug 查。
+- `PhysicalPlanTranslator` 里 hudi **之外**的连接器 `instanceof` 分支待各自 P 阶段迁完再删，**本场只动 hudi**。
+- 用户向文档在 doris-website 仓（DV-004）。
+- connectors/hudi.md 的 §关联「偏差：（暂无）」是 pre-existing 陈旧（实际 DV-005..008 相关），本场未顺手改（surgical）；下次清 kanban 时一并修。
 
 ---
 
@@ -66,72 +80,51 @@ PROGRESS / tasks/P2 / connectors/trino-connector.md / deviations-log（DV-001..0
 
 ```
 1. 自检：
-   git branch --show-current → catalog-spi-03
-   git log --oneline -8 → 顶层应是 9bba12a44b2 (T11) → ed81a063fe8 (T08-T10)
-                          → 0fe4b8a93d6 (T07) → 5e504a24883 (doc) → 9ed33f9a7a5 (批 B)
-                          → 69203b6418e (批 A) → 8f0b749bd06 (recon) → 3adabcaf54b (P1)
-   git status → 干净（本次文档 commit 之后）
+   git branch --show-current → catalog-spi-04
+   git log --oneline -6 → <本 doc>(T08/D-020) 76586b2(批 C handoff) 435065f(T07 feat) 04f6576 10b72d4 301fe38
+   git status → clean（除 .audit-scratch/ conf.cmy/ regression-conf.bak；research/ 现已跟踪）
+   Read PROGRESS.md §一/§三 + 本文件关键认知 1（M1⊥M2 + D-020）
 
-2. 解决 PR base（核心待办）：
-   - git fetch upstream-apache branch-catalog-spi
-   - 确认 branch-catalog-spi 是否仍停在 778c5dd610f（P1）。
-   - 推荐做法：从远端 branch-catalog-spi 拉新分支（如 catalog-spi-03-pr），
-     cherry-pick 这 7 个 P2 commit（8f0b749bd06 recon → 69203b6418e A → 9ed33f9a7a5 B
-     → 5e504a24883 doc → 0fe4b8a93d6 C → ed81a063fe8 D → 9bba12a44b2 E）。
-     注意：branch-catalog-spi 没有 fe-sql-parser 拆分（#63823），但我们的改动与之正交，
-     cherry-pick 后应能编译；在该分支上重跑 fe-core compile + fe-connector-trino test 验证。
-   - 或：等 branch-catalog-spi 被刷新到 master 后直接用 catalog-spi-03。
-   - PR：gh pr create --repo apache/doris --base branch-catalog-spi --head morningman:<分支>
-     --title "[feat](connector) P2 trino-connector migration"
+2. PR #64143 已开（base apache/doris:branch-catalog-spi、head morningman:catalog-spi-04）：
+   gh pr view 64143 --repo apache/doris   → 盯 CI / review
+   review 改动在 catalog-spi-04 续 commit + push 即自动进 PR（前序均 squash-merge）
+   合入后：批 E 并入 P7（T08/D-020 已出 M1+M2 设计）或启 P4
+   → P3 内不碰 SPI_READY_TYPES / fe-core 消费实现 / legacy / 非 hudi 连接器（皆批 E）
 
-3. T12 回归测试：在有 Trino plugin + docker/集群环境补（DV-003）。
-
-4. 之后启动 P3 Hudi 迁移（见 00-master-plan / connectors/hudi.md）。
-   注意 P1-T4 incrementalRelation 是 P3 Hudi SPI 缺口。
+3. 若走 (2) 批 E：实现序见本文件「批 E backlog」M1→M2→M4→翻闸；
+   设计直接读 designs/P3-T08-tableformat-dispatch-design.md（M1+M2 + Implementation Plan + Open）。
 ```
 
 ---
 
-## 📋 P2 commit 节奏（branch `catalog-spi-03`，rebase 到新 master 后）
+## 📂 P3 关键文件锚点
 
 ```
-9bba12a44b2  [test](connector) [P2-T11] add fe-connector-trino unit tests              ← 批 E
-ed81a063fe8  [refactor](connector) [P2-T08-T10] remove legacy trino-connector code      ← 批 D
-0fe4b8a93d6  [feat](connector) [P2-T07] enable trino-connector in SPI_READY_TYPES        ← 批 C
-5e504a24883  [doc](connector) refresh P2 HANDOFF for batch C kickoff
-9ed33f9a7a5  [feat](connector) [P2-T03-T06] bridge trino-connector through fe-core       ← 批 B
-69203b6418e  [feat](connector) [P2-T01-T02] complete trino-connector SPI surface         ← 批 A
-8f0b749bd06  [doc](connector) P2 trino-connector recon + task breakdown                  ← 批 0
-3adabcaf54b  [P1-T03-T05] route plugin-driven scans first (#63641)                       ← P1（rebase 后新 hash）
-```
-
-本次文档 commit（T13）将追加一条 `[doc](connector) [P2-T13] sync P2 tracking docs`。
-
-> ⚠️ 这 7 个 P2 commit 是干净的；问题只在 base（见 §未完成 1）。PR 不要在 base 对齐前开。
-
----
-
-## 📂 本场修改 / 新增的关键文件
-
-```
-批 C (0fe4b8a93d6):  fe-core/.../datasource/CatalogFactory.java (SPI_READY_TYPES)
-批 D (ed81a063fe8):  fe-core/.../nereids/glue/translator/PhysicalPlanTranslator.java (删 trino 分支+import)
-                     fe-core/.../datasource/CatalogFactory.java (删 case+import)
-                     fe-core/.../datasource/ExternalCatalog.java (TRINO_CONNECTOR db→PluginDrivenExternalDatabase, DV-001)
-                     删 fe-core/.../datasource/trinoconnector/ (10 文件)
-                     删 fe-core/src/test/.../trinoconnector/TrinoConnectorPredicateTest.java
-批 E (9bba12a44b2):  新建 fe-connector/fe-connector-trino/src/test/.../trino/
-                       TrinoPredicateConverterTest.java / TrinoTypeMappingTest.java / TrinoConnectorProviderTest.java
-T13:                 plan-doc/{PROGRESS, tasks/P2, connectors/trino-connector, deviations-log, HANDOFF}.md
+T02（已修）:  HudiTypeMapping.toHiveTypeString / HudiScanRange（typed list）/ BE hudi_jni_reader.cpp:52-54
+T03（批 E）:  ExternalUtil.initSchemaInfo / BE table_schema_change_helper.h:219-267 / HudiColumnHandle（无 field id）
+T04（已修）:  PhysicalPlanTranslator.visitPhysicalHudiScan SPI 分支（两守卫）
+T05（已修）:  HudiConnectorMetadata.applyFilter（7 步 + 7 helper）/ HudiPartitionPruningTest（FakeHmsClient 先例）
+T06（决策）:  ConnectorMetadata MVCC 三 default / 无 override（opt-out）
+T07（已修）:  HudiConnectorMetadata.avroSchemaToColumns（顶层降字 + package-private static）
+              测试: hudi HudiTypeMappingTest/HudiSchemaParityTest/HudiTableTypeTest；hms HmsTypeMappingTest；hive HiveFileFormatTest/HiveConnectorMetadataPartitionPruningTest
+              设计: designs/P3-T07-test-baseline-design.md
+T08（本场，设计）: 设计 designs/P3-T08-tableformat-dispatch-design.md；决策 D-020
+   keystone:   PluginDrivenExternalTable.initSchema:79-109（只读 columns）/ getEngine:195-215 / getEngineTableTypeName:217-231（switch catalog type）
+   M2 seam:    ConnectorMetadata:37-44（加 default getScanPlanProvider(handle)）/ Connector.getScanPlanProvider:40-42（per-catalog 回落）
+               ConnectorScanPlanProvider.planScan:62-66（入参带 handle）/ PluginDrivenScanNode.getSplits（~356-378，fe-core 改动点，批 E）
+   载体:       ConnectorTableSchema.getTableFormatType:58-60
+   素材:       plan-doc/research/spi-multi-format-hms-catalog-analysis.md（本场已跟踪）
+gate:         CatalogFactory.java:52（SPI_READY_TYPES，不含 hms/hudi——别动）
+设计备忘:     plan-doc/tasks/designs/P3-T02-*.md / T04 / T05 / T06 / T07 / T08
+scratch:      .audit-scratch/p3-t0X-*.workflow.js（本地 workflow 脚本，未跟踪）
 ```
 
 ---
 
 ## 🧠 给下一个 agent 的 meta 建议
 
-- **分支 `catalog-spi-03`** 现基于 master；**开 PR 前务必先解决 base 错位**（§未完成 1），否则会是 191-commit 错误 PR。
-- rebase 后 fe-core 编译失败先想到 **clean fe-core**（stale DorisParser），别查代码（§关键认知 1）。
-- commit message 沿用 `[feat|refactor|test|doc](connector) [P2-Tnn] ...`。
-- Maven：cwd=`fe/` 或 `-f fe/pom.xml`；`-pl fe-core -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`。
-- **不要乱碰 P1 fallback 中 trino 之外的连接器分支**。
-- 偏差先记 `deviations-log.md` 再改文档（本场 DV-001..004 已记）。
+- **P3 hybrid 收尾**：批 A–D 已全部 in-scope 完成。下一步是**分叉决策**（PR / 批 E→P7 / P4），**先问用户**，别默认开 PR 或自动进 P4。
+- **批 E 实现按 T08 设计走**（M1⊥M2，M2=方案 B），**别按 D-005 旧"PhysicalXxxScan"措辞**（已被 D-020 supersede）。新 default 方法保持 D-009（不破签名）。
+- 偏差先记 `deviations-log.md` 再改文档；架构/可行性 fork 先问用户（本场 M2 方案 B 已签字 → D-020）。
+- Maven：cwd=`fe/`；`-pl <module> -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`；**checkstyle 单独跑**（含 test 源）；**禁 static import**。
+```
