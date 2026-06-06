@@ -16,6 +16,19 @@
 # under the License.
 
 # Make sure compile check in doris will not break compilation of faiss and openblas
+# Strip sanitizer flags to prevent build-time tools (e.g., openblas getarch) from
+# triggering LeakSanitizer/AddressSanitizer errors during CMake configure phase
+string(REGEX REPLACE "-fsanitize=[a-z,=_./-]+" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-fsanitize=[a-z,=_./-]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REGEX REPLACE "-fno-sanitize=[a-z,=_./-]+" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-fno-sanitize=[a-z,=_./-]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REGEX REPLACE "-fsanitize-ignorelist=[a-z,=_./-]+" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-fsanitize-ignorelist=[a-z,=_./-]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REGEX REPLACE "-D[A-Z_]+SANITIZER" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-D[A-Z_]+SANITIZER" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+# Strip -mcmodel= which is x86_64-specific and unsupported on aarch64
+string(REGEX REPLACE "-mcmodel=[a-z]+" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-mcmodel=[a-z]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 
