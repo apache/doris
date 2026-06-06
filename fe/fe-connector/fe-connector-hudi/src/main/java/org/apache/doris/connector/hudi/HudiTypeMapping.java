@@ -78,6 +78,99 @@ public final class HudiTypeMapping {
         }
     }
 
+    /**
+     * Convert an Avro schema to a Hive type string, mirroring fe-core
+     * {@code HudiUtils.convertAvroToHiveType}.
+     *
+     * <p>This feeds the BE Hudi JNI scanner's {@code hudi_column_types} param.
+     * The BE joins the per-column type list with {@code '#'} and the scanner
+     * ({@code HadoopHudiJniScanner}) splits it back on {@code '#'} — so each
+     * returned string is a single list element and may safely contain commas
+     * (e.g. {@code decimal(10,2)}, {@code struct<a:int,b:string>},
+     * {@code map<string,int>}).</p>
+     *
+     * <p>This is distinct from {@link #fromAvroSchema}, which maps Avro to a
+     * Doris {@link ConnectorType} for schema reporting. The JNI reader needs
+     * Hive type strings, not Doris type names.</p>
+     *
+     * @throws IllegalArgumentException for unsupported types (matches the
+     *         legacy fail-loud behavior)
+     */
+    public static String toHiveTypeString(Schema schema) {
+        Schema.Type type = schema.getType();
+        LogicalType logicalType = schema.getLogicalType();
+
+        switch (type) {
+            case BOOLEAN:
+                return "boolean";
+            case INT:
+                if (logicalType instanceof LogicalTypes.Date) {
+                    return "date";
+                }
+                if (logicalType instanceof LogicalTypes.TimeMillis) {
+                    throw unsupportedLogicalType(schema);
+                }
+                return "int";
+            case LONG:
+                if (logicalType instanceof LogicalTypes.TimestampMillis
+                        || logicalType instanceof LogicalTypes.TimestampMicros) {
+                    return "timestamp";
+                }
+                if (logicalType instanceof LogicalTypes.TimeMicros) {
+                    throw unsupportedLogicalType(schema);
+                }
+                return "bigint";
+            case FLOAT:
+                return "float";
+            case DOUBLE:
+                return "double";
+            case STRING:
+                return "string";
+            case FIXED:
+            case BYTES:
+                if (logicalType instanceof LogicalTypes.Decimal) {
+                    LogicalTypes.Decimal decimalType = (LogicalTypes.Decimal) logicalType;
+                    return String.format("decimal(%d,%d)",
+                            decimalType.getPrecision(), decimalType.getScale());
+                }
+                return "string";
+            case ARRAY:
+                return String.format("array<%s>",
+                        toHiveTypeString(schema.getElementType()));
+            case RECORD:
+                List<Schema.Field> recordFields = schema.getFields();
+                if (recordFields.isEmpty()) {
+                    throw new IllegalArgumentException("Record must have fields");
+                }
+                String structFields = recordFields.stream()
+                        .map(field -> String.format("%s:%s", field.name(),
+                                toHiveTypeString(field.schema())))
+                        .collect(Collectors.joining(","));
+                return String.format("struct<%s>", structFields);
+            case MAP:
+                return String.format("map<string,%s>",
+                        toHiveTypeString(schema.getValueType()));
+            case UNION:
+                List<Schema> unionTypes = schema.getTypes().stream()
+                        .filter(s -> s.getType() != Schema.Type.NULL)
+                        .collect(Collectors.toList());
+                if (unionTypes.size() == 1) {
+                    return toHiveTypeString(unionTypes.get(0));
+                }
+                break;
+            default:
+                break;
+        }
+
+        throw new IllegalArgumentException(String.format(
+                "Unsupported type: %s for column: %s", type.getName(), schema.getName()));
+    }
+
+    private static IllegalArgumentException unsupportedLogicalType(Schema schema) {
+        return new IllegalArgumentException(
+                String.format("Unsupported logical type: %s", schema.getLogicalType()));
+    }
+
     private static ConnectorType mapIntType(LogicalType logicalType) {
         if (logicalType instanceof LogicalTypes.Date) {
             return ConnectorType.of("DATEV2");
