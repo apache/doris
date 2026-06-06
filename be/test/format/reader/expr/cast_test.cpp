@@ -343,7 +343,8 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
@@ -376,6 +377,54 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     file_request.conjuncts[0]->close();
 }
 
+TEST_F(CastTest, ColumnMapperRepreparesRewrittenPreparedFilter) {
+    reader::TableColumnMapper mapper;
+    reader::ColumnDefinition table_column;
+    table_column.identifier = Field::create_field<TYPE_INT>(7);
+    table_column.name = "value";
+    table_column.type = std::make_shared<DataTypeInt64>();
+    std::vector<reader::ColumnDefinition> projected_columns {table_column};
+
+    reader::ColumnDefinition file_field;
+    file_field.identifier = Field::create_field<TYPE_INT>(0);
+    file_field.name = "value";
+    file_field.type = std::make_shared<DataTypeInt32>();
+    std::vector<reader::ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto cast = Cast::create_shared(table_column.type);
+    cast->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    reader::TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(cast);
+    table_filter.global_indices = {reader::GlobalIndex(0)};
+    status = table_filter.conjunct->prepare(&state, RowDescriptor());
+    ASSERT_TRUE(status.ok()) << status;
+    status = table_filter.conjunct->open(&state);
+    ASSERT_TRUE(status.ok()) << status;
+
+    reader::FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_expr.get()), nullptr);
+    ASSERT_EQ(localized_expr->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const TableSlotRef*>(localized_expr->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+
+    status = file_request.conjuncts[0]->prepare(&state, RowDescriptor());
+    ASSERT_TRUE(status.ok()) << status;
+    status = file_request.conjuncts[0]->open(&state);
+    ASSERT_TRUE(status.ok()) << status;
+
+    file_request.conjuncts[0]->close();
+}
+
 TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     reader::TableColumnMapper mapper;
     reader::ColumnDefinition table_column;
@@ -403,7 +452,8 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
@@ -462,7 +512,8 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
@@ -522,7 +573,8 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
@@ -566,7 +618,8 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 3);
@@ -608,7 +661,9 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
     reader::TableColumnMapper int_mapper;
     ASSERT_TRUE(int_mapper.create_mapping(projected_columns, {}, {int_file_field}).ok());
     reader::FileScanRequest int_request;
-    ASSERT_TRUE(int_mapper.create_scan_request({table_filter}, {}, projected_columns, &int_request)
+    ASSERT_TRUE(int_mapper
+                        .create_scan_request({table_filter}, {}, projected_columns, &int_request,
+                                             &state)
                         .ok());
     ASSERT_EQ(int_request.conjuncts.size(), 1);
     const auto& int_localized_expr = int_request.conjuncts[0]->root();
@@ -626,7 +681,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     reader::FileScanRequest bigint_request;
     ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request)
+                        .create_scan_request({table_filter}, {}, projected_columns,
+                                             &bigint_request, &state)
                         .ok());
     ASSERT_EQ(bigint_request.conjuncts.size(), 1);
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
@@ -668,7 +724,8 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
@@ -706,7 +763,9 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
     reader::TableColumnMapper int_mapper;
     ASSERT_TRUE(int_mapper.create_mapping(projected_columns, {}, {int_file_field}).ok());
     reader::FileScanRequest int_request;
-    ASSERT_TRUE(int_mapper.create_scan_request({table_filter}, {}, projected_columns, &int_request)
+    ASSERT_TRUE(int_mapper
+                        .create_scan_request({table_filter}, {}, projected_columns, &int_request,
+                                             &state)
                         .ok());
     ASSERT_EQ(int_request.conjuncts.size(), 1);
     const auto& int_localized_expr = int_request.conjuncts[0]->root();
@@ -722,7 +781,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     reader::FileScanRequest bigint_request;
     ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request)
+                        .create_scan_request({table_filter}, {}, projected_columns,
+                                             &bigint_request, &state)
                         .ok());
     ASSERT_EQ(bigint_request.conjuncts.size(), 1);
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
@@ -764,7 +824,8 @@ TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
 
     reader::FileScanRequest file_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
+                    .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
@@ -804,9 +865,12 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
 
     reader::FileScanRequest first_request;
     ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &first_request).ok());
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &first_request, &state)
+                    .ok());
     reader::FileScanRequest second_request;
-    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &second_request)
+    ASSERT_TRUE(mapper
+                        .create_scan_request({table_filter}, {}, projected_columns,
+                                             &second_request, &state)
                         .ok());
 
     ASSERT_EQ(second_request.conjuncts.size(), 1);
@@ -841,7 +905,9 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     reader::TableColumnMapper int_mapper;
     ASSERT_TRUE(int_mapper.create_mapping(projected_columns, {}, {int_file_field}).ok());
     reader::FileScanRequest int_request;
-    ASSERT_TRUE(int_mapper.create_scan_request({table_filter}, {}, projected_columns, &int_request)
+    ASSERT_TRUE(int_mapper
+                        .create_scan_request({table_filter}, {}, projected_columns, &int_request,
+                                             &state)
                         .ok());
 
     const auto& int_localized_expr = int_request.conjuncts[0]->root();
@@ -857,7 +923,8 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     reader::FileScanRequest bigint_request;
     ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request)
+                        .create_scan_request({table_filter}, {}, projected_columns,
+                                             &bigint_request, &state)
                         .ok());
 
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
@@ -907,7 +974,7 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     table_filter.global_indices = {reader::GlobalIndex(0)};
 
     reader::FileScanRequest first_request;
-    ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &first_request).ok());
+    ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &first_request, &state).ok());
     ASSERT_EQ(first_request.conjuncts.size(), 1);
     const auto* first_slot = assert_cast<const TableSlotRef*>(
             first_request.conjuncts[0]->root()->children()[0].get());
@@ -918,7 +985,7 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     second_request.local_positions.emplace(reader::LocalColumnId(9), reader::LocalIndex(0));
     second_request.local_positions.emplace(reader::LocalColumnId(10), reader::LocalIndex(1));
     second_request.non_predicate_columns.push_back(field_projection(9));
-    ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &second_request).ok());
+    ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &second_request, &state).ok());
     ASSERT_EQ(second_request.conjuncts.size(), 1);
     const auto* second_slot = assert_cast<const TableSlotRef*>(
             second_request.conjuncts[0]->root()->children()[0].get());

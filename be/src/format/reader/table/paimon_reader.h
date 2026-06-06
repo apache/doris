@@ -28,10 +28,17 @@ class PaimonReader final : public reader::TableReader {
 public:
     ENABLE_FACTORY_CREATOR(PaimonReader);
     ~PaimonReader() final = default;
+    Status prepare_split(const reader::SplitReadOptions& options) override;
 
 protected:
+    reader::TableColumnMappingMode mapping_mode() const override;
+    Status annotate_file_schema(std::vector<reader::ColumnDefinition>* file_schema) override;
+
     Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                        bool* has_delete_file) override;
+
+private:
+    int64_t _split_schema_id = -1;
 };
 
 } // namespace doris::paimon

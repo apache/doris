@@ -83,8 +83,30 @@ typename PrimitiveTypeTraits<T>::CppType read_decimal_decoded_value(const Decode
 
 template <PrimitiveType T>
 Status read_decimal_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.value_kind == DecodedValueKind::INT32 || view.value_kind == DecodedValueKind::INT64) {
+        if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+            return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+        }
+    } else if (view.binary_values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded binary values are null for {}", column.get_name());
+    }
     auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(typename PrimitiveTypeTraits<T>::CppType());
+            continue;
+        }
+        if (view.value_kind == DecodedValueKind::BINARY ||
+            view.value_kind == DecodedValueKind::FIXED_BINARY) {
+            const auto& value = (*view.binary_values)[row];
+            const auto length = view.value_kind == DecodedValueKind::FIXED_BINARY
+                                        ? view.fixed_length
+                                        : cast_set<int, size_t, false>(value.size);
+            if (value.data == nullptr && length > 0) {
+                return Status::Corruption("Decoded decimal binary value is null for {} at row {}",
+                                          column.get_name(), row);
+            }
+        }
         data.push_back(read_decimal_decoded_value<T>(view, row));
     }
     return Status::OK();

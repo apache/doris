@@ -52,8 +52,10 @@ public:
     }
 
     Status prepare_split(const reader::SplitReadOptions& options) override;
-    reader::TableColumnMappingMode default_mapping_mode() const override {
-        return reader::TableColumnMappingMode::BY_FIELD_ID;
+    reader::TableColumnMappingMode mapping_mode() const override {
+        return !_data_reader.file_schema.empty() && _has_field_id(_data_reader.file_schema)
+                       ? reader::TableColumnMappingMode::BY_FIELD_ID
+                       : reader::TableColumnMappingMode::BY_NAME;
     }
 
 protected:
@@ -69,6 +71,17 @@ protected:
     Status _init_delete_predicates(const TTableFormatFileDesc& t_desc);
 
 private:
+    bool _has_field_id(const std::vector<reader::ColumnDefinition>& schema) const {
+        for (const auto& field : schema) {
+            if (!field.has_identifier_field_id()) {
+                return false;
+            }
+            if (!_has_field_id(field.children)) {
+                return false;
+            }
+        }
+        return true;
+    }
     static constexpr int MIN_SUPPORT_DELETE_FILES_VERSION = 2;
     static constexpr int POSITION_DELETE = 1;
     static constexpr int EQUALITY_DELETE = 2;

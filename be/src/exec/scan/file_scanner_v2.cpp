@@ -50,6 +50,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
+#include "format/reader/column_mapper.h"
 #include "format/reader/expr/slot_ref.h"
 #include "format/reader/table/hive_reader.h"
 #include "format/reader/table/paimon_reader.h"
@@ -544,12 +545,14 @@ Status rewrite_slot_refs_to_global_index(
             *expr = TableSlotRef::create_shared(cast_set<int>(global_index.value()),
                                                 cast_set<int>(global_index.value()), -1,
                                                 slot_ref->data_type(), slot_ref->column_name());
+            RETURN_IF_ERROR(expr->get()->prepare(nullptr, RowDescriptor(), nullptr));
             return Status::OK();
         }
         const auto global_index = global_index_it->second;
         *expr = TableSlotRef::create_shared(cast_set<int>(global_index.value()),
                                             cast_set<int>(global_index.value()), -1,
                                             slot_ref->data_type(), slot_ref->column_name());
+        RETURN_IF_ERROR(expr->get()->prepare(nullptr, RowDescriptor(), nullptr));
         return Status::OK();
     }
     auto children = (*expr)->children();
@@ -876,13 +879,11 @@ Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const
     conjuncts->clear();
     conjuncts->reserve(_conjuncts.size());
     for (const auto& conjunct : _conjuncts) {
-        VExprContextSPtr table_conjunct;
-        RETURN_IF_ERROR(conjunct->clone(_state, table_conjunct));
-        auto root = table_conjunct->root();
+        VExprSPtr root;
+        RETURN_IF_ERROR(reader::clone_table_expr_tree(conjunct->root(), &root));
         RETURN_IF_ERROR(
                 rewrite_slot_refs_to_global_index(&root, _column_unique_id_to_global_index));
-        table_conjunct->set_root(root);
-        conjuncts->push_back(std::move(table_conjunct));
+        conjuncts->push_back(VExprContext::create_shared(std::move(root)));
     }
     return Status::OK();
 }

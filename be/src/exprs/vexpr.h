@@ -262,6 +262,7 @@ public:
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }
+    void reset_prepare_state();
     virtual std::string debug_string() const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);

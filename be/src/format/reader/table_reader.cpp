@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "exec/common/endian.h"
+#include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/new_parquet/parquet_reader.h"
 #include "format/reader/column_mapper.h"
@@ -109,9 +110,24 @@ std::string partition_values_debug_string(const std::map<std::string, Field>& pa
     return out.str();
 }
 
+std::string expr_context_debug_string(const VExprContextSPtr& context) {
+    if (context == nullptr) {
+        return "null";
+    }
+    const auto root = context->root();
+    if (root == nullptr) {
+        return "VExprContext{root=null}";
+    }
+    std::ostringstream out;
+    out << "VExprContext{root_name=" << root->expr_name()
+        << ", root_debug=" << root->debug_string() << "}";
+    return out.str();
+}
+
 std::string table_filter_debug_string(const TableFilter& filter) {
     std::ostringstream out;
-    out << "TableFilter{has_conjunct=" << (filter.conjunct != nullptr) << ", global_indices="
+    out << "TableFilter{conjunct=" << expr_context_debug_string(filter.conjunct)
+        << ", global_indices="
         << join_table_reader_debug_strings(
                    filter.global_indices,
                    [](GlobalIndex global_index) { return std::to_string(global_index.value()); })
@@ -268,7 +284,13 @@ std::string TableReader::debug_string() const {
                    [](const TableFilter& filter) { return table_filter_debug_string(filter); })
         << ", table_column_predicates="
         << table_column_predicates_debug_string(_table_column_predicates)
-        << ", conjunct_count=" << _conjuncts.size() << ", file_schema="
+        << ", conjunct_count=" << _conjuncts.size() << ", conjuncts="
+        << join_table_reader_debug_strings(
+                   _conjuncts,
+                   [](const VExprContextSPtr& conjunct) {
+                       return expr_context_debug_string(conjunct);
+                   })
+        << ", file_schema="
         << join_table_reader_debug_strings(_data_reader.file_schema,
                                            [](const ColumnDefinition& field) {
                                                return TableColumnMapper::debug_string(field);

@@ -215,8 +215,12 @@ protected:
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos);
-    virtual TableColumnMappingMode default_mapping_mode() const {
+    virtual TableColumnMappingMode mapping_mode() const {
         return TableColumnMappingMode::BY_NAME;
+    }
+    virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
+        DORIS_CHECK(file_schema != nullptr);
+        return Status::OK();
     }
 
     // 打开当前具体 reader。
@@ -225,13 +229,9 @@ protected:
         // 1. Get file schema and create column mapping.
         std::vector<ColumnDefinition> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
-        // TODO: It's different for paimon/hudi/iceberg
-        bool has_field_id = !file_schema.empty() && file_schema.front().has_identifier_field_id();
+        RETURN_IF_ERROR(annotate_file_schema(&file_schema));
         _data_reader.file_schema = file_schema;
-        _mapper_options.mode = default_mapping_mode() == TableColumnMappingMode::BY_FIELD_ID
-                                       ? (has_field_id ? TableColumnMappingMode::BY_FIELD_ID
-                                                       : TableColumnMappingMode::BY_NAME)
-                                       : default_mapping_mode();
+        _mapper_options.mode = mapping_mode();
 
         _data_reader.column_mapper = TableColumnMapper(_mapper_options);
         RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_projected_columns,
@@ -247,7 +247,8 @@ protected:
         // are pruning hints.
         auto file_request = std::make_unique<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
-                _table_filters, _table_column_predicates, _projected_columns, file_request.get()));
+                _table_filters, _table_column_predicates, _projected_columns, file_request.get(),
+                _runtime_state));
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
         if (constant_filter_pruned_split) {
@@ -303,6 +304,7 @@ protected:
         }
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_open_mapping_exprs());
+        LOG(WARNING) << "==========1 " << debug_string();
         return Status::OK();
     }
 
@@ -558,6 +560,7 @@ protected:
                                        const size_t rows, ColumnPtr* column) {
         if (mapping.has_complex_projection && mapping.file_local_id.has_value() &&
             !mapping.child_mappings.empty()) {
+            DCHECK(mapping.projection != nullptr);
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
             RETURN_IF_ERROR(_materialize_complex_mapping_column(

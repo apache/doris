@@ -131,12 +131,16 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
     if (view.value_kind != DecodedValueKind::INT32) {
         return Status::NotSupported("DATEV2 decoded reader expects INT32 source");
     }
-    if (view.values == nullptr && view.row_count > 0) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
     auto& data = assert_cast<ColumnDateV2&>(column).get_data();
     const auto* values = reinterpret_cast<const int32_t*>(view.values);
     for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DateV2Value<DateV2ValueType>());
+            continue;
+        }
         DateV2Value<DateV2ValueType> date_v2;
         date_v2.get_date_from_daynr(values[row] + date_threshold);
         data.push_back(date_v2);

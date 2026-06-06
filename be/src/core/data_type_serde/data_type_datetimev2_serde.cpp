@@ -457,7 +457,7 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
     if (view.value_kind != DecodedValueKind::INT64) {
         return Status::NotSupported("DATETIMEV2 decoded reader expects INT64 source");
     }
-    if (view.values == nullptr && view.row_count > 0) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
     auto& data = assert_cast<ColumnDateTimeV2&>(column).get_data();
@@ -465,6 +465,10 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
     static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
     const int64_t second_mask = view.time_unit == DecodedTimeUnit::MILLIS ? 1000 : 1000000;
     for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DateV2Value<DateTimeV2ValueType>());
+            continue;
+        }
         int64_t epoch_seconds = values[row] / second_mask;
         int64_t sub_second = values[row] % second_mask;
         if (sub_second < 0) {

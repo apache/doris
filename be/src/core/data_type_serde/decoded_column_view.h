@@ -59,4 +59,22 @@ struct DecodedColumnView {
     const std::vector<StringRef>* binary_values = nullptr;
 };
 
+inline bool decoded_column_view_row_is_null(const DecodedColumnView& view, int64_t row) {
+    return view.null_map != nullptr && view.null_map[row] != 0;
+}
+
+inline bool decoded_column_view_has_non_null_value(const DecodedColumnView& view) {
+    if (view.null_map == nullptr) {
+        return view.row_count > 0;
+    }
+
+    // TODO(gabriel): optimize null map check with SIMD or bitset if needed.
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (view.null_map[row] == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace doris

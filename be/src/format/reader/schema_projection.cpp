@@ -48,6 +48,7 @@ Status rebuild_projected_type(const DataTypePtr& original_type,
         nested_projected_type = std::make_shared<DataTypeArray>(child_types[0]);
         break;
     case TYPE_MAP: {
+        // TODO: ?
         DORIS_CHECK(child_types.size() == 1);
         DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
         DORIS_CHECK(remove_nullable(original_type)->get_primitive_type() == TYPE_MAP);
