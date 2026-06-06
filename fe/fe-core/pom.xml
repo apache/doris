@@ -68,6 +68,16 @@ under the License.
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <!-- fe-common transitively drags in io.trino:trino-main, which brings the Jetty
+                     Servlet 5.0 API repackage. Its jakarta.servlet.http.Cookie lacks getAttributes()
+                     and would shadow the Servlet 6.1 jakarta.servlet-api that Jetty 12.0.34 needs,
+                     re-introducing the NoSuchMethodError. Keep it off fe-core's classpath. -->
+                <exclusion>
+                    <groupId>org.eclipse.jetty.toolchain</groupId>
+                    <artifactId>jetty-jakarta-servlet-api</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- fe-filesystem-api: consumer-facing filesystem API (FileSystem, Location, FileEntry, etc.) -->
         <dependency>
@@ -736,6 +746,16 @@ under the License.
             <groupId>org.immutables</groupId>
             <artifactId>value</artifactId>
         </dependency>
+        <!-- The FE HTTP server runs on Jetty 12.0.34, which calls jakarta.servlet.http.Cookie
+             #getAttributes() (a Jakarta Servlet 6.1 method) whenever it writes a Set-Cookie header.
+             Declare the servlet API explicitly so fe-core resolves 6.1.0 instead of the transitive
+             6.0.0 from spring-boot; otherwise the server throws NoSuchMethodError while setting the
+             session cookie (surfaced by removing io.trino:trino-main; see RemoteDorisRestClientTest). -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${jakarta.servlet-api.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>concurrent</artifactId>
@@ -774,8 +794,11 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- fastutil-core: keep as direct dependency to ensure classpath priority
-             over the ancient unrelocated fastutil classes embedded in hive-catalog-shade -->
+        <!-- fastutil-core: fastutil used directly by FE catalog/tablet-index code
+             (e.g. Long2ObjectOpenHashMap). hive-catalog-shade bundles an ancient, unrelocated
+             fastutil (6.5.6) that collides on the classpath; the maven-shade-plugin below
+             bundles this real fastutil-core into doris-fe.jar (pinned first on the FE classpath
+             by bin/start_fe.sh), so the correct class wins. -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
@@ -927,6 +950,48 @@ under the License.
                                 <!-- add arbitrary num of src dirs here -->
                                 <source>${basedir}/target/generated-sources/</source>
                             </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Bundle the real fastutil-core (8.5.18) into doris-fe.jar, UNRELOCATED, so the
+                 correct Long2ObjectOpenHashMap (with computeIfAbsent(long, Long2ObjectFunction))
+                 wins over the ancient fastutil (6.5.6) that hive-catalog-shade embeds. start_fe.sh
+                 pins doris-fe.jar first on the FE classpath, so whatever it contains takes load
+                 priority. This avoids touching the hive-catalog-shade dependency. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>bundle-fastutil-into-doris-fe</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Keep fe-core's dependency list intact: fastutil-core stays a normal
+                                 dependency (still copied into lib/ by fe-lib.xml, and resolved
+                                 normally by fe_plugins which depend on fe-core with scope=provided). -->
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <!-- ONLY fastutil-core; do NOT turn doris-fe.jar into a full uber-jar.
+                                 The project's own classes are always included by shade. -->
+                            <artifactSet>
+                                <includes>
+                                    <include>it.unimi.dsi:fastutil-core</include>
+                                </includes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                         </configuration>
                     </execution>
                 </executions>
