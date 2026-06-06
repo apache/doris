@@ -30,9 +30,7 @@ import com.aliyun.odps.Table;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
-import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.configuration.SplitOptions;
-import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
 import com.aliyun.odps.table.optimizer.predicate.Predicate;
 import com.aliyun.odps.table.read.TableBatchReadSession;
@@ -143,23 +141,9 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
                     .build();
         }
 
-        RestOptions restOptions = RestOptions.newBuilder()
-                .withConnectTimeout(connectTimeout)
-                .withReadTimeout(readTimeout)
-                .withRetryTimes(retryTimes)
-                .build();
-
-        Credentials credentials = Credentials.newBuilder()
-                .withAccount(connector.getClient().getAccount())
-                .withAppAccount(connector.getClient().getAppAccount())
-                .build();
-
-        settings = EnvironmentSettings.newBuilder()
-                .withCredentials(credentials)
-                .withServiceEndpoint(connector.getClient().getEndpoint())
-                .withQuotaName(connector.getQuota())
-                .withRestOptions(restOptions)
-                .build();
+        // EnvironmentSettings is built once on the connector and shared by both
+        // the scan and write plan providers (mirrors legacy catalog.getSettings()).
+        settings = connector.getSettings();
     }
 
     @Override

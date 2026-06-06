@@ -13,10 +13,11 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **11** 项。
+> 时间倒序；当前共 **12** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-012 | P4-T04 `TMaxComputeTableSink.partition_columns`(field 14) 源：legacy `MaxComputeTableSink` 取 `targetTable.getPartitionColumns()`（fe-core Doris `Column`）；连接器 `MaxComputeWritePlanProvider.planWrite` 取 `odpsTable.getSchema().getPartitionColumns()`（odps-sdk 列）——**源不同、值同**（分区列名）| [tasks/P4 P4-T04](./tasks/P4-maxcompute-migration.md) / [P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md) | 2026-06-06 | 🟢 已落地（P4-T04，值等价）|
 | DV-011 | P4-T03 连接器事务 block 上限源：legacy fe-core `Config.max_compute_write_max_block_count`（fe.conf 可调，默认 20000）→ 连接器常量 `MAX_BLOCK_COUNT=20000L`（import-gate 禁 `common.Config`，丢可调性）；附 legacy `throws UserException`→`DorisConnectorException`（unchecked，SPI 面无 checked throws）| [tasks/P4 P4-T03](./tasks/P4-maxcompute-migration.md) / [P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md) | 2026-06-06 | 🟢 已修正（P4-T03）|
 | DV-010 | P4-T01 修共享 fe-core `ConnectorColumnConverter.toConnectorType` 丢 CHAR/VARCHAR 长度（写 `precision=0`；长度存 `len` 非 `precision`）→ CREATE TABLE 经 SPI 丢长度。特判 CHAR/VARCHAR 把 `getLength()` 写入 precision 字段（与逆 `convertScalarType`+`MCTypeMapping` 约定一致）| [tasks/P4 P4-T01](./tasks/P4-maxcompute-migration.md) / `ConnectorColumnConverter` | 2026-06-06 | 🟢 已修正（P4-T01）|
 | DV-009 | W5 写 sink 收口位置：RFC/handoff「route 3 个 visitPhysicalXxxTableSink + 新建 PluginDrivenTableSink」与代码不符；plugin-driven 写经 `visitPhysicalConnectorTableSink` + 既有 `PluginDrivenTableSink`，W5 改为在其上 layer `planWrite()` | [写 RFC §5.5/§12 W5](./tasks/designs/connector-write-spi-rfc.md) / [HANDOFF W5](./HANDOFF.md) | 2026-06-06 | 🟢 已修正（W5 `9ebe5e27fa4`）|
@@ -32,6 +33,19 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-012 — P4-T04：`partition_columns` 取 ODPS 表列（源不同、值同）
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：P4 Batch B session（P4-T04 写计划实现，核读 legacy `MaxComputeTableSink.bindDataSink`）
+- **当前状态**：🟢 已落地（P4-T04，值等价）
+- **原计划位置**：[P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md)（港 legacy `MaxComputeTableSink` 静态字段）
+- **偏差描述**：legacy `MaxComputeTableSink.bindDataSink` 填 `TMaxComputeTableSink.partition_columns`(field 14) 取 `targetTable.getPartitionColumns()`（fe-core Doris `Column` 名）。连接器 import-gate 禁 fe-core `catalog.Column`，且 planWrite 持的是 `MaxComputeTableHandle`（携 odps-sdk `Table`）非 fe-core 表。
+- **新方案**：连接器 `MaxComputeWritePlanProvider.planWrite` 取 `mcHandle.getOdpsTable().getSchema().getPartitionColumns()`（odps-sdk `com.aliyun.odps.Column` 名）。**源不同（ODPS schema vs fe-core Column）、值同（分区列名字符串）**——BE 经 field 14 收到相同分区列名 list。同源亦用于静态分区串的列序（`MCTransaction.beginInsert` 用 fe-core 列序，连接器用 ODPS 列序，序同）。
+- **影响范围**：连接器 `MaxComputeWritePlanProvider`（dormant，gate 关，零 live）。行为等价：BE 收到的 `partition_columns` 内容不变。
+- **关联**：P4-T04、[P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md)、[D-025]
+
+---
 
 ### DV-011 — P4-T03：连接器事务 block 上限 + 异常类型（import-gate 禁 fe-core common）
 

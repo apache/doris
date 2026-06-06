@@ -15,6 +15,7 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-025 | — | P4-T04 写计划 5 决策（D-1/D-2a 用户签字、D-3/D-4/D-5 主线定）：D-1 **OQ-2=Approach A**（`planWrite` 在 finalizeSink 一处建 ODPS 写 session + `setWriteSession` 绑 txn + 盖 `txn_id`/`write_session_id`，无运行期注入 hook）；D-2a 含 **fe-core seam fill**（`PluginDrivenTableSink.bindViaWritePlanProvider(insertCtx)` 读 overwrite+静态分区；`staticPartitionSpec` 加 `PluginDrivenInsertCommandContext` 非基类——避 `MCInsertCommandContext` override/shadow）；D-3 抽 `MaxComputeDorisConnector.getSettings()`（legacy 单 `settings` 同供 scan+write，抽出=忠实港）；D-4 `supportsInsert()`=true 余最小化（`beginInsert`/`finishInsert`/`getWriteConfig` 留 throwing-default，实际 executor 调用面待 Batch C）；D-5 静态分区作 `getWriteContext()` col→val map | 2026-06-06 | ✅ |
 | D-024 | — | P4-T03 两 fork（用户签字）：(1) txn id 经新增 `ConnectorSession.allocateTransactionId()`（fe-core `Env.getNextId` 背书）由连接器分配——尊重 [D-015]/U3，补 id-less 连接器（MC 无外部 id）的分配器机制；(2) ODPS 写 session 创建挪 T04 planWrite（T03 = 纯事务容器，over W4 委派、gate 关 dormant）| 2026-06-06 | ✅ |
 | D-023 | — | P4 maxcompute 启 full adopter（recon §9 option A）：W-phase 后按 5 批（A 读/DDL parity → B 写/事务 → C 翻闸 → D 清引用+删 legacy → E 测）落地 + cutover；批次计划 tasks/P4 | 2026-06-06 | ✅ |
 | D-022 | — | 写/事务 SPI 设计：A 连接器事务为源·桥接 / B1 commit 载荷 opaque bytes / C1 block-id 窄 callback seam / D INSERT·DELETE·MERGE（defer procedures）/ E 写-plan-provider 仿 scan | 2026-06-06 | ✅ |
@@ -43,6 +44,22 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-025 — P4-T04 写计划 5 决策（OQ-2 解法 + seam fill + 三主线定）
+
+- **日期**：2026-06-06
+- **状态**：✅ 生效
+- **关联**：[tasks/P4 P4-T04](./tasks/P4-maxcompute-migration.md)、[P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md)、[D-024]（T03/T04 边界、`setWriteSession` 槽）、[DV-009]（W5 planWrite layer）、[DV-012]（partition_columns 源）、OQ-2
+- **背景**：T04 把 legacy 写计划（`MCTransaction.beginInsert` 建写 session + `MaxComputeTableSink.bindDataSink`/`setWriteContext` 产 `TMaxComputeTableSink`）港入连接器 over W5 opaque-sink seam。核心难点 OQ-2 = legacy 经 `MCInsertExecutor.beforeExec` **运行期注入**的 `txn_id`/`write_session_id`、overwrite/静态分区 context 需在 plugin-driven 侧重建。
+- **决策**：
+  - **D-1（OQ-2 架构，用户签字）= Approach A**：executor 生命周期序 `beginTransaction`(txn_id 译前生)→translate→`finalizeSink`/`bindDataSink(insertCtx)`→`beforeExec`→coordinator ⇒ `planWrite` 跑在 finalizeSink、txn_id 已在 + ODPS 写 session 可就地建 → **planWrite 一处做完**（建 session + `session.getCurrentTransaction()`→`MaxComputeConnectorTransaction.setWriteSession` + 盖 `txn_id`/`write_session_id`）。**无运行期注入 hook**（否决 Approach B = 泛化 legacy `setWriteContext` dance）。
+  - **D-2a（fe-core seam 填充，用户签字）= 含 seam fill**：`PluginDrivenTableSink.bindViaWritePlanProvider` 改收 `Optional<InsertCommandContext>`、读 `isOverwrite()`+`getStaticPartitionSpec()` 填 handle；**实现期细化**：`staticPartitionSpec` 加在 `PluginDrivenInsertCommandContext`（非设计「Why」倾向的基类 `BaseExternalTableInsertCommandContext`）——因 `MCInsertCommandContext` 已自带 `staticPartitionSpec`+getter 且 shadow 基类 `overwrite`，加基类会成 override/shadow 缠结（Rule 3 surgical）；plugin-driven seam 只见 `PluginDrivenInsertCommandContext`，post-migration hive/iceberg 复用同类，复用目标仍满足。在设计「`PluginDrivenInsertCommandContext`（或基类）」envelope 内。
+  - **D-3（EnvironmentSettings 复用，主线定）= 抽 `MaxComputeDorisConnector.getSettings()`**：决定性证据——legacy `MaxComputeExternalCatalog` 持**单** `settings` 字段同供 scan（`MaxComputeScanNode`）+ write（`MCTransaction.beginInsert`），故抽出共用是**忠实港 legacy 设计**（非投机重构，化解 Rule 3 张力）；scan provider :146-162 构造上移、scan/write 共用。连接器 gate 关 dormant，动 scan 零 live 风险。
+  - **D-4（insert 机制面，主线定）= `supportsInsert()`=true 余最小化**：MC sink 经 `planWrite`、commit 经 `ConnectorTransaction.commit()`，故 `beginInsert`/`finishInsert`/`getWriteConfig` 留 throwing-default（无 MC 实质活）；实际 executor 调用面以 Batch C 为准（不投机加 no-op，Rule 2；显式 doc 不静默，Rule 12）。
+  - **D-5（writeContext 编码，主线定）= 静态分区作 `getWriteContext()` 的 col→val map**；overwrite 经 `isOverwrite()`。planWrite 据 ODPS 分区列序拼 `"col=val,..."` 喂 `PartitionSpec`、原样 set 入 `static_partition_spec`(field 10)。
+- **影响**：T04 dormant（gate 关，plan-provider 分支无 live caller）；binding 期填充 `PluginDrivenInsertCommandContext.staticPartitionSpec`/overwrite 归 Batch C/D（坑3，`InsertIntoTableCommand:598` 现传空 ctx）；planWrite `getCurrentTransaction()` 要返 MC txn ⇒ Batch C `beginTransaction`→置 `ConnectorSessionImpl`。T04 不新增 SPI 面（W1 全建）。立 paimon/iceberg/hive 写-plan adopter 样板。
+
+---
 
 ### D-024 — P4-T03 写/事务 SPI 两 fork（txn id 机制 + T03/T04 边界）
 

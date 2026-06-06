@@ -30,6 +30,7 @@ import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteType;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -181,7 +182,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
         if (writePlanProvider != null) {
-            bindViaWritePlanProvider();
+            bindViaWritePlanProvider(insertCtx);
             return;
         }
         ConnectorWriteType writeType = writeConfig.getWriteType();
@@ -203,13 +204,21 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
      * opaque {@link TDataSink}; the engine dispatches it to BE unchanged. The
      * {@link ConnectorWriteHandle} carries the bound target table handle and write columns.
      *
-     * <p>Connector-specific write context (OVERWRITE flag, static partition spec, write path,
-     * write type) is populated by the per-connector adopter (P4+) from its own insert context;
-     * the W-phase establishes the seam with an empty context.</p>
+     * <p>Connector-specific write context (OVERWRITE flag, static partition spec) is read from
+     * the {@link PluginDrivenInsertCommandContext} and passed through to the connector. The
+     * W-phase established this seam with an empty context; the per-connector adopter (P4+) fills
+     * it here.</p>
      */
-    private void bindViaWritePlanProvider() {
+    private void bindViaWritePlanProvider(Optional<InsertCommandContext> insertCtx) {
+        boolean overwrite = false;
+        Map<String, String> writeContext = Collections.emptyMap();
+        if (insertCtx.isPresent() && insertCtx.get() instanceof PluginDrivenInsertCommandContext) {
+            PluginDrivenInsertCommandContext ctx = (PluginDrivenInsertCommandContext) insertCtx.get();
+            overwrite = ctx.isOverwrite();
+            writeContext = ctx.getStaticPartitionSpec();
+        }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, false, Collections.emptyMap());
+                tableHandle, connectorColumns, overwrite, writeContext);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }

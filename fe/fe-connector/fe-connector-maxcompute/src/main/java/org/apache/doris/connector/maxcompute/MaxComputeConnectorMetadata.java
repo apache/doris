@@ -232,7 +232,21 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
         return result;
     }
 
-    // ==================== Write / Transaction (P4-T03) ====================
+    // ==================== Write / Transaction (P4-T03 / P4-T04) ====================
+
+    /**
+     * Declares INSERT support so the engine routes MaxCompute writes through the
+     * plugin-driven sink path. The sink is built by
+     * {@link MaxComputeWritePlanProvider#planWrite} (P4-T04) and commit is driven by
+     * {@link MaxComputeConnectorTransaction#commit()} through the SPI transaction
+     * lifecycle, so the {@code beginInsert} / {@code finishInsert} / {@code getWriteConfig}
+     * hooks carry no MaxCompute-specific work and intentionally stay the throwing
+     * defaults; the exact executor call surface is settled at the cutover (Batch C).
+     */
+    @Override
+    public boolean supportsInsert() {
+        return true;
+    }
 
     /**
      * Opens a connector transaction for a MaxCompute write statement. The
