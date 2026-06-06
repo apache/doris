@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bthread/bthread.h>
+
 #include <brpc/adaptive_connection_type.h>
 #include <brpc/adaptive_protocol_type.h>
 #include <brpc/channel.h>
@@ -231,6 +233,11 @@ public:
         const int max_attempts = enable_handshake ? 3 : 1;
         std::string host_port;
         for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+            // Brief backoff before retries so the new Pod has time to start
+            // listening. Only paid during graceful restart (enable_handshake).
+            if (enable_handshake && attempt > 1) {
+                bthread_usleep(500000);
+            }
             std::string realhost = host;
             auto dns_cache = ExecEnv::GetInstance()->dns_cache();
             if (dns_cache == nullptr) {
@@ -238,7 +245,11 @@ public:
             } else if (!is_valid_ip(host)) {
                 Status status = dns_cache->get(host, &realhost);
                 if (!status.ok()) {
-                    LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+                    LOG(WARNING) << "failed to get ip from host: " << status.to_string()
+                                 << ", attempt=" << attempt << "/" << max_attempts;
+                    if (enable_handshake && attempt < max_attempts) {
+                        continue;
+                    }
                     return nullptr;
                 }
             }
@@ -264,6 +275,21 @@ public:
             };
             if (LIKELY(_stub_map.if_contains(host_port, check_entry))) {
                 if (stub_ptr != nullptr) {
+                    // When enable_handshake is on (during graceful shutdown),
+                    // verify the cached channel is still reachable before
+                    // returning it. Otherwise a cached stub pointing to an
+                    // expired Pod IP will fail on the first real RPC.
+                    if (enable_handshake && !available(stub_ptr, host_port)) {
+                        LOG(WARNING) << "cached channel handshake failed to "
+                                     << host_port
+                                     << ", attempt=" << attempt << "/"
+                                     << max_attempts;
+                        _stub_map.erase(host_port);
+                        if (dns_cache != nullptr && !is_valid_ip(host)) {
+                            dns_cache->invalidate(host);
+                        }
+                        continue;
+                    }
                     return stub_ptr;
                 }
                 DCHECK(need_remove);
@@ -277,6 +303,9 @@ public:
                 LOG(WARNING) << "failed to build brpc stub to " << real_host_port
                              << ", attempt=" << attempt << "/" << max_attempts;
                 if (enable_handshake) {
+                    if (dns_cache != nullptr && !is_valid_ip(host)) {
+                        dns_cache->invalidate(host);
+                    }
                     continue;
                 }
                 return nullptr;

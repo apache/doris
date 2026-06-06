@@ -33,6 +33,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -159,6 +160,10 @@ public class Backend implements Writable {
     // And once it back to alive, reset this counter.
     // No need to persist, because only master FE handle heartbeat.
     private int heartbeatFailureCounter = 0;
+
+    private static final int GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT = 3;
+    private int gracefulAliveHeartbeatOkCount = 0;
+    private long gracefulAliveHeartbeatStartTime = -1;
 
     private long nextForceEditlogHeartbeatTime = System.currentTimeMillis() + (new SecureRandom()).nextInt(60 * 1000);
 
@@ -888,6 +893,10 @@ public class Backend implements Writable {
                 && preHbStartTime > 0
                 && ((newStartTime > 0 && preHbStartTime != newStartTime) || !preHbIsAlive);
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (shouldDelayAliveByGracefulHeartbeat(hbResponse, isReplay)) {
+                return false;
+            }
+
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
                 this.version = hbResponse.getVersion();
@@ -965,6 +974,7 @@ public class Backend implements Writable {
                 this.nextForceEditlogHeartbeatTime = System.currentTimeMillis() + delaySecond * 1000L;
             }
         } else {
+            resetGracefulAliveHeartbeat();
             // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
             if (hbResponse.getHbTime() > 0) {
                 this.lastUpdateMs = hbResponse.getHbTime();
@@ -1012,6 +1022,53 @@ public class Backend implements Writable {
         }
 
         return isChanged;
+    }
+
+    private boolean shouldDelayAliveByGracefulHeartbeat(BackendHbResponse hbResponse, boolean isReplay) {
+        if (isReplay || hbResponse.isShutDown() || !isGracefulShutdownEnabled()) {
+            resetGracefulAliveHeartbeat();
+            return false;
+        }
+        if (isAlive.get() && !isShutDown()) {
+            resetGracefulAliveHeartbeat();
+            return false;
+        }
+
+        long beStartTime = hbResponse.getBeStartTime();
+        if (gracefulAliveHeartbeatStartTime != beStartTime) {
+            gracefulAliveHeartbeatStartTime = beStartTime;
+            gracefulAliveHeartbeatOkCount = 0;
+        }
+        gracefulAliveHeartbeatOkCount++;
+
+        if (gracefulAliveHeartbeatOkCount < GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT) {
+            LOG.info("{} delays marking backend alive during graceful shutdown, "
+                            + "okHeartbeatCount={}/{}, beStartTime={} ({}), isReplay={}",
+                    this.toString(), gracefulAliveHeartbeatOkCount,
+                    GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT, beStartTime,
+                    TimeUtils.longToTimeString(beStartTime), isReplay);
+            return true;
+        }
+
+        LOG.info("{} confirms backend alive during graceful shutdown after {} consecutive OK heartbeats, "
+                        + "beStartTime={} ({})",
+                this.toString(), gracefulAliveHeartbeatOkCount, beStartTime,
+                TimeUtils.longToTimeString(beStartTime));
+        resetGracefulAliveHeartbeat();
+        return false;
+    }
+
+    private boolean isGracefulShutdownEnabled() {
+        try {
+            return VariableMgr.getDefaultSessionVariable().enableGracefulShutdown;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void resetGracefulAliveHeartbeat() {
+        gracefulAliveHeartbeatOkCount = 0;
+        gracefulAliveHeartbeatStartTime = -1;
     }
 
     /**
@@ -1252,4 +1309,3 @@ public class Backend implements Writable {
     }
 
 }
-
