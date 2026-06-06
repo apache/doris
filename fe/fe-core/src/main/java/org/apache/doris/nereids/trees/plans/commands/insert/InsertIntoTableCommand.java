@@ -47,6 +47,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -592,10 +593,28 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             } else if (physicalSink instanceof PhysicalConnectorTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 ExternalTable externalTable = (ExternalTable) targetTableIf;
+                PluginDrivenInsertCommandContext pluginCtx = insertCtx
+                        .map(insertCommandContext -> (PluginDrivenInsertCommandContext) insertCommandContext)
+                        .orElseGet(PluginDrivenInsertCommandContext::new);
+                if (pluginCtx.getStaticPartitionSpec().isEmpty()
+                        && originLogicalQuery instanceof UnboundConnectorTableSink) {
+                    UnboundConnectorTableSink<?> pluginSink =
+                            (UnboundConnectorTableSink<?>) originLogicalQuery;
+                    if (pluginSink.hasStaticPartition()) {
+                        Map<String, String> staticSpec = Maps.newHashMap();
+                        for (Map.Entry<String, Expression> e
+                                : pluginSink.getStaticPartitionKeyValues().entrySet()) {
+                            if (e.getValue() instanceof Literal) {
+                                staticSpec.put(e.getKey(),
+                                        ((Literal) e.getValue()).getStringValue());
+                            }
+                        }
+                        pluginCtx.setStaticPartitionSpec(staticSpec);
+                    }
+                }
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new PluginDrivenInsertExecutor(ctx, externalTable, label, planner,
-                                Optional.of(insertCtx.orElse(
-                                        new PluginDrivenInsertCommandContext())),
+                                Optional.of(pluginCtx),
                                 emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalDictionarySink) {

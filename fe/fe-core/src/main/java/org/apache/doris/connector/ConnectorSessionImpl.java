@@ -19,10 +19,12 @@ package org.apache.doris.connector;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Immutable implementation of {@link ConnectorSession}.
@@ -39,6 +41,10 @@ public class ConnectorSessionImpl implements ConnectorSession {
     private final String catalogName;
     private final Map<String, String> catalogProperties;
     private final Map<String, String> sessionProperties;
+    // Otherwise-immutable session; this is bound once by the insert executor at write time
+    // for connectors using the SPI transaction model (e.g. maxcompute), and read back by the
+    // connector's planWrite via getCurrentTransaction(). volatile for cross-thread visibility.
+    private volatile ConnectorTransaction currentTransaction;
 
     ConnectorSessionImpl(String queryId, String user, String timeZone, String locale,
             long catalogId, String catalogName, Map<String, String> catalogProperties,
@@ -127,6 +133,16 @@ public class ConnectorSessionImpl implements ConnectorSession {
     @Override
     public long allocateTransactionId() {
         return Env.getCurrentEnv().getNextId();
+    }
+
+    @Override
+    public void setCurrentTransaction(ConnectorTransaction txn) {
+        this.currentTransaction = txn;
+    }
+
+    @Override
+    public Optional<ConnectorTransaction> getCurrentTransaction() {
+        return Optional.ofNullable(currentTransaction);
     }
 
     @Override

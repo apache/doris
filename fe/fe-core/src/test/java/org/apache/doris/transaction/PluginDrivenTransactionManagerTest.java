@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 
@@ -49,6 +50,7 @@ public class PluginDrivenTransactionManagerTest {
         private String lastWriteSessionId;
         private long lastCount;
         private long updateCnt;
+        private boolean failOnCommit;
 
         private RecordingConnectorTransaction(long txnId) {
             this.txnId = txnId;
@@ -61,6 +63,9 @@ public class PluginDrivenTransactionManagerTest {
 
         @Override
         public void commit() {
+            if (failOnCommit) {
+                throw new RuntimeException("connector commit failed");
+            }
         }
 
         @Override
@@ -158,6 +163,79 @@ public class PluginDrivenTransactionManagerTest {
             Assert.fail("expected UnsupportedOperationException for the legacy marker");
         } catch (UnsupportedOperationException expected) {
             // legacy marker does not support write block allocation
+        }
+    }
+
+    // ──────────── global registration (P4-T06a W-d / gap G3) ────────────
+    //
+    // begin(ConnectorTransaction) must also register the txn in the process-wide
+    // GlobalExternalTransactionInfoMgr, because the BE block-allocation RPC and the
+    // commit-data feedback look it up there by id (FrontendServiceImpl
+    // .getMaxComputeBlockIdRange -> getTxnById). Without it those callbacks throw
+    // "Can't find txn". commit/rollback must deregister so the registry cannot leak.
+    // (Distinct ids 90001+ avoid colliding with the delegation tests above, which
+    // intentionally never commit and therefore leave their ids registered.)
+
+    @Test
+    public void beginRegistersConnectorTransactionInGlobalRegistry() throws UserException {
+        PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
+        long txnId = manager.begin(new RecordingConnectorTransaction(90001L));
+        try {
+            Transaction registered =
+                    Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
+            Assert.assertSame("global registry must hold the same wrapped transaction the "
+                    + "manager hands out", manager.getTransaction(txnId), registered);
+        } finally {
+            // do not leak the id into the shared global registry
+            manager.commit(txnId);
+        }
+    }
+
+    @Test
+    public void commitDeregistersFromGlobalRegistry() throws UserException {
+        PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
+        long txnId = manager.begin(new RecordingConnectorTransaction(90002L));
+
+        manager.commit(txnId);
+
+        assertNotRegistered(txnId);
+    }
+
+    @Test
+    public void rollbackDeregistersFromGlobalRegistry() throws UserException {
+        PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
+        long txnId = manager.begin(new RecordingConnectorTransaction(90003L));
+
+        manager.rollback(txnId);
+
+        assertNotRegistered(txnId);
+    }
+
+    @Test
+    public void commitStillDeregistersWhenConnectorCommitThrows() {
+        PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
+        RecordingConnectorTransaction connectorTx = new RecordingConnectorTransaction(90004L);
+        connectorTx.failOnCommit = true;
+        long txnId = manager.begin(connectorTx);
+
+        try {
+            manager.commit(txnId);
+            Assert.fail("commit must propagate the connector failure");
+        } catch (Exception expected) {
+            // the connector's commit failure propagates to the caller
+        }
+
+        // commit() wraps deregistration in try/finally, so a failed connector commit must
+        // not leave a stale entry behind (mirrors rollback()).
+        assertNotRegistered(txnId);
+    }
+
+    private static void assertNotRegistered(long txnId) {
+        try {
+            Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
+            Assert.fail("txn " + txnId + " should have been deregistered from the global registry");
+        } catch (RuntimeException expected) {
+            // getTxnById throws "Can't find txn for <id>" once the entry is gone
         }
     }
 }

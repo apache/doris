@@ -144,6 +144,16 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         this.connectorColumns = connectorColumns;
     }
 
+    /**
+     * The connector session this sink's write plan reads (plan-provider mode). The insert
+     * executor binds the connector transaction onto it (via
+     * {@link ConnectorSession#setCurrentTransaction}) before {@code bindDataSink} runs, so
+     * the connector's {@code planWrite} sees the active transaction.
+     */
+    public ConnectorSession getConnectorSession() {
+        return connectorSession;
+    }
+
     @Override
     protected Set<TFileFormatType> supportedFileFormatTypes() {
         // Connector determines format through write config; accept all
@@ -155,6 +165,13 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         StringBuilder sb = new StringBuilder();
         sb.append(prefix).append("PLUGIN-DRIVEN TABLE SINK\n");
         if (explainLevel == TExplainLevel.BRIEF) {
+            return sb.toString();
+        }
+        if (writeConfig == null) {
+            // Plan-provider mode (W5, e.g. maxcompute): the connector builds its own sink via
+            // planWrite; there is no ConnectorWriteConfig to describe here.
+            sb.append(prefix).append("  WRITE: plan-provider\n");
+            sb.append(prefix).append("  TABLE: ").append(targetTable.getName()).append("\n");
             return sb.toString();
         }
         sb.append(prefix).append("  WRITE TYPE: ").append(writeConfig.getWriteType()).append("\n");

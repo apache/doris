@@ -39,6 +39,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
@@ -416,6 +417,27 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 mcCtx.setStaticPartitionSpec(staticSpec);
             }
             insertCtx = mcCtx;
+        } else if (logicalQuery instanceof UnboundConnectorTableSink) {
+            UnboundConnectorTableSink<?> sink = (UnboundConnectorTableSink<?>) logicalQuery;
+            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
+                    sink.getNameParts(), sink.getColNames(), sink.getHints(),
+                    false, sink.getPartitions(), false,
+                    TPartialUpdateNewRowPolicy.APPEND,
+                    sink.getDMLCommandType(),
+                    (LogicalPlan) (sink.child(0)),
+                    sink.getStaticPartitionKeyValues());
+            PluginDrivenInsertCommandContext pluginCtx = new PluginDrivenInsertCommandContext();
+            pluginCtx.setOverwrite(true);
+            if (sink.hasStaticPartition()) {
+                Map<String, String> staticSpec = Maps.newHashMap();
+                for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {
+                    if (e.getValue() instanceof Literal) {
+                        staticSpec.put(e.getKey(), ((Literal) e.getValue()).getStringValue());
+                    }
+                }
+                pluginCtx.setStaticPartitionSpec(staticSpec);
+            }
+            insertCtx = pluginCtx;
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }

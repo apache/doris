@@ -249,6 +249,18 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * MaxCompute uses the SPI transaction model: the engine opens a
+     * {@link MaxComputeConnectorTransaction} via {@link #beginTransaction} and binds it to
+     * the session; the write plan ({@code MaxComputeWritePlanProvider.planWrite}) attaches the
+     * ODPS write session to it. So the executor routes through the transaction model rather
+     * than the {@code beginInsert} / {@code finishInsert} handle model (which stays throwing-default).
+     */
+    @Override
+    public boolean usesConnectorTransaction() {
+        return true;
+    }
+
+    /**
      * Opens a connector transaction for a MaxCompute write statement. The
      * transaction id is the engine-side id allocated through the session, so it
      * matches the id registered in the engine transaction registry and stamped

@@ -8,50 +8,67 @@
 
 ## 📅 最后一次 handoff
 
-- **日期 / 时间**：2026-06-06（**P4-T05 翻闸接线实现完成**；dormant、gate-green、**未 commit**——用户定时机）
-- **本 session 主题**：**实现 T05**（机械、dormant）。GSON 三注册 atomic 迁 compat + 引擎名 case + UT。**4-agent 对抗复核揪出设计 ordered TODO 漏 GSON DB `:452`**（漏迁=翻闸后 `MaxComputeExternalDatabase.buildTableInternal:44` cast `PluginDrivenExternalCatalog`→`MaxComputeExternalCatalog` 抛 ClassCastException），用户签字折入 T05；另 2 告警（`getMetaCacheEngine` / `getMysqlType`）经核判非问题（详见下 / 设计 §3.4）。
-- **分支**：`catalog-spi-05`。本场改：fe-core 代码 3 文件（`GsonUtils` / `PluginDrivenExternalTable` / `PluginDrivenExternalCatalog`）+ test 1（`PluginDrivenExternalTableEngineTest` +2 例）+ 文档（设计 §3.4 / decisions-log D-026 校正 / PROGRESS / P4 task / 本 HANDOFF）。**未 commit**（连同上一 design session 的未提交文档改动，一并待用户定 commit 结构）。未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak`（沿用，勿提交）。
-- **Batch 状态**：A ✅ + B ✅（gate 关 dormant）；**C：T05 ✅ gate-green（待 commit）/ T06 ⏳**；下一 = **T06a（写接线 dormant）→ T06b（flip）**。
+- **日期 / 时间**：2026-06-07（**T05 + T06a 均已 commit**；T06a = 写接线 + UT 套件 + 全守门绿。下一 = **T06b flip**）
+- **本 session 主题**：写 **T06a UT 套件**（设计 §7）→ 全守门 → commit `[P4-T06a]`。① 6 测试文件（2 扩展 + 4 新；15 新用例，1 因无 creds skip）覆盖 W-a..W-d/G1–G5 + R-004 part-1（隔离，CI）/part-2（live，用户跑）；② **揪出并验证**前一 session 跳过的 UT 门——W-d 的 `putTxnById` 本可破已有 `PluginDrivenTransactionManagerTest`，核实真 `Env` 单例裸测可建（5/5 仍绿，无回归）；③ 全守门绿（见「✅ 本 session 完成项」末）。
+- **分支**：`catalog-spi-05`。**T06a 已 commit**（11 接线 + 6 测试 + 本 HANDOFF，一个 `[P4-T06a]` commit）。T05 已 commit（`2534d76`+`67e0e5a`）。未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak`（沿用，勿提交）。
+- **Batch 状态**：A ✅ + B ✅；**C：T05 ✅ commit / T06a ✅ commit（代码+UT 全绿）/ T06b ⏳**；下一 = **T06b flip**（`SPI_READY_TYPES += "max_compute"` + 删 CatalogFactory case :146-149 + doc-sync 5 步 + decisions-log）。**T06a↔flip 中间不可部署**（compat 已注册但 factory 仍 legacy）。
 
 ---
 
-## ✅ 本 session 完成项（P4-T05 实现，dormant、gate-green、待 commit）
+## ✅ 本 session 完成项
 
-- **代码（fe-core，3 main + 1 test）**：
-  - `GsonUtils`：三 GSON 注册 atomic 迁 `registerCompatibleSubtype`→`PluginDriven*`——catalog `:397` / **db `:452`** / table `:472`；删 3 个 unused `maxcompute.*` import。
-  - `PluginDrivenExternalTable.getEngine()` + `getEngineTableTypeName()` 加 `case "max_compute"`（返 `MAX_COMPUTE_EXTERNAL_TABLE.toEngineName()`=null / `.name()`=`"MAX_COMPUTE_EXTERNAL_TABLE"`——**已核 legacy 等价**：legacy MC 表未 override，base `getType().toEngineName()`=null（toEngineName 无 MC case）/ `getType().name()`=`"MAX_COMPUTE_EXTERNAL_TABLE"`）。
-  - `PluginDrivenExternalCatalog.legacyLogTypeToCatalogType`：仅加注释（默认分支已出 `"max_compute"`，**不加 case**）。
-  - `PluginDrivenExternalTableEngineTest`：+2 max_compute 例（engine=null / typeName=MAX_COMPUTE_EXTERNAL_TABLE），匹配该文件既有 Mockito 风格（设计 §7「no mockito」针对 T06 新文件）；**9/9 绿**。
-- **关键校正（用户签字折入 T05）**：ordered TODO 仅列 catalog+table，**漏 GSON DB `:452`**（`MaxComputeExternalDatabase`）；漏迁=翻闸后 `MaxComputeExternalDatabase.buildTableInternal:44` cast `PluginDrivenExternalCatalog`→`MaxComputeExternalCatalog` 抛 `ClassCastException`（es/jdbc/trino 三注册齐迁、legacy DB 类已删=必走 compat）。
-- **4-agent 对抗复核（read-only Explore）**：2 PASS（GSON 完整性=无其他注册站 / label 唯一性=atomic replace 正确）+ 2 FAIL 经核**判非问题**：
-  - `getMetaCacheEngine`→"default"=**假阳性**（plugin 路径经连接器 `initSchema` 取 schema、走 "default" 桶同 es/jdbc/trino；`MaxComputeExternalMetaCache` 仅 legacy `MaxComputeExternalTable:71,122` 引用=Batch-D 死码；分区经连接器 P4-T02）。
-  - `getMysqlType`→"BASE TABLE"=**同 ES 既定行为**（`ES_EXTERNAL_TABLE` 亦不在 `toMysqlType` switch，迁后 null→"BASE TABLE" 已 ship 无 override）。
-  - dormancy「新建 MC catalog 不能序列化」=**既载中间态 caveat**（其"留 registerSubtype"修法错=撞 duplicate-label IAE）。
-- **守门全绿**：fe-core compile BUILD SUCCESS / checkstyle 0 / import-gate 0 / UT 9-0-0（真实 BUILD/MVN_EXIT/CS_EXIT 核验；坑7：后台通知 exit code 不可信，已读日志确认）。
+**① T05 — 已 commit（2 commit，gate 全绿 + UT 9/9）**：GSON 三注册（catalog `:397` / **db `:452`** / table `:472`）atomic 迁 `registerCompatibleSubtype`→`PluginDriven*` + 删 3 unused import；`PluginDrivenExternalTable.getEngine/getEngineTableTypeName` 加 `case "max_compute"`（核 legacy 等价：engine=null / typeName=MAX_COMPUTE_EXTERNAL_TABLE）；`legacyLogTypeToCatalogType` 仅注释。**db `:452` 是设计 ordered TODO 漏项**（漏迁=翻闸后 `buildTableInternal:44` cast `PluginDrivenExternalCatalog`→`MaxComputeExternalCatalog` ClassCastException），用户签字折入。UT `PluginDrivenExternalTableEngineTest` +2 例。commit `67e0e5a`(docs[D-026+T05 注记]) + `2534d76`(`[P4-T05]`)。详见设计 §3.4 / decisions-log D-026 校正。**复核另判非问题**：`getMetaCacheEngine`→"default"（假阳性，plugin 走连接器 initSchema + "default" 桶同 es/jdbc/trino，`MaxComputeExternalMetaCache` 仅 legacy 引用=Batch-D 死码）；`getMysqlType`→"BASE TABLE"（同 ES 既定，ES 迁移已 ship 无 override）。
+
+**② T06a 写接线 — 代码全部实现、gate 全绿、未 commit、UT 待写**（11 文件 +246/−24，见「📦 WIP 清单」）：
+  - **W-a(G1)**：`ConnectorSession.setCurrentTransaction` default(throw) + `ConnectorSessionImpl`（volatile `currentTransaction` 字段 + setter + `getCurrentTransaction` override）+ `PluginDrivenTableSink.getConnectorSession()` getter。
+  - **W-b(D-1)**：`ConnectorWriteOps.usesConnectorTransaction()` default false + `MaxComputeConnectorMetadata` override true。
+  - **W-c(G2)**：`PluginDrivenInsertExecutor` 重构——`ensureConnectorSetup()` 惰性幂等 helper；`beginTransaction()` override（setup → usesConnectorTransaction? `connectorTx=writeOps.beginTransaction(session)`+`txnId=((PluginDrivenTransactionManager)transactionManager).begin(connectorTx)` : super）；`finalizeSink()` override（connectorTx!=null 时 `sink.getConnectorSession().setCurrentTransaction(connectorTx)` 后 super）；`beforeExec()`（connectorTx!=null 早返）；`transactionType()`→connectorTx!=null 返 MAXCOMPUTE。
+  - **W-d(G3)**：`PluginDrivenTransactionManager.begin(connectorTx)` 加 `putTxnById`；commit(**try/finally**)/rollback(finally) 加 `removeTxnById`。
+  - **G4/G5(D-3)**：`UnboundConnectorTableSink` 加 `staticPartitionKeyValues` 字段/ctor/getters（镜像 `UnboundMaxComputeTableSink`）；`UnboundTableSinkCreator` 3 个 plugin 分支透传；`InsertIntoTableCommand`(plugin 分支填 ctx) + `InsertOverwriteTableCommand`(加 plugin 分支 setOverwrite+staticSpec) 填 `PluginDrivenInsertCommandContext`。
+  - **复核修 2 处**：commit `try/finally removeTxnById`（防 commit 抛时全局泄漏）；`PluginDrivenTableSink.getExplainString` 加 `writeConfig==null` 守卫（防 plan-provider 模式 EXPLAIN NPE，T04 遗留、翻闸后可达）。
+
+**③ recon + 对抗复核结论（勿重做）**：
+  - 6-agent recon：T06a 所有锚点 vs 设计 **"none" drift**（确认 `GlobalExternalTransactionInfoMgr.putTxnById(long,Transaction)`、`PluginDrivenTransaction implements Transaction`、`TransactionType.MAXCOMPUTE` 存在、`PluginDrivenExternalCatalog` 用 `PluginDrivenTransactionManager`、empty-insert `runInternal:694` 早返）。
+  - 4-lens 对抗复核：**MC happy-path 正确**（关键：`finalizeSink` 的 `sink.getConnectorSession()` == translate 期 session(`PhysicalPlanTranslator:658`) == planWrite 读的同一对象）；**jdbc/es/trino 无回归正确**（setup 提前=幂等无副作用、finalizeSink 对其 no-op、bindViaWritePlanProvider 对 jdbc 不跑）；**已修 2 真问题**（见上）；**判非问题/不改**：commit 失败不 rollback connectorTx（既有 remove-then-commit 序、`close()` 仍跑、out of W-d scope）、`putTxnById` 非原子 + RuntimeException（既有共享码、id 单调唯一不可触发）、empty-insert "blocker"（**假警**——空插入 `runInternal` 早返、全程不执行）。
+  - gate（2 次：初版 + 修后）：fe-core/-api/-maxcompute compile BUILD SUCCESS + checkstyle 0 + import-gate 0（真实 EXIT 核验；坑7：后台通知 exit code 不可信）。
+
+**④ T06a UT 套件 — 写完、全守门绿、随接线一并 commit `[P4-T06a]`**（6 文件：2 扩展 + 4 新）：
+  - `ConnectorSessionImplTest`(+3)：W-a/G1 `set/getCurrentTransaction` round-trip（空→绑同一实例→null 解绑）。
+  - `PluginDrivenTransactionManagerTest`(+4)：W-d/G3 全局注册 + commit/rollback 注销，含 **commit 抛异常 finally 仍注销**。`RecordingConnectorTransaction` 加 `failOnCommit`。
+  - `PluginDrivenInsertExecutorTest`(新,4)：W-c/G2 顺序——beginTransaction 开+注册；**finalizeSink 在 planWrite 前把 txn 绑到 sink 的 session**（recording provider 在 planWrite 时读 `getCurrentTransaction` 证实）；beforeExec 对 txn-model 早返；transactionType=MAXCOMPUTE。**构造坑**：7-arg ctor 建 Coordinator 无法裸构造 → 用 Objenesis（`Mockito.mock(CALLS_REAL_METHODS)`）仅跳 ctor + `Deencapsulation` 注入私有字段（含 final `transactionManager`，`FieldReflection` 对非静态 final 可 setAccessible 写）；断言全跑真实码。
+  - `PluginDrivenTableSinkBindingTest`(新,2)：G4/G5 **消费端**——`bindViaWritePlanProvider` 把 overwrite + 静态分区 spec 透传进 `ConnectorWriteHandle`。生产端（command 填 ctx）按用户决定**延到翻闸后手动 smoke**（无现成集成 harness，建之过重/易脆）。
+  - `OdpsClassloaderIsolationTest`(新,1，fe-connector-maxcompute 首个测试，无 mockito)：R-004 part-1，自带 child-first `URLClassLoader`（fe-connector-maxcompute 看不到 fe-core 的 `ChildFirstClassLoader`；本 loader 全隔离=生产策略超集）载 ODPS SDK + `createClient`(假 AK/SK，离线) → 断无 NoClassDefFound/ClassCast + 双 loader 类不同（SDK 按 plugin 隔离）。
+  - `OdpsLiveConnectivityTest`(新,1)：R-004 part-2，`assumeTrue` 环境变量门（`MC_ENDPOINT`/`MC_PROJECT`/`MC_ACCESS_KEY`/`MC_SECRET_KEY`），CI 自动 skip、**用户跑**（翻闸完成门）。
+  - **守门全绿（真实 EXIT/计数核）**：fe-core 新 UT 29-0-0、maxcompute 2-0（1 skip）；回归 `InsertIntoTableCommandTest` 3-0-0 + `PluginDrivenTableSinkTest` 1-0-0；checkstyle 0×3（`fe/pom.xml:162` 含 test 源）；import-gate 0。
 
 ---
 
-## 🚧 下一 session = 实现 T06（先 T06a，再 T06b）
+## 🚧 下一 session = T06b flip（唯一 live-switch，commit `[P4-T06b]`）
 
-> **通读 [设计文档](./tasks/designs/P4-T05-T06-cutover-design.md) §3.4（T05 实现注记）/ §4 / §8 ordered TODO**，本节仅摘要。每 commit 独立（用户定时机）。
+> **T06a 已 commit**（11 接线 + 6 测试 + 本 HANDOFF，一个 `[P4-T06a]`）。**接线 + UT 全守门绿、已 4-lens 复核，勿重做/勿重 recon。** 下一 = 翻闸。每 commit 独立（用户定时机），flip 末提、孤立。
 
-**P4-T05 ✅ 完成**（dormant、gate-green、**待 commit**）——见上「本 session 完成项」+ 设计 §3.4。
-> ⚠️ T05 后、flip 前=中间不可部署态（compat subtype 已注册但 factory 仍 legacy；P2 batch-B precedent）。**T05 已落但未 commit**——下一 session 接 T06，二者紧邻落、勿中间部署。
+**P4-T06b 步骤**：
+1. `CatalogFactory.SPI_READY_TYPES += "max_compute"`(:52) + 删 `case "max_compute"`(:146-149) + 清对应 import。
+2. doc-sync 5 步 + decisions-log（D-026 已记设计；翻闸 commit 时补 **2 SPI 新增**=`ConnectorSession.setCurrentTransaction` + `ConnectorWriteOps.usesConnectorTransaction` → 01-spi-rfc §20 E11；T06a 复核已修的 `PluginDrivenTableSink.getExplainString` `writeConfig==null` NPE 守卫亦记一笔）。**翻闸完成 = 用户跑 R-004 part-2（`OdpsLiveConnectivityTest`，设 4 个 `MC_*` 环境变量）绿**。
 
-**P4-T06a（写接线，全 additive/dormant-safe，commit `[P4-T06a]`）**：
-4. **W-a（G1）**：`ConnectorSession.setCurrentTransaction` default + `ConnectorSessionImpl`（`volatile ConnectorTransaction` 字段 + setter + `@Override getCurrentTransaction`）+ `PluginDrivenTableSink.getConnectorSession()` getter（字段 :114 现无 getter）。
-5. **W-b（D-1）**：`ConnectorWriteOps.usesConnectorTransaction()` default false + `MaxComputeConnectorMetadata` override true。
-6. **W-c（G2）**：`PluginDrivenInsertExecutor` 重构——连接器/session/writeOps setup 提到 `beginTransaction()` 开头；txn-model：`connectorTx=writeOps.beginTransaction(execSession)`→`txnId=((PluginDrivenTransactionManager)transactionManager).begin(connectorTx)`；`finalizeSink` override 在 `super.finalizeSink` 前 `((PluginDrivenTableSink)sink).getConnectorSession().setCurrentTransaction(connectorTx)`；`beforeExec` 对 txn-model `if(connectorTx!=null) return`（跳 beginInsert）；`transactionType()`→MAXCOMPUTE。（`doBeforeCommit:108`/`onFail:140` 已 guard insertHandle!=null，MC 为 null 自动跳过。）
-7. **W-d（G3）**：`PluginDrivenTransactionManager.begin(connectorTx)` 加 `GlobalExternalTransactionInfoMgr.putTxnById`；核 commit/rollback `removeTxnById`（缺则补，镜像 `AbstractExternalTransactionManager:42-54`）。
-8. **§4.2（G4/G5，D-3）**：`UnboundConnectorTableSink` 加 `staticPartitionKeyValues`(+ctor) + `UnboundTableSinkCreator:66-110` 透传；`InsertIntoTableCommand:567-598`（镜像 MC 分支 :564-581）+ `InsertOverwriteTableCommand:407-418`（加 plugin-driven 分支 `setOverwrite(true)`+`setStaticPartitionSpec`）填 `PluginDrivenInsertCommandContext`（被 `PluginDrivenTableSink.bindViaWritePlanProvider:212-224` 读）。
-9. **R-004 part-1**（classloader 隔离 UT，无 creds，CI 可跑）：仿 `ConnectorPluginManager`+`ChildFirstClassLoader` 载插件、建 ODPS client（`MCConnectorClientFactory`），断无 `NoClassDefFoundError`/`ClassCastException`/单例污染。**part-2**（live 连通，需 creds）我写、**用户跑**（env/system property 传 creds，勿提交）。
-10. UT（设计 §7）+ 守门 `-pl :fe-connector-maxcompute,:fe-connector-api,:fe-core -am` compile + checkstyle + import-gate。
-
-**P4-T06b（flip，唯一 live-switch，commit `[P4-T06b]`）**：
-11. `CatalogFactory.SPI_READY_TYPES += "max_compute"`(:52) + 删 `case "max_compute"`(:146-149) + import。
-12. doc-sync 5 步 + decisions-log（D-026 已记设计；impl 时补 2 SPI → 01-spi-rfc §20 E11）。**翻闸完成 = 用户跑 R-004 part-2 绿**。
+> ⚠️ **T06a↔flip 中间不可部署**（compat 已注册但 factory 仍 legacy）。T06a/T06b 紧邻落、勿中间部署。
 
 > **Batch C 后**：D（清 ~19 反向引用 + 删 `datasource/maxcompute/` + 验 `MCInsertExecutor` 死代码 OQ-1，**入口先完整 re-grep** OQ-3）→ E（连接器测试基线 P4-T10 + PR P4-T11）。
+
+### 📦 `[P4-T06a]` commit 内容（已落，供参考）
+
+```
+fe-connector-api:        ConnectorSession.java · ConnectorWriteOps.java
+fe-connector-maxcompute: MaxComputeConnectorMetadata.java
+                         + test: OdpsClassloaderIsolationTest · OdpsLiveConnectivityTest
+fe-core:                 ConnectorSessionImpl.java · PluginDrivenTableSink.java ·
+                         PluginDrivenInsertExecutor.java · PluginDrivenTransactionManager.java ·
+                         UnboundConnectorTableSink.java · UnboundTableSinkCreator.java ·
+                         InsertIntoTableCommand.java · InsertOverwriteTableCommand.java
+                         + test: ConnectorSessionImplTest · PluginDrivenTransactionManagerTest ·
+                           PluginDrivenInsertExecutorTest · PluginDrivenTableSinkBindingTest
+```
+未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak` 勿提交。
 
 ---
 

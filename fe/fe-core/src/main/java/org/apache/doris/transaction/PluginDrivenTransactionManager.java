@@ -71,7 +71,13 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     public long begin(ConnectorTransaction connectorTx) {
         Objects.requireNonNull(connectorTx, "connectorTx");
         long txnId = connectorTx.getTransactionId();
-        transactions.put(txnId, new PluginDrivenTransaction(txnId, connectorTx));
+        PluginDrivenTransaction txn = new PluginDrivenTransaction(txnId, connectorTx);
+        transactions.put(txnId, txn);
+        // Register globally so the BE block-allocation RPC and the commit-data feedback can
+        // look the transaction up by id (FrontendServiceImpl.getMaxComputeBlockIdRange ->
+        // getTxnById). Mirrors AbstractExternalTransactionManager.begin. The legacy no-arg
+        // begin() path (JDBC/ES auto-commit) needs no such callback and stays local-only.
+        Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, txn);
         LOG.debug("Plugin-driven transaction begun with SPI ConnectorTransaction: {}", txnId);
         return txnId;
     }
@@ -79,18 +85,28 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     @Override
     public void commit(long id) throws UserException {
         PluginDrivenTransaction txn = transactions.remove(id);
-        if (txn != null) {
-            txn.commit();
-            LOG.debug("Plugin-driven transaction committed: {}", id);
+        try {
+            if (txn != null) {
+                txn.commit();
+                LOG.debug("Plugin-driven transaction committed: {}", id);
+            }
+        } finally {
+            // Always deregister from the global registry, even if connectorTx.commit() throws,
+            // so a failed commit cannot leave a stale entry behind (mirrors rollback()).
+            Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(id);
         }
     }
 
     @Override
     public void rollback(long id) {
         PluginDrivenTransaction txn = transactions.remove(id);
-        if (txn != null) {
-            txn.rollback();
-            LOG.debug("Plugin-driven transaction rolled back: {}", id);
+        try {
+            if (txn != null) {
+                txn.rollback();
+                LOG.debug("Plugin-driven transaction rolled back: {}", id);
+            }
+        } finally {
+            Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(id);
         }
     }
 
