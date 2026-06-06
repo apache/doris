@@ -208,9 +208,9 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：**P4 adopter 设计批准**（[D-023]）——产 [tasks/P4-maxcompute-migration.md](./tasks/P4-maxcompute-migration.md)（5 批/11 task）+ code-grounded re-grep（反向引用 post-W-phase ~19，证 W-phase 灭 3 热点 txn 站）+ 同步全部跟踪文档（PROGRESS §一/§二/§三/§四/§六/§七、decisions-log D-023、connectors/maxcompute、HANDOFF；修 §三 stale「P3 CI中」→ 已合 `5c240dc7a34`）。**未动代码**（用户选「设计先行、then stop」）。
-- **下一个 session 应做**：**P4 Batch A**（gate 关、dormant）——**P4-T01** 连接器 DDL（impl `ConnectorTableOps` create/drop table+db，港 `MaxComputeMetadataOps`，消费 P0 `ConnectorCreateTableRequest`）+ **P4-T02** 分区 listing（`listPartitions/Names/Values`，港 ODPS `getPartitions`）。批次 + task 表 + 风险/OQ 见 [tasks/P4](./tasks/P4-maxcompute-migration.md)；锚点见 [HANDOFF](./HANDOFF.md)。
-- **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（P4 设计批准 + Batch A 首步锚点 + R-004/OQ-1~4 + 守门坑沿用）
+- **本 session 已完成**：**P4-T02 连接器分区 listing**（commit `a03c7279eaf`，Batch A 收尾，gate 关、dormant、零 live 风险）——`MaxComputeConnectorMetadata` impl SPI `listPartitionNames`/`listPartitions`/`listPartitionValues`（直取 ODPS `getPartitions`，镜像 legacy SHOW PARTITIONS 路径；OQ-4 定不建自有 cache）。守门全绿（compile + checkstyle 0 + import-gate，真实 EXIT）。doc-sync 3 文件（tasks/P4、PROGRESS、connectors/maxcompute）。测试延 P4-T10（R12 不静默）。**Batch A（DDL+分区）全完成**（用户选「提交 T02 然后停」）。
+- **下一个 session 应做**：**P4 Batch B**（写/事务 SPI，gate 关、dormant；A∥B，A 已完成）——**P4-T03** `ConnectorWriteOps.beginTransaction` + `ConnectorTransaction`（港 `MCTransaction`：`addCommitData` 必 `TBinaryProtocol`、block 分配、begin/finish/commit/rollback、getUpdateCnt）+ **P4-T04** `getWritePlanProvider`→`planWrite` 产 `TMaxComputeTableSink`（填 W5 seam；OQ-2 注入重建=核心难点）。**T03/T04 未 recon 逐行定稿（≠T02），首步先读 SPI 写接口 + MCTransaction + JDBC 参考实现**。见 [tasks/P4](./tasks/P4-maxcompute-migration.md) / [HANDOFF](./HANDOFF.md)。
+- **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（P4-T02 完成 + Batch B 首步锚点 + 写路径三红线/OQ-2 + 守门坑沿用）
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---
