@@ -278,6 +278,11 @@ under the License.
         <jackson.version>2.16.0</jackson.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
+        <!-- Jetty 12.0.34 (jetty-ee10-servlet) invokes jakarta.servlet.http.Cookie#getAttributes(),
+             which only exists since Jakarta Servlet 6.1. Pin the API to 6.1.0 so it matches the
+             jetty version; otherwise the transitive 6.0.0 from spring-boot triggers NoSuchMethodError
+             when the FE HTTP server writes a Set-Cookie (SameSite) header. -->
+        <jakarta.servlet-api.version>6.1.0</jakarta.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>

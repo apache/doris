@@ -116,7 +116,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             columnNames = avroSchema.getFields().stream()
                     .map(Schema.Field::name).collect(Collectors.toList());
             columnTypes = avroSchema.getFields().stream()
-                    .map(f -> HudiTypeMapping.fromAvroSchema(unwrapNullable(f.schema())).getTypeName())
+                    .map(f -> HudiTypeMapping.toHiveTypeString(f.schema()))
                     .collect(Collectors.toList());
         } catch (Exception e) {
             LOG.warn("Failed to resolve Hudi schema for JNI reader, JNI splits may fail: {}",
@@ -345,17 +345,6 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             return "orc";
         }
         return "parquet";
-    }
-
-    private static Schema unwrapNullable(Schema schema) {
-        if (schema.getType() == Schema.Type.UNION) {
-            for (Schema s : schema.getTypes()) {
-                if (s.getType() != Schema.Type.NULL) {
-                    return s;
-                }
-            }
-        }
-        return schema;
     }
 
     private Configuration buildHadoopConf() {
