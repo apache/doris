@@ -58,7 +58,7 @@ public:
                                      DataSinkOperatorX<CacheSinkLocalState>::_name);
     }
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override {
         std::shared_ptr<BasicSharedState> ss = std::make_shared<DataQueueSharedState>();
