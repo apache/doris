@@ -23,7 +23,11 @@ namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
-// Inline byte cursor mirroring the one in `term_dict_reader.cpp`.
+// Inline byte cursor mirroring the one in `term_dict_reader.cpp`,
+// including its untrusted-input hardening: ReadByte bounds against
+// `_len`, and ReadVInt/ReadVLong bound `shift` to defeat crafted-bytes
+// shift-overflow UB. Underflow/corruption throws CLuceneError(CL_ERR_IO),
+// which the query path converts to INVERTED_INDEX_FILE_CORRUPTED.
 // Kept local rather than extracted to a shared header because each
 // reader has slightly different needs (this one needs to be
 // re-entrant via the enclosing class's `_pos` field, while
@@ -60,6 +64,12 @@ public:
                 break;
             }
             shift += 7;
+            // `<< shift` is UB on uint32 once shift >= 32. A crafted/corrupt
+            // .tis with >=5 continuation bytes would otherwise drive shift past
+            // 32 (e.g. 35) — bound it, mirroring term_dict_reader.cpp::ReadVInt.
+            if (shift >= 32U) [[unlikely]] {
+                _CLTHROWA(CL_ERR_IO, "SPIMI .tis VInt: shift overflow on crafted input");
+            }
         }
         return static_cast<int32_t>(v);
     }
@@ -73,6 +83,12 @@ public:
                 break;
             }
             shift += 7;
+            // `<< shift` is UB on uint64 once shift >= 64. A crafted/corrupt
+            // .tis with >=10 continuation bytes would otherwise drive shift past
+            // 64 (e.g. 70) — bound it, mirroring term_dict_reader.cpp::ReadVLong.
+            if (shift >= 64U) [[unlikely]] {
+                _CLTHROWA(CL_ERR_IO, "SPIMI .tis VLong: shift overflow on crafted input");
+            }
         }
         return static_cast<int64_t>(v);
     }

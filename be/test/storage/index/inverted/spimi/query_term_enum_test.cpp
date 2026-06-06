@@ -174,4 +174,30 @@ TEST(SpimiQueryTermEnumTest, HandlesUtf8MultiByteTerms) {
     EXPECT_FALSE(enumerator->next());
 }
 
+TEST(SpimiQueryTermEnumTest, CorruptVIntShiftOverflowThrowsNotUB) {
+    // Regression for the shift-overflow UB in Cursor::ReadVInt. A crafted
+    // .tis whose first term-prefix VInt is all continuation bytes (high bit
+    // set, never terminating) would, without the `shift >= 32` bound, keep
+    // left-shifting `b << shift` past the width of uint32 — undefined behavior.
+    // The bounded decoder must instead throw CLuceneError, which the searcher
+    // build path converts to INVERTED_INDEX_FILE_CORRUPTED. ReadVLong carries
+    // the identical `shift >= 64` bound by construction.
+    EnumFixture fx;
+    fx.Write({{"alpha", 0, 0}});
+    // Init() consumes a fixed 24-byte header (format, legacy size, index
+    // interval, skip interval, max skip levels); DecodeOne()'s first read is
+    // the term-prefix VInt at offset 24. Five 0x80 continuation bytes drive
+    // shift to 35 (>= 32) before any terminator, tripping the guard.
+    constexpr size_t kHeaderBytes = 24;
+    constexpr size_t kContinuationBytes = 5;
+    std::vector<uint8_t> bytes(fx.tis.bytes().begin(), fx.tis.bytes().end());
+    ASSERT_GT(bytes.size(), kHeaderBytes + kContinuationBytes + 8U);
+    for (size_t i = kHeaderBytes; i < kHeaderBytes + kContinuationBytes; ++i) {
+        bytes[i] = 0x80;
+    }
+    SpimiQueryTermEnum enumerator(bytes.data(), bytes.size(), fx.skip_interval,
+                                  std::vector<std::wstring> {L"body"});
+    EXPECT_THROW(enumerator.next(), CLuceneError);
+}
+
 } // namespace doris::segment_v2::inverted_index::spimi

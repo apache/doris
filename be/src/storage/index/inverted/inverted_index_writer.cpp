@@ -1040,6 +1040,17 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
             error_context.err_msg.append("Inverted index writer finish error occurred: ");
             error_context.err_msg.append(e.what());
             LOG(ERROR) << error_context.err_msg;
+        } catch (...) {
+            // Catch-all so the FINALLY cleanup runs for ANY exception type, not
+            // just the two named above. SpimiIndexWriter::Finish() rethrows the
+            // original exception type (e.g. a std::bad_alloc surfaced while
+            // building a segment); without this branch such a type would escape
+            // past the FINALLY block, leaking the seven SPIMI IndexOutputs and
+            // skipping the eptr->Status conversion. The FINALLY macro converts
+            // the captured eptr into an INVERTED_INDEX_CLUCENE_ERROR Status.
+            error_context.eptr = std::current_exception();
+            error_context.err_msg.append("Inverted index writer finish unknown exception");
+            LOG(ERROR) << error_context.err_msg;
         }
         FINALLY({
             FINALLY_CLOSE(null_bitmap_out);
