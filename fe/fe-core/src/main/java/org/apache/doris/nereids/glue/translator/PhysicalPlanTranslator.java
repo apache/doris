@@ -822,17 +822,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         SessionVariable sv = ConnectContext.get().getSessionVariable();
 
-        // Plugin-driven (SPI) Hudi: route through PluginDrivenScanNode. Incremental scan
-        // (hudiScan.getIncrementalRelation) is not yet representable in the SPI; that
-        // gap is tracked for P3 when Hudi migrates to the connector framework.
+        // Plugin-driven (SPI) Hudi: route through PluginDrivenScanNode.
         if (table instanceof PluginDrivenExternalTable) {
+            // Fail loud: the SPI Hudi path does not yet honor time travel or incremental
+            // reads. HudiScanPlanProvider always reads the latest snapshot, and the
+            // incremental relation has no SPI representation, so honoring them silently
+            // would return wrong results (latest snapshot / full scan instead). Full
+            // support is deferred to the Hudi connector live cutover (batch E); see
+            // plan-doc DV-006 / tasks/P3.
+            if (hudiScan.getIncrementalRelation().isPresent()) {
+                throw new AnalysisException("Hudi incremental read is not yet supported via the "
+                        + "catalog SPI; it is deferred to the Hudi connector migration.");
+            }
+            if (hudiScan.getTableSnapshot().isPresent()) {
+                throw new AnalysisException("Hudi time travel (FOR TIME/VERSION AS OF) is not yet "
+                        + "supported via the catalog SPI; it is deferred to the Hudi connector migration.");
+            }
             PluginDrivenExternalCatalog pluginCatalog =
                     (PluginDrivenExternalCatalog) table.getCatalog();
             ScanNode scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
                     false, sv, context.getScanContext(), pluginCatalog,
                     (PluginDrivenExternalTable) table);
             FileQueryScanNode fileScan = (FileQueryScanNode) scanNode;
-            hudiScan.getTableSnapshot().ifPresent(fileScan::setQueryTableSnapshot);
             hudiScan.getScanParams().ifPresent(fileScan::setScanParams);
             return getPlanFragmentForPhysicalFileScan(hudiScan, context, scanNode);
         }
