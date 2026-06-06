@@ -78,7 +78,7 @@ import java.util.Objects;
 import java.util.Stack;
 
 /**
- * collect the access path, for example: `select struct_element(s, 'data')` has access path: ['s', 'data']
+ * collect the access path, for example: `select element_at(s, 'data')` has access path: ['s', 'data']
  */
 public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void, CollectorContext> {
     private StatementContext statementContext;
@@ -560,7 +560,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         }
         // Optimize IS NULL on nullable expressions: create a context with NULL suffix to indicate
         // only the null flag is needed. Works for top-level columns (col IS NULL → [col, NULL])
-        // and nested access (struct_element(s, 'city') IS NULL → [s, city, NULL]).
+        // and nested access (element_at(s, 'city') IS NULL → [s, city, NULL]).
         // For unrecognized expressions, the default visitor resets context, safely discarding NULL.
         if (arg.nullable() && context.accessPathBuilder.isEmpty()) {
             CollectorContext nullContext =

@@ -772,7 +772,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Dround.class, "dround"),
             scalar(Dsqrt.class, "dsqrt"),
             scalar(E.class, "e"),
-            scalar(ElementAt.class, "element_at", "struct_element"),
+            scalar(ElementAt.class, "element_at"),
             scalar(Elt.class, "elt"),
             scalar(Embed.class, "embed"),
             scalar(EncodeAsSmallInt.class, "encode_as_smallint"),

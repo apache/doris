@@ -24,9 +24,6 @@ namespace doris {
 void register_function_array_element(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayElement>();
     factory.register_alias(FunctionArrayElement::name, "%element_extract%");
-    // Keep "struct_element" (old FE / persisted plans) resolvable; register it as its own name, not
-    // an alias, since element_at is variadic and an alias key would be mangled and miss.
-    factory.register_function<FunctionArrayElement>("struct_element");
 }
 
 } // namespace doris

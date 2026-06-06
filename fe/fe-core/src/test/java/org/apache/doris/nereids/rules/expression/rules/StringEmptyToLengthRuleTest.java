@@ -146,7 +146,7 @@ public class StringEmptyToLengthRuleTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testStructElementEqualEmptyRewrite() {
-        // struct_element(struct_col, 'f3') = '' → length(struct_element(struct_col, 'f3')) = 0
+        // element_at(struct_col, 'f3') = '' → length(element_at(struct_col, 'f3')) = 0
         SlotReference structSlot = new SlotReference("struct_col",
                 new StructType(ImmutableList.of(
                         new StructField("f1", IntegerType.INSTANCE, true, ""),
@@ -162,7 +162,7 @@ public class StringEmptyToLengthRuleTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testStructElementReversedOperandsRewrite() {
-        // '' = struct_element(struct_col, 'f3') → length(struct_element(struct_col, 'f3')) = 0
+        // '' = element_at(struct_col, 'f3') → length(element_at(struct_col, 'f3')) = 0
         SlotReference structSlot = new SlotReference("struct_col",
                 new StructType(ImmutableList.of(
                         new StructField("f1", IntegerType.INSTANCE, true, ""),
@@ -178,7 +178,7 @@ public class StringEmptyToLengthRuleTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testNotStructElementEqualEmptyRewrite() {
-        // NOT(struct_element(struct_col, 'f3') = '') → NOT(length(struct_element(struct_col, 'f3')) = 0)
+        // NOT(element_at(struct_col, 'f3') = '') → NOT(length(element_at(struct_col, 'f3')) = 0)
         SlotReference structSlot = new SlotReference("struct_col",
                 new StructType(ImmutableList.of(
                         new StructField("f1", IntegerType.INSTANCE, true, ""),
