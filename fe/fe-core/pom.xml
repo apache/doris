@@ -795,8 +795,10 @@ under the License.
             <scope>test</scope>
         </dependency>
         <!-- fastutil-core: fastutil used directly by FE catalog/tablet-index code
-             (e.g. Long2ObjectOpenHashMap). The ancient copy once bundled unrelocated in
-             hive-catalog-shade is now relocated under shade.doris.hive.*, so no collision remains. -->
+             (e.g. Long2ObjectOpenHashMap). hive-catalog-shade bundles an ancient, unrelocated
+             fastutil (6.5.6) that collides on the classpath; the maven-shade-plugin below
+             bundles this real fastutil-core into doris-fe.jar (pinned first on the FE classpath
+             by bin/start_fe.sh), so the correct class wins. -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
@@ -948,6 +950,48 @@ under the License.
                                 <!-- add arbitrary num of src dirs here -->
                                 <source>${basedir}/target/generated-sources/</source>
                             </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Bundle the real fastutil-core (8.5.18) into doris-fe.jar, UNRELOCATED, so the
+                 correct Long2ObjectOpenHashMap (with computeIfAbsent(long, Long2ObjectFunction))
+                 wins over the ancient fastutil (6.5.6) that hive-catalog-shade embeds. start_fe.sh
+                 pins doris-fe.jar first on the FE classpath, so whatever it contains takes load
+                 priority. This avoids touching the hive-catalog-shade dependency. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>bundle-fastutil-into-doris-fe</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Keep fe-core's dependency list intact: fastutil-core stays a normal
+                                 dependency (still copied into lib/ by fe-lib.xml, and resolved
+                                 normally by fe_plugins which depend on fe-core with scope=provided). -->
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <!-- ONLY fastutil-core; do NOT turn doris-fe.jar into a full uber-jar.
+                                 The project's own classes are always included by shade. -->
+                            <artifactSet>
+                                <includes>
+                                    <include>it.unimi.dsi:fastutil-core</include>
+                                </includes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                         </configuration>
                     </execution>
                 </executions>
