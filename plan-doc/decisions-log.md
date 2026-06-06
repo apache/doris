@@ -15,6 +15,7 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-026 | — | P4 Batch C 翻闸设计（用户签字，design-only）：**D-1** capability signal = 新增 `ConnectorWriteOps.usesConnectorTransaction()` default false（MC=true；executor 据此在调任何 throwing-default 写法前分流 txn-model vs JDBC insert-handle）；**D-2** 两 commit（`[P4-T06a]` 写接线/绑定/R-004 隔离测 dormant + `[P4-T06b]` flip 末提）；**D-3** 静态分区/overwrite 绑定**入 cutover**（避 INSERT OVERWRITE PARTITION 翻闸回归）。**两新 SPI**（均 default-preserving）：`ConnectorSession.setCurrentTransaction` + `ConnectorWriteOps.usesConnectorTransaction`（impl 时 E11 登记）。设计 `designs/P4-T05-T06-cutover-design.md` | 2026-06-06 | ✅ |
 | D-025 | — | P4-T04 写计划 5 决策（D-1/D-2a 用户签字、D-3/D-4/D-5 主线定）：D-1 **OQ-2=Approach A**（`planWrite` 在 finalizeSink 一处建 ODPS 写 session + `setWriteSession` 绑 txn + 盖 `txn_id`/`write_session_id`，无运行期注入 hook）；D-2a 含 **fe-core seam fill**（`PluginDrivenTableSink.bindViaWritePlanProvider(insertCtx)` 读 overwrite+静态分区；`staticPartitionSpec` 加 `PluginDrivenInsertCommandContext` 非基类——避 `MCInsertCommandContext` override/shadow）；D-3 抽 `MaxComputeDorisConnector.getSettings()`（legacy 单 `settings` 同供 scan+write，抽出=忠实港）；D-4 `supportsInsert()`=true 余最小化（`beginInsert`/`finishInsert`/`getWriteConfig` 留 throwing-default，实际 executor 调用面待 Batch C）；D-5 静态分区作 `getWriteContext()` col→val map | 2026-06-06 | ✅ |
 | D-024 | — | P4-T03 两 fork（用户签字）：(1) txn id 经新增 `ConnectorSession.allocateTransactionId()`（fe-core `Env.getNextId` 背书）由连接器分配——尊重 [D-015]/U3，补 id-less 连接器（MC 无外部 id）的分配器机制；(2) ODPS 写 session 创建挪 T04 planWrite（T03 = 纯事务容器，over W4 委派、gate 关 dormant）| 2026-06-06 | ✅ |
 | D-023 | — | P4 maxcompute 启 full adopter（recon §9 option A）：W-phase 后按 5 批（A 读/DDL parity → B 写/事务 → C 翻闸 → D 清引用+删 legacy → E 测）落地 + cutover；批次计划 tasks/P4 | 2026-06-06 | ✅ |
@@ -44,6 +45,20 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-026 — P4 Batch C 翻闸设计（3 子决策 + 2 SPI 新增，用户签字）
+
+- **日期**：2026-06-06
+- **状态**：✅（design-only；实现 = T05 → T06，下一 fresh session）
+- **背景**：Batch A+B 全完成（gate 关 dormant），下一 = Batch C（唯一 live 切点）。本场 design-first：4 路 Explore re-verify recon 锚点 + 主线核读 executor/txn 生命周期，定 dormant→live 写接线（坑3 三点）+ flip + R-004。recon 校正：GsonUtils 真锚 `:397`/`:472`（非 ~405/~478）；`legacyLogTypeToCatalogType` 默认分支已出 `"max_compute"`（**无需加 case**）；live executor = `PluginDrivenInsertExecutor`（非裸 `beginTransaction`）；`PluginDrivenTransactionManager.begin(connectorTx)` **未** `putTxnById`（G3）；`UnboundConnectorTableSink` 不携静态分区（G4）。
+- **决策**：
+  - **D-1（capability signal）= (A)** 新增 `ConnectorWriteOps.usesConnectorTransaction()` default false，`MaxComputeConnectorMetadata` override true。executor 据此在调任何 throwing-default 写法（`getWriteConfig`/`beginInsert`/`beginTransaction` 全 default 抛、MC 留抛=D-4）前分流 txn-model（MC）vs JDBC insert-handle。否决 (B) `getWritePlanProvider()!=null` 代理（耦合松）/(C) 复用 `ConnectorWriteType`（逆 D-4 + enum churn + getWriteConfig 调用前移）。
+  - **D-2（commit 粒度）= 两 commit、flip 末**：`[P4-T06a]` = 写接线（W-a..d）+ 静态分区/overwrite 绑定（G4/G5）+ R-004 隔离 UT（全 additive/dormant-safe）；`[P4-T06b]` = `CatalogFactory.SPI_READY_TYPES += "max_compute"`(:52) + 删 :146 case（唯一 live-switch 单点，易 review/revert）。
+  - **D-3（静态分区/overwrite 绑定 scope）= 入 cutover（T06）**：扩 `UnboundConnectorTableSink` 携静态分区 + `InsertIntoTableCommand`/`InsertOverwriteTableCommand` 填 `PluginDrivenInsertCommandContext`（overwrite + staticPartitionSpec）。避免翻闸瞬间 INSERT OVERWRITE / 静态分区 INSERT 回归。
+- **SPI 新增（2，均 default-preserving，零 jdbc/es/trino 影响）**：`ConnectorSession.setCurrentTransaction(ConnectorTransaction)`（+ `ConnectorSessionImpl` 字段/`getCurrentTransaction` override；把 connectorTx 绑入 sink session 供 T04 `planWrite` 读，解 G1）；`ConnectorWriteOps.usesConnectorTransaction()`（D-1）。impl 时登记 `01-spi-extensions-rfc.md` §20 E11。
+- **不重开 T03/T04**：Approach A locked（`planWrite` 读 `getCurrentTransaction`）；本设计接线 *到* 它。R-004 拆两分：① classloader 隔离（无 creds，CI 可跑）+ ② live 连通（creds，用户跑）。
+- **设计文档**：[tasks/designs/P4-T05-T06-cutover-design.md](./tasks/designs/P4-T05-T06-cutover-design.md)（verified file:line 锚点 + 5 gap G1–G5 + lifecycle order + R-004 两分测 + ordered TODO）。
+- **T05 实现校正（2026-06-06，gate-green、待 commit）**：实现期 4-agent 对抗复核发现 §3.1/§8 ordered TODO **漏 GSON DB `:452`**（`MaxComputeExternalDatabase`，仅列了 catalog `:397`+table `:472`）；折入 T05（三注册齐迁 `registerCompatibleSubtype` + 删 3 unused import），否则翻闸后 `MaxComputeExternalDatabase.buildTableInternal:44` cast `PluginDrivenExternalCatalog`→`MaxComputeExternalCatalog` 抛 `ClassCastException`。另 2 告警判非问题（`getMetaCacheEngine` 假阳性=plugin 路径经连接器取 schema、走 "default" 桶同 es/jdbc/trino；`getMysqlType`→"BASE TABLE" 同 ES 既定行为）；dormancy 告警 = 既载中间态 caveat（其"保留 registerSubtype"修法错，会撞 duplicate-label IAE）。详见设计 §3.4。
 
 ### D-025 — P4-T04 写计划 5 决策（OQ-2 解法 + seam fill + 三主线定）
 
