@@ -9,77 +9,64 @@
 ## 📅 最后一次 handoff
 
 - **日期 / 时间**：2026-06-06（**实现 session**）
-- **本 session 主题**：**W-phase W1+W2 落地**——写/事务 SPI 面（fe-connector-api）+ fe-core `Transaction` 泛化 + MC/HMS/Iceberg 三 txn override。**behind gate、零行为变更、golden 等价 by construction**。守门全绿（真实 exit code 核验）。**未提交**（待用户决定）。W3–W7 留下一 session。
-- **分支**：`catalog-spi-05`（基于 `branch-catalog-spi`，含 P0–P3 #64143 `5c240dc7a34`）。工作树：6 个 .java 改动（fe-connector-api×2 + fe-core×4）+ PROGRESS/HANDOFF；未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.bak`（沿用，非本场）。
+- **本 session 主题**：**W-phase W3 + W6 落地**——解耦 3 处热路径 concrete cast/instanceof（`Coordinator`/`LoadProcessor`/`FrontendServiceImpl`）走 SPI 多态 `Transaction` + 共享序列化 helper `CommitDataSerializer` + W6 golden 等价测。**behind gate、零行为变更、golden by TDD（先 RED 后 GREEN）**。守门全绿（真实 exit code 核验：compile BUILD SUCCESS + 9 测全过 + checkstyle 0 + import-gate）。**未提交**（待用户决定）。W4/W5/W7 留下一 session。
+- **分支**：`catalog-spi-05`。**⚠️ W1+W2 已提交** = `be945476ba7`（上 handoff 写的"未提交"已**过时**——用户在上 session 之后提交了 W1/W2；故"把 W1–W3 合一个 commit"的旧建议作废，**W3+W6 应为独立 commit**叠在 `be945476ba7` 上）。本 session W3+W6 工作树：3 个 .java 改动 + 3 新 .java + PROGRESS/HANDOFF；未跟踪 `.audit-scratch/`（本场构建日志 `w3-*.log`）/`conf.cmy/`/`regression-conf.bak`（沿用，非本场）。
 
 ---
 
-## ✅ 本 session 完成项（behind gate，零行为变更）
+## ✅ 本 session 完成项（behind gate，零行为变更，golden by TDD）
 
 | 项 | 结果 | 文件 |
 |---|---|---|
-| **W1** SPI 写/事务面 | ✅ gated（compile + import-gate + checkstyle 0） | `fe-connector-api`：`handle/ConnectorTransaction.java`(+4 default)·`Connector.java`(+getWritePlanProvider)·新 `write/ConnectorWritePlanProvider.java`·`write/ConnectorSinkPlan.java`(包 TDataSink)·`handle/ConnectorWriteHandle.java` |
-| **W2** fe-core Transaction 泛化 + 3 override | ✅ gated（fe-core compile BUILD SUCCESS + checkstyle 0） | `transaction/Transaction.java`(+4 default)·`maxcompute/MCTransaction.java`·`hive/HMSTransaction.java`·`iceberg/IcebergTransaction.java` |
+| **W3** 解耦热路径 cast/instanceof | ✅ gated（compile BUILD SUCCESS + checkstyle 0 + import-gate + 三文件无 concrete import/usage） | `qe/Coordinator.java`·`qe/runtime/LoadProcessor.java`·`service/FrontendServiceImpl.java`·**新** `transaction/CommitDataSerializer.java` |
+| **W6** golden 等价测 | ✅ 9 测全过（4 golden + 4 SPI default + 1 既有 block-alloc） | **新** `transaction/CommitDataSerializerTest.java`·`connector/fake/ConnectorTransactionDefaultsTest.java` |
 
-**W1 细节**：4 个 SPI default = `addCommitData(byte[])` no-op / `supportsWriteBlockAllocation()` false / `allocateWriteBlockRange(String,long)` throws / `getUpdateCnt()` 0。`ConnectorWriteHandle` 字段 minimal（`getTableHandle`/`getColumns`/`isOverwrite`/`getWriteContext`），**W5 据 `bindDataSink` 真实入参细化**（接口零 implementer，改 free）。`ConnectorSinkPlan` 已 pin（仅包 `TDataSink`）。
+**W3 细节**：
+- **新 helper** `CommitDataSerializer.feed(Transaction txn, List<? extends TBase<?,?>> fragments)`（`org.apache.doris.transaction` 包）——**序列化协议单点定义** `new TSerializer(new TBinaryProtocol.Factory())`（对齐 W2 各 `addCommitData` 的 `TBinaryProtocol` 反序列化），逐元素 `txn.addCommitData(serializer.serialize(frag))`；fail-loud `catch(TException)→RuntimeException`。
+- **Coordinator/LoadProcessor**：3 个独立 `if` + concrete cast → 1 个 **guarded 块**（见下红线）：`if (hive||iceberg||mc) { Transaction txn = …getTxnById(txnId); 对每个 set 字段 CommitDataSerializer.feed(txn, …); }`。删 3 concrete import（HMS/Iceberg/MC），加 `transaction.{CommitDataSerializer,Transaction}`。仍枚举 3 thrift 字段 = RFC §5.3 认可的 transitional shim（B1 消除的是 **cast**，非字段枚举）。
+- **FrontendServiceImpl**：`!(transaction instanceof MCTransaction)` → `!transaction.supportsWriteBlockAllocation()`（**保留** legacy `"is not a MaxCompute transaction"` 文案）；`((MCTransaction)transaction).allocateBlockIdRange(…)` → `transaction.allocateWriteBlockRange(…)`（接口声明 `throws UserException`，外层既有 `catch(UserException)`）。删 MCTransaction import。
 
-**W2 细节 + golden 等价机制**：
-- `Transaction` 接口加 4 同名 default；`allocateWriteBlockRange(String,long) throws UserException`（对齐 MC `allocateBlockIdRange` 的 checked 异常 + `FrontendServiceImpl` 既有 `catch(UserException)`）。
-- 3 个 `addCommitData(byte[])` override：`new TDeserializer(new TBinaryProtocol.Factory()).deserialize(typed, bytes)` → 走**既有** `updateXxxCommitData(Collections.singletonList(typed))`。既有方法 = `internalList.addAll(arg)`，故 `addAll(整 list)` ≡ 逐元素 `add` → **逐位等价**。MC 另 override `supportsWriteBlockAllocation()=true` + `allocateWriteBlockRange→allocateBlockIdRange`；3 处 `getUpdateCnt` 加 `@Override`。
-- **⚠️ W2 override 现为 dead code**：W3 接线前 `Coordinator`/`LoadProcessor` 仍 concrete cast 直调 `updateXxxCommitData` → `addCommitData` 不被调用 → **本 session 零行为变更**，亦无 round-trip 故无协议失配风险（风险在 W3 落地时）。
+### 🔴 关键修正（**与上 handoff 字面冲突，务必读**）
+`GlobalExternalTransactionInfoMgr.getTxnById(txnId)`（`transaction/GlobalExternalTransactionInfoMgr.java:30`）对未知 txnId **抛 `RuntimeException("Can't find txn for ...")`，不返 null**。legacy 仅在每个 `if (params.isSetXxx())` **内部**调 getTxnById；常规 OLAP load（无 hive/iceberg/mc commit 字段）→ 永不调。**所以 guarded 块必须把 `getTxnById` 包在 `if (任一 commit 字段 set)` 之内**——若像上 handoff 字面"取 `Transaction txn = …getTxnById(txnId)`"那样在 if 前**无条件**取一次，则每个常规 load 的 fragment report 都抛异常、**击穿所有普通导入**。本 session 已用 guarded 块修正（零行为变更）。
+> 副作用差异（by design，RFC §5.3 接受）：legacy 对 txn 类型不符抛 ClassCastException（响）；新版多态 `addCommitData` 对非写 txn 是 default no-op（默）。实际不会发生（写连接器只 set 自己的字段），非回归。
+
+**W6 细节 + golden 机制**：
+- **TDD**：先写测（引用未存在的 `feed`）→ **故意用错协议 `TCompactProtocol` 实现 helper** → 跑出 **RED**（3 个 `feed` 测报 `RuntimeException: failed to deserialize … / Caused by: TProtocolException: Unrecognized type 24`，证测真守"序列化协议红线"且走真实 `feed→addCommitData` 生产路径）→ 翻 `TBinaryProtocol` → **GREEN**（9/9）。RED/GREEN 日志：`.audit-scratch/w3-red.log` / `w3-green.log`。
+- 4 golden（`CommitDataSerializerTest`，JUnit4）：①`binaryProtocolRoundTripIsLossless`（3 型 serialize→deserialize `.equals`，钉协议 + 全字段无损）；②iceberg `feed` vs `updateIcebergCommitData` 比 `getCommitDataList()`；③hms 同比 `getHivePartitionUpdates()`（构造 `new HMSTransaction(null,null,null)` 需 `ConnectContext` 上线程，`@Before`/`@After` 仿 `HMSTransactionPathTest`）；④mc 比 `getUpdateCnt()`（**MC 无 list getter**——全字段保真靠①，**不**加测专用 getter（避反 anti-pattern）、不反射）。`new IcebergTransaction(null)`/`new MCTransaction(null)` 安全（addCommitData/update/getter 不碰 ops/catalog）。
+- 4 SPI default（`ConnectorTransactionDefaultsTest`，JUnit5，仿 `FakeConnectorPluginTest`）：SPI `ConnectorTransaction`（fe-connector-api）4 新 default。fe-connector-api **无** test 目录，故测落 fe-core。
+- 既有 `FrontendServiceImplTest#testGetMaxComputeBlockIdRange`（1 测）= FrontendServiceImpl 改动的**直接 golden**（first start=0 / second start=1，改后逐位等价）。
+- **诚实范围**（Rule 12）：跑的是**定向** golden 测 + compile + checkstyle + import-gate（非全 fe-core 套件）；Coordinator/LoadProcessor 热路径无单测 harness（需集群），由 helper golden 测 + compile 守。
 
 ---
 
-## 🚧 未完成 / 待办（下一 session 第一件事 = W3 + W6）
-
-### W3 解耦热路径（**golden 等价红线**，behind gate）— 精确锚点（本 session 核实）
-
-- `qe/Coordinator.java:2530-2541`：3 个**独立 if**
-  ```
-  if (params.isSetHivePartitionUpdates()) ((HMSTransaction)   …getTxnById(txnId)).updateHivePartitionUpdates(params.getHivePartitionUpdates());
-  if (params.isSetIcebergCommitDatas())   ((IcebergTransaction)…getTxnById(txnId)).updateIcebergCommitData(params.getIcebergCommitDatas());
-  if (params.isSetMcCommitDatas())        ((MCTransaction)    …getTxnById(txnId)).updateMCCommitData(params.getMcCommitDatas());
-  ```
-- `qe/runtime/LoadProcessor.java:231-242`：同结构（`long txnId = loadContext.getTransactionId();`）。
-- `service/FrontendServiceImpl.java:3697-3703`：`if (!(transaction instanceof MCTransaction)) throw new UserException(...); long start = ((MCTransaction) transaction).allocateBlockIdRange(request.getWriteSessionId(), request.getLength());`（`transaction` 已是 fe-core `Transaction`，见 :3695-3696；外层已 `catch(UserException)`）。
-
-**改法**：
-1. **Coordinator / LoadProcessor**：取 `Transaction txn = …getTxnById(txnId);`，对每个 set 的字段**逐元素** `txn.addCommitData(serializer.serialize(elem))`。**序列化协议必须 `new TSerializer(new TBinaryProtocol.Factory())`**（对齐 W2 反序列化）。fail-loud：`catch (TException) → throw new RuntimeException(...)`。删 3 个 cast + 删 `import …{HMSTransaction, IcebergTransaction, MCTransaction}`。
-   - 仍枚举 3 个 thrift 字段 = RFC §5.3 认可的 transitional serialization shim（W3 目标 = 消除 concrete **cast**，非字段枚举；后者待 BE 加通用 `connector_commit_data` 字段后退休）。
-   - **建议**：抽一个共享 static helper（serialize-list → `txn.addCommitData`），避免 Coordinator/LoadProcessor 重复且**协议单点定义**（保 golden）。位置自定（`org.apache.doris.transaction` 下小 util，或 `Transaction` 的 static）。
-2. **FrontendServiceImpl**：`if (!transaction.supportsWriteBlockAllocation()) throw new UserException(... "is not a MaxCompute transaction"); long start = transaction.allocateWriteBlockRange(request.getWriteSessionId(), request.getLength());`。删 `import …MCTransaction`。
-3. 守门：fe-core compile + checkstyle（**绝对 -f**，见坑 1）；验三文件无 concrete import：`grep -nE "import .*(MCTransaction|HMSTransaction|IcebergTransaction)" Coordinator.java LoadProcessor.java FrontendServiceImpl.java` 应空。
-
-### W6 golden 测（与 W3 同验）
-- `FakeConnector` 写 default 行为测。
-- 3 txn golden 等价：构造 typed（`TMCCommitData`/`THivePartitionUpdate`/`TIcebergCommitData`）→ `TSerializer(TBinaryProtocol)` → `addCommitData(bytes)` → `getCommitDataList()`/`getHivePartitionUpdates()` **==** `updateXxxCommitData([typed])` 路径。checkstyle 含 test 源。
-- 跑：`mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -Dtest=Xxx -DfailIfNoTests=false test`（慢，后台）。
+## 🚧 未完成 / 待办（下一 session = W4 + W5，再 W7）
 
 ### W4 PluginDrivenTransaction 桥（**已存在，扩展非新建**）
 - `transaction/PluginDrivenTransactionManager.java:112` 已有 `private static final class PluginDrivenTransaction implements Transaction`（P0-T11）。现继承 4 个新 default（no-op，编译过）。
-- W4：override 4 方法委派给 wrap 的 SPI `ConnectorTransaction`（`addCommitData`/`supportsWriteBlockAllocation`/`allocateWriteBlockRange`/`getUpdateCnt`）。
+- W4：override 4 方法委派给 wrap 的 SPI `ConnectorTransaction`（`addCommitData`/`supportsWriteBlockAllocation`/`allocateWriteBlockRange`/`getUpdateCnt`）。注意 fe-core `Transaction.allocateWriteBlockRange` 声明 `throws UserException`，SPI `ConnectorTransaction.allocateWriteBlockRange` **不**声明 checked（抛 `UnsupportedOperationException`）——桥接处适配（catch/wrap 或直接传递，按签名）。
 
 ### W5 PluginDrivenTableSink + PhysicalPlanTranslator（写 sink 收口）
 - 新 fe-core `PluginDrivenTableSink`；`PhysicalPlanTranslator.visitPhysicalXxxTableSink` → `ConnectorWritePlanProvider.planWrite()`（仿 scan），保 PhysicalXxxSink fallback。
-- **此处定 `ConnectorWriteHandle`/`ConnectorSinkPlan` 最终字段形**（据 `*TableSink.bindDataSink()` 真实入参）。
+- **此处定 `ConnectorWriteHandle`/`ConnectorSinkPlan` 最终字段形**（据 `*TableSink.bindDataSink()` 真实入参；W1 留的 minimal 形改 free，接口零 implementer）。
 
 ### W7 文档
-- `decisions-log`：**D-021**(scope=C) + **D-022**(写 SPI A/B1/C1/D/E)——上 session 用户已签字但**至今未 log**（traceability 缺口，优先补）。
-- `01-spi-extensions-rfc.md`：加「E11 写/事务 SPI」节（脚注引 D-022；§5.2 纪律「先 log 再改 RFC」）。
+- `decisions-log`：**D-021**(scope=C) + **D-022**(写 SPI A/B1/C1/D/E)——上上 session 用户已签字但**至今未 log**（traceability 缺口，优先补；§5.2「先 log 再改 RFC」）。
+- `01-spi-extensions-rfc.md`：加「E11 写/事务 SPI」节（脚注引 D-022）。
 - 同步 PROGRESS / connectors/maxcompute / 本 HANDOFF。
 
 ---
 
 ## ⚠️ 关键认知 / 坑（务必读）
 
-1. **maven 必用绝对 `-f` 路径**：`mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl <m> -am -Dmaven.build.cache.enabled=false ...`。Bash cwd 跨调用持久化——一旦某命令 `cd` 进子目录，后续相对 `-f fe/pom.xml` 即 "does not exist" 假失败（本 session 因此踩 3 次）。**勿在命令里 `cd` 子目录**。
-2. **读真实 exit code，非后台通知**：后台 `mvn … | tail; echo MVN_EXIT=$?` 的 task-notification "exit code 0" 是**整条 pipeline（末尾 echo）**的退出码，**非 maven 的**。必须 `grep -E "BUILD SUCCESS|BUILD FAILURE|MVN_EXIT|Checkstyle violations|CS_EXIT"` 输出文件确认。
-3. **序列化协议契约（golden 红线）**：W2 反序列化用 `new TDeserializer(new TBinaryProtocol.Factory())`；W3 序列化**必须**同协议 `TBinaryProtocol`。建议 W3 抽共享 helper 单点定义协议。
-4. **W3 仍枚举 3 thrift 字段**：B1 消除的是 concrete `*Transaction` **cast**，非字段枚举（后者是 RFC §5.3 认可的 transitional shim）。
-5. **W2 override 现 dead**：W3 接线后才 live；W3 落地即需 W6 golden 测护住。
-6. **getUpdateCnt 已半多态**：5 个 executor（Hive/Iceberg×3/MC `*InsertExecutor` 等）已 `transaction.getUpdateCnt()`；W2 加接口 default 后可纯多态，无需改它们（编译前后均过）。
-7. **checkstyle 规则**：`MissingOverride`（default 模式，仅 `{@inheritDoc}` 强制 @Override）；`CustomImportOrder` = `org.apache.doris.*` → 第三方(`com.*`/`io.*`/`org.apache.hadoop.*`/`org.apache.thrift.*`...) → `java.*`，**组间空行、组内字母序**；`UnusedImports`/`RedundantImport` 开；**无** IllegalThrows/IllegalCatch（`throw new RuntimeException` 可用）。注意 `org.apache.doris.thrift.*` 属 doris 组，`org.apache.thrift.*` 属第三方组。
+1. **maven 必用绝对 `-f` 路径**：`mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl <m> ...`。Bash cwd 跨调用持久化——勿在命令里 `cd` 子目录（破相对 `-f`，假失败）。
+2. **读真实 exit code，非后台通知**：后台 task-notification 的 "exit code 0" 是**末尾 `echo` 的**退出码，**非 maven 的**（本场 RED 真实 `MVN_EXIT=1` 但通知报 "exit code 0"——验证了此坑）。命令尾 `echo "MVN_EXIT=$?" >> log`，再 `grep -E "BUILD SUCCESS|BUILD FAILURE|MVN_EXIT|CS_EXIT|Checkstyle violations"` 日志核。
+3. **序列化协议契约（golden 红线）**：W2 反序列化 + W3 序列化均 `TBinaryProtocol`，单点在 `CommitDataSerializer`。改协议即破 round-trip（`CommitDataSerializerTest` 会红，报 `Unrecognized type`）。
+4. **getTxnById 抛异常非返 null**（见上 🔴 关键修正）——任何复用 `getTxnById` 的改动都要 guard。
+5. **W3 已 live**：W2 override 不再 dead（Coordinator/LoadProcessor 经 `feed`→`addCommitData` 真调；block-alloc 经 `allocateWriteBlockRange` 真调），W6 golden 已护住。
+6. **getUpdateCnt 已纯多态**：5 个 executor（Hive/Iceberg×3/MC）`transaction.getUpdateCnt()` 走接口 default + 各 override，无需改。
+7. **checkstyle 规则**：`CustomImportOrder` = `org.apache.doris.*`（含 `org.apache.doris.thrift.*`/`transaction.*`，按包名字母序，`thrift`<`transaction`）→ 第三方（`com.*`/`org.apache.thrift.*`/`org.junit.*`，`org.apache.thrift`<`org.junit`）→ `java.*`，组间空行、组内字母序（大小写敏感：`T*`<`protocol.*`）；`UnusedImports`/`RedundantImport` 开；`LineLength` max **120**；无 IllegalThrows/IllegalCatch。
 8.（沿用坑）rebase 后 fe-core stale `DorisParser` → clean fe-core；import-gate 只禁 connector→fe-core 单向、只扫 main。
+9. **跑 W6 式测**：`mvn -f …/fe/pom.xml -pl fe-core -am -Dmaven.build.cache.enabled=false -Dcheckstyle.skip=true -Dtest=类A,类B#方法 -DfailIfNoTests=false test`（`-am` 编上游但 `-Dtest` 过滤使上游跑 0 测；`-Dcheckstyle.skip` 让测跑不被 style 中断，checkstyle 单独 `checkstyle:check` 跑）。慢，后台。
 
 ---
 
@@ -87,22 +74,26 @@
 
 ```
 RFC：     tasks/designs/connector-write-spi-rfc.md（§5 API / §8 fe-core 改动表 / §12 W1→W7）
-recon：   research/connector-write-spi-recon.md（§4 对比矩阵 / §5 现存 SPI / §6 leak）
-          research/p4-maxcompute-migration-recon.md（P4 adopter：翻闸/gson §5、反向引用 §3）
-W1(已改)：fe-connector/fe-connector-api/.../connector/api/
-            handle/ConnectorTransaction.java · Connector.java · write/ConnectorWritePlanProvider.java
-            write/ConnectorSinkPlan.java · handle/ConnectorWriteHandle.java
-W2(已改)：fe-core/.../transaction/Transaction.java · datasource/{maxcompute/MCTransaction,
-            hive/HMSTransaction, iceberg/IcebergTransaction}.java
-W3(待改)：qe/Coordinator.java:2530-2541 · qe/runtime/LoadProcessor.java:231-242 ·
-            service/FrontendServiceImpl.java:3697-3703
+recon：   research/connector-write-spi-recon.md · research/p4-maxcompute-migration-recon.md
+W1(已提交 be94547)：fe-connector/fe-connector-api/.../connector/api/
+            handle/{ConnectorTransaction,ConnectorWriteHandle}.java · Connector.java
+            write/{ConnectorWritePlanProvider,ConnectorSinkPlan}.java
+W2(已提交 be94547)：fe-core/.../transaction/Transaction.java · datasource/{maxcompute/MCTransaction,
+            hive/HMSTransaction, iceberg/IcebergTransaction}.java（各 addCommitData = TBinaryProtocol 反序列化）
+W3(本场)：qe/Coordinator.java · qe/runtime/LoadProcessor.java · service/FrontendServiceImpl.java
+            + 新 transaction/CommitDataSerializer.java
+W6(本场)：fe-core/src/test/.../transaction/CommitDataSerializerTest.java
+            + connector/fake/ConnectorTransactionDefaultsTest.java
 W4(待改)：transaction/PluginDrivenTransactionManager.java:112（PluginDrivenTransaction 内类）
-不动：     CatalogFactory.SPI_READY_TYPES / datasource/{maxcompute,hive,iceberg} legacy /
-            RewriteDataFileExecutor(procedure, P6)
-守门命令： mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -am \
-            -DskipTests -Dmaven.build.cache.enabled=false compile        # 慢，后台
+W5(待改)：新 fe-core PluginDrivenTableSink + PhysicalPlanTranslator.visitPhysicalXxxTableSink
+不动：     CatalogFactory.SPI_READY_TYPES / datasource/{maxcompute,hive,iceberg} legacy / RewriteDataFileExecutor(P6)
+守门命令： # 编译+测（慢，后台，绝对 -f）
+          mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -am \
+            -Dmaven.build.cache.enabled=false -Dcheckstyle.skip=true \
+            -Dtest=CommitDataSerializerTest,ConnectorTransactionDefaultsTest -DfailIfNoTests=false test
+          # checkstyle（含 test 源）
           mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core \
-            -Dmaven.build.cache.enabled=false checkstyle:check            # 含 test 源
+            -Dmaven.build.cache.enabled=false checkstyle:check
           bash tools/check-connector-imports.sh                           # 从 repo 根跑
 ```
 
@@ -110,9 +101,9 @@ W4(待改)：transaction/PluginDrivenTransactionManager.java:112（PluginDrivenT
 
 ## 🧠 给下一个 agent 的 meta 建议
 
-- **W3 是 golden 红线**（Rule 9）：建议先写 W6 golden 测（或同步），改一处验一处，逐位对齐 legacy。
-- **守门循环**：fe-core compile（慢，后台）+ checkstyle（绝对 -f）；**读真实 BUILD/exit 行**，勿信后台 "exit code" 通知（坑 2）。
-- **别越界**：W-phase 不翻闸（`SPI_READY_TYPES` 不动）/不搬连接器类/不删 legacy——那是 P4 maxcompute adopter 阶段（W-phase 之后）。RFC §12 已分清 W-phase / P4 / P6-P7。
-- **提交**：W1+W2 已 gated 但未提交，由用户决定时机/粒度（建议把 W1–W3+W6 合成一个 behind-gate、零行为变更的 commit，title 形如 `[feat](connector) W-phase 写/事务 SPI 解耦 (W1-W6)`）。
-- **决策待补**：D-021(scope=C) + D-022(写 SPI 设计) 上 session 已签字但仍未入 decisions-log（W7 补；§5.2「先 log 再改 01-spi-rfc」）。
+- **W4/W5 是 SPI 写面的真正接线**（W3 只解耦了 legacy 路径的 cast；plugin-driven 写路径才是翻闸前提）。W5 落 `ConnectorWriteHandle`/`ConnectorSinkPlan` 最终字段形——先读 `*TableSink.bindDataSink()` 真实入参再定（Rule 8）。
+- **守门循环**：compile（慢，后台）+ checkstyle（绝对 -f）+ import-gate；**读真实 BUILD/MVN_EXIT/CS_EXIT 行**，勿信后台 "exit code" 通知（坑 2）。
+- **别越界**：W-phase 不翻闸（`SPI_READY_TYPES` 不动）/不搬连接器类/不删 legacy——那是 P4 maxcompute adopter 阶段（W-phase 之后）。RFC §12 已分清。
+- **提交**：W1+W2 已是 `be945476ba7`；**W3+W6 应独立 commit**（behind-gate、零行为变更），title 形如 `[feat](connector) W-phase W3+W6 解耦热路径 cast/instanceof + golden 测`。由用户决定时机/粒度。
+- **决策待补**：D-021(scope=C) + D-022(写 SPI 设计) 仍未入 decisions-log（W7 补；§5.2「先 log 再改 01-spi-rfc」）。
 - Maven：cwd 无关（用绝对 `-f`）；`-pl <module> -am`；`-Dmaven.build.cache.enabled=false`；测试 `-DfailIfNoTests=false`；checkstyle 单独跑。

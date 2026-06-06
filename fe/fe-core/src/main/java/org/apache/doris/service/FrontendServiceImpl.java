@@ -88,7 +88,6 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
-import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
@@ -3694,12 +3693,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             Transaction transaction = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
                     .getTxnById(request.getTxnId());
-            if (!(transaction instanceof MCTransaction)) {
+            if (!transaction.supportsWriteBlockAllocation()) {
                 throw new UserException("Transaction " + request.getTxnId()
                         + " is not a MaxCompute transaction");
             }
 
-            long start = ((MCTransaction) transaction).allocateBlockIdRange(
+            long start = transaction.allocateWriteBlockRange(
                     request.getWriteSessionId(), request.getLength());
             result.setStart(start);
             result.setLength(request.getLength());
