@@ -11,8 +11,8 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/maxcompute/` |
 | **共享依赖** | 无 |
 | **计划迁移阶段** | **P4** |
-| **当前状态** | 🚧 **Batch A+B 全完成**（P4-T01 DDL / T02 分区 / T03 写事务 / T04 写计划 ✅，gate 关 dormant）；下一 = **Batch C 翻闸**（live） |
-| **完成度** | 55% |
+| **当前状态** | 🚧 **Batch C 翻闸完成**（T05 image-compat + T06a 写接线/UT + **T06b flip ✅** `SPI_READY_TYPES += "max_compute"`，gate 全绿 [D-027]）；下一 = **Batch D**（删 legacy 子系统 + drop fe-core odps 依赖，**待用户 live ODPS 验证后做**）|
+| **完成度** | 75% |
 | **主 owner** | @me |
 
 ---
@@ -28,7 +28,7 @@
 | 5 | ⏳ | |
 | 6 | ✅ | META-INF/services 已注册 |
 | 7 | ⏳ | |
-| 8-9 | ⏳ | gsonPostProcess 加 `max_compute → plugin` 迁移 |
+| 8-9 | ✅ | T05：GSON `registerCompatibleSubtype`（catalog/db/table）迁 PluginDriven（image 兼容）|
 | 10 | ⏳ | 清理 12 处反向 instanceof |
 | 11 | ⏳ | PhysicalPlanTranslator 删 `MaxComputeExternalTable` 分支 |
 | 12 | ⏳ | 0 个测试 |
@@ -72,6 +72,9 @@
 ---
 
 ## 进度日志
+
+### 2026-06-07
+- **P4-T06b 翻闸落地（Batch C 完成，唯一 live 切点）= max_compute 进 SPI**：`CatalogFactory.SPI_READY_TYPES += "max_compute"`(:52) + 删 legacy `case "max_compute"`(原 :146-149) + 删 unused `MaxComputeExternalCatalog` import + 注释去 max_compute。翻闸后 `max_compute` catalog→`PluginDrivenExternalCatalog`、table→`PluginDrivenExternalTable`（GSON T05 兼容），读/写/DDL/分区/show 全经 SPI；legacy `instanceof MaxCompute*` 分支全失配（dead）。gate 全绿（compile BUILD SUCCESS/MVN_EXIT=0 + checkstyle 0/CS_EXIT=0 + import-gate 0，真实 EXIT 核）。**前继 T05/T06a 已 commit**（image-compat + dormant 写接线 W-a..d/G1–G5 + UT）。**SPI_READY ✅**。**2 决策 [D-027]**：flip 先行/移除待 live 验证；fe-core 仅删直接 odps 声明（transitive-via-fe-common 留）。Batch D 完整移除闭包（21 删 / ~30 清 / keep / pom drop）已 verify → [Batch D 移除设计](../tasks/designs/P4-batchD-maxcompute-removal-design.md)，**执行前置门 = 用户跑 `OdpsLiveConnectivityTest`（4 个 `MC_*` 环境变量）+ 手测 smoke 绿**。
 
 ### 2026-06-06
 - **P4-T04 连接器写计划完成 = Batch A+B 全完成**（Batch B 收尾，gate 关、dormant、零 live 风险）：新建 `MaxComputeWritePlanProvider.planWrite`（**OQ-2=Approach A**：finalizeSink 一处建 ODPS 写 session → `session.getCurrentTransaction()`→`MaxComputeConnectorTransaction.setWriteSession` 绑 txn → 盖 `TMaxComputeTableSink`（静态字段 + `static_partition_spec` + `partition_columns`(ODPS 表列) + `write_session_id` + `txn_id`），无运行期注入 hook）+ `MaxComputeDorisConnector.getSettings()`（D-3 抽出，scan/write 共用，镜像 legacy 单 settings）/`getWritePlanProvider()` + `supportsInsert()`=true（D-4，余 throwing-default 待 Batch C）+ fe-core seam（`PluginDrivenTableSink.bindViaWritePlanProvider(insertCtx)` 读 overwrite+静态分区 / `PluginDrivenInsertCommandContext.staticPartitionSpec`，非基类避 `MCInsertCommandContext` shadow）。5 决策 [D-025]；偏差 [DV-012]（partition_columns 取 ODPS 表列）。坑10 javap 全核；写路径 ArrowOptions MILLI/MILLI（≠scan）；block_id 不盖（运行期 T03）。守门全绿（compile BUILD SUCCESS + checkstyle 0 + import-gate，真实 EXIT）。单测延 P4-T10。下一步 = **Batch C 翻闸**（live，前置 R-004 防御测）。

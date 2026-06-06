@@ -15,6 +15,7 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-027 | — | P4-T06b 翻闸落地 + Batch D 移除范围（2 决策，用户签字）：**翻闸** `CatalogFactory.SPI_READY_TYPES += "max_compute"` + 删 legacy `case "max_compute"`（gate 全绿：compile/checkstyle 0/import-gate 0）；**D-1 时序** = flip 先行、legacy 子系统删除 + fe-core odps 依赖 drop **待用户 live ODPS 验证后**做（保 flip 独立可回退）；**D-2 依赖范围** = fe-core 仅删直接 `odps-sdk-*` 声明，transitive-via-fe-common 留（fe-common 供连接器/be-extensions）。Batch D 完整闭包（21 删 / ~30 清 / keep / pom）见 `designs/P4-batchD-maxcompute-removal-design.md`（OQ-3 穷举 re-grep 满足）。**2 SPI 新增登记 §20 E11**（D-026 预授）：`ConnectorSession.setCurrentTransaction` + `ConnectorWriteOps.usesConnectorTransaction`；T06a 复核修 `PluginDrivenTableSink.getExplainString` `writeConfig==null` NPE 守卫记一笔 | 2026-06-07 | ✅ |
 | D-026 | — | P4 Batch C 翻闸设计（用户签字，design-only）：**D-1** capability signal = 新增 `ConnectorWriteOps.usesConnectorTransaction()` default false（MC=true；executor 据此在调任何 throwing-default 写法前分流 txn-model vs JDBC insert-handle）；**D-2** 两 commit（`[P4-T06a]` 写接线/绑定/R-004 隔离测 dormant + `[P4-T06b]` flip 末提）；**D-3** 静态分区/overwrite 绑定**入 cutover**（避 INSERT OVERWRITE PARTITION 翻闸回归）。**两新 SPI**（均 default-preserving）：`ConnectorSession.setCurrentTransaction` + `ConnectorWriteOps.usesConnectorTransaction`（impl 时 E11 登记）。设计 `designs/P4-T05-T06-cutover-design.md` | 2026-06-06 | ✅ |
 | D-025 | — | P4-T04 写计划 5 决策（D-1/D-2a 用户签字、D-3/D-4/D-5 主线定）：D-1 **OQ-2=Approach A**（`planWrite` 在 finalizeSink 一处建 ODPS 写 session + `setWriteSession` 绑 txn + 盖 `txn_id`/`write_session_id`，无运行期注入 hook）；D-2a 含 **fe-core seam fill**（`PluginDrivenTableSink.bindViaWritePlanProvider(insertCtx)` 读 overwrite+静态分区；`staticPartitionSpec` 加 `PluginDrivenInsertCommandContext` 非基类——避 `MCInsertCommandContext` override/shadow）；D-3 抽 `MaxComputeDorisConnector.getSettings()`（legacy 单 `settings` 同供 scan+write，抽出=忠实港）；D-4 `supportsInsert()`=true 余最小化（`beginInsert`/`finishInsert`/`getWriteConfig` 留 throwing-default，实际 executor 调用面待 Batch C）；D-5 静态分区作 `getWriteContext()` col→val map | 2026-06-06 | ✅ |
 | D-024 | — | P4-T03 两 fork（用户签字）：(1) txn id 经新增 `ConnectorSession.allocateTransactionId()`（fe-core `Env.getNextId` 背书）由连接器分配——尊重 [D-015]/U3，补 id-less 连接器（MC 无外部 id）的分配器机制；(2) ODPS 写 session 创建挪 T04 planWrite（T03 = 纯事务容器，over W4 委派、gate 关 dormant）| 2026-06-06 | ✅ |
@@ -45,6 +46,18 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-027 — P4-T06b 翻闸落地 + Batch D 移除范围（2 决策，用户签字）
+
+- **日期**：2026-06-07
+- **状态**：✅（翻闸已落、gate 全绿；Batch D 移除 = 待 live 验证后做）
+- **背景**：用户要求「开始下一步（T06b 翻闸）」+ 追加「fe-core 不再依赖任何 maxcompute jar」。recon（并行 re-grep + 对抗验证，OQ-3 入口门满足）证：fe-core `odps-sdk-core`/`odps-sdk-table-api` 仅经 legacy MaxCompute 子系统（7 文件 `import com.aliyun.odps`，全在删除集）可达 → 去依赖 = 删整套 legacy（21 文件）+ 清 ~30 反向引用（即整个 Batch D）。
+- **决策**：
+  - **翻闸（T06b）**：`CatalogFactory.SPI_READY_TYPES += "max_compute"`(:52) + 删 `case "max_compute"`(原 :146-149) + 删 unused import + 注释去 max_compute。gate 全绿（compile BUILD SUCCESS/MVN_EXIT=0 + checkstyle 0/CS_EXIT=0 + import-gate 0，真实 EXIT 核）。
+  - **D-1（时序）= flip 先行、移除待 live 验证**：本任务只落 flip（独立可回退）；legacy 子系统删除 + pom odps drop（Batch D）挪到**用户跑 `OdpsLiveConnectivityTest`（4 个 `MC_*` 环境变量）+ 手测 smoke 绿之后**的紧邻 follow-up。理由：删 legacy 即去掉易回退的 fallback，故 flip 在 live 验证前保持独立可 revert（trino 翻闸亦 flip 先于删除）。
+  - **D-2（依赖范围）= 仅删直接声明**：fe-core/pom.xml 删两 `odps-sdk-*` 块即可；fe-core 删后**零** odps 源引用，但仍经 fe-common transitive 见 `odps-sdk-core`（fe-common 留 odps 供 `MCUtils` → 连接器 + be-java-extensions），可接受（用户选 "Direct declarations only"）。镜像 trino `c4ac2c5911d`（只删 fe-core 直接声明）。
+- **2 SPI 新增登记**（D-026 预授，default-preserving）：`ConnectorSession.setCurrentTransaction` + `ConnectorWriteOps.usesConnectorTransaction` 录入 `01-spi-extensions-rfc.md` §20 E11。T06a 对抗复核已修 `PluginDrivenTableSink.getExplainString` 加 `writeConfig==null` 守卫（防 plan-provider 模式 EXPLAIN NPE，翻闸后可达）——记一笔。
+- **设计文档（Batch D 执行源，turnkey）**：[tasks/designs/P4-batchD-maxcompute-removal-design.md](./tasks/designs/P4-batchD-maxcompute-removal-design.md)（21 删除集 + 84 反向引用闭包 + keep 集 + pom drop + ordered TODO；执行前置门 = live 验证绿）。
 
 ### D-026 — P4 Batch C 翻闸设计（3 子决策 + 2 SPI 新增，用户签字）
 
