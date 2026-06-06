@@ -344,6 +344,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     // TRINO_CONNECTOR → "trino-connector" (hyphen), not "trino_connector".
     // Add cases here whenever a connector's CatalogFactory key diverges from
     // the lowercase enum name.
+    // MAX_COMPUTE needs no case: the default branch yields "max_compute", which
+    // already matches its CatalogFactory key — do not add a redundant case.
     private static String legacyLogTypeToCatalogType(InitCatalogLog.Type logType) {
         switch (logType) {
             case TRINO_CONNECTOR:

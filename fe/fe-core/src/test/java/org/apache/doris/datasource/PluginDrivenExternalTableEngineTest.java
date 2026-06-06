@@ -59,6 +59,17 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
+    public void testMaxComputeCatalogReturnsLegacyEngineName() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("max_compute");
+        // Legacy MaxComputeExternalTable did not override getEngine(); its type
+        // MAX_COMPUTE_EXTERNAL_TABLE has no case in TableType.toEngineName(), so the
+        // engine name was null. The migrated table must reproduce that exactly,
+        // otherwise SHOW TABLE STATUS / information_schema.tables would regress.
+        Assertions.assertNull(table.getEngine(),
+                "MaxCompute catalog tables should report the legacy null engine name");
+    }
+
+    @Test
     public void testUnknownCatalogReturnsPluginEngineName() {
         PluginDrivenExternalTable table = createTableWithCatalogType("custom_type");
         Assertions.assertEquals("Plugin", table.getEngine(),
@@ -79,6 +90,14 @@ public class PluginDrivenExternalTableEngineTest {
         Assertions.assertEquals(TableType.ES_EXTERNAL_TABLE.name(),
                 table.getEngineTableTypeName(),
                 "ES catalog tables should report ES_EXTERNAL_TABLE type name");
+    }
+
+    @Test
+    public void testMaxComputeCatalogReturnsMaxComputeEngineTableTypeName() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("max_compute");
+        Assertions.assertEquals(TableType.MAX_COMPUTE_EXTERNAL_TABLE.name(),
+                table.getEngineTableTypeName(),
+                "MaxCompute catalog tables should report MAX_COMPUTE_EXTERNAL_TABLE type name");
     }
 
     @Test
