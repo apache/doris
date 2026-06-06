@@ -44,6 +44,20 @@ namespace doris::converter {
 
 enum FileFormat { COMMON, ORC, PARQUET };
 
+// Helper: get the inner (non-nullable) mutable column from an exclusively-owned dst_col.
+// - For non-nullable dst_col: returns a raw pointer to the column itself.
+// - For nullable dst_col: returns a raw pointer to the nested (non-null) column.
+// Must only be called when dst_col has exclusive ownership (use_count == 1).
+// Returns IColumn* (raw pointer) to avoid creating a second owning MutableColumnPtr,
+// which would violate COW invariant (use_count > 1).
+inline IColumn* get_mutable_inner_col(MutableColumnPtr& dst_col) {
+    if (dst_col->is_nullable()) {
+        return static_cast<ColumnNullable*>(dst_col.get())->get_nested_column_ptr().get();
+    } else {
+        return dst_col.get();
+    }
+}
+
 template <PrimitiveType type>
 constexpr bool is_decimal_type() {
     return type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
@@ -109,8 +123,9 @@ public:
     /**
      * Get the column to read data from file with the type from file meta data.
      * If the converter is not consistent, the returned column is `_cached_src_column`.
-     * For performance reasons, the null map of `_cached_src_column` is a reference from
-     * the null map of `dst_column`, so there is no need to convert null map in `convert()`.
+     * For nullable destination columns, `_cached_src_column` is also nullable and owns its
+     * temporary null map. The reader fills this source null map first, then copies only the
+     * newly appended null slice back to the destination column before value conversion.
      *
      * According to the hive standard, if certain values fail to be converted(eg. string `row1` to int value),
      * these values are replaced by nulls.
@@ -165,13 +180,13 @@ public:
         using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
         for (int i = 0; i < rows; ++i) {
             if constexpr (sizeof(DstCppType) < sizeof(SrcCppType)) {
                 SrcCppType src_value = src_data[i];
@@ -212,7 +227,7 @@ public:
         using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -223,7 +238,7 @@ public:
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
         for (int i = 0; i < rows; ++i) {
             SrcCppType src_value = src_data[i];
             if constexpr (is_integer_type<SrcPrimitiveType>()) {
@@ -248,11 +263,11 @@ public:
     Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
         using SrcColumnType = typename PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i] != 0 ? "TRUE" : "FALSE";
             string_col.insert_data(value.data(), value.size());
@@ -269,7 +284,7 @@ public:
     Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
         using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -279,7 +294,7 @@ public:
         size_t rows = from_col->size();
         size_t start_idx = to_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             if constexpr (SrcPrimitiveType == TYPE_FLOAT || SrcPrimitiveType == TYPE_DOUBLE) {
                 if (fileFormat == FileFormat::ORC && std::isnan(src_data[i])) {
@@ -318,11 +333,11 @@ public:
     Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
         using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i].to_string(_scale);
             string_col.insert_data(value.data(), value.size());
@@ -339,11 +354,11 @@ public:
         using SrcCppType = typename PrimitiveTypeTraits<SrcPrimitiveType>::CppType;
         using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
-        auto& string_col = static_cast<ColumnString&>(*to_col.get());
+        auto& string_col = static_cast<ColumnString&>(*to_col);
         char buf[50];
         for (int i = 0; i < rows; ++i) {
             int len = (reinterpret_cast<const SrcCppType&>(src_data[i])).to_buffer(buf);
@@ -571,19 +586,19 @@ public:
         }
 
         NullMap* null_map = nullptr;
-        MutableColumnPtr to_col = nullptr;
+        IColumn* to_col = nullptr;
         if (dst_col->is_nullable()) {
             auto* nullable = assert_cast<ColumnNullable*>(dst_col.get());
-            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+            to_col = nullable->get_nested_column_ptr().get();
             null_map = &nullable->get_null_map_data();
         } else {
-            to_col = dst_col->assume_mutable();
+            to_col = dst_col.get();
         }
 
         size_t rows = string_col->size();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = assert_cast<DstColumnType*>(to_col.get())->get_data();
+        auto& data = assert_cast<DstColumnType*>(to_col)->get_data();
         CastParameters params;
         for (int i = 0; i < rows; ++i) {
             bool can_cast = false;
@@ -628,7 +643,7 @@ public:
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -639,7 +654,7 @@ public:
         const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         for (int i = 0; i < rows; ++i) {
             const SrcCppType& src_value = src_data[i];
@@ -680,13 +695,13 @@ public:
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
         for (int i = 0; i < rows; ++i) {
             const auto& src_value = reinterpret_cast<const SrcCppType&>(src_data[i]);
             auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
@@ -718,7 +733,7 @@ public:
         using DstDorisType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType::value_type;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -729,7 +744,7 @@ public:
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         auto max_result = DataTypeDecimal<DstPrimitiveType>::get_max_digits_number(_precision);
         auto multiplier = DataTypeDecimal<DstPrimitiveType>::get_scale_multiplier(_scale);
@@ -804,13 +819,13 @@ public:
         using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
@@ -889,13 +904,13 @@ public:
         bool narrow_integral = (_to_precision - _to_scale) < (_from_precision - _from_scale);
 
         ColumnPtr from_col = remove_nullable(src_col);
-        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+        IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
         auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         for (int i = 0; i < rows; ++i) {
             SrcNativeType src_value = src_data[i].value;
@@ -983,15 +998,15 @@ public:
             from_col = &assert_cast<const FromColumnType&>(*src_col);
         }
 
-        MutableColumnPtr to_col = nullptr;
+        IColumn* to_col = nullptr;
         // nullmap flag seems have been handled in upper level
         if (dst_col->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(dst_col.get());
-            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+            to_col = const_cast<ColumnNullable*>(nullable)->get_nested_column_ptr().get();
         } else {
-            to_col = dst_col->assume_mutable();
+            to_col = dst_col.get();
         }
-        auto* to_dst_column = assert_cast<ToColumnType*>(to_col.get());
+        auto* to_dst_column = assert_cast<ToColumnType*>(to_col);
 
         for (size_t i = 0; i < from_col->size(); ++i) {
             auto string_ref = from_col->get_data_at(i);

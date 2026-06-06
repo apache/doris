@@ -17,6 +17,7 @@
 
 #pragma once
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "format/orc/vorc_reader.h"
@@ -33,6 +34,15 @@ public:
                   FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
             : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache,
                         enable_lazy_mat),
+              _is_file_slot(is_file_slot) {}
+
+    HiveOrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
+                  std::shared_ptr<io::IOContext> io_ctx_holder,
+                  const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache = nullptr,
+                  bool enable_lazy_mat = true)
+            : OrcReader(profile, state, params, range, batch_size, ctz, std::move(io_ctx_holder),
+                        meta_cache, enable_lazy_mat),
               _is_file_slot(is_file_slot) {}
 
     ~HiveOrcReader() final = default;
@@ -60,6 +70,15 @@ public:
                       bool enable_lazy_mat = true)
             : ParquetReader(profile, params, range, batch_size, ctz, io_ctx, state, meta_cache,
                             enable_lazy_mat),
+              _is_file_slot(is_file_slot) {}
+
+    HiveParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                      const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                      std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                      const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache = nullptr,
+                      bool enable_lazy_mat = true)
+            : ParquetReader(profile, params, range, batch_size, ctz, std::move(io_ctx_holder),
+                            state, meta_cache, enable_lazy_mat),
               _is_file_slot(is_file_slot) {}
 
     ~HiveParquetReader() final = default;

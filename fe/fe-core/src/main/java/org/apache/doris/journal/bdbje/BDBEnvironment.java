@@ -72,6 +72,8 @@ import java.util.stream.Collectors;
  * we can get the information of this bdb group through the API of replicationGroupAdmin
  */
 public class BDBEnvironment {
+    private static final BdbjeReplicationConfigProvider REPLICATION_CONFIG_PROVIDER =
+            BdbjeReplicationConfigProviderFactory.create();
     private static final Logger LOG = LogManager.getLogger(BDBEnvironment.class);
     private static final int RETRY_TIME = 3;
     private static final List<String> BDBJE_LOG_LEVEL = ImmutableList.of("OFF", "SEVERE", "WARNING",
@@ -114,6 +116,9 @@ public class BDBEnvironment {
 
         // set replication config
         replicationConfig = new ReplicationConfig();
+
+        REPLICATION_CONFIG_PROVIDER.configure(replicationConfig);
+
         replicationConfig.setNodeName(selfNodeName);
         replicationConfig.setNodeHostPort(selfNodeHostPort);
         replicationConfig.setHelperHosts(helperHostPort);

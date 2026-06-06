@@ -104,7 +104,7 @@ public:
         const NullMapType* src_null_map = nullptr;
         if (src_nested_column->is_nullable()) {
             const auto* src_nested_nullable_col =
-                    check_and_get_column<ColumnNullable>(*src_nested_column);
+                    assert_cast<const ColumnNullable*>(src_nested_column);
             src_nested_column = src_nested_nullable_col->get_nested_column_ptr().get();
             src_null_map = &src_nested_nullable_col->get_null_map_column().get_data();
         }

@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "storage/olap_common.h"
 #include "storage/segment/common.h"
 #include "storage/segment/page_pointer.h"
 
@@ -34,7 +35,6 @@ namespace doris {
 
 class BlockCompressionCodec;
 class KeyCoder;
-class TypeInfo;
 
 namespace io {
 class FileWriter;
@@ -71,8 +71,8 @@ struct IndexedColumnWriterOptions {
 // TODO test with empty input
 class IndexedColumnWriter {
 public:
-    explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                 const TypeInfo* type_info, io::FileWriter* file_writer);
+    explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options, FieldType type,
+                                 io::FileWriter* file_writer);
 
     ~IndexedColumnWriter();
 
@@ -93,7 +93,7 @@ private:
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
     IndexedColumnWriterOptions _options;
-    const TypeInfo* _type_info = nullptr;
+    FieldType _type;
     io::FileWriter* _file_writer = nullptr;
 
     ordinal_t _num_values;

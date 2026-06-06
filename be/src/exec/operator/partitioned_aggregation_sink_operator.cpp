@@ -149,7 +149,8 @@ Status PartitionedAggSinkOperatorX::prepare(RuntimeState* state) {
     return _agg_sink_operator->prepare(state);
 }
 
-Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
+Status PartitionedAggSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block,
+                                              bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -512,8 +513,10 @@ void PartitionedAggSinkLocalState::_reset_tmp_data() {
     _value_columns.clear();
     _key_block.clear_column_data();
     _value_block.clear_column_data();
-    _key_columns = _key_block.mutate_columns();
-    _value_columns = _value_block.mutate_columns();
+    // _key_columns/_value_columns own the mutable storage until the next reset. The schema blocks
+    // are used only as empty reusable owners here, so consuming their columns is intentional.
+    _key_columns = std::move(_key_block).mutate_columns();
+    _value_columns = std::move(_value_block).mutate_columns();
 }
 
 void PartitionedAggSinkLocalState::_clear_tmp_data() {

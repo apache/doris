@@ -151,13 +151,6 @@ Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::close(state));
 
-    // Centralize shared_state cleanup here so resources are released when
-    // the pipeline task finishes, matching the Sort operator pattern.
-    auto& local_state = get_local_state(state);
-    if (local_state._shared_state) {
-        local_state._shared_state->close();
-    }
-
     return _agg_source_operator->close(state);
 }
 
@@ -233,7 +226,7 @@ Status PartitionedAggSourceOperatorX::revoke_memory(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status PartitionedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Status status;
 

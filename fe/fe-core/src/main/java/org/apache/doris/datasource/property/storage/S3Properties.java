@@ -473,6 +473,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
         public static final String ROLE_ARN = "AWS_ROLE_ARN";
         public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
+        public static final String CREDENTIALS_PROVIDER_TYPE = "AWS_CREDENTIALS_PROVIDER_TYPE";
 
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
@@ -562,6 +563,68 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (properties.containsKey(Env.EXTERNAL_ID)) {
             properties.putIfAbsent(EXTERNAL_ID, properties.get(Env.EXTERNAL_ID));
         }
+
+        if (properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE)) {
+            properties.putIfAbsent(CREDENTIALS_PROVIDER_TYPE, properties.get(Env.CREDENTIALS_PROVIDER_TYPE));
+        }
+    }
+
+    private static AwsCredentialsProviderMode getCredentialsProviderMode(Map<String, String> properties,
+            AwsCredentialsProviderMode defaultMode) {
+        String mode = properties.get(CREDENTIALS_PROVIDER_TYPE);
+        if (StringUtils.isBlank(mode)) {
+            mode = properties.get(Env.CREDENTIALS_PROVIDER_TYPE);
+        }
+        if (StringUtils.isBlank(mode)) {
+            return defaultMode;
+        }
+        return AwsCredentialsProviderMode.fromString(mode);
+    }
+
+    private static CredProviderTypePB getCredProviderTypePB(Map<String, String> properties) {
+        AwsCredentialsProviderMode mode = getCredentialsProviderMode(properties,
+                AwsCredentialsProviderMode.INSTANCE_PROFILE);
+        switch (mode) {
+            case DEFAULT:
+                return CredProviderTypePB.DEFAULT;
+            case ENV:
+                return CredProviderTypePB.ENV;
+            case SYSTEM_PROPERTIES:
+                return CredProviderTypePB.SYSTEM_PROPERTIES;
+            case WEB_IDENTITY:
+                return CredProviderTypePB.WEB_IDENTITY;
+            case CONTAINER:
+                return CredProviderTypePB.CONTAINER;
+            case INSTANCE_PROFILE:
+                return CredProviderTypePB.INSTANCE_PROFILE;
+            case ANONYMOUS:
+                return CredProviderTypePB.ANONYMOUS;
+            default:
+                throw new IllegalArgumentException("Unsupported AWS credentials provider mode: " + mode);
+        }
+    }
+
+    private static TCredProviderType getTCredProviderType(Map<String, String> properties) {
+        AwsCredentialsProviderMode mode = getCredentialsProviderMode(properties,
+                AwsCredentialsProviderMode.INSTANCE_PROFILE);
+        switch (mode) {
+            case DEFAULT:
+                return TCredProviderType.DEFAULT;
+            case ENV:
+                return TCredProviderType.ENV;
+            case SYSTEM_PROPERTIES:
+                return TCredProviderType.SYSTEM_PROPERTIES;
+            case WEB_IDENTITY:
+                return TCredProviderType.WEB_IDENTITY;
+            case CONTAINER:
+                return TCredProviderType.CONTAINER;
+            case INSTANCE_PROFILE:
+                return TCredProviderType.INSTANCE_PROFILE;
+            case ANONYMOUS:
+                return TCredProviderType.ANONYMOUS;
+            default:
+                throw new IllegalArgumentException("Unsupported AWS credentials provider mode: " + mode);
+        }
     }
 
     private static final Pattern IPV4_PORT_PATTERN = Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
@@ -638,7 +701,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
                 builder.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
             }
-            builder.setCredProviderType(CredProviderTypePB.INSTANCE_PROFILE);
+            builder.setCredProviderType(getCredProviderTypePB(properties));
         }
 
         return builder;
@@ -652,7 +715,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
                 s3Info.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
             }
-            s3Info.setCredProviderType(TCredProviderType.INSTANCE_PROFILE);
+            s3Info.setCredProviderType(getTCredProviderType(properties));
         }
 
         s3Info.setEndpoint(properties.get(S3Properties.ENDPOINT));

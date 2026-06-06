@@ -100,7 +100,7 @@ public:
 
     Status reset(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     std::string debug_string(int indentation_level = 0) const override;
 

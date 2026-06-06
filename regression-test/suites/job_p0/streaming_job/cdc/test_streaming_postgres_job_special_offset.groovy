@@ -76,21 +76,32 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (3, 'charlie')"""
         }
+        // Mode-gate check: only the post-CREATE INSERT must arrive; pre-existing (1, 2) are skipped.
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 1
+            def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id = 3"""
+            return result[0][0] == 1
         })
+        def preCount = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (1, 2)"""
+        assert preCount.get(0).get(0) == 0 :
+                "offset=latest should skip pre-existing rows, but found ${preCount.get(0).get(0)} of them"
+        def loadStat = parseJson(sql("""
+            select loadStatistic from jobs("type"="insert") where Name='${jobName}'
+        """).get(0).get(0))
+        log.info("loadStat: ${loadStat}")
+        assert loadStat.scannedRows == 1 :
+                "expected scannedRows=1 (only the binlog INSERT), got ${loadStat.scannedRows}"
+
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 
         // ===== Test 2: CREATE with initial, then ALTER with JSON LSN offset =====
-        // Pre-create a DUPLICATE KEY table so duplicate rows from re-consuming are visible
+        // UNIQUE KEY table: dedup at-least-once re-consume; this case only verifies ALTER offset LSN filtering.
         sql """
             CREATE TABLE IF NOT EXISTS ${currentDb}.${table1} (
                 `id` int NULL,
                 `name` varchar(100) NULL
             ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
+            UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
@@ -115,7 +126,7 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
             """
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 2
+            return result[0][0] >= 3
         })
         qt_select_after_create """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
 
@@ -158,8 +169,11 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         // After ALTER to LSN mark, only data AFTER that LSN (id 30,31) should be synced
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (30, 31)"""
-            return result[0][0] >= 2
+            return result[0][0] == 2
         })
+        // mark LSN sits between 21 and 30; before-mark rows must never be read.
+        def beforeMark = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (20, 21)"""
+        assert beforeMark[0][0] == 0 : "rows before ALTER LSN must be skipped, found ${beforeMark[0][0]}"
         qt_select_after_alter """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
 
         // Step 3: ALTER with named mode should fail for CDC

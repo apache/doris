@@ -57,6 +57,7 @@ public:
         SCHEMA_CLOUD_DICTIONARY_CACHE = 22,
         CONDITION_CACHE = 23,
         ANN_INDEX_IVF_LIST_CACHE = 24,
+        ANN_INDEX_RESULT_CACHE = 25,
     };
 
     static std::string type_string(CacheType type) {
@@ -109,6 +110,8 @@ public:
             return "ConditionCache";
         case CacheType::ANN_INDEX_IVF_LIST_CACHE:
             return "AnnIndexIVFListCache";
+        case CacheType::ANN_INDEX_RESULT_CACHE:
+            return "AnnIndexResultCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -139,7 +142,8 @@ public:
             {"QueryCache", CacheType::QUERY_CACHE},
             {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
             {"ConditionCache", CacheType::CONDITION_CACHE},
-            {"AnnIndexIVFListCache", CacheType::ANN_INDEX_IVF_LIST_CACHE}};
+            {"AnnIndexIVFListCache", CacheType::ANN_INDEX_IVF_LIST_CACHE},
+            {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {

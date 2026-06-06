@@ -82,6 +82,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         createDatabase("test_db");
         createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
                 + "properties('replication_num' = '1');");
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
         createTable("create table test_db.partitioned_t(k1 int, p1 int)\n"
                 + "duplicate key(k1, p1)\n"
                 + "partition by range(`p1`)\n"
@@ -264,5 +265,36 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
             return Collections.emptyList();
         }
+    }
+
+    @Test
+    public void testCanUseRowStoreForLazySlots() {
+        Column distinctA = new Column("a", org.apache.doris.catalog.Type.INT);
+        distinctA.setUniqueId(1);
+        Column distinctB = new Column("b", org.apache.doris.catalog.Type.INT);
+        distinctB.setUniqueId(2);
+        Column sharedVariant = new Column("kv", org.apache.doris.catalog.Type.VARIANT);
+        sharedVariant.setUniqueId(3);
+
+        SlotReference distinctSlotA = new SlotReference(StatementScopeIdGenerator.newExprId(), "a",
+                IntegerType.INSTANCE, true, ImmutableList.of(), null, distinctA, null, distinctA);
+        SlotReference distinctSlotB = new SlotReference(StatementScopeIdGenerator.newExprId(), "b",
+                IntegerType.INSTANCE, true, ImmutableList.of(), null, distinctB, null, distinctB);
+        SlotReference variantRootSlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "kv",
+                org.apache.doris.nereids.types.VariantType.INSTANCE, true, ImmutableList.of(),
+                null, sharedVariant, null, sharedVariant);
+        SlotReference singleVariantSubColumnSlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "kv",
+                org.apache.doris.nereids.types.VariantType.INSTANCE, true, ImmutableList.of(),
+                null, sharedVariant, null, sharedVariant, ImmutableList.of("ssl"));
+        SlotReference variantSubColumnSlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "kv",
+                org.apache.doris.nereids.types.VariantType.INSTANCE, true, ImmutableList.of(),
+                null, sharedVariant, null, sharedVariant, ImmutableList.of("ssl"));
+
+        Assertions.assertTrue(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
+                ImmutableList.of(distinctSlotA, distinctSlotB)));
+        Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
+                ImmutableList.of(singleVariantSubColumnSlot)));
+        Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
+                ImmutableList.of(variantRootSlot, variantSubColumnSlot)));
     }
 }

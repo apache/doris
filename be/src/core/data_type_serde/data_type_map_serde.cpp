@@ -341,7 +341,7 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
     DCHECK(nested_keys_column.is_nullable());
     DCHECK(nested_values_column.is_nullable());
     const auto* keys_nullmap_data =
-            check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
+            assert_cast<const ColumnNullable&>(nested_keys_column).get_null_map_data().data();
     const auto& offsets = map_column.get_offsets();
     auto* key_builder = builder.key_builder();
     auto* value_builder = builder.item_builder();

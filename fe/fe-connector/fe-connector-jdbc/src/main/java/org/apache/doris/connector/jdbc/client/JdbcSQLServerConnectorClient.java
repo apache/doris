@@ -111,6 +111,13 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
     }
 
     @Override
+    protected String getSchemaPatternForDatabaseNameList() {
+        // "%" is a JDBC schemaPattern wildcard that matches all schemas. mssql-jdbc 13.4 filters
+        // built-in schemas when catalog is non-empty and schemaPattern is null.
+        return "%";
+    }
+
+    @Override
     public long getRowCount(String dbName, String tableName) {
         String sql = "SELECT sum(rows) FROM sys.partitions "
                 + "WHERE object_id = (SELECT object_id('" + dbName + "." + tableName + "')) "

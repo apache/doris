@@ -181,6 +181,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.RowStoreFetchChecker;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
@@ -1156,9 +1157,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                         aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
                             }
                         }
-                        // no need to traverse children, because AggregateExpression
-                        // should not have a AggregateExpression child
-                        return true;
+                        // Continue through transparent guards unless this guard directly wraps
+                        // the aggregate expression already processed above.
+                        return guardExpr.child() instanceof AggregateExpression;
                     }
                     if (c instanceof AggregateExpression) {
                         AggregateExpression aggregateExpression = (AggregateExpression) c;
@@ -1969,6 +1970,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .flatMap(e -> e.getInputSlots().stream())
                 .map(SlotReference.class::cast)
                 .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+        Map<ExprId, SlotReference> materializedSlotReferenceMap = Maps.newHashMap(outputSlotReferenceMap);
+        nestedLoopJoinNode.enableMaterializedSlotIds();
         List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
                 .map(TupleDescriptor::getSlots)
                 .flatMap(Collection::stream)
@@ -1982,17 +1985,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
             SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
             SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+            if (materializedSlotReferenceMap.get(sf.getExprId()) != null) {
+                nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(sd.getId());
+            }
+            nestedLoopJoinNode.getMaterializedSlotIdMap().put(sf.getExprId(), sd.getId());
             leftIntermediateSlotDescriptor.add(sd);
         }
         for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
             SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
             SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+            if (materializedSlotReferenceMap.get(sf.getExprId()) != null) {
+                nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(sd.getId());
+            }
+            nestedLoopJoinNode.getMaterializedSlotIdMap().put(sf.getExprId(), sd.getId());
             rightIntermediateSlotDescriptor.add(sd);
         }
 
         if (nestedLoopJoin.getMarkJoinSlotReference().isPresent()) {
-            outputSlotReferences.add(nestedLoopJoin.getMarkJoinSlotReference().get());
-            context.createSlotDesc(intermediateDescriptor, nestedLoopJoin.getMarkJoinSlotReference().get());
+            SlotReference markJoinSlotReference = nestedLoopJoin.getMarkJoinSlotReference().get();
+            outputSlotReferences.add(markJoinSlotReference);
+            SlotDescriptor markJoinSlotDescriptor = context.createSlotDesc(intermediateDescriptor,
+                    markJoinSlotReference);
+            if (materializedSlotReferenceMap.get(markJoinSlotReference.getExprId()) != null) {
+                nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(markJoinSlotDescriptor.getId());
+            }
+            nestedLoopJoinNode.getMaterializedSlotIdMap().put(markJoinSlotReference.getExprId(),
+                    markJoinSlotDescriptor.getId());
         }
 
         // set slots as nullable for outer join
@@ -2028,7 +2046,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
-        if (!nestedLoopJoin.getOtherJoinConjuncts().isEmpty()) {
+        if (!nestedLoopJoin.getMarkJoinConjuncts().isEmpty()) {
             List<Expr> markJoinConjuncts = nestedLoopJoin.getMarkJoinConjuncts().stream()
                     .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
             nestedLoopJoinNode.setMarkJoinConjuncts(markJoinConjuncts);
@@ -2254,6 +2272,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     for (SlotId slotId : oldHashOutputSlotIds) {
                         ((HashJoinNode) joinNode).addSlotIdToHashOutputSlotIds(slotId);
                         break;
+                    }
+                }
+            } else if (joinNode instanceof NestedLoopJoinNode) {
+                NestedLoopJoinNode nestedLoopJoinNode = (NestedLoopJoinNode) joinNode;
+                nestedLoopJoinNode.getMaterializedSlotIds().clear();
+                nestedLoopJoinNode.enableMaterializedSlotIds();
+                Set<ExprId> requiredExprIds = Sets.newHashSet();
+                requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                for (ExprId exprId : requiredExprIds) {
+                    SlotId slotId = nestedLoopJoinNode.getMaterializedSlotIdMap().get(exprId);
+                    if (slotId != null) {
+                        nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(slotId);
                     }
                 }
             }
@@ -2753,7 +2783,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
         for (Relation relation : materialize.getRelations()) {
-            rowStoreFlags.add(shouldUseRowStore(relation));
+            rowStoreFlags.add(shouldUseRowStore(relation, materialize.getLazySlots(relation)));
         }
         materializeNode.setRowStoreFlags(rowStoreFlags);
 
@@ -2766,14 +2796,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputPlanFragment;
     }
 
-    private boolean shouldUseRowStore(Relation rel) {
+    static boolean canUseRowStoreForLazySlots(List<Slot> lazySlots) {
+        return RowStoreFetchChecker.canUseRowStoreForLazySlots(lazySlots);
+    }
+
+    private boolean shouldUseRowStore(Relation rel, List<Slot> lazySlots) {
         boolean useRowStore = false;
         if (rel instanceof PhysicalOlapScan) {
             OlapTable olapTable = ((PhysicalOlapScan) rel).getTable();
             useRowStore = olapTable.storeRowColumn()
                     && CollectionUtils.isEmpty(olapTable.getTableProperty().getCopiedRowStoreColumns());
         }
-        return useRowStore;
+        return useRowStore && canUseRowStoreForLazySlots(lazySlots);
     }
 
     @Override

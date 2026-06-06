@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <string>
 
 #include "common/logging.h"
@@ -63,11 +62,7 @@ private:
     PushDownType _should_push_down_topn_filter() const override {
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
-    bool _push_down_topn(const RuntimePredicate& predicate) override {
-        // For external table/ file scan, first try push down the predicate,
-        // and then determine whether it can be pushed down within the (parquet/orc) reader.
-        return true;
-    }
+    bool _push_down_topn(const RuntimePredicate& predicate) override;
 
     PushDownType _should_push_down_bitmap_filter() const override {
         return PushDownType::UNACCEPTABLE;
@@ -122,6 +117,8 @@ public:
         }
         return column_id_counter;
     }
+
+    bool can_push_down_column_predicate(const SlotDescriptor* slot) const override;
 
 private:
     friend class FileScanLocalState;

@@ -80,7 +80,7 @@ public:
     // Single compaction needs to be completed successfully after the peer completes it.
     // We need to generate two types of tasks separately to avoid continuously generating
     // single compaction tasks for the tablet.
-    std::vector<TabletSharedPtr> find_best_tablets_to_compaction(
+    std::vector<TabletCompactionContext> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
             const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&

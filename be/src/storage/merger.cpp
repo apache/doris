@@ -97,6 +97,9 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
+    if (reader_params.reader_type == ReaderType::READER_BINLOG_COMPACTION) {
+        reader_params.delete_bitmap = tablet->tablet_meta()->binlog_delvec_ptr();
+    }
 
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
@@ -282,6 +285,9 @@ Status Merger::vertical_compact_one_group(
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
         has_cluster_key = true;
+    }
+    if (reader_params.reader_type == ReaderType::READER_BINLOG_COMPACTION) {
+        reader_params.delete_bitmap = tablet->tablet_meta()->binlog_delvec_ptr();
     }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {
@@ -668,7 +674,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                 // still calls ColumnNullable::insert_many_defaults() for null runs,
                 // which grows the nested PODArray by N * type_size. So the runtime
                 // per-row footprint is at least type_size, no matter how sparse.
-                int64_t type_size = get_type_info(&col)->size();
+                int64_t type_size = field_type_size(col.type());
                 col_per_row = std::max(raw_per_row, type_size);
                 if (col.is_nullable()) {
                     col_per_row += 1; // null map

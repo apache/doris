@@ -550,29 +550,12 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
         std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // Mirror MS behavior: delete rowsets in [2, alter_version] before adding
-        // SC output rowsets to avoid stale compaction rowsets remaining visible.
-        {
-            int64_t alter_ver = sc_job->alter_version();
-            std::vector<RowsetSharedPtr> to_delete;
-            for (auto& [v, rs] : _new_tablet->rowset_map()) {
-                if (v.first >= 2 && v.second <= alter_ver) {
-                    to_delete.push_back(rs);
-                }
-            }
-            if (!to_delete.empty()) {
-                LOG_INFO(
-                        "schema change: delete {} local rowsets in [2, {}] before adding SC "
-                        "output, tablet_id={}, versions=[{}]",
-                        to_delete.size(), alter_ver, _new_tablet->tablet_id(),
-                        fmt::join(to_delete | std::views::transform([](const auto& rs) {
-                                      return rs->version().to_string();
-                                  }),
-                                  ", "));
-                _new_tablet->delete_rowsets_for_schema_change(to_delete, wlock);
-            }
-        }
-        _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, false);
+        _new_tablet->replace_rowsets_with_schema_change_output(
+                _output_rowsets, sc_job->alter_version(), wlock, "commit", true);
+        // Ensure the real new tablet has a continuous local version graph before it becomes
+        // visible. Later RUNNING-tablet delete bitmap sync depends on capturing all old versions.
+        RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().fill_version_holes(
+                _new_tablet.get(), _new_tablet->max_version_unlocked(), wlock));
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
@@ -615,6 +598,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 
     // step 1, process incremental rowset without delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
+    {
+        std::unique_lock wlock(tmp_tablet->get_header_lock());
+        tmp_tablet->replace_rowsets_with_schema_change_output(_output_rowsets, alter_version, wlock,
+                                                              "delete_bitmap_without_lock", false);
+    }
     int64_t max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets without lock, version: " << start_calc_delete_bitmap_version
@@ -624,10 +612,6 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                 {start_calc_delete_bitmap_version, max_version}, CaptureRowsetOps {}));
         DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock",
                         DBUG_BLOCK);
-        {
-            std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, false);
-        }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
@@ -640,6 +624,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
+    {
+        std::unique_lock wlock(tmp_tablet->get_header_lock());
+        tmp_tablet->replace_rowsets_with_schema_change_output(_output_rowsets, alter_version, wlock,
+                                                              "delete_bitmap_with_lock", false);
+    }
     int64_t new_max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets with lock, version: " << max_version + 1 << "-"
@@ -647,10 +636,6 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     if (new_max_version > max_version) {
         auto ret = DORIS_TRY(tmp_tablet->capture_consistent_rowsets_unlocked(
                 {max_version + 1, new_max_version}, CaptureRowsetOps {}));
-        {
-            std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, false);
-        }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }

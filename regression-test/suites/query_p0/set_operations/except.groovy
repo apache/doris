@@ -16,6 +16,7 @@
 // under the License.
 
 suite("except", "query") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
         set runtime_filter_type=2;
         set enable_runtime_filter_prune=false;

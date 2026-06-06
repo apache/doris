@@ -18,6 +18,7 @@
 package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
 
@@ -29,16 +30,27 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+/**
+ * Unit tests for workload schedule policy validation paths.
+ */
 public class WorkloadSchedPolicyMgrTest {
 
     private Env env;
     private EditLog editLog;
     private MockedStatic<Env> mockedEnv;
+    private String originDeployMode;
+    private String originCloudUniqueId;
+    private WorkloadSchedPolicyMgr mgr;
 
     @Before
     public void setUp() {
+        originDeployMode = Config.deploy_mode;
+        originCloudUniqueId = Config.cloud_unique_id;
+        mgr = new WorkloadSchedPolicyMgr();
         env = Mockito.mock(Env.class);
         editLog = Mockito.mock(EditLog.class);
         mockedEnv = Mockito.mockStatic(Env.class);
@@ -49,15 +61,21 @@ public class WorkloadSchedPolicyMgrTest {
 
     @After
     public void tearDown() {
+        Config.deploy_mode = originDeployMode;
+        Config.cloud_unique_id = originCloudUniqueId;
         if (mockedEnv != null) {
             mockedEnv.close();
         }
     }
 
+    private Map<String, String> propsWith(String workloadGroupValue) {
+        Map<String, String> p = new HashMap<>();
+        p.put(WorkloadSchedPolicy.WORKLOAD_GROUP, workloadGroupValue);
+        return p;
+    }
+
     @Test
     public void testCheckPolicyCondition() {
-        WorkloadSchedPolicyMgr mgr = new WorkloadSchedPolicyMgr();
-
         // Case 1: USERNAME (Shared) + BE Metric + BE Action -> OK
         try {
             List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
@@ -130,15 +148,14 @@ public class WorkloadSchedPolicyMgrTest {
 
     @Test
     public void testCheckProperties() throws UserException {
-        WorkloadSchedPolicyMgr mgr = new WorkloadSchedPolicyMgr();
         List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
         conditionMetas.add(new WorkloadConditionMeta("username", "=", "user1"));
         List<WorkloadActionMeta> actionMetas = new ArrayList<>();
         actionMetas.add(new WorkloadActionMeta("cancel_query", ""));
 
-        // Test valid priority
+        // Test valid priority.
         try {
-            java.util.Map<String, String> props = new java.util.HashMap<>();
+            Map<String, String> props = new HashMap<>();
             props.put("priority", "10");
             props.put("enabled", "true");
             mgr.createWorkloadSchedPolicy("policy_prop_valid", false, conditionMetas, actionMetas, props);
@@ -146,9 +163,9 @@ public class WorkloadSchedPolicyMgrTest {
             Assert.fail("Should not throw exception for valid properties: " + e.getMessage());
         }
 
-        // Test invalid priority
+        // Test invalid priority.
         try {
-            java.util.Map<String, String> props = new java.util.HashMap<>();
+            Map<String, String> props = new HashMap<>();
             props.put("priority", "101");
             mgr.createWorkloadSchedPolicy("policy_prop_invalid_prio", false, conditionMetas, actionMetas, props);
             Assert.fail("Should throw exception for invalid priority");
@@ -156,14 +173,147 @@ public class WorkloadSchedPolicyMgrTest {
             Assert.assertTrue(e.getMessage().contains("policy's priority can only between 0 ~ 100"));
         }
 
-        // Test invalid enabled
+        // Test invalid enabled.
         try {
-            java.util.Map<String, String> props = new java.util.HashMap<>();
+            Map<String, String> props = new HashMap<>();
             props.put("enabled", "yes");
             mgr.createWorkloadSchedPolicy("policy_prop_invalid_enabled", false, conditionMetas, actionMetas, props);
             Assert.fail("Should throw exception for invalid enabled");
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("invalid enabled property value"));
+        }
+    }
+
+    @Test
+    public void testCloudModeRejectsUnqualifiedWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        try {
+            mgr.checkProperties(propsWith("superset"), new ArrayList<>());
+            Assert.fail("expected UserException for unqualified workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+            Assert.assertTrue("message should mention cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("cloud mode"));
+        }
+    }
+
+    @Test
+    public void testCloudModeRejectsTooManyDotsInWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        try {
+            mgr.checkProperties(propsWith("etl.superset.extra"), new ArrayList<>());
+            Assert.fail("expected UserException for over-qualified workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+        }
+    }
+
+    @Test
+    public void testNonCloudModeRejectsTooManyDotsInWorkloadGroup() {
+        // The '<resource_group>.<workload_group>' form is allowed in non-cloud mode, but
+        // anything with more than one dot is still ambiguous and must be rejected before
+        // any lookup.
+        Config.deploy_mode = "share_nothing";
+        Config.cloud_unique_id = "";
+        Assert.assertFalse(Config.isCloudMode());
+
+        try {
+            mgr.checkProperties(propsWith("etl.superset.extra"), new ArrayList<>());
+            Assert.fail("expected UserException for over-qualified workload_group in non-cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention the allowed forms; got: " + e.getMessage(),
+                    e.getMessage().contains("<workload_group>"));
+            Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("non-cloud mode"));
+        }
+    }
+
+    @Test
+    public void testEmptyOrMissingWorkloadGroupPropertyIsAccepted() throws Exception {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        // Absent property is OK: the workload_group binding is simply not set.
+        mgr.checkProperties(new HashMap<>(), new ArrayList<>());
+
+        // Explicit empty string is OK too: ignored like absent.
+        mgr.checkProperties(propsWith(""), new ArrayList<>());
+    }
+
+    @Test
+    public void testCloudModeRejectsTrailingDotInWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        // "etl." splits to ["etl", ""] under split(".", -1); the empty workload-group
+        // segment must be rejected before reaching the compute-group lookup.
+        try {
+            mgr.checkProperties(propsWith("etl."), new ArrayList<>());
+            Assert.fail("expected UserException for trailing-dot workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+        }
+    }
+
+    @Test
+    public void testCloudModeRejectsLeadingDotInWorkloadGroup() {
+        Config.cloud_unique_id = "ut_cloud";
+        Assert.assertTrue(Config.isCloudMode());
+
+        // ".superset" splits to ["", "superset"]; the empty compute-group segment must
+        // be rejected rather than falling through with an empty cg name.
+        try {
+            mgr.checkProperties(propsWith(".superset"), new ArrayList<>());
+            Assert.fail("expected UserException for leading-dot workload_group in cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention <compute_group>.<workload_group>; got: " + e.getMessage(),
+                    e.getMessage().contains("<compute_group>.<workload_group>"));
+        }
+    }
+
+    @Test
+    public void testNonCloudModeRejectsTrailingDotInWorkloadGroup() {
+        Config.deploy_mode = "share_nothing";
+        Config.cloud_unique_id = "";
+        Assert.assertFalse(Config.isCloudMode());
+
+        // "wg." splits to ["wg", ""]; previously split("\\.") would drop the trailing
+        // empty segment and let this pass. With split(..., -1) the empty workload-group
+        // component is detected and rejected before lookup.
+        try {
+            mgr.checkProperties(propsWith("wg."), new ArrayList<>());
+            Assert.fail("expected UserException for trailing-dot workload_group in non-cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention the allowed forms; got: " + e.getMessage(),
+                    e.getMessage().contains("<workload_group>"));
+            Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("non-cloud mode"));
+        }
+    }
+
+    @Test
+    public void testNonCloudModeRejectsLeadingDotInWorkloadGroup() {
+        Config.deploy_mode = "share_nothing";
+        Config.cloud_unique_id = "";
+        Assert.assertFalse(Config.isCloudMode());
+
+        // ".wg" splits to ["", "wg"]; the empty resource-group component must be
+        // rejected rather than falling through with an empty cg name.
+        try {
+            mgr.checkProperties(propsWith(".wg"), new ArrayList<>());
+            Assert.fail("expected UserException for leading-dot workload_group in non-cloud mode");
+        } catch (UserException e) {
+            Assert.assertTrue("message should mention the allowed forms; got: " + e.getMessage(),
+                    e.getMessage().contains("<workload_group>"));
+            Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
+                    e.getMessage().contains("non-cloud mode"));
         }
     }
 }

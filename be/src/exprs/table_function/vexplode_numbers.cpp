@@ -64,14 +64,14 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
             _cur_size = assert_cast<const ColumnInt32*>(column_nested.get())->get_element(0);
         }
 
-        ((ColumnInt32*)_elements_column.get())->clear();
+        _elements_column->clear();
         //_cur_size may be a negative number
         _cur_size = std::max(static_cast<int64_t>(0L), _cur_size);
         if (_cur_size &&
             _cur_size <= state->batch_size()) { // avoid elements_column too big or empty
             _is_const = true;                   // use const optimize
             for (int i = 0; i < _cur_size; i++) {
-                ((ColumnInt32*)_elements_column.get())->insert_value(i);
+                _elements_column->insert_value(i);
             }
         }
     }
@@ -103,8 +103,8 @@ void VExplodeNumbersTableFunction::get_same_many_values(MutableColumnPtr& column
             assert_cast<ColumnInt32*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                     ->insert_many_vals(static_cast<int32_t>(_cur_offset), length);
-            assert_cast<ColumnUInt8*>(
-                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnNullable*>(column.get())
+                    ->get_null_map_column_ptr()
                     ->insert_many_defaults(length);
         } else {
             assert_cast<ColumnInt32*>(column.get())

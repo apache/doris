@@ -113,6 +113,21 @@ public class Util {
         };
     }
 
+    public static void updateMessageDigest(MessageDigest digest, byte value) {
+        digest.update(value);
+    }
+
+    public static void updateMessageDigest(MessageDigest digest, long value) {
+        digest.update((byte) (value >>> 56));
+        digest.update((byte) (value >>> 48));
+        digest.update((byte) (value >>> 40));
+        digest.update((byte) (value >>> 32));
+        digest.update((byte) (value >>> 24));
+        digest.update((byte) (value >>> 16));
+        digest.update((byte) (value >>> 8));
+        digest.update((byte) value);
+    }
+
 
     // Get a string represent the schema signature, contains:
     // list of columns and bloom filter column info.

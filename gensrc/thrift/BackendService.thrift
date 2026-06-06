@@ -56,6 +56,17 @@ struct TKafkaLoadInfo {
     4: optional map<string, string> properties;
 }
 
+// Kinesis load info for routine load from AWS Kinesis
+struct TKinesisLoadInfo {
+    1: required string region;
+    2: required string stream;
+    3: optional string endpoint;
+    // Map from shard ID to starting sequence number
+    4: required map<string, string> shard_begin_sequence_number;
+    // AWS credentials and other properties
+    5: optional map<string, string> properties;
+}
+
 struct TRoutineLoadTask {
     1: required Types.TLoadSourceType type
     2: required i64 job_id
@@ -76,6 +87,7 @@ struct TRoutineLoadTask {
     17: optional bool memtable_on_sink_node;
     18: optional string qualified_user
     19: optional string cloud_cluster
+    20: optional TKinesisLoadInfo kinesis_load_info
 }
 
 struct TKafkaMetaProxyRequest {
@@ -137,6 +149,7 @@ struct TWarmUpCacheAsyncRequest {
     1: required string host
     2: required i32 brpc_port
     3: required list<i64> tablet_ids
+    4: optional string cloud_compute_group_id
 }
 
 struct TWarmUpCacheAsyncResponse {

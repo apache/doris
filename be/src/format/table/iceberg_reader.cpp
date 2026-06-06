@@ -145,14 +145,9 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(ctx->tuple_descriptor, *field_desc,
                                                             ctx->table_info_node));
     } else {
-        bool exist_field_id = true;
-        RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_field_id(
+        RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
                 get_scan_params().history_schema_info.front().root_field, *field_desc,
-                ctx->table_info_node, exist_field_id));
-        if (!exist_field_id) {
-            RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(ctx->tuple_descriptor, *field_desc,
-                                                                ctx->table_info_node));
-        }
+                ctx->table_info_node));
     }
 
     std::unordered_set<std::string> partition_col_names;
@@ -163,7 +158,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     // Single pass: classify columns, detect $row_id, handle partition fallback.
     bool has_partition_from_path = false;
-    for (auto& desc : *ctx->column_descs) {
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::SYNTHESIZED) {
             if (desc.name == BeConsts::ICEBERG_ROWID_COL) {
                 this->register_synthesized_column_handler(
@@ -181,17 +176,17 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                         });
                 continue;
             }
-        } else if (desc.category == ColumnCategory::REGULAR) {
-            // Partition fallback: if column is a partition key and NOT in the file
-            // (checked via field ID matching in table_info_node), read from path instead.
-            if (partition_col_names.contains(desc.name) &&
-                !ctx->table_info_node->children_column_exists(desc.name)) {
-                if (config::enable_iceberg_partition_column_fallback) {
-                    desc.category = ColumnCategory::PARTITION_KEY;
-                    has_partition_from_path = true;
-                    continue;
-                }
+        } else if (desc.category == ColumnCategory::PARTITION_KEY) {
+            bool has_partition_value = partition_col_names.contains(desc.name);
+            bool exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
+            if (!has_partition_value || exists_in_file) {
+                // Keep PARTITION_KEY category stable for scan planning, but still read
+                // from file when the column exists there.
+                ctx->column_names.push_back(desc.name);
+                continue;
             }
+            has_partition_from_path = true;
+        } else if (desc.category == ColumnCategory::REGULAR) {
             ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
             _init_row_lineage_columns();
@@ -217,7 +212,8 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     // Set up partition value extraction if any partition columns need filling from path
     if (has_partition_from_path) {
         RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
-                                                  _fill_partition_values));
+                                                  _fill_partition_values,
+                                                  &_fill_partition_value_is_null));
     }
 
     _all_required_col_names = ctx->column_names;
@@ -432,14 +428,9 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(ctx->tuple_descriptor, orc_type_ptr,
                                                         ctx->table_info_node));
     } else {
-        bool exist_field_id = true;
-        RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_field_id(
+        RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
                 get_scan_params().history_schema_info.front().root_field, orc_type_ptr,
-                ICEBERG_ORC_ATTRIBUTE, ctx->table_info_node, exist_field_id));
-        if (!exist_field_id) {
-            RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(ctx->tuple_descriptor, orc_type_ptr,
-                                                            ctx->table_info_node));
-        }
+                ICEBERG_ORC_ATTRIBUTE, ctx->table_info_node));
     }
 
     std::unordered_set<std::string> partition_col_names;
@@ -450,7 +441,7 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     // Single pass: classify columns, detect $row_id, handle partition fallback.
     bool has_partition_from_path = false;
-    for (auto& desc : *ctx->column_descs) {
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::SYNTHESIZED) {
             if (desc.name == BeConsts::ICEBERG_ROWID_COL) {
                 this->register_synthesized_column_handler(
@@ -468,17 +459,15 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
                         });
                 continue;
             }
-        } else if (desc.category == ColumnCategory::REGULAR) {
-            // Partition fallback: if column is a partition key and NOT in the file
-            // (checked via field ID matching in table_info_node), read from path instead.
-            if (partition_col_names.contains(desc.name) &&
-                !ctx->table_info_node->children_column_exists(desc.name)) {
-                if (config::enable_iceberg_partition_column_fallback) {
-                    desc.category = ColumnCategory::PARTITION_KEY;
-                    has_partition_from_path = true;
-                    continue;
-                }
+        } else if (desc.category == ColumnCategory::PARTITION_KEY) {
+            bool has_partition_value = partition_col_names.contains(desc.name);
+            bool exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
+            if (!has_partition_value || exists_in_file) {
+                ctx->column_names.push_back(desc.name);
+                continue;
             }
+            has_partition_from_path = true;
+        } else if (desc.category == ColumnCategory::REGULAR) {
             ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
             _init_row_lineage_columns();
@@ -503,7 +492,8 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     if (has_partition_from_path) {
         RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
-                                                  _fill_partition_values));
+                                                  _fill_partition_values,
+                                                  &_fill_partition_value_is_null));
     }
 
     _all_required_col_names = ctx->column_names;

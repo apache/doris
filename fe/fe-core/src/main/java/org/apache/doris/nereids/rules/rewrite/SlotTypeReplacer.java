@@ -679,7 +679,8 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                 int slotId = slot.getExprId().asInt();
                 if ((slot.getDataType() instanceof NestedColumnPrunable
                         || slot.getDataType().isVariantType()
-                        || slot.getDataType().isStringLikeType())
+                        || slot.getDataType().isStringLikeType()
+                        || slot.nullable())
                         && replacedDataTypes.containsKey(slotId)) {
                     shouldReplaceSlots.add(slotId);
                     shouldPrune = true;

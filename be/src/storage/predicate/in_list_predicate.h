@@ -27,6 +27,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/decimal12.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/type_limit.h"
 #include "core/types.h"
@@ -67,18 +68,16 @@ public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     InListPredicateBase(uint32_t column_id, std::string col_name,
-                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
-                        size_t char_length = 0)
+                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite)
             : ColumnPredicate(column_id, col_name, Type, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
         CHECK(hybrid_set != nullptr);
 
         // String types need a copy because:
-        // 1. The caller's set is StringSet<DynamicContainer<std::string>>, but here we want
-        //    StringSet<FixedContainer<std::string, N>> for small-set optimization — different
-        //    C++ types, cannot share the pointer.
-        // 2. CHAR type additionally needs padding to char_length.
+        // The caller's set is StringSet<DynamicContainer<std::string>>, but here we want
+        // StringSet<FixedContainer<std::string, N>> for small-set optimization — different
+        // C++ types, cannot share the pointer.
         //
         // Date/DECIMALV2 types do NOT need a copy: their ElementType (CppType) is identical
         // between the caller's HybridSet and InListPredicateBase's, and InListPredicateBase
@@ -92,13 +91,7 @@ public:
             HybridSetBase::IteratorBase* iter = hybrid_set->begin();
             while (iter->has_next()) {
                 const auto* value = (const StringRef*)(iter->get_value());
-                if constexpr (Type == TYPE_CHAR) {
-                    std::string padded(std::max(char_length, value->size), '\0');
-                    memcpy(padded.data(), value->data, value->size);
-                    _values->insert((void*)padded.data(), padded.length());
-                } else {
-                    _values->insert((void*)value->data, value->size);
-                }
+                _values->insert((void*)value->data, value->size);
                 iter->next();
             }
         } else {
@@ -161,23 +154,20 @@ public:
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
-            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            Field field_value;
             if constexpr (is_string_type(Type)) {
-                // get_value() returns StringRef*, not std::string*
+                // HybridSet's iter->get_value() yields StringRef*, not std::string*.
                 const auto* ref = (const StringRef*)(iter->get_value());
-                T str(ref->data, ref->size);
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        &str, query_param));
+                field_value = Field::create_field<Type>(std::string(ref->data, ref->size));
             } else {
                 const T* value = (const T*)(iter->get_value());
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        value, query_param));
+                field_value = Field::create_field<Type>(*value);
             }
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
             param.column_name = name_with_type.first;
             param.column_type = name_with_type.second;
-            param.query_value = query_param->get_value();
+            param.query_value = field_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
@@ -210,7 +200,7 @@ public:
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
@@ -352,6 +342,12 @@ public:
             if (bf->is_ngram_bf()) {
                 return true;
             }
+            if constexpr (Type == TYPE_CHAR) {
+                // CHAR BFs hash zero-padded bytes while the predicate value is
+                // unpadded, so probing the BF would always miss. Skip BF
+                // pruning for CHAR entirely.
+                return true;
+            }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (is_string_type(Type)) {
@@ -463,7 +459,7 @@ private:
         int16_t new_size = 0;
 
         if (column.is_nullable()) {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
@@ -497,7 +493,7 @@ private:
 
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto segid = column->get_rowset_segment_id();
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
@@ -539,7 +535,7 @@ private:
             }
         } else {
             auto& pred_col =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
                             ->get_data();
             auto pred_col_data = pred_col.data();
 
@@ -561,7 +557,7 @@ private:
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];

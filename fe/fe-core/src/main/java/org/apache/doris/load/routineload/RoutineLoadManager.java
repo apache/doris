@@ -38,6 +38,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -191,6 +193,9 @@ public class RoutineLoadManager implements Writable {
         switch (type) {
             case KAFKA:
                 routineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(info, ctx);
+                break;
+            case KINESIS:
+                routineLoadJob = KinesisRoutineLoadJob.fromCreateInfo(info, ctx);
                 break;
             default:
                 throw new UserException("Unknown data source type: " + type);
@@ -866,6 +871,20 @@ public class RoutineLoadManager implements Writable {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
             if (!routineLoadJob.state.isFinalState()) {
                 routineLoadJob.update();
+            }
+        }
+    }
+
+    public void updateRoutineLoadJobLag() {
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            if (!routineLoadJob.state.isFinalState()) {
+                try {
+                    routineLoadJob.updateLag();
+                } catch (UserException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                            .add("msg", "failed to update routine load lag")
+                            .build(), e);
+                }
             }
         }
     }

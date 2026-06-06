@@ -96,6 +96,24 @@
 namespace doris {
 class ObjectPool;
 
+namespace {
+
+void insert_column_range(ColumnWithTypeAndName* dst, const ColumnWithTypeAndName& src, size_t start,
+                         size_t length) {
+    DORIS_CHECK(dst->column.get() != nullptr);
+    DORIS_CHECK(src.column.get() != nullptr);
+    MutableColumnPtr dst_column = IColumn::mutate(std::move(dst->column));
+    ColumnPtr src_column = src.column->convert_to_full_column_if_const();
+    if (dst_column->is_nullable() && !src_column->is_nullable()) {
+        src_column = make_nullable(src_column);
+    }
+    DORIS_CHECK(dst_column->is_nullable() == src_column->is_nullable());
+    dst_column->insert_range_from(*src_column, start, length);
+    dst->column = std::move(dst_column);
+}
+
+} // namespace
+
 SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type)
         : _is_init(false), _columns(columns), _schema_table_type(type) {}
 
@@ -116,10 +134,8 @@ Status SchemaScanner::get_next_block(RuntimeState* state, Block* block, bool* eo
     DCHECK(_async_thread_running == false);
     RETURN_IF_ERROR(_scanner_status.status());
     for (size_t i = 0; i < block->columns(); i++) {
-        std::move(*block->get_by_position(i).column)
-                .mutate()
-                ->insert_range_from(*_data_block->get_by_position(i).column, 0,
-                                    _data_block->rows());
+        insert_column_range(&block->get_by_position(i), _data_block->get_by_position(i), 0,
+                            _data_block->rows());
     }
     _data_block->clear_column_data();
     *eos = _eos;
@@ -298,11 +314,10 @@ void SchemaScanner::_init_block(Block* src_block) {
 Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
                                                  const std::vector<void*>& datas) {
     const ColumnDesc& col_desc = _columns[pos];
-    MutableColumnPtr column_ptr;
-    column_ptr = std::move(*block->get_by_position(pos).column).assume_mutable();
+    MutableColumnPtr column_ptr = IColumn::mutate(std::move(block->get_by_position(pos).column));
     IColumn* col_ptr = column_ptr.get();
 
-    auto* nullable_column = reinterpret_cast<ColumnNullable*>(col_ptr);
+    auto* nullable_column = assert_cast<ColumnNullable*>(col_ptr);
 
     // Resize in advance to improve insertion efficiency.
     size_t fill_num = datas.size();
@@ -443,6 +458,7 @@ Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
         }
         }
     }
+    block->replace_by_position(pos, std::move(column_ptr));
     return Status::OK();
 }
 
@@ -457,8 +473,8 @@ std::string SchemaScanner::get_db_from_full_name(const std::string& full_name) {
 Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* block,
                                           PrimitiveType type) {
     MutableColumnPtr mutable_col_ptr;
-    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-    auto* nullable_column = reinterpret_cast<ColumnNullable*>(mutable_col_ptr.get());
+    mutable_col_ptr = IColumn::mutate(std::move(block->get_by_position(col_index).column));
+    auto* nullable_column = assert_cast<ColumnNullable*>(mutable_col_ptr.get());
     IColumn* col_ptr = &nullable_column->get_nested_column();
 
     switch (type) {
@@ -513,6 +529,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
     }
     }
     nullable_column->push_false_to_nullmap(1);
+    block->replace_by_position(col_index, std::move(mutable_col_ptr));
     return Status::OK();
 }
 
