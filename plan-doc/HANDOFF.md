@@ -8,16 +8,16 @@
 
 ## 📅 最后一次 handoff
 
-- **日期 / 时间**：2026-06-07（**T06b flip 已落 + gate 全绿 + doc-sync 全done**；Batch C 翻闸完成。下一 = **用户跑 live 验证 → 再做 Batch D 删除**）
+- **日期 / 时间**：2026-06-07（**T06b flip + doc-sync 已 commit（2 commit）+ gate 全绿**；Batch C 翻闸完成。下一 session = **用户跑 live 验证 → 再做 Batch D 删除**）
 - **本 session 主题**：① **T06b 翻闸**（`CatalogFactory` `SPI_READY_TYPES += "max_compute"` + 删 legacy case + import + 注释）；② 用户追加「fe-core 不再依赖任何 maxcompute jar」→ **并行 re-grep + 对抗验证 recon**（OQ-3 入口门满足）产出 **Batch D 完整移除闭包**（21 删 / ~30 清·84 ref / keep 集 / pom drop）写成 turnkey 设计文档；③ doc-sync 5 步 + decisions-log [D-027] + RFC §20 E11（2 SPI 新增）。
-- **分支**：`catalog-spi-05`。**T06b + 文档改动未 commit**（用户定时机）。前继 T05（`2534d76`+`67e0e5a`）、T06a（`afa46759`）已 commit。未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak`（勿提交）。
+- **分支**：`catalog-spi-05`。**本 session 2 commit 已落**：`9f2dba9ad24` `[docs]` Batch D 设计 + doc-sync + [D-027] / `2b135899411` `[P4-T06b]` flip（仅 `CatalogFactory.java`，isolated/易 revert）。前继 T05（`2534d76`+`67e0e5a`）、T06a（`afa46759`）已 commit。未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak`（勿提交）。
 - **Batch 状态**：A ✅ + B ✅ + **C ✅（T05+T06a+T06b flip，gate 全绿）**；**D ⏳（闭包已 verify，执行待 live 验证）**；E ⏳。
 
 ---
 
 ## ✅ 本 session 完成项
 
-**① T06b 翻闸 — 落地、gate 全绿、未 commit**：`CatalogFactory.java`：`SPI_READY_TYPES = ImmutableSet.of("jdbc","es","trino-connector","max_compute")`(:52)；删 `case "max_compute"`(原 :146-149)；删 unused `import ...maxcompute.MaxComputeExternalCatalog`(:30)；注释 `(hms, iceberg, paimon, hudi)` 去 max_compute。翻闸后 `max_compute` catalog→`PluginDrivenExternalCatalog`/table→`PluginDrivenExternalTable`（GSON T05 兼容），读/写/DDL/分区/show 全经 SPI；legacy `instanceof MaxCompute*` 全失配（dead，留 Batch D 删）。**gate 全绿（真实 EXIT 核，坑7）**：compile BUILD SUCCESS/MVN_EXIT=0（`-pl :fe-core -am`）+ checkstyle **0**/CS_EXIT=0 + import-gate 0。
+**① T06b 翻闸 — 已 commit（`2b135899411`）、gate 全绿**：`CatalogFactory.java`：`SPI_READY_TYPES = ImmutableSet.of("jdbc","es","trino-connector","max_compute")`(:52)；删 `case "max_compute"`(原 :146-149)；删 unused `import ...maxcompute.MaxComputeExternalCatalog`(:30)；注释 `(hms, iceberg, paimon, hudi)` 去 max_compute。翻闸后 `max_compute` catalog→`PluginDrivenExternalCatalog`/table→`PluginDrivenExternalTable`（GSON T05 兼容），读/写/DDL/分区/show 全经 SPI；legacy `instanceof MaxCompute*` 全失配（dead，留 Batch D 删）。**gate 全绿（真实 EXIT 核，坑7）**：compile BUILD SUCCESS/MVN_EXIT=0（`-pl :fe-core -am`）+ checkstyle **0**/CS_EXIT=0 + import-gate 0。
 
 **② Batch D 移除 recon + turnkey 设计**：`tasks/designs/P4-batchD-maxcompute-removal-design.md`。**去 fe-core odps 依赖 = 整个 Batch D**（fe-core `odps-sdk-core`/`odps-sdk-table-api` 仅经 legacy 子系统可达，7 文件 `import com.aliyun.odps` 全在删除集）。闭包（并行 re-grep + 对抗验证，**无 survivor risk**）：**删 21 文件**（`datasource/maxcompute/` 10 + `MaxComputeTableSink`/`Logical`/`PhysicalMaxComputeTableSink`/`UnboundMaxComputeTableSink`/`MCInsertExecutor`/`MCInsertCommandContext`/`Logical…ToPhysical…Rule`/`MCTransactionManager` + 2 测）；**清 ~30 文件 / 84 ref**（32 import + 43 dead branch）；**keep 集**（image/plan/thrift compat，见设计 §3）；**pom drop** 两块。对抗复核 1 必处理点：`ExternalMetaCacheMgr` **ctor 期 eager** 建 `MaxComputeExternalMetaCache`(:183/:310)——须删引用（非 dead-strip）。镜像 trino `524097e38d3`+`c4ac2c5911d`。
 
