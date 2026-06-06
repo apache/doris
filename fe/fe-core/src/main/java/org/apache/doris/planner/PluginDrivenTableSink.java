@@ -20,7 +20,13 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWriteConfig;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteType;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -41,6 +47,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -96,13 +103,44 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     public static final String PROP_JDBC_POOL_KEEP_ALIVE = "connection_pool_keep_alive";
 
     private final PluginDrivenExternalTable targetTable;
+    // Config-bag mode: the connector returns a ConnectorWriteConfig (property bag) and the
+    // engine builds the Thrift sink (jdbc / hive-shaped file writes). Null in plan-provider mode.
     private final ConnectorWriteConfig writeConfig;
+    // Plan-provider mode (W5): the connector builds its own opaque TDataSink via planWrite().
+    // Mutually exclusive with writeConfig -- exactly one is non-null. Used by connectors whose
+    // sink cannot be expressed as a generic ConnectorWriteConfig (e.g. maxcompute / iceberg).
+    private final ConnectorWritePlanProvider writePlanProvider;
+    private final ConnectorSession connectorSession;
+    private final ConnectorTableHandle tableHandle;
+    private final List<ConnectorColumn> connectorColumns;
 
     public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
             ConnectorWriteConfig writeConfig) {
         super();
         this.targetTable = targetTable;
         this.writeConfig = writeConfig;
+        this.writePlanProvider = null;
+        this.connectorSession = null;
+        this.tableHandle = null;
+        this.connectorColumns = null;
+    }
+
+    /**
+     * Plan-provider mode (W5): the connector supplies a {@link ConnectorWritePlanProvider}
+     * and builds its own opaque {@link TDataSink} via
+     * {@link ConnectorWritePlanProvider#planWrite}. The config-bag constructor remains for
+     * connectors that only provide a {@link ConnectorWriteConfig} (e.g. jdbc).
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns) {
+        super();
+        this.targetTable = targetTable;
+        this.writeConfig = null;
+        this.writePlanProvider = writePlanProvider;
+        this.connectorSession = connectorSession;
+        this.tableHandle = tableHandle;
+        this.connectorColumns = connectorColumns;
     }
 
     @Override
@@ -142,6 +180,10 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     @Override
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
+        if (writePlanProvider != null) {
+            bindViaWritePlanProvider();
+            return;
+        }
         ConnectorWriteType writeType = writeConfig.getWriteType();
         switch (writeType) {
             case FILE_WRITE:
@@ -154,6 +196,22 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                 throw new AnalysisException(
                         "Unsupported write type for plugin-driven sink: " + writeType);
         }
+    }
+
+    /**
+     * Plan-provider mode: delegate sink construction to the connector, which returns its own
+     * opaque {@link TDataSink}; the engine dispatches it to BE unchanged. The
+     * {@link ConnectorWriteHandle} carries the bound target table handle and write columns.
+     *
+     * <p>Connector-specific write context (OVERWRITE flag, static partition spec, write path,
+     * write type) is populated by the per-connector adopter (P4+) from its own insert context;
+     * the W-phase establishes the seam with an empty context.</p>
+     */
+    private void bindViaWritePlanProvider() {
+        ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
+                tableHandle, connectorColumns, false, Collections.emptyMap());
+        ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
+        this.tDataSink = sinkPlan.getDataSink();
     }
 
     /**
@@ -309,5 +367,41 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                 || key.equals(PROP_WRITE_PATH) || key.equals(PROP_TARGET_PATH)
                 || key.equals(PROP_ORIGINAL_WRITE_PATH)
                 || key.startsWith("jdbc_");
+    }
+
+    /** Bound {@link ConnectorWriteHandle} passed to {@link ConnectorWritePlanProvider#planWrite}. */
+    private static final class PluginDrivenWriteHandle implements ConnectorWriteHandle {
+        private final ConnectorTableHandle tableHandle;
+        private final List<ConnectorColumn> columns;
+        private final boolean overwrite;
+        private final Map<String, String> writeContext;
+
+        private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
+                boolean overwrite, Map<String, String> writeContext) {
+            this.tableHandle = tableHandle;
+            this.columns = columns;
+            this.overwrite = overwrite;
+            this.writeContext = writeContext;
+        }
+
+        @Override
+        public ConnectorTableHandle getTableHandle() {
+            return tableHandle;
+        }
+
+        @Override
+        public List<ConnectorColumn> getColumns() {
+            return columns;
+        }
+
+        @Override
+        public boolean isOverwrite() {
+            return overwrite;
+        }
+
+        @Override
+        public Map<String, String> getWriteContext() {
+            return writeContext;
+        }
     }
 }

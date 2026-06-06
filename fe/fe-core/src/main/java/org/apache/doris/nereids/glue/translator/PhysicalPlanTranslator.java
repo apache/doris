@@ -49,6 +49,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.write.ConnectorWriteConfig;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
@@ -663,6 +664,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         ConnectorType.of(col.getType().getPrimitiveType().toString()),
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
+
+        // W5: connectors with a write-plan provider build their own opaque TDataSink (the
+        // general path for maxcompute / iceberg). Dormant until a connector overrides
+        // Connector.getWritePlanProvider(); the config-bag path below is unchanged (jdbc).
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        if (writePlanProvider != null) {
+            ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
+                    targetTable.getRemoteDbName(), targetTable.getRemoteName())
+                    .orElseThrow(() -> new AnalysisException(
+                            "Table not found: " + targetTable.getRemoteDbName()
+                                    + "." + targetTable.getRemoteName()
+                                    + " in catalog " + catalog.getName()));
+            PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
+                    writePlanProvider, connSession, providerTableHandle, connectorColumns);
+            rootFragment.setSink(providerSink);
+            return rootFragment;
+        }
 
         ConnectorWriteConfig writeConfig;
         if (metadata.supportsInsert()) {
