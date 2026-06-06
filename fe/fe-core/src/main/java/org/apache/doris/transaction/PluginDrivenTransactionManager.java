@@ -142,6 +142,32 @@ public class PluginDrivenTransactionManager implements TransactionManager {
             }
         }
 
+        @Override
+        public void addCommitData(byte[] commitFragment) {
+            if (connectorTx != null) {
+                connectorTx.addCommitData(commitFragment);
+            }
+            // legacy no-op marker: nothing to accumulate
+        }
+
+        @Override
+        public boolean supportsWriteBlockAllocation() {
+            return connectorTx != null && connectorTx.supportsWriteBlockAllocation();
+        }
+
+        @Override
+        public long allocateWriteBlockRange(String writeSessionId, long count) throws UserException {
+            if (connectorTx == null) {
+                throw new UnsupportedOperationException("write block allocation not supported");
+            }
+            return connectorTx.allocateWriteBlockRange(writeSessionId, count);
+        }
+
+        @Override
+        public long getUpdateCnt() {
+            return connectorTx == null ? 0 : connectorTx.getUpdateCnt();
+        }
+
         private void closeQuietly() {
             try {
                 connectorTx.close();
