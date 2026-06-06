@@ -90,7 +90,10 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtim
             break;
         }
         case WorkloadMetricType::USERNAME: {
-            val = action_runtime_ctx->resource_ctx->task_controller()->get_user();
+            // Reject the condition when BE does not have explicit user metadata.
+            if (!action_runtime_ctx->resource_ctx->task_controller()->get_user(&val)) {
+                return false;
+            }
             break;
         }
         default:

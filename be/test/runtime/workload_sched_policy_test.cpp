@@ -65,10 +65,25 @@ public:
     MockTaskController() = default;
     ~MockTaskController() override = default;
 
-    std::string get_user() override { return _user; }
-    void set_user(std::string user) { _user = user; }
+    // Simulate BE task controllers that may or may not carry user metadata.
+    bool get_user(std::string* user) override {
+        if (!_has_user) {
+            return false;
+        }
+        *user = _user;
+        return true;
+    }
+    void set_user(std::string user) {
+        _user = std::move(user);
+        _has_user = true;
+    }
+    void clear_user() {
+        _user.clear();
+        _has_user = false;
+    }
 
 private:
+    bool _has_user = false;
     std::string _user;
 };
 
@@ -368,6 +383,11 @@ TEST_F(WorkloadSchedPolicyTest, one_policy_username_condition) {
     static_cast<MockTaskController*>(action_runtime_ctx.resource_ctx->task_controller())
             ->set_user("admin");
     EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+
+    // Missing user metadata must not be treated as an empty username match.
+    static_cast<MockTaskController*>(action_runtime_ctx.resource_ctx->task_controller())
+            ->clear_user();
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
 
     // Test INVALID operator
     {

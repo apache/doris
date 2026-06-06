@@ -47,7 +47,8 @@ public:
     size_t get_revocable_size() override;
     Status revoke_memory() override;
     std::vector<PipelineTask*> get_revocable_tasks() override;
-    std::string get_user() override;
+    // Distinguish missing user metadata from an empty username.
+    bool get_user(std::string* user) override;
     // Expose task progress counters without leaking full QueryContext.
     void add_total_task_num(int delta);
     void inc_finished_task_num();

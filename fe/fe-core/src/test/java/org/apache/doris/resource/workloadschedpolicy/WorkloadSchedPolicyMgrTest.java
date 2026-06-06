@@ -185,6 +185,33 @@ public class WorkloadSchedPolicyMgrTest {
     }
 
     @Test
+    public void testUsernameConditionRejectsBlankValue() throws UserException {
+        List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+        List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+        actionMetas.add(new WorkloadActionMeta("cancel_query", ""));
+
+        // Reject an explicit empty username to avoid matching queries without user metadata.
+        try {
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", ""));
+            mgr.createWorkloadSchedPolicy("policy_empty_username", false, conditionMetas, actionMetas, null);
+            Assert.fail("Should throw exception for empty username");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("username can not be empty"));
+        }
+
+        conditionMetas.clear();
+
+        // Reject a blank username for the same reason.
+        try {
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", "   "));
+            mgr.createWorkloadSchedPolicy("policy_blank_username", false, conditionMetas, actionMetas, null);
+            Assert.fail("Should throw exception for blank username");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("username can not be empty"));
+        }
+    }
+
+    @Test
     public void testCloudModeRejectsUnqualifiedWorkloadGroup() {
         Config.cloud_unique_id = "ut_cloud";
         Assert.assertTrue(Config.isCloudMode());

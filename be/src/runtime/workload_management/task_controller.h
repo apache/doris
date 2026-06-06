@@ -47,7 +47,8 @@ public:
     TNetworkAddress fe_addr() { return fe_addr_; }
     void set_fe_addr(TNetworkAddress fe_addr) { fe_addr_ = fe_addr; }
     std::string debug_string();
-    virtual std::string get_user() { return ""; }
+    // Distinguish missing user metadata from an empty username.
+    virtual bool get_user(std::string* user) { return false; }
 
     /* finish action
     */

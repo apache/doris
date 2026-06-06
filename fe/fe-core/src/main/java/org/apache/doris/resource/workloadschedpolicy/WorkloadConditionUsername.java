@@ -48,6 +48,10 @@ public class WorkloadConditionUsername implements WorkloadCondition {
         if (op != WorkloadConditionOperator.EQUAL) {
             throw new UserException("username only support EQUAL operator");
         }
+        // Reject blank usernames so BE-side missing user metadata cannot be matched by mistake.
+        if (value == null || value.trim().isEmpty()) {
+            throw new UserException("username can not be empty");
+        }
         // todo(wb) check whether input username is valid
         return new WorkloadConditionUsername(op, value);
     }
