@@ -15,6 +15,7 @@
 
 | 编号 | 别名 | 简述 | 日期 | 状态 |
 |---|---|---|---|---|
+| D-023 | — | P4 maxcompute 启 full adopter（recon §9 option A）：W-phase 后按 5 批（A 读/DDL parity → B 写/事务 → C 翻闸 → D 清引用+删 legacy → E 测）落地 + cutover；批次计划 tasks/P4 | 2026-06-06 | ✅ |
 | D-022 | — | 写/事务 SPI 设计：A 连接器事务为源·桥接 / B1 commit 载荷 opaque bytes / C1 block-id 窄 callback seam / D INSERT·DELETE·MERGE（defer procedures）/ E 写-plan-provider 仿 scan | 2026-06-06 | ✅ |
 | D-021 | — | P4 maxcompute 采 scope=C（写-SPI RFC 先行）：先做共享写/事务 SPI + 通用层解耦（W-phase），再逐连接器 adopter | 2026-06-06 | ✅ |
 | D-020 | — | 单 `hms` catalog 多格式 scan 路由 = 方案 B（`ConnectorMetadata.getScanPlanProvider(handle)` per-table default）；细化 D-005（design-only，实现批 E/P7）| 2026-06-05 | ✅ |
@@ -41,6 +42,17 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### D-023 — P4 maxcompute 启 full adopter（option A，5 批 cutover）
+
+- **日期**：2026-06-06
+- **状态**：✅ 生效
+- **关联**：[tasks/P4-maxcompute-migration.md](./tasks/P4-maxcompute-migration.md)、[research/p4-maxcompute-migration-recon.md §9](./research/p4-maxcompute-migration-recon.md)、[D-021]（scope=C→本决策接 option A）、[D-022]（写 SPI）、[写 RFC §12](./tasks/designs/connector-write-spi-rfc.md)、[R-004]
+- **背景**：W-phase（W1–W7）已落地共享写/事务 SPI + 通用层解耦（[D-021]/[D-022]），recon §9 scope fork（B hybrid / A full / C 写-SPI 先行）中 C 已完成、写路径 keystone 已解耦。现决 P4 余下走 **option A（full adopter + 翻闸）**，非 P3 式 hybrid。
+- **决策**（用户批准 2026-06-06）：按 [tasks/P4](./tasks/P4-maxcompute-migration.md) 的 **5 批 / 11 task** 落地：A 连接器读/DDL/分区 parity（gate 关）→ B 写/事务 SPI（gate 关）→ **C 翻闸（唯一 live 切点，含 R-004 防御测）** → D 清 ~19 反向引用 + 删 `datasource/maxcompute/`（收口 P1-T02 McStructureHelper 去重）→ E 连接器测试基线 + PR。A、B 并行、均 dormant；两者全绿 + R-004 过方进 C。
+- **影响**：P4 成首个 full adopter，为 P5 paimon / P6 iceberg / P7 hive 立样板。recon §3「~36 反向引用」经 post-W-phase re-grep 校正为 **~19**（W-phase 灭 `Coordinator`/`LoadProcessor`/`FrontendServiceImpl` 3 热点 txn 站，grep 证）。每批独立 commit。
+
+---
 
 ### D-022 — 写/事务 SPI 设计（A / B1 / C1 / D / E）
 

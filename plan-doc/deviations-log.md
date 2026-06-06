@@ -13,10 +13,11 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **9** 项。
+> 时间倒序；当前共 **10** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-010 | P4-T01 修共享 fe-core `ConnectorColumnConverter.toConnectorType` 丢 CHAR/VARCHAR 长度（写 `precision=0`；长度存 `len` 非 `precision`）→ CREATE TABLE 经 SPI 丢长度。特判 CHAR/VARCHAR 把 `getLength()` 写入 precision 字段（与逆 `convertScalarType`+`MCTypeMapping` 约定一致）| [tasks/P4 P4-T01](./tasks/P4-maxcompute-migration.md) / `ConnectorColumnConverter` | 2026-06-06 | 🟢 已修正（P4-T01）|
 | DV-009 | W5 写 sink 收口位置：RFC/handoff「route 3 个 visitPhysicalXxxTableSink + 新建 PluginDrivenTableSink」与代码不符；plugin-driven 写经 `visitPhysicalConnectorTableSink` + 既有 `PluginDrivenTableSink`，W5 改为在其上 layer `planWrite()` | [写 RFC §5.5/§12 W5](./tasks/designs/connector-write-spi-rfc.md) / [HANDOFF W5](./HANDOFF.md) | 2026-06-06 | 🟢 已修正（W5 `9ebe5e27fa4`）|
 | DV-008 | P3-T07 parity 两处 SPI↔legacy 偏差：列名 casing 当场修；Hudi meta-field 推迟批 E | [tasks/P3 §批C/T07](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正 |
 | DV-007 | P3 批 B scope 校正：T05 `listPartitions*` override 推迟批 E（零 live caller、Hive 不 override）；T06 MVCC 保持 default opt-out（非抛异常 override）| [HANDOFF 未完成 #1/#2](./HANDOFF.md) / [tasks/P3 T05/T06](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正（T05 裁剪已落地；list*/MVCC 入批 E）|
@@ -30,6 +31,24 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-010 — P4-T01：共享 fe-core ConnectorColumnConverter 丢 CHAR/VARCHAR 长度，特判修复（用户签字）
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：P4 Batch A session（P4-T01 启动前 code-grounded 核读 `ConnectorColumnConverter.toConnectorType` + `ScalarType`：CHAR/VARCHAR 长度存 `len`、`getScalarPrecision()` 返 `precision`=0；既有 `ConnectorColumnConverterTest` 无 CHAR/VARCHAR 断言）
+- **当前状态**：🟢 已修正（P4-T01；fe-core `ConnectorColumnConverter` 特判 + 回归测 `testCharVarcharLengthPreserved`，Tests run 9/0F0E）
+- **原计划位置**：P4-T01 原框定「连接器-only、gate 关」；`ConnectorColumnConverter.toConnectorType`（P0-T15 期建）ScalarType 分支统一用 `getScalarPrecision()`/`getScalarScale()`
+- **偏差描述**：连接器 `createTable` 消费的 `ConnectorCreateTableRequest` 列类型经 `ConnectorColumnConverter.toConnectorType(Type)` 产生；其 ScalarType 分支对 CHAR/VARCHAR 用 `getScalarPrecision()`（=`precision` 字段，CHAR/VARCHAR 默认 0），而长度实存 `len`（`getLength()`）→ 请求里 CHAR(n)/VARCHAR(n) **丢长度**（legacy `dorisScalarTypeToMcType` 用 `getLength()` 保留）。这是 P0 转换器的**逆一致性 bug**（其逆向 `convertScalarType` + 连接器 `MCTypeMapping` 约定「CHAR/VARCHAR 长度在 precision 字段」），是 CHAR/VARCHAR DDL 经 SPI 真正达 parity 的唯一路径。
+- **新方案**（用户 AskUserQuestion 签字「修 fe-core 转换器」）：`toConnectorType` 特判 CHAR/VARCHAR，把 `getLength()` 写入 ConnectorType precision 字段（与逆向约定一致）；其余类型不变；加回归测 `ConnectorColumnConverterTest#testCharVarcharLengthPreserved`。
+- **替代方案**：连接器侧对 CHAR/VARCHAR 缺长度 fail-loud + 记 OQ 推迟（保 Batch A 连接器-only 边界，但 CHAR/VARCHAR DDL 暂不可用）——用户否决。
+- **影响范围**：
+  - 代码：fe-core `ConnectorColumnConverter.toConnectorType`（+ import `PrimitiveType`）+ test。**触碰共享 P0 代码**：对 live 的 jdbc/es CREATE TABLE CHAR/VARCHAR 行为变更（「丢长度」→「保留长度」，严格更正确，低风险）。
+  - 文档：本条 + [tasks/P4](./tasks/P4-maxcompute-migration.md) + [PROGRESS](./PROGRESS.md)（§四/§六计数）。
+  - 计划：P4-T01 范围从「连接器-only」微扩至含 1 处 fe-core 转换器修复。
+- **关联**：P4-T01、P0-T15（converter）、[D-023]
+- **后续动作**：
+  - [x] 修 `toConnectorType` + 回归测（P4-T01）
+  - [ ] Batch E：连接器 DDL parity 测覆盖 CHAR/VARCHAR 端到端
 
 ### DV-009 — W5 写 sink 收口位置与 RFC/handoff 措辞不符：plugin-driven 写已有专路，改为 layer planWrite
 

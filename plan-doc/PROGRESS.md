@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-06-06** | 当前阶段：**P4 maxcompute·scope=C（写-SPI RFC 先行）**——写/事务 SPI RFC 已批准；**W-phase（W1–W7）全部落地**：W1+W2 `be945476ba7` + W3+W6 `9ad2bbe40ec` + W4 `759cc0874c8` + W5 `9ebe5e27fa4` + W7 文档（D-021/D-022 入 log、01-spi-rfc §20 E11、DV-009），behind gate、零行为变更、golden 等价 ✅；下一步 = **P4 maxcompute adopter**（搬类 + impl 写 SPI + 翻闸）。P3 hybrid 已 **#64143 合入** `branch-catalog-spi`（`5c240dc7a34`）| 项目总进度：**36%**
+> 最后更新：**2026-06-06** | 当前阶段：**P4 maxcompute·scope=C（写-SPI RFC 先行）**——写/事务 SPI RFC 已批准；**W-phase（W1–W7）全部落地**：W1+W2 `be945476ba7` + W3+W6 `9ad2bbe40ec` + W4 `759cc0874c8` + W5 `9ebe5e27fa4` + W7 文档（D-021/D-022 入 log、01-spi-rfc §20 E11、DV-009），behind gate、零行为变更、golden 等价 ✅；**P4 adopter 设计已批准**（[D-023]，5 批/11 task，见 [tasks/P4](./tasks/P4-maxcompute-migration.md)）；下一步 = **Batch A**（连接器 DDL+分区，gate 关）。P3 hybrid 已 **#64143 合入** `branch-catalog-spi`（`5c240dc7a34`）| 项目总进度：**36%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -13,7 +13,7 @@
 | **P1** | scan-node 收口 + 重复清理 | 1 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR [#63641](https://github.com/apache/doris/pull/63641) squash-merged `778c5dd610f`；T1 推迟 P8；T2 推迟 P4/P5）| [tasks/P1](./tasks/P1-scan-node-cleanup.md) |
 | **P2** | trino-connector 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 已合入 `branch-catalog-spi`（#64096，squash `0793f032662`；T12 回归推迟 DV-003）| [tasks/P2](./tasks/P2-trino-connector-migration.md) |
 | P3 | hudi 迁移 | 2 周 | ▰▰▰▰▰▱▱▱▱▱ 45% | ✅ hybrid（D-019）批 A–D 已合入 `branch-catalog-spi`（**#64143** squash `5c240dc7a34`）；批 E（live cutover）并入 P7 | [tasks/P3](./tasks/P3-hudi-migration.md) |
-| P4 | maxcompute 迁移 | 2 周 | ▰▰▰▰▱▱▱▱▱▱ 30% | 🚧 **scope=C**；**W-phase 全落地**：W1+W2 `be945476ba7` / W3+W6 `9ad2bbe40ec` / W4 `759cc0874c8` / W5 `9ebe5e27fa4` / W7 文档 ✅（gate 内零行为变更）；下一步 = maxcompute adopter（搬类+翻闸）| [RFC](./tasks/designs/connector-write-spi-rfc.md) |
+| P4 | maxcompute 迁移 | 2 周 | ▰▰▰▰▱▱▱▱▱▱ 35% | 🚧 **W-phase 全落地** ✅（W1+W2 `be945476ba7` / W3+W6 `9ad2bbe40ec` / W4 `759cc0874c8` / W5 `9ebe5e27fa4` / W7 文档）；**adopter 设计已批准**（[D-023]，5 批/11 task）；**Batch A 进行中**（P4-T01 DDL ✅、T02 分区中）| [tasks/P4](./tasks/P4-maxcompute-migration.md) |
 | P5 | paimon 迁移 | 3 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P6 | iceberg 迁移 | 5 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P7 | hive (+HMS) 迁移 | 6 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -33,7 +33,7 @@
 | **es** | ✅ | ✅ 100% | ✅ | ✅ | ✅ | **100%** | [详情](./connectors/es.md) |
 | trino-connector | ✅ | ✅ 100% | ✅ | ✅ | ✅ | **100%** | [详情](./connectors/trino-connector.md) |
 | hudi | 🟡（D-005 区分符 + D-020 模型 dispatch 已设计；实现批 E）| 🟨 55%（读路径 dormant + 批 C 测试基线）| ❌（gate 关）| ❌ | 0/0（寄生 hms）| **25%** | [详情](./connectors/hudi.md) |
-| maxcompute | 🟡 | 🟨 60% | ❌ | ❌ | 0/12 | **25%** | [详情](./connectors/maxcompute.md) |
+| maxcompute | 🟡 | 🟨 60% | ❌ | ❌ | 0/~19（re-grep 校正，旧称 12）| **25%** | [详情](./connectors/maxcompute.md) |
 | paimon | 🟡 | 🟨 50% | ❌ | ❌ | 0/10 | **20%** | [详情](./connectors/paimon.md) |
 | iceberg | 🟡 | 🟥 10% | ❌ | ❌ | 0/19 | **5%** | [详情](./connectors/iceberg.md) |
 | hive (+hms) | 🟡 | 🟥 20% | ❌ | ❌ | 0/31 | **10%** | [详情](./connectors/hive.md) |
@@ -44,7 +44,19 @@
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
 
-### P3 — hudi 迁移（🚧 hybrid，批 A–D 全部 in-scope 完成：T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E；剩批 E→P7，P3 PR #64143 已开（CI 中））
+### P4 — maxcompute 迁移（🚧 full adopter；**设计已批准** [D-023]，5 批/11 task；下一步 Batch A）
+
+> 策略 = **full adopter + 翻闸**（[D-023]，非 P3 hybrid）；前置 W-phase（W1–W7）✅。批次计划 + 完整 task 表见 [tasks/P4](./tasks/P4-maxcompute-migration.md)。
+
+| 批 | 范围 | gate | task | 状态 |
+|---|---|---|---|---|
+| A | 连接器 DDL + 分区 parity | 🔒 关 | P4-T01 ✅ / T02 🚧 | 🚧 T01 DDL 完成（gate 全绿）；T02 分区进行中 |
+| B | 写/事务 SPI（`ConnectorTransaction`/`WriteOps` + `WritePlanProvider`→`TMaxComputeTableSink`）| 🔒 关 | P4-T03/T04 | ⏳ |
+| C | 翻闸（`SPI_READY_TYPES` + GSON + `getEngine`；含 R-004 防御测）| 🔓 **live** | P4-T05/T06 | ⏳ |
+| D | 清 ~19 反向引用 + 删 `datasource/maxcompute/`（收口 P1-T02）| 🔓 live | P4-T07/T08/T09 | ⏳ |
+| E | 连接器测试基线 + PR | — | P4-T10/T11 | ⏳ |
+
+### P3 — hudi 迁移（🚧 hybrid，批 A–D 全部 in-scope 完成：T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E；剩批 E→P7，**P3 已合入 #64143 `5c240dc7a34`**；批 E live cutover 并入 P7）
 
 > 策略 = **hybrid**（[D-019](./decisions-log.md)）：现做 (b) 连接器硬化+测试（behind gate），推迟 (a) 模型落地+cutover 到 hive/HMS migration。详细批次见 [tasks/P3](./tasks/P3-hudi-migration.md)；背景见 [DV-005](./deviations-log.md) / [HANDOFF](./HANDOFF.md) 关键认知 1+1b。
 
@@ -128,6 +140,8 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-06-06（实现 ④·P4-T01）** ✅ **P4 Batch A 启动 — P4-T01 连接器 DDL 完成**（gate 关、dormant、零 live 风险）：`MaxComputeConnectorMetadata` impl SPI `createTable(ConnectorCreateTableRequest)` / `dropTable` / `createDatabase` / `dropDatabase`（忠实港 legacy `MaxComputeMetadataOps` 的 create/drop/validate/schema-build/lifecycle/bucket，**消费 P0 request 非 fe-core `CreateTableInfo`**）+ 新 `MCTypeMapping.toMcType(ConnectorType)` 反向类型映射（按 `PrimitiveType.toString()` switch，递归 ARRAY/MAP/STRUCT，不支持类型抛异常）；连接器 `McStructureHelper` 已含全部 ODPS DDL 原语，无需新建。**附带修 fe-core 共享转换器 `ConnectorColumnConverter.toConnectorType` 丢 CHAR/VARCHAR 长度 [DV-010]**（用户 AskUserQuestion 签字；逆一致性 bug，影响 live jdbc/es CREATE TABLE，更正确）+ 回归测 `testCharVarcharLengthPreserved`。守门全绿（连接器 compile + checkstyle 0 + import-gate + fe-core `ConnectorColumnConverterTest` **9/0F0E**，真实 EXIT 核验）。**坑**：守门 maven `-pl` 须用 `:fe-connector-maxcompute`（冒号=artifactId）；裸名被当相对路径 → reactor-not-found。下一步 = **P4-T02** 分区 listing。
+- **2026-06-06（设计 ④）** ✅ **P4 maxcompute adopter 设计批准**（[D-023]）：读 HANDOFF/PROGRESS/playbook + recon + 写-RFC §12，code-grounded re-grep（反向引用 post-W-phase **~19**，证 W-phase 灭 `Coordinator`/`LoadProcessor`/`FrontendServiceImpl` 3 热点 txn 站；`MCTransaction` 已含 W2 `addCommitData(byte[])`；`TMaxComputeTableSink` 18 字段齐）。产 [tasks/P4](./tasks/P4-maxcompute-migration.md)：**5 批/11 task**（A 读/DDL parity → B 写/事务 → **C 翻闸（唯一 live 切点，含 R-004 防御测）** → D 清 ~19 引用+删 legacy → E 测+PR），用户批准。同步跟踪文档 + 修 §三 stale「P3 CI中」→ 已合 `5c240dc7a34`。**下一步 = Batch A**（P4-T01 DDL + P4-T02 分区，gate 关）。未动代码。
 - **2026-06-06（实现 ③）** ✅ **W-phase W4+W5+W7 落地（plugin-driven 写接线收口 + 文档）= W-phase（W1–W7）全完成**：**W4**（commit `759cc0874c8`）`PluginDrivenTransaction`（`PluginDrivenTransactionManager` 内类）override 4 个 fe-core `Transaction` 写 default 委派 wrap 的 SPI `ConnectorTransaction`（`addCommitData`/`supportsWriteBlockAllocation`/`allocateWriteBlockRange`/`getUpdateCnt`），legacy null marker 保持 inert（`allocateWriteBlockRange` 保 `throws UserException` 对齐接口，SPI 调用 unchecked）；TDD RED 3F1E→GREEN 5/5。**W5**（commit `9ebe5e27fa4`）把 W1 写-plan SPI **layer 进既有** plugin-driven 写路径：`PhysicalPlanTranslator.visitPhysicalConnectorTableSink` + `PluginDrivenTableSink.bindDataSink` 在 `connector.getWritePlanProvider()!=null` 时走 `planWrite()` 产 opaque `TDataSink`，config-bag（jdbc）为 fallback。**关键修正 [DV-009]**：RFC/handoff W5 措辞（route 3 个 `visitPhysicalXxxTableSink` + 新建 sink）与代码不符——`PluginDrivenTableSink` 已存在、plugin-driven 写走 `visitPhysicalConnectorTableSink` 专路；那 3 个 concrete 方法服务 legacy 表，加路由是死代码。用户 AskUserQuestion 签字「Corrected W5 (layer planWrite)」；TDD RED（缺 ctor 编译失败）→GREEN 1/1。**W7** 文档：补 **[D-021]**(scope=C)+**[D-022]**(写 SPI A/B1/C1/D/E) 入 decisions-log（两 session 前签字未 log，traceability 缺口补齐）；deviations-log 加 [DV-009] + 修 stale 索引（共 7→9、补 DV-008 行）；01-spi-rfc 加 §20 E11 节（脚注 D-022）+ §3 矩阵 E11 行；同步本 PROGRESS / connectors/maxcompute / HANDOFF。三 commit 独立、behind gate、gate 全绿（compile + 定向测 + checkstyle 0 + import-gate，真实 exit code 核验）。**下一步 = P4 maxcompute adopter**（搬 `datasource/maxcompute/` → fe-connector-maxcompute、impl 写 SPI、翻闸 `max_compute`）。
 - **2026-06-06（实现 ②）** ✅ **W-phase W3+W6 落地**（解耦热路径 cast/instanceof + golden 测，behind gate、零行为变更、golden by TDD）：**W3** 新 helper `CommitDataSerializer.feed(Transaction, List<? extends TBase<?,?>>)`（序列化协议单点 `TBinaryProtocol`，对齐 W2 反序列化；fail-loud `TException→RuntimeException`）；`Coordinator`/`LoadProcessor` 3 个 concrete cast（HMS/Iceberg/MC）→ 1 个 **guarded 块** `if (hive||iceberg||mc){ Transaction txn=…getTxnById(txnId); feed each set 字段 }`；`FrontendServiceImpl` `instanceof MCTransaction`→`!supportsWriteBlockAllocation()`、`allocateBlockIdRange`→`allocateWriteBlockRange`；三文件 concrete import/usage 全删（grep 空）。**🔴 关键修正**：`getTxnById` 未知 id **抛 `RuntimeException` 非返 null**（`GlobalExternalTransactionInfoMgr:30`），legacy 仅在 `if(isSetXxx)` 内调；故 getTxnById 必 guard 在 "任一 commit 字段 set" 内（上 handoff 字面无守卫会击穿所有常规 load）。**W6** TDD：先写测→**故意错协议 `TCompactProtocol`**→RED（`TProtocolException: Unrecognized type 24`，证测守协议红线 + 走真实 `feed→addCommitData`）→翻 `TBinaryProtocol`→GREEN。4 golden（round-trip 钉协议无损 + iceberg/hms 比 list getter + mc 比 getUpdateCnt；MC 无 list getter 故不加测专用 getter/反射）+ 4 SPI default(`ConnectorTransactionDefaultsTest`) + 既有 `FrontendServiceImplTest#testGetMaxComputeBlockIdRange`。守门全绿（真实 exit 核验）：compile BUILD SUCCESS + 9 测 0F0E + checkstyle 0 + import-gate。**W1+W2 已提交** `be945476ba7`（上 handoff "未提交" 过时）；**W3+W6 未提交**（应独立 commit）。下一步 W4/W5（plugin-driven 写接线）+ W7（D-021/D-022 入 log）。
 - **2026-06-06（实现）** ✅ **W-phase W1+W2 落地**（写/事务 SPI 面 + fe-core `Transaction` 泛化，behind gate、零行为变更）：**W1**（`fe-connector-api`）`ConnectorTransaction`(SPI) +4 default（`addCommitData(byte[])`no-op/`supportsWriteBlockAllocation`false/`allocateWriteBlockRange`throws/`getUpdateCnt`0）；`Connector.getWritePlanProvider`default null；新 3 类 `ConnectorWritePlanProvider`/`ConnectorSinkPlan`(包`TDataSink`)/`ConnectorWriteHandle`（仿 scan 包结构；字段 minimal，W5 细化）。**W2**（`fe-core`）`Transaction` 接口 +4 同名 default（`allocateWriteBlockRange` 声明 `throws UserException` 对齐 MC `allocateBlockIdRange`）；MC/HMS/Iceberg override `addCommitData`=TBinaryProtocol 反序列化→走既有 `updateXxxCommitData(singletonList)`（**golden 等价 by construction**：`addAll(list)`≡逐个`add`），MC 另 override block 分配，3 处 `getUpdateCnt` +@Override。守门全绿（真实 exit code 核验）：fe-connector-api(compile+import-gate+checkstyle 0)+fe-core(compile BUILD SUCCESS+checkstyle 0)。**W2 override 暂 dead**（W3 接线前 Coordinator 仍 concrete cast）→零行为变更。**未提交**。下一步 **W3**（解耦热路径+golden 测）。坑：maven 必用绝对 `-f`（cwd 漂移破相对路径）；读真实 `MVN_EXIT`/`CS_EXIT` 而非后台"exit code"通知。
@@ -183,8 +197,8 @@
 
 | 类型 | 总数 | 最新条目 | 文档 |
 |---|---|---|---|
-| **决策**（D-NNN） | 22 | D-022（写/事务 SPI 设计 A/B1/C1/D/E）；D-021（P4 scope=C 写-SPI 先行）| [decisions-log.md](./decisions-log.md) |
-| **偏差**（DV-NNN） | 9 | DV-009（W5 写 sink 收口位置修正：layer planWrite 进既有 plugin-driven 写路径）| [deviations-log.md](./deviations-log.md) |
+| **决策**（D-NNN） | 23 | D-023（P4 启 full adopter / option A，5 批 cutover）；D-022（写/事务 SPI 设计 A/B1/C1/D/E）| [decisions-log.md](./decisions-log.md) |
+| **偏差**（DV-NNN） | 10 | DV-010（P4-T01 修 fe-core 转换器 CHAR/VARCHAR 长度丢失）| [deviations-log.md](./deviations-log.md) |
 | **风险**（R-NNN） | 14 | R-014（thrift sink 选择灵活性） | [risks.md](./risks.md) |
 
 ---
@@ -193,9 +207,9 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：W-phase **W4 + W5 + W7 = W-phase（W1–W7）全完成**（W4 `759cc0874c8` 桥接委派；W5 `9ebe5e27fa4` layer planWrite 进既有 plugin-driven 写路径，见 [DV-009]；W7 文档：D-021/D-022 + 01-spi-rfc §20 E11 + 同步）。三 commit 独立、behind gate、gate 全绿（compile + 定向测 + checkstyle 0 + import-gate，真实 exit code）。
-- **下一个 session 应做**：**P4 maxcompute adopter**——搬 `datasource/maxcompute/`（`MCTransaction`/`MaxComputeMetadataOps`/MetaCache/SchemaCacheValue/ScanNode 等）→ `fe-connector-maxcompute`；impl `ConnectorWriteOps`(insert) + `ConnectorTransaction`(over `addCommitData`/`allocateWriteBlockRange`) + `ConnectorWritePlanProvider`(产 `TMaxComputeTableSink`)；翻闸 `SPI_READY_TYPES+="max_compute"` + 删 `CatalogFactory` case + GSON 兼容 + `getEngine` 分支；清 ~12 反向 instanceof；连接器测试基线。精确路线见 [写 RFC §12 P4 节](./tasks/designs/connector-write-spi-rfc.md) + [HANDOFF](./HANDOFF.md)。**写接线 seam 已就位**（W4 事务桥 + W5 写-plan-provider），adopter 只需 impl + 翻闸。
-- **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（W-phase 全完成 + P4 adopter 锚点 + 两写-sink 模型认知 + DV-009 红线）
+- **本 session 已完成**：**P4 adopter 设计批准**（[D-023]）——产 [tasks/P4-maxcompute-migration.md](./tasks/P4-maxcompute-migration.md)（5 批/11 task）+ code-grounded re-grep（反向引用 post-W-phase ~19，证 W-phase 灭 3 热点 txn 站）+ 同步全部跟踪文档（PROGRESS §一/§二/§三/§四/§六/§七、decisions-log D-023、connectors/maxcompute、HANDOFF；修 §三 stale「P3 CI中」→ 已合 `5c240dc7a34`）。**未动代码**（用户选「设计先行、then stop」）。
+- **下一个 session 应做**：**P4 Batch A**（gate 关、dormant）——**P4-T01** 连接器 DDL（impl `ConnectorTableOps` create/drop table+db，港 `MaxComputeMetadataOps`，消费 P0 `ConnectorCreateTableRequest`）+ **P4-T02** 分区 listing（`listPartitions/Names/Values`，港 ODPS `getPartitions`）。批次 + task 表 + 风险/OQ 见 [tasks/P4](./tasks/P4-maxcompute-migration.md)；锚点见 [HANDOFF](./HANDOFF.md)。
+- **是否需要 handoff**：**是**——本场已 rewrite [HANDOFF.md](./HANDOFF.md)（P4 设计批准 + Batch A 首步锚点 + R-004/OQ-1~4 + 守门坑沿用）
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---
