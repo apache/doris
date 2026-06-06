@@ -26,7 +26,6 @@ import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -56,6 +55,15 @@ public class HudiScanRange implements ConnectorScanRange {
     private final String fileFormat;
     private final Map<String, String> partitionValues;
     private final Map<String, String> properties;
+    // JNI reader list fields. Kept as typed lists (NOT joined into the
+    // properties map) because Hive type strings contain commas
+    // (e.g. decimal(10,2), struct<a:int,b:string>): a comma join+split
+    // round-trip would shatter them and misalign column_names/column_types.
+    // BE (hudi_jni_reader.cpp) joins these lists itself with the correct
+    // delimiters (names ',', types '#', delta logs ',').
+    private final List<String> deltaLogs;
+    private final List<String> columnNames;
+    private final List<String> columnTypes;
 
     private HudiScanRange(Builder builder) {
         this.path = builder.path;
@@ -85,16 +93,17 @@ public class HudiScanRange implements ConnectorScanRange {
             props.put("hudi.data_file_path", builder.dataFilePath);
         }
         props.put("hudi.data_file_length", String.valueOf(builder.dataFileLength));
-        if (builder.deltaLogs != null && !builder.deltaLogs.isEmpty()) {
-            props.put("hudi.delta_logs", String.join(",", builder.deltaLogs));
-        }
-        if (builder.columnNames != null && !builder.columnNames.isEmpty()) {
-            props.put("hudi.column_names", String.join(",", builder.columnNames));
-        }
-        if (builder.columnTypes != null && !builder.columnTypes.isEmpty()) {
-            props.put("hudi.column_types", String.join(",", builder.columnTypes));
-        }
         this.properties = Collections.unmodifiableMap(props);
+
+        this.deltaLogs = builder.deltaLogs != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.deltaLogs))
+                : Collections.emptyList();
+        this.columnNames = builder.columnNames != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.columnNames))
+                : Collections.emptyList();
+        this.columnTypes = builder.columnTypes != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.columnTypes))
+                : Collections.emptyList();
     }
 
     @Override
@@ -158,8 +167,7 @@ public class HudiScanRange implements ConnectorScanRange {
 
         // Dynamic format downgrade: if JNI but no delta logs, use native reader
         if (isJni) {
-            String deltaLogs = props.get("hudi.delta_logs");
-            if (deltaLogs == null || deltaLogs.isEmpty()) {
+            if (deltaLogs.isEmpty()) {
                 String dataFilePath = props.getOrDefault(
                         "hudi.data_file_path", "");
                 if (!dataFilePath.isEmpty()) {
@@ -188,20 +196,18 @@ public class HudiScanRange implements ConnectorScanRange {
             fileDesc.setDataFileLength(Long.parseLong(
                     props.getOrDefault("hudi.data_file_length", "0")));
 
-            String deltaLogs = props.get("hudi.delta_logs");
-            if (deltaLogs != null && !deltaLogs.isEmpty()) {
-                fileDesc.setDeltaLogs(
-                        Arrays.asList(deltaLogs.split(",")));
+            // Set typed lists directly. BE (hudi_jni_reader.cpp) joins them with
+            // the correct delimiters: column_names ',', column_types '#', delta
+            // logs ','. Joining/splitting here would shatter comma-bearing Hive
+            // type strings (decimal(10,2), struct<...>).
+            if (!deltaLogs.isEmpty()) {
+                fileDesc.setDeltaLogs(deltaLogs);
             }
-            String colNames = props.get("hudi.column_names");
-            if (colNames != null && !colNames.isEmpty()) {
-                fileDesc.setColumnNames(
-                        Arrays.asList(colNames.split(",")));
+            if (!columnNames.isEmpty()) {
+                fileDesc.setColumnNames(columnNames);
             }
-            String colTypes = props.get("hudi.column_types");
-            if (colTypes != null && !colTypes.isEmpty()) {
-                fileDesc.setColumnTypes(
-                        Arrays.asList(colTypes.split(",")));
+            if (!columnTypes.isEmpty()) {
+                fileDesc.setColumnTypes(columnTypes);
             }
         }
 
