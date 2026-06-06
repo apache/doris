@@ -554,8 +554,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return TypeCoercionUtils.ensureSameResultType(
-                boundFunction, ExpressionEvaluator.INSTANCE.eval(boundFunction), context);
+        return ExpressionEvaluator.INSTANCE.eval(boundFunction);
     }
 
     @Override
