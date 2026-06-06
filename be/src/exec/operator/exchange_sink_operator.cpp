@@ -392,7 +392,7 @@ Status ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPt
     return channel->close(state);
 }
 
-Status ExchangeSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
+Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(),
                    (int64_t)block->rows()); // for auto-partition, may decease when do_partitioning

@@ -115,7 +115,9 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
+        return Status::OK();
+    }
 
     std::string get_memory_usage_debug_str(RuntimeState* state) const override { return "mock"; }
 };
