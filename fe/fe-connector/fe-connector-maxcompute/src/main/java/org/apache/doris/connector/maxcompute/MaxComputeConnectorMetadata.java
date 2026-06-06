@@ -19,6 +19,7 @@ package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.DorisConnectorException;
@@ -28,10 +29,13 @@ import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
+import com.aliyun.odps.Partition;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.Table;
 import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.Tables;
@@ -40,6 +44,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -163,6 +168,65 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
         for (Column partCol : odpsTable.getSchema().getPartitionColumns()) {
             result.put(partCol.getName(),
                     new MaxComputeColumnHandle(partCol.getName(), true));
+        }
+        return result;
+    }
+
+    // ==================== Partition listing ====================
+
+    @Override
+    public List<String> listPartitionNames(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
+        List<Partition> partitions = structureHelper.getPartitions(
+                odps, mcHandle.getDbName(), mcHandle.getTableName());
+        List<String> names = new ArrayList<>(partitions.size());
+        for (Partition partition : partitions) {
+            names.add(partition.getPartitionSpec().toString(false, true));
+        }
+        return names;
+    }
+
+    /**
+     * Lists all partitions. The {@code filter} is intentionally ignored: the
+     * legacy SHOW PARTITIONS path ({@code MaxComputeExternalCatalog
+     * #listPartitionNames}) returns the full partition set without pushing
+     * predicates into ODPS, and this preserves that behavior. Partitions are
+     * read directly from ODPS with no connector-side cache (P4-T02 / OQ-4).
+     */
+    @Override
+    public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
+            ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
+        MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
+        List<Partition> partitions = structureHelper.getPartitions(
+                odps, mcHandle.getDbName(), mcHandle.getTableName());
+        List<ConnectorPartitionInfo> result = new ArrayList<>(partitions.size());
+        for (Partition partition : partitions) {
+            PartitionSpec spec = partition.getPartitionSpec();
+            Map<String, String> values = new LinkedHashMap<>();
+            for (String key : spec.keys()) {
+                values.put(key, spec.get(key));
+            }
+            result.add(new ConnectorPartitionInfo(
+                    spec.toString(false, true), values, Collections.emptyMap()));
+        }
+        return result;
+    }
+
+    @Override
+    public List<List<String>> listPartitionValues(ConnectorSession session,
+            ConnectorTableHandle handle, List<String> partitionColumns) {
+        MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
+        List<Partition> partitions = structureHelper.getPartitions(
+                odps, mcHandle.getDbName(), mcHandle.getTableName());
+        List<List<String>> result = new ArrayList<>(partitions.size());
+        for (Partition partition : partitions) {
+            PartitionSpec spec = partition.getPartitionSpec();
+            List<String> values = new ArrayList<>(partitionColumns.size());
+            for (String column : partitionColumns) {
+                values.add(spec.get(column));
+            }
+            result.add(values);
         }
         return result;
     }
