@@ -318,6 +318,9 @@ protected:
             }
             Block eval_block;
             RETURN_IF_ERROR(_build_constant_filter_block(table_filter, &eval_block));
+            RowDescriptor row_desc;
+            RETURN_IF_ERROR(table_filter.conjunct->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(table_filter.conjunct->open(_runtime_state));
             int result_column_id = -1;
             RETURN_IF_ERROR(table_filter.conjunct->execute(&eval_block, &result_column_id));
             DORIS_CHECK(result_column_id >= 0);
@@ -670,6 +673,8 @@ protected:
             if (parent_null_map != nullptr) {
                 DORIS_CHECK(parent_null_map->size() == rows);
                 null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            } else {
+                std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
             *column = ColumnNullable::create(std::move(result), std::move(null_map));
         } else {
@@ -703,6 +708,8 @@ protected:
             if (parent_null_map != nullptr) {
                 DORIS_CHECK(parent_null_map->size() == rows);
                 null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            } else {
+                std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
             *column = ColumnNullable::create(std::move(result), std::move(null_map));
         } else {
@@ -743,6 +750,8 @@ protected:
             if (parent_null_map != nullptr) {
                 DORIS_CHECK(parent_null_map->size() == rows);
                 null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            } else {
+                std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
             *column = ColumnNullable::create(std::move(result), std::move(null_map));
         } else {

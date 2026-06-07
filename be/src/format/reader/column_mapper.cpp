@@ -2061,7 +2061,6 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
             // If complex projection prunes some children, we have to rebuild the projected file type to make sure the reader expression can find the correct child types by name.
             RETURN_IF_ERROR(build_projected_child_type(mapping->file_type, mapping->child_mappings,
                                                        &mapping->file_type));
-            DCHECK(!complex_projection_has_pruned_children(*mapping));
             DCHECK(mapping->table_type != nullptr);
             mapping->is_trivial = mapping->table_type->equals(*mapping->file_type);
             // TODO: ? READER_EXPRESSION
