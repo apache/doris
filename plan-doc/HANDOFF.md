@@ -7,17 +7,24 @@
 
 ## 📅 最后一次 handoff
 
-- **日期**：2026-06-08（第 8 次 handoff）
-- **本 session 主题**：**P1-4 FIX-PRUNE-PUSHDOWN ✅ 完成**（DG-1：读裁剪下推证伪）。3 P0 写 blocker 前序已全清。live tracker = `plan-doc/task-list-P4-rereview.md`。
-  - **P1-4 FIX-PRUNE-PUSHDOWN** ✅ `072cd545c54`（1 轮收敛 0 mustFix）— 用户批准「Fix it」。翻闸后 plugin-driven MaxCompute 读 Nereids `SelectedPartitions` 在 translator 被丢、`MaxComputeScanPlanProvider` 恒传 `requiredPartitions=emptyList` → read session 跨全分区（纯性能/内存回归，行正确）。修 = **additive 6 参 `planScan` SPI overload**（[D-031]：`ConnectorScanPlanProvider` 加 6 参 default 委托 5 参→零破坏其余 6 连接器，唯 MaxCompute override）+ `PluginDrivenScanNode` 三态 `resolveRequiredPartitions`（NOT_PRUNED→null/pruned-非空→names/pruned-空→fe-core 短路，镜像 legacy `MaxComputeScanNode:718-731`）+ translator 注入 + MaxCompute `toPartitionSpecs` 喂两 read-session 路径。详见 `plan-doc/reviews/P4-T06e-FIX-PRUNE-PUSHDOWN-review-rounds.md`。
-- **分支**：`catalog-spi-05`（本地,未 push）。本 session commit（P1-4 fix + doc-sync `072cd545c54` + hash 回填）。
+- **日期**：2026-06-08（第 9 次 handoff）
+- **本 session 主题**：**🎉 P2 DB-DDL / CTAS 语义回归 4 issue 全 ✅ 完成**（P2-5/6/7/8，每 issue 1 轮对抗 review 收敛 0 mustFix，独立 commit + hash 回填）。用户要求「4 个问题一并修复」。live tracker = `plan-doc/task-list-P4-rereview.md`。
+  - **P2-5 FIX-DROP-DB-FORCE** ✅ `99d5c9d527c`（DG-3）：DROP DB FORCE 不级联 → **扩 SPI `dropDatabase` 带 force**（additive 4 参 default 委托 3 参，唯 MaxCompute override 做连接器层枚举+逐表 drop 再删库，fail-loud）+ fe-core 转发 force。用户定扩 SPI。
+  - **P2-6 FIX-CREATE-DB-PRECHECK** ✅ `ff52f8fd478`（DG-4）：CREATE DB IF NOT EXISTS 丢远端预检 → 补远端 `databaseExists` 预检，**经 additive SPI 能力门闸 `supportsCreateDatabase()`**（default false / MaxCompute true）使 jdbc/es/trino 字节不变（`&&` 短路连远端都不查）。用户定能力门闸。
+  - **P2-7 FIX-CTAS-IF-NOT-EXISTS** ✅ `7051b75c197`（DG-6，minor→major）：createTable 恒 false → CTAS IFNE 对已存在表误 INSERT（静默数据变更）→ FE 侧存在预检（远端 getTableHandle OR 本地 getTableNullable，镜像 legacy）+ IFNE 命中 return true 短路。**FE-only，无 SPI**。⚠️ 暴一 **KNOWN PRE-EXISTING GAP**（非本 fix 引入）：非-IFNE + FE-cache 命中但远端缺 → legacy 抛、cutover 静默建表（见 review-rounds，待用户定）。
+  - **P2-8 FIX-AUTOINC-REJECT** ✅ `4aa680f3e3b`（DG-5，minor）：不再拒 AUTO_INCREMENT → **加 SPI 字段 `ConnectorColumn.isAutoInc`**（7 参 additive ctor 默认 false→12 call site 零变更）+ converter 透传 `getAutoIncInitValue()!=-1` + 连接器 validateColumns 拒（镜像 legacy）。用户定加 SPI 字段。
+- **方法论**：本 session 用 design workflow（4 agent 并行设计+对抗验证）→ 逐 issue 实现→编译+UT+checkstyle+import-gate+mutation→对抗 review workflow 收敛→独立 commit。详见 `plan-doc/reviews/P4-T06e-FIX-<name>-review-rounds.md`（4 份）。
+- **分支**：`catalog-spi-05`（本地,未 push）。本 session 8 commit（P2-5/6/7/8 各 fix + hash 回填）+ 本 doc-sync。
 - **doc-sync 已落（随本 commit）**：[D-031] 登记、[DV-015] 登记（+补 [DV-014] 详细段、计数 14→15）、FIX-PART-GATES design/review-rounds「pruning 不变式 clean」⚠️ 更正（= 仅元数据可见性、read-session 下推由 D-031 补）、[D-028] ⚠️ 补注、本 HANDOFF。
 - **复审已验层（legacy parity 达成）**：返回行结果正确、descriptor/JNI/BE 线、事务生命周期、schema cache（含 downcast 安全）、editlog/replay、**读裁剪下推（本 session 修复 DG-1）**——均独立验为与 legacy 等价。**剩余问题集中在 DB-DDL / CTAS / minors（见下 P2+）。**
 - **状态详情**：见报告 §A(newGaps) / §B(disagreements) / §C(各域 parity 判定) / §D(33 存活 finding 表) / §E(元观察+triage 顺序)。
 
 ---
 
-# 🎯 下一 session = P2 起（P0 三写 blocker + P1 读裁剪下推已全清，按优先级续）
+# 🎯 下一 session = P3 起（P0 三写 blocker + P1 读裁剪下推 + P2 DB-DDL/CTAS 4 issue 已全清，按优先级续）
+
+> **P3 剩余**（见下 🟡 P3 段）：limit-split 默认反转(F11)、isKey=false 元数据(F3/F10)、丢 batch-mode split(F6/F13)、post-commit refresh 吞异常(F15)。多为「修或 DV」。另有 P2-7 暴出的 **KNOWN PRE-EXISTING GAP**（非-IFNE+本地-only CREATE TABLE 不 fail-loud，见 FIX-CTAS review-rounds）待用户定。
+> **横切 doc-sync 欠账**（随 P3 或单独清）：decisions-log 登记本 session 4 个 SPI 改动（4 参 dropDatabase / supportsCreateDatabase / ConnectorColumn.isAutoInc）+ deviations-log（非-IFNE 文案、CTAS KNOWN GAP）+ 更正 `P4-maxcompute-migration.md:117`（nereids 未拒 auto-inc）+ T06c §5「记 OQ/可接受」措辞。
 
 > 来源全部出自 `plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md`（每条带 `file:line` + cutover↔legacy diff + 处置建议 + 历史交叉核对证据）。下面是浓缩可执行清单——**动手前按指针核码（Rule 8）**。
 > **⚠️ 把 newGaps∪disagreements 当一个"必须 triage"集**：同一根因被两个审阅者按各自查到的历史 artifact 分别归 new-gap / disagreement（静态分区 bind F19=F48；CREATE DB 预检 F23=F26），别被 status 标签的细分误导。
@@ -33,12 +40,12 @@
 
 - [x] **FIX-PRUNE-PUSHDOWN**（F1/F7）✅ **DONE @`072cd545c54`**（1 轮收敛 0 mustFix；[D-031]/[DV-015]；详见 `plan-doc/reviews/P4-T06e-FIX-PRUNE-PUSHDOWN-review-rounds.md`）。**用户批准「Fix it」**。做法 = (a) `PluginDrivenScanNode` 加 `selectedPartitions` 字段/setter + 三态 `resolveRequiredPartitions`（NOT_PRUNED→null / pruned-非空→names / pruned-空→`getSplits` 短路无 split，镜像 legacy `MaxComputeScanNode:718-731`）；`PhysicalPlanTranslator` plugin 分支注入 `setSelectedPartitions(fileScan.getSelectedPartitions())`；(b) **additive 6 参 SPI overload** —— `ConnectorScanPlanProvider.planScan(...,List<String> requiredPartitions)` **default** 委托 5 参（零破坏 es/jdbc/hive/paimon/hudi/trino，唯 MaxCompute override），MaxCompute `toPartitionSpecs` 喂**两** read-session 路径（标准 `:201` + limit-opt `:320`，替 `Collections.emptyList()`），空选短路上移 fe-core。**契约**：null/空=全部、非空=子集、零分区 fe-core 短路不下达 SPI。**已更正**「production CLEAN / pruning 不变式 clean」裁决（FIX-PART-GATES design/review-rounds ⚠️ + D-028 ⚠️，见 doc-sync）。**Batch-D 红线**：删 legacy `MaxComputeScanNode`（读裁剪逻辑副本）须待本 fix 落（已落）。**真值闸**：live e2e p2 `test_max_compute_partition_prune.groovy` + EXPLAIN/profile 证仅扫目标分区（DV-015；CI 跳）。**与 NG-7 batch-mode 解耦但为其前置。**
 
-## 🟠 P2 — DB-DDL / CTAS 语义回归
+## 🟠 P2 — DB-DDL / CTAS 语义回归 ✅ 全 DONE（P2-5/6/7/8，详见 task-list-P4-rereview.md + 4 份 review-rounds）
 
-- [ ] **DROP DB FORCE 级联**（disagreement major, F22/F27）：先用真实 ODPS 验 `schemas().delete` 对非空库行为。若拒删 → 在 `PluginDrivenExternalCatalog.dropDb:337-355` 的 `force==true` 时枚举+dropTable（或扩 SPI 带 force/cascade）。若不支持 → 至少 fail-loud（force+非空库抛明确错）+ 登记 deviation。**别把 T06c §5"记 OQ/可接受"当作已解决**（后续对抗 review 已推翻该定级）。
-- [ ] **CREATE DB IF NOT EXISTS 远端预检**（disagreement major, F26/F23）：重开 DDL-C4。`createDb:312-326` 在 `ifNotExists && getDbNullable==null` 时先查 `connector...databaseExists`（已暴露、无需改 SPI 签名）。UT + mutation。或登记 deviation——别留"孤儿修 verdict"（task-list `:12` 称 6/6 完成但此条无 fix commit、亦无 deviation）。
-- [ ] **CTAS IF-NOT-EXISTS 误写已存在表**（disagreement, DDL-C5 minor→**major**, F33）：`createTable:264-300` 区分"新建 vs 已存在"——IF-NOT-EXISTS 命中 → 返回 true + 跳 editlog + 跳 `resetMetaCacheNames`（镜像 legacy `createTableImpl:179-197` → `ExternalCatalog:1063-1075`）。测试：CTAS-IF-NOT-EXISTS 对已存在表**不**INSERT + editlog 未写。（历史只分析了 editlog 冗余那半、漏了数据变更后果。）
-- [ ] **AUTO_INCREMENT 拒绝丢失**（disagreement minor, F24）：定夺 (a) `ConnectorColumn` 加 `isAutoInc` 透传 + `validateColumns` 重校验；或 (b) 接受+登记 deviation + 更正 `P4-maxcompute-migration.md:117` 的假声明（"nereids 上游已拒"对 auto-inc 为假）。聚合列那半已被非-OLAP key 路径覆盖、无需单独修。
+- [x] ✅ `99d5c9d527c` **DROP DB FORCE 级联**（disagreement major, F22/F27）：先用真实 ODPS 验 `schemas().delete` 对非空库行为。若拒删 → 在 `PluginDrivenExternalCatalog.dropDb:337-355` 的 `force==true` 时枚举+dropTable（或扩 SPI 带 force/cascade）。若不支持 → 至少 fail-loud（force+非空库抛明确错）+ 登记 deviation。**别把 T06c §5"记 OQ/可接受"当作已解决**（后续对抗 review 已推翻该定级）。
+- [x] ✅ `ff52f8fd478`（能力门闸 supportsCreateDatabase，jdbc/es/trino 字节不变）**CREATE DB IF NOT EXISTS 远端预检**（disagreement major, F26/F23）：重开 DDL-C4。`createDb:312-326` 在 `ifNotExists && getDbNullable==null` 时先查 `connector...databaseExists`（已暴露、无需改 SPI 签名）。UT + mutation。或登记 deviation——别留"孤儿修 verdict"（task-list `:12` 称 6/6 完成但此条无 fix commit、亦无 deviation）。
+- [x] ✅ `7051b75c197`（FE-only；⚠️ 暴 KNOWN PRE-EXISTING GAP：非-IFNE+本地-only 不 fail-loud，待用户定）**CTAS IF-NOT-EXISTS 误写已存在表**（disagreement, DDL-C5 minor→**major**, F33）：`createTable:264-300` 区分"新建 vs 已存在"——IF-NOT-EXISTS 命中 → 返回 true + 跳 editlog + 跳 `resetMetaCacheNames`（镜像 legacy `createTableImpl:179-197` → `ExternalCatalog:1063-1075`）。测试：CTAS-IF-NOT-EXISTS 对已存在表**不**INSERT + editlog 未写。（历史只分析了 editlog 冗余那半、漏了数据变更后果。）
+- [x] ✅ `4aa680f3e3b`（加 SPI 字段 ConnectorColumn.isAutoInc）**AUTO_INCREMENT 拒绝丢失**（disagreement minor, F24）：定夺 (a) `ConnectorColumn` 加 `isAutoInc` 透传 + `validateColumns` 重校验；或 (b) 接受+登记 deviation + 更正 `P4-maxcompute-migration.md:117` 的假声明（"nereids 上游已拒"对 auto-inc 为假）。聚合列那半已被非-OLAP key 路径覆盖、无需单独修。
 
 ## 🟡 P3 — 写并行 / 读默认 / minors
 
