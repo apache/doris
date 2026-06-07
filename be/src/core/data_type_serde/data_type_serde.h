@@ -491,6 +491,8 @@ public:
     // the Doris-type-specific materialization into IColumn.
     virtual Status read_column_from_decoded_values(IColumn& column,
                                                    const DecodedColumnView& view) const;
+    virtual Status read_field_from_decoded_value(const IDataType& data_type, Field* field,
+                                                 const DecodedColumnView& view) const;
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,

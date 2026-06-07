@@ -17,7 +17,6 @@
 
 #include "format/new_parquet/parquet_statistics.h"
 
-#include <cctz/time_zone.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/schema.h>
 #include <parquet/bloom_filter.h>
@@ -43,8 +42,8 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
-#include "core/value/vdatetime_value.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
@@ -54,40 +53,6 @@
 namespace doris::parquet {
 
 namespace {
-
-constexpr int32_t PARQUET_DATE_EPOCH_DAYNR = 719528;
-
-DateV2Value<DateV2ValueType> parquet_date_to_datev2(int32_t days_since_epoch) {
-    DateV2Value<DateV2ValueType> value;
-    value.get_date_from_daynr(days_since_epoch + PARQUET_DATE_EPOCH_DAYNR);
-    return value;
-}
-
-DateV2Value<DateTimeV2ValueType> parquet_timestamp_to_datetimev2(int64_t epoch_value,
-                                                                 ParquetTimeUnit time_unit) {
-    int64_t second_mask = 0;
-    switch (time_unit) {
-    case ParquetTimeUnit::MILLIS:
-        second_mask = 1000;
-        break;
-    case ParquetTimeUnit::MICROS:
-        second_mask = 1000000;
-        break;
-    default:
-        DORIS_CHECK(false);
-    }
-    int64_t epoch_seconds = epoch_value / second_mask;
-    int64_t sub_second = epoch_value % second_mask;
-    if (sub_second < 0) {
-        sub_second += second_mask;
-        --epoch_seconds;
-    }
-    static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
-    DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(epoch_seconds, utc_time_zone);
-    value.set_microsecond(static_cast<uint64_t>(sub_second * (1000000 / second_mask)));
-    return value;
-}
 
 PrimitiveType physical_filter_type(const ParquetColumnSchema& column_schema) {
     if (column_schema.type == nullptr) {
@@ -106,42 +71,107 @@ PrimitiveType physical_filter_type(const ParquetColumnSchema& column_schema) {
     }
 }
 
-template <typename ParquetDType, PrimitiveType DorisType, typename ConvertFn>
-bool set_typed_min_max(const std::shared_ptr<::parquet::Statistics>& statistics, ConvertFn convert,
-                       ParquetColumnStatistics* column_statistics) {
+DecodedTimeUnit decoded_time_unit(ParquetTimeUnit time_unit) {
+    switch (time_unit) {
+    case ParquetTimeUnit::MILLIS:
+        return DecodedTimeUnit::MILLIS;
+    case ParquetTimeUnit::MICROS:
+        return DecodedTimeUnit::MICROS;
+    case ParquetTimeUnit::NANOS:
+        return DecodedTimeUnit::NANOS;
+    default:
+        return DecodedTimeUnit::UNKNOWN;
+    }
+}
+
+Status read_decoded_field(const ParquetColumnSchema& column_schema, DecodedColumnView view,
+                          Field* field) {
+    DORIS_CHECK(column_schema.type != nullptr);
+    DORIS_CHECK(field != nullptr);
+    constexpr uint8_t not_null = 0;
+    view.row_count = 1;
+    view.null_map = &not_null;
+    view.time_unit = decoded_time_unit(column_schema.type_descriptor.time_unit);
+    view.decimal_precision = column_schema.type_descriptor.decimal_precision;
+    view.decimal_scale = column_schema.type_descriptor.decimal_scale;
+    view.fixed_length = column_schema.type_descriptor.fixed_length;
+    return column_schema.type->get_serde()->read_field_from_decoded_value(*column_schema.type,
+                                                                          field, view);
+}
+
+template <typename NativeType>
+bool set_decoded_field(const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
+                       const NativeType& value, Field* field) {
+    DecodedColumnView view;
+    view.value_kind = value_kind;
+    view.values = reinterpret_cast<const uint8_t*>(&value);
+    return read_decoded_field(column_schema, view, field).ok();
+}
+
+template <typename ParquetDType>
+bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistics,
+                         const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
+                         ParquetColumnStatistics* column_statistics) {
     auto typed_statistics =
             std::static_pointer_cast<::parquet::TypedStatistics<ParquetDType>>(statistics);
-    column_statistics->min_value = Field::create_field<DorisType>(convert(typed_statistics->min()));
-    column_statistics->max_value = Field::create_field<DorisType>(convert(typed_statistics->max()));
+    if (!set_decoded_field(column_schema, value_kind, typed_statistics->min(),
+                           &column_statistics->min_value) ||
+        !set_decoded_field(column_schema, value_kind, typed_statistics->max(),
+                           &column_statistics->max_value)) {
+        return false;
+    }
     return true;
 }
 
+bool set_decoded_binary_field(const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
+                              const StringRef& value, Field* field) {
+    std::vector<StringRef> binary_values {value};
+    DecodedColumnView view;
+    view.value_kind = value_kind;
+    view.binary_values = &binary_values;
+    return read_decoded_field(column_schema, view, field).ok();
+}
+
 bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics,
-                        const ::parquet::ColumnDescriptor* descriptor,
+                        const ParquetColumnSchema& column_schema,
                         ParquetColumnStatistics* column_statistics) {
     switch (statistics->physical_type()) {
     case ::parquet::Type::BYTE_ARRAY: {
         auto typed_statistics =
                 std::static_pointer_cast<::parquet::TypedStatistics<::parquet::ByteArrayType>>(
                         statistics);
-        column_statistics->min_value = Field::create_field<TYPE_STRING>(
-                ::parquet::ByteArrayToString(typed_statistics->min()));
-        column_statistics->max_value = Field::create_field<TYPE_STRING>(
-                ::parquet::ByteArrayToString(typed_statistics->max()));
+        const auto min = ::parquet::ByteArrayToString(typed_statistics->min());
+        const auto max = ::parquet::ByteArrayToString(typed_statistics->max());
+        if (!set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
+                                      StringRef(min.data(), min.size()),
+                                      &column_statistics->min_value) ||
+            !set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
+                                      StringRef(max.data(), max.size()),
+                                      &column_statistics->max_value)) {
+            return false;
+        }
         return true;
     }
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY: {
-        if (descriptor == nullptr || descriptor->type_length() <= 0) {
+        if (column_schema.descriptor == nullptr || column_schema.descriptor->type_length() <= 0) {
             return false;
         }
         auto typed_statistics =
                 std::static_pointer_cast<::parquet::TypedStatistics<::parquet::FLBAType>>(
                         statistics);
-        const int type_length = descriptor->type_length();
-        column_statistics->min_value = Field::create_field<TYPE_STRING>(std::string(
-                reinterpret_cast<const char*>(typed_statistics->min().ptr), type_length));
-        column_statistics->max_value = Field::create_field<TYPE_STRING>(std::string(
-                reinterpret_cast<const char*>(typed_statistics->max().ptr), type_length));
+        const int type_length = column_schema.descriptor->type_length();
+        const std::string min(reinterpret_cast<const char*>(typed_statistics->min().ptr),
+                              type_length);
+        const std::string max(reinterpret_cast<const char*>(typed_statistics->max().ptr),
+                              type_length);
+        if (!set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
+                                      StringRef(min.data(), min.size()),
+                                      &column_statistics->min_value) ||
+            !set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
+                                      StringRef(max.data(), max.size()),
+                                      &column_statistics->max_value)) {
+            return false;
+        }
         return true;
     }
     default:
@@ -573,45 +603,28 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
     DORIS_CHECK(column_schema.type != nullptr);
     switch (statistics->physical_type()) {
     case ::parquet::Type::BOOLEAN:
-        result.has_min_max = set_typed_min_max<::parquet::BooleanType, TYPE_BOOLEAN>(
-                statistics, [](bool value) { return static_cast<UInt8>(value); }, &result);
+        result.has_min_max = set_decoded_min_max<::parquet::BooleanType>(
+                statistics, column_schema, DecodedValueKind::BOOL, &result);
         return result;
     case ::parquet::Type::INT32:
-        if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATEV2) {
-            result.has_min_max = set_typed_min_max<::parquet::Int32Type, TYPE_DATEV2>(
-                    statistics, [](int32_t value) { return parquet_date_to_datev2(value); },
-                    &result);
-            return result;
-        }
-        result.has_min_max = set_typed_min_max<::parquet::Int32Type, TYPE_INT>(
-                statistics, [](int32_t value) { return value; }, &result);
+        result.has_min_max = set_decoded_min_max<::parquet::Int32Type>(
+                statistics, column_schema, DecodedValueKind::INT32, &result);
         return result;
     case ::parquet::Type::INT64:
-        if (column_schema.type_descriptor.is_timestamp &&
-            remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATETIMEV2) {
-            result.has_min_max = set_typed_min_max<::parquet::Int64Type, TYPE_DATETIMEV2>(
-                    statistics,
-                    [&](int64_t value) {
-                        return parquet_timestamp_to_datetimev2(
-                                value, column_schema.type_descriptor.time_unit);
-                    },
-                    &result);
-            return result;
-        }
-        result.has_min_max = set_typed_min_max<::parquet::Int64Type, TYPE_BIGINT>(
-                statistics, [](int64_t value) { return value; }, &result);
+        result.has_min_max = set_decoded_min_max<::parquet::Int64Type>(
+                statistics, column_schema, DecodedValueKind::INT64, &result);
         return result;
     case ::parquet::Type::FLOAT:
-        result.has_min_max = set_typed_min_max<::parquet::FloatType, TYPE_FLOAT>(
-                statistics, [](float value) { return value; }, &result);
+        result.has_min_max = set_decoded_min_max<::parquet::FloatType>(
+                statistics, column_schema, DecodedValueKind::FLOAT, &result);
         return result;
     case ::parquet::Type::DOUBLE:
-        result.has_min_max = set_typed_min_max<::parquet::DoubleType, TYPE_DOUBLE>(
-                statistics, [](double value) { return value; }, &result);
+        result.has_min_max = set_decoded_min_max<::parquet::DoubleType>(
+                statistics, column_schema, DecodedValueKind::DOUBLE, &result);
         return result;
     case ::parquet::Type::BYTE_ARRAY:
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        result.has_min_max = set_string_min_max(statistics, column_schema.descriptor, &result);
+        result.has_min_max = set_string_min_max(statistics, column_schema, &result);
         return result;
     default:
         return result;
@@ -795,20 +808,23 @@ Status select_row_groups_by_statistics(
 
 namespace {
 
-template <typename ParquetDType, PrimitiveType DorisType, typename ConvertFn>
-bool set_page_typed_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
-                            size_t page_idx, ConvertFn convert,
-                            ParquetColumnStatistics* page_statistics) {
+template <typename ParquetDType>
+bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+                              const ParquetColumnSchema& column_schema, size_t page_idx,
+                              DecodedValueKind value_kind,
+                              ParquetColumnStatistics* page_statistics) {
     const auto typed_index =
             std::static_pointer_cast<::parquet::TypedColumnIndex<ParquetDType>>(column_index);
     if (page_idx >= typed_index->min_values().size() ||
         page_idx >= typed_index->max_values().size()) {
         return false;
     }
-    page_statistics->min_value =
-            Field::create_field<DorisType>(convert(typed_index->min_values()[page_idx]));
-    page_statistics->max_value =
-            Field::create_field<DorisType>(convert(typed_index->max_values()[page_idx]));
+    if (!set_decoded_field(column_schema, value_kind, typed_index->min_values()[page_idx],
+                           &page_statistics->min_value) ||
+        !set_decoded_field(column_schema, value_kind, typed_index->max_values()[page_idx],
+                           &page_statistics->max_value)) {
+        return false;
+    }
     page_statistics->has_min_max = true;
     return true;
 }
@@ -824,10 +840,16 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
             page_idx >= typed_index->max_values().size()) {
             return false;
         }
-        page_statistics->min_value = Field::create_field<TYPE_STRING>(
-                ::parquet::ByteArrayToString(typed_index->min_values()[page_idx]));
-        page_statistics->max_value = Field::create_field<TYPE_STRING>(
-                ::parquet::ByteArrayToString(typed_index->max_values()[page_idx]));
+        const auto min = ::parquet::ByteArrayToString(typed_index->min_values()[page_idx]);
+        const auto max = ::parquet::ByteArrayToString(typed_index->max_values()[page_idx]);
+        if (!set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
+                                      StringRef(min.data(), min.size()),
+                                      &page_statistics->min_value) ||
+            !set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
+                                      StringRef(max.data(), max.size()),
+                                      &page_statistics->max_value)) {
+            return false;
+        }
         page_statistics->has_min_max = true;
         return true;
     }
@@ -841,12 +863,18 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
             page_idx >= typed_index->max_values().size()) {
             return false;
         }
-        page_statistics->min_value = Field::create_field<TYPE_STRING>(
-                std::string(reinterpret_cast<const char*>(typed_index->min_values()[page_idx].ptr),
-                            type_length));
-        page_statistics->max_value = Field::create_field<TYPE_STRING>(
-                std::string(reinterpret_cast<const char*>(typed_index->max_values()[page_idx].ptr),
-                            type_length));
+        const std::string min(reinterpret_cast<const char*>(typed_index->min_values()[page_idx].ptr),
+                              type_length);
+        const std::string max(reinterpret_cast<const char*>(typed_index->max_values()[page_idx].ptr),
+                              type_length);
+        if (!set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
+                                      StringRef(min.data(), min.size()),
+                                      &page_statistics->min_value) ||
+            !set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
+                                      StringRef(max.data(), max.size()),
+                                      &page_statistics->max_value)) {
+            return false;
+        }
         page_statistics->has_min_max = true;
         return true;
     }
@@ -861,37 +889,20 @@ bool set_page_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_inde
     DORIS_CHECK(column_schema.type != nullptr);
     switch (column_schema.descriptor->physical_type()) {
     case ::parquet::Type::BOOLEAN:
-        return set_page_typed_min_max<::parquet::BooleanType, TYPE_BOOLEAN>(
-                column_index, page_idx, [](bool value) { return static_cast<UInt8>(value); },
-                page_statistics);
+        return set_page_decoded_min_max<::parquet::BooleanType>(
+                column_index, column_schema, page_idx, DecodedValueKind::BOOL, page_statistics);
     case ::parquet::Type::INT32:
-        if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATEV2) {
-            return set_page_typed_min_max<::parquet::Int32Type, TYPE_DATEV2>(
-                    column_index, page_idx,
-                    [](int32_t value) { return parquet_date_to_datev2(value); },
-                    page_statistics);
-        }
-        return set_page_typed_min_max<::parquet::Int32Type, TYPE_INT>(
-                column_index, page_idx, [](int32_t value) { return value; }, page_statistics);
+        return set_page_decoded_min_max<::parquet::Int32Type>(
+                column_index, column_schema, page_idx, DecodedValueKind::INT32, page_statistics);
     case ::parquet::Type::INT64:
-        if (column_schema.type_descriptor.is_timestamp &&
-            remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATETIMEV2) {
-            return set_page_typed_min_max<::parquet::Int64Type, TYPE_DATETIMEV2>(
-                    column_index, page_idx,
-                    [&](int64_t value) {
-                        return parquet_timestamp_to_datetimev2(
-                                value, column_schema.type_descriptor.time_unit);
-                    },
-                    page_statistics);
-        }
-        return set_page_typed_min_max<::parquet::Int64Type, TYPE_BIGINT>(
-                column_index, page_idx, [](int64_t value) { return value; }, page_statistics);
+        return set_page_decoded_min_max<::parquet::Int64Type>(
+                column_index, column_schema, page_idx, DecodedValueKind::INT64, page_statistics);
     case ::parquet::Type::FLOAT:
-        return set_page_typed_min_max<::parquet::FloatType, TYPE_FLOAT>(
-                column_index, page_idx, [](float value) { return value; }, page_statistics);
+        return set_page_decoded_min_max<::parquet::FloatType>(
+                column_index, column_schema, page_idx, DecodedValueKind::FLOAT, page_statistics);
     case ::parquet::Type::DOUBLE:
-        return set_page_typed_min_max<::parquet::DoubleType, TYPE_DOUBLE>(
-                column_index, page_idx, [](double value) { return value; }, page_statistics);
+        return set_page_decoded_min_max<::parquet::DoubleType>(
+                column_index, column_schema, page_idx, DecodedValueKind::DOUBLE, page_statistics);
     case ::parquet::Type::BYTE_ARRAY:
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
         return set_page_string_min_max(column_index, column_schema, page_idx, page_statistics);
