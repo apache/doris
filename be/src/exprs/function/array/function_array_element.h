@@ -110,13 +110,11 @@ public:
         auto col_left_raw = block.get_by_position(arguments[0]);
         // Map element lookup requires row-aligned offsets; keep original path for map type.
         if (remove_nullable(col_left_raw.type)->get_primitive_type() == TYPE_MAP) {
-            block.replace_by_position(
-                    arguments[0],
-                    col_left_raw.column->convert_to_full_column_if_const());
+            block.replace_by_position(arguments[0],
+                                      col_left_raw.column->convert_to_full_column_if_const());
             auto col_left = block.get_by_position(arguments[0]);
             if (col_left.column->is_nullable()) {
-                const auto* null_col =
-                        assert_cast<const ColumnNullable*>(col_left.column.get());
+                const auto* null_col = assert_cast<const ColumnNullable*>(col_left.column.get());
                 src_null_map = null_col->get_null_map_column().get_data().data();
                 args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
                          col_left.name},
@@ -132,19 +130,17 @@ public:
             // loops can use index_check_const() instead of expanding N copies.
             auto [unpacked_col, is_const_array] = unpack_if_const(col_left_raw.column);
             if (unpacked_col->is_nullable()) {
-                const auto* null_col =
-                        assert_cast<const ColumnNullable*>(unpacked_col.get());
+                const auto* null_col = assert_cast<const ColumnNullable*>(unpacked_col.get());
                 src_null_map = null_col->get_null_map_column().get_data().data();
-                args = {{null_col->get_nested_column_ptr(),
-                         remove_nullable(col_left_raw.type), col_left_raw.name},
+                args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left_raw.type),
+                         col_left_raw.name},
                         block.get_by_position(arguments[1])};
             } else {
                 args = {{unpacked_col, col_left_raw.type, col_left_raw.name},
                         block.get_by_position(arguments[1])};
             }
-            res_column =
-                    _execute_nullable(args, input_rows_count, src_null_map, dst_null_map,
-                                      is_const_array);
+            res_column = _execute_nullable(args, input_rows_count, src_null_map, dst_null_map,
+                                           is_const_array);
         }
         if (!res_column) {
             return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
