@@ -256,4 +256,52 @@ TEST_F(CacheLRUDumperTest, test_lru_recorder_drops_logs_after_hard_cap) {
     EXPECT_EQ(capped_recorder.get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL), 3);
 }
 
+TEST_F(CacheLRUDumperTest, test_lru_recorder_coalesces_pending_move_to_back) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer restore_config {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+
+    UInt128Wrapper hash(789789789ULL);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 0, 100);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 100, 100);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::MOVETOBACK, hash, 0, 100);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::MOVETOBACK, hash, 100,
+                                 100);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::MOVETOBACK, hash, 0, 100);
+
+    EXPECT_EQ(recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 4);
+    EXPECT_EQ(recorder->get_lru_queue_update_cnt_from_last_dump(FileCacheType::NORMAL), 5);
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL, 0), 4);
+
+    auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+    ASSERT_EQ(shadow_queue.get_elements_num_unsafe(), 2);
+    auto it = shadow_queue.begin();
+    EXPECT_EQ(it->offset, 100);
+    ++it;
+    ASSERT_NE(it, shadow_queue.end());
+    EXPECT_EQ(it->offset, 0);
+}
+
+TEST_F(CacheLRUDumperTest, test_lru_recorder_replay_add_is_idempotent_for_shadow_queue) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer restore_config {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+
+    UInt128Wrapper hash(987987987ULL);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 0, 100);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 0, 200);
+
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL, 0), 2);
+    auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+    ASSERT_EQ(shadow_queue.get_elements_num_unsafe(), 1);
+    auto it = shadow_queue.begin();
+    EXPECT_EQ(it->hash, hash);
+    EXPECT_EQ(it->offset, 0);
+    EXPECT_EQ(it->size, 200);
+}
+
 } // namespace doris::io

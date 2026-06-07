@@ -233,10 +233,10 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         }
 
         // all queue are filled, let's check the lru log records
-        ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
-        ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 5);
-        ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 5);
-        ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 5);
+        ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::TTL), 5);
+        ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::INDEX), 5);
+        ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 5);
+        ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::DISPOSABLE), 5);
 
         // then check the log replay
         std::this_thread::sleep_for(std::chrono::milliseconds(

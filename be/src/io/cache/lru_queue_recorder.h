@@ -17,13 +17,11 @@
 
 #pragma once
 
-#include <concurrentqueue.h>
-
 #include <array>
 #include <atomic>
-#include <boost/lockfree/spsc_queue.hpp>
+#include <iterator>
 #include <limits>
-#include <memory>
+#include <list>
 #include <mutex>
 #include <unordered_map>
 
@@ -51,7 +49,9 @@ struct CacheLRULog {
             : type(t), hash(h), offset(o), size(s) {}
 };
 
-using CacheLRULogQueue = moodycamel::ConcurrentQueue<std::unique_ptr<CacheLRULog>>;
+using CacheLRULogQueue = std::list<CacheLRULog>;
+using PendingMoveToBackMap =
+        std::unordered_map<AccessKeyAndOffset, CacheLRULogQueue::iterator, KeyAndOffsetHash>;
 
 class LRUQueueRecorder {
 public:
@@ -100,6 +100,9 @@ private:
     CacheLRULogQueue _normal_lru_log_queue;
     CacheLRULogQueue _disposable_lru_log_queue;
 
+    PendingMoveToBackMap& get_pending_move_to_back_map(FileCacheType type);
+
+    std::array<PendingMoveToBackMap, 4> _pending_move_to_back_by_type;
     std::array<size_t, 4> _lru_log_queue_size_by_type {};
     std::atomic<size_t> _dropped_lru_log_count {0};
     size_t _total_lru_log_queue_size = 0;
