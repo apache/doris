@@ -41,13 +41,13 @@ struct NestedScalarBatch;
 
 struct ArrowLeafReaderContext {
     const ::parquet::ColumnDescriptor* descriptor = nullptr;
-    const ParquetTypeDescriptor* type_descriptor = nullptr;
-    const DataTypePtr* type = nullptr;
-    const std::string* name = nullptr;
+    ParquetTypeDescriptor type_descriptor;
+    DataTypePtr type;
+    std::string name;
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
 
-    const std::string& column_name() const { return *name; }
-    const DataTypePtr& data_type() const { return *type; }
+    const std::string& column_name() const { return name; }
+    const DataTypePtr& data_type() const { return type; }
 };
 
 Status read_leaf_records(const ArrowLeafReaderContext& context, int64_t batch_rows,

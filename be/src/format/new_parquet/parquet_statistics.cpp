@@ -863,10 +863,12 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
             page_idx >= typed_index->max_values().size()) {
             return false;
         }
-        const std::string min(reinterpret_cast<const char*>(typed_index->min_values()[page_idx].ptr),
-                              type_length);
-        const std::string max(reinterpret_cast<const char*>(typed_index->max_values()[page_idx].ptr),
-                              type_length);
+        const std::string min(
+                reinterpret_cast<const char*>(typed_index->min_values()[page_idx].ptr),
+                type_length);
+        const std::string max(
+                reinterpret_cast<const char*>(typed_index->max_values()[page_idx].ptr),
+                type_length);
         if (!set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
                                       StringRef(min.data(), min.size()),
                                       &page_statistics->min_value) ||

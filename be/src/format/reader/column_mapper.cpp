@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/vcast_expr.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vectorized_fn_call.h"
@@ -530,6 +531,7 @@ static TExprNode rebuild_expr_node(const VExpr& expr) {
     return node;
 }
 
+// TODO(gabriel): could we clone it in another way?
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
     DORIS_CHECK(cloned_expr != nullptr);
     if (expr == nullptr) {
@@ -557,6 +559,9 @@ Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
         cloned = TableLiteral::create_shared(expr->data_type(), literal_field(expr));
     } else if (const auto* cast_expr = dynamic_cast<const Cast*>(expr.get())) {
         cloned = std::make_shared<Cast>(cast_expr->data_type());
+    } else if (const auto* vcast_expr = dynamic_cast<const VCastExpr*>(expr.get());
+               vcast_expr != nullptr && vcast_expr->node_type() == TExprNodeType::CAST_EXPR) {
+        cloned = VCastExpr::create_shared(rebuild_expr_node(*vcast_expr));
     } else if (const auto* in_pred = dynamic_cast<const VInPredicate*>(expr.get())) {
         cloned = VInPredicate::create_shared(rebuild_expr_node(*in_pred));
     } else if (const auto* direct_in_pred = dynamic_cast<const VDirectInPredicate*>(expr.get())) {
