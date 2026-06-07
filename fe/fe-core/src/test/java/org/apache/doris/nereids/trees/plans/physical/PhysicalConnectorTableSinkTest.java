@@ -40,9 +40,9 @@ import java.util.List;
 
 /**
  * Tests for {@link PhysicalConnectorTableSink#getRequirePhysicalProperties()} (FIX-WRITE-DISTRIBUTION,
- * NG-2 / NG-4). After the MaxCompute SPI cutover the generic connector sink replaces legacy
- * {@code PhysicalMaxComputeTableSink}; this pins that it reproduces the legacy 3-branch distribution,
- * gated by connector capabilities:
+ * NG-2 / NG-4; revised by FIX-BIND-STATIC-PARTITION, P0-3). After the MaxCompute SPI cutover the generic
+ * connector sink replaces legacy {@code PhysicalMaxComputeTableSink}; this pins that it reproduces the
+ * legacy 3-branch distribution, gated by connector capabilities:
  *
  * <ul>
  *   <li><b>dynamic-partition write</b> (a partition column present in {@code cols}) + connector
@@ -54,9 +54,11 @@ import java.util.List;
  *   <li><b>capability-less connector</b> (jdbc/es-like) → {@code GATHER} (single writer).</li>
  * </ul>
  *
- * <p><b>Index by {@code cols}, not full schema:</b> the generic sink's child output is aligned to
- * {@code cols} (BindSink.bindConnectorTableSink projects to cols order), so the hash/sort keys are the
- * child slots at the partition columns' <em>cols</em> positions — the tests assert that exact slot.</p>
+ * <p><b>Index by full schema, not {@code cols}:</b> the bind layer projects the static/partial-static
+ * write's child to full-schema order (static partition columns filled), so the hash/sort keys are the
+ * child slots at the partition columns' <em>full-schema</em> positions. {@code cols} excludes the static
+ * partition columns, so a cols-position lookup would mislocate the dynamic column in the partial-static
+ * case — {@code partialStaticPartitionHashesByDynamicColumn} guards that.</p>
  */
 public class PhysicalConnectorTableSinkTest {
 
@@ -65,15 +67,16 @@ public class PhysicalConnectorTableSinkTest {
 
     /**
      * Dynamic-partition write: the partition column 'part' is present in cols (its value comes from
-     * the query), so the sink must hash-distribute and locally sort by 'part'.
+     * the query), so the sink must hash-distribute and locally sort by 'part'. cols == full schema
+     * here (no static partition), so full-schema and cols positions coincide.
      */
     @Test
     public void dynamicPartitionWriteRequiresHashAndLocalSort() {
         SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
         SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
-        // cols == [data, part] (part is dynamic), child output aligned 1:1 with cols.
+        // cols == full schema == [data, part] (part is dynamic), child output aligned 1:1.
         PhysicalConnectorTableSink<Plan> sink = sink(
-                table(true, true, ImmutableList.of(PART)),
+                table(true, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART)),
                 Arrays.asList(DATA, PART),
                 ImmutableList.of(dataSlot, partSlot));
 
@@ -83,9 +86,9 @@ public class PhysicalConnectorTableSinkTest {
                 "dynamic-partition write must hash-distribute by partition columns");
         DistributionSpecHiveTableSinkHashPartitioned dist =
                 (DistributionSpecHiveTableSinkHashPartitioned) props.getDistributionSpec();
-        // The hash key is the child slot at 'part's cols position (index 1) — NOT a full-schema index.
+        // The hash key is the child slot at 'part's full-schema position (index 1).
         Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()), dist.getOutputColExprIds(),
-                "hash key must be the partition-column slot taken at its cols position");
+                "hash key must be the partition-column slot taken at its full-schema position");
         Assertions.assertTrue(props.getOrderSpec() instanceof MustLocalSortOrderSpec,
                 "dynamic-partition write must require a mandatory local sort to group partition rows");
         List<OrderKey> orderKeys = props.getOrderSpec().getOrderKeys();
@@ -95,23 +98,96 @@ public class PhysicalConnectorTableSinkTest {
     }
 
     /**
-     * All-static-partition write: every partition column is statically specified and therefore
-     * absent from cols, so no grouping/sort is needed — parallel writers (RANDOM), matching legacy
-     * branch-2. This unit-tests the in-sink fall-through over a cols-already-stripped input. That
-     * input is produced by the bind layer in two reachable forms: the explicit-column-list form
-     * {@code INSERT INTO mc PARTITION(part='x') (data) SELECT data} today (colNames=[data] →
-     * bindColumns=[data]); and the no-column-list form {@code INSERT INTO mc PARTITION(part='x')
-     * SELECT data} once P0-3 / FIX-BIND-STATIC-PARTITION makes bindConnectorTableSink exclude
-     * static-partition columns (today that no-column-list form throws at bind — NG-3 — so this
-     * branch is dormant for it, never silently mis-classified as dynamic).
+     * Pure-dynamic write with a REORDERED explicit column list ({@code INSERT INTO mc (part, data)
+     * SELECT vpart, vdata}, schema [data, part]): the bind layer projects the child to FULL-SCHEMA
+     * order regardless of the user column order, so child output = [dataSlot, partSlot] while cols =
+     * [part, data]. The partition column must be located by its full-schema position (1), not its cols
+     * position (0). Guards the FIX-BIND-STATIC-PARTITION indexing revision against the pure-dynamic
+     * reordered-list regression a cols-position lookup would cause (it would read child[0] = dataSlot).
+     */
+    @Test
+    public void dynamicReorderedColumnListHashesByPartitionAtFullSchemaPosition() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PhysicalConnectorTableSink<Plan> sink = sink(
+                table(true, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART)),
+                Arrays.asList(PART, DATA),                       // cols reordered: part first
+                ImmutableList.of(dataSlot, partSlot));           // child in full-schema order [data, part]
+
+        PhysicalProperties props = sink.getRequirePhysicalProperties();
+
+        Assertions.assertTrue(props.getDistributionSpec() instanceof DistributionSpecHiveTableSinkHashPartitioned,
+                "reordered-list dynamic write must still hash-distribute by the partition column");
+        DistributionSpecHiveTableSinkHashPartitioned dist =
+                (DistributionSpecHiveTableSinkHashPartitioned) props.getDistributionSpec();
+        // 'part' at full-schema index 1 -> child[1] = partSlot. A cols-position lookup ('part' at cols
+        // index 0) would read child[0] = dataSlot and shuffle by the wrong column.
+        Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()), dist.getOutputColExprIds(),
+                "hash key must be the partition slot at its full-schema position, not its cols position");
+        Assertions.assertEquals(partSlot, props.getOrderSpec().getOrderKeys().get(0).getExpr(),
+                "local sort must be on the partition column slot");
+    }
+
+    /**
+     * Partial-static write ({@code PARTITION(ds='x') SELECT id, val, region} — ds static, region
+     * dynamic): the bind layer projects the child to full schema with ds filled (NULL), so child
+     * output = [id, val, ds, region] while cols = [id, val, region] (ds excluded). The partition
+     * columns must be located by their FULL-SCHEMA positions (ds@2, region@3), not their cols
+     * positions — otherwise the dynamic 'region' would be mislocated and grouping would break,
+     * re-triggering "writer has been closed". This guards the FIX-BIND-STATIC-PARTITION revision of
+     * the indexing (a cols-position regression yields hash keys = [ds] only).
+     */
+    @Test
+    public void partialStaticPartitionHashesByDynamicColumn() {
+        Column id = new Column("id", PrimitiveType.INT);
+        Column val = new Column("val", PrimitiveType.INT);
+        Column ds = new Column("ds", PrimitiveType.INT);
+        Column region = new Column("region", PrimitiveType.INT);
+        SlotReference idSlot = new SlotReference("id", IntegerType.INSTANCE);
+        SlotReference valSlot = new SlotReference("val", IntegerType.INSTANCE);
+        SlotReference dsSlot = new SlotReference("ds", IntegerType.INSTANCE);
+        SlotReference regionSlot = new SlotReference("region", IntegerType.INSTANCE);
+
+        PhysicalConnectorTableSink<Plan> sink = sink(
+                table(true, true, ImmutableList.of(ds, region), ImmutableList.of(id, val, ds, region)),
+                Arrays.asList(id, val, region),                          // cols excludes static ds
+                ImmutableList.of(idSlot, valSlot, dsSlot, regionSlot));   // child == full schema
+
+        PhysicalProperties props = sink.getRequirePhysicalProperties();
+
+        Assertions.assertTrue(props.getDistributionSpec() instanceof DistributionSpecHiveTableSinkHashPartitioned,
+                "partial-static write must hash-distribute by partition columns");
+        DistributionSpecHiveTableSinkHashPartitioned dist =
+                (DistributionSpecHiveTableSinkHashPartitioned) props.getDistributionSpec();
+        // Both partition columns located by full-schema position: child[2]=dsSlot, child[3]=regionSlot.
+        // A cols-position regression (region at cols index 2) would read child[2]=dsSlot and drop
+        // regionSlot, yielding [dsSlot] — caught by this exact-list assertion.
+        Assertions.assertEquals(ImmutableList.of(dsSlot.getExprId(), regionSlot.getExprId()),
+                dist.getOutputColExprIds(),
+                "hash keys must be the partition-column slots at their full-schema positions");
+        Assertions.assertTrue(props.getOrderSpec() instanceof MustLocalSortOrderSpec,
+                "partial-static write must require a mandatory local sort");
+        List<OrderKey> orderKeys = props.getOrderSpec().getOrderKeys();
+        Assertions.assertEquals(2, orderKeys.size(), "sort by both partition columns in full-schema order");
+        Assertions.assertEquals(dsSlot, orderKeys.get(0).getExpr());
+        Assertions.assertEquals(regionSlot, orderKeys.get(1).getExpr());
+    }
+
+    /**
+     * All-static-partition write: every partition column is statically specified and therefore absent
+     * from cols, so no grouping/sort is needed — parallel writers (RANDOM), matching legacy branch-2.
+     * After FIX-BIND-STATIC-PARTITION the bind layer projects the no-column-list form's child to full
+     * schema ([data, part] with part filled), but the RANDOM branch never indexes the child, so the
+     * result is RANDOM regardless of the child shape.
      */
     @Test
     public void allStaticPartitionWriteUsesRandomPartitioned() {
         SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
         PhysicalConnectorTableSink<Plan> sink = sink(
-                table(true, true, ImmutableList.of(PART)),
-                Arrays.asList(DATA),
-                ImmutableList.of(dataSlot));
+                table(true, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART)),
+                Arrays.asList(DATA),                              // cols excludes the static part
+                ImmutableList.of(dataSlot, partSlot));            // child == full schema (part filled)
 
         Assertions.assertSame(PhysicalProperties.SINK_RANDOM_PARTITIONED, sink.getRequirePhysicalProperties(),
                 "an all-static-partition write needs no sort/shuffle and uses parallel writers");
@@ -125,7 +201,7 @@ public class PhysicalConnectorTableSinkTest {
     public void nonPartitionedWriteUsesRandomWhenParallel() {
         SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
         PhysicalConnectorTableSink<Plan> sink = sink(
-                table(true, true, ImmutableList.of()),
+                table(true, true, ImmutableList.of(), ImmutableList.of(DATA)),
                 Arrays.asList(DATA),
                 ImmutableList.of(dataSlot));
 
@@ -141,7 +217,7 @@ public class PhysicalConnectorTableSinkTest {
     public void capabilityLessConnectorGathers() {
         SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
         PhysicalConnectorTableSink<Plan> sink = sink(
-                table(false, false, ImmutableList.of()),
+                table(false, false, ImmutableList.of(), ImmutableList.of(DATA)),
                 Arrays.asList(DATA),
                 ImmutableList.of(dataSlot));
 
@@ -152,11 +228,12 @@ public class PhysicalConnectorTableSinkTest {
     // ==================== helpers ====================
 
     private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
-            List<Column> partitionColumns) {
+            List<Column> partitionColumns, List<Column> fullSchema) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.supportsParallelWrite()).thenReturn(parallelWrite);
         Mockito.when(table.requirePartitionLocalSortOnWrite()).thenReturn(requirePartitionSort);
         Mockito.when(table.getPartitionColumns()).thenReturn(partitionColumns);
+        Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
         return table;
     }
 

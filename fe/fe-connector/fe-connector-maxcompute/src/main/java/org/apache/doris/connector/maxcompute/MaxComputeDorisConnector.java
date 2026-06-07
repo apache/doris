@@ -175,7 +175,11 @@ public class MaxComputeDorisConnector implements Connector {
     @Override
     public Set<ConnectorCapability> getCapabilities() {
         return EnumSet.of(ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
-                ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT);
+                ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT,
+                // MaxCompute's columnar Storage API / JNI writer maps data positionally against the
+                // full table schema, so the sink must project rows to full-schema order (see
+                // BindSink.bindConnectorTableSink); not declared by name-mapped connectors like JDBC.
+                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
     }
 
     @Override

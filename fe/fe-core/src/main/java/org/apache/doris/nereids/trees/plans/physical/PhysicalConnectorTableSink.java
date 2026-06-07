@@ -127,11 +127,16 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
      *       safety.</li>
      * </ul>
      *
-     * <p><b>Index by {@code cols}, not full schema.</b> Unlike legacy {@code bindMaxComputeTableSink}
-     * (which projects the child to full-schema order), {@code BindSink.bindConnectorTableSink}
-     * projects the child to {@code cols} order and enforces {@code cols.size() == child output size},
-     * so {@code child().getOutput().get(i)} corresponds to {@code cols.get(i)}. Partition columns are
-     * therefore located by their position in {@code cols}.</p>
+     * <p><b>Index by full schema, not {@code cols}.</b> For a positional-write connector (one declaring
+     * {@code SINK_REQUIRE_FULL_SCHEMA_ORDER}, e.g. MaxCompute), {@code BindSink.bindConnectorTableSink}
+     * projects the child to <em>full-schema</em> order (any unmentioned / static-partition columns filled
+     * in), exactly like legacy {@code bindMaxComputeTableSink},
+     * because the BE writer strips the trailing partition columns by position. So {@code child().getOutput()}
+     * is aligned 1:1 with {@code targetTable.getFullSchema()}, while {@code cols} excludes the static
+     * partition columns and may be in a different (user-specified) order. Partition columns are therefore
+     * located by their position in the full schema. (An earlier revision indexed by {@code cols}, which
+     * mislocated the dynamic column whenever {@code cols} order diverged from the full schema — the
+     * partial-static {@code PARTITION(p1='x') SELECT ..., p2} and reordered-explicit-list cases.)</p>
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
@@ -145,25 +150,38 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                     .map(Column::getName)
                     .collect(Collectors.toSet());
             if (!partitionNames.isEmpty()) {
-                // A partition column present in cols == its value comes from the query == a dynamic
-                // partition write. Locate partition columns by their position in cols, which is
-                // aligned 1:1 with child().getOutput() (see class/method note above).
-                List<Integer> partitionColIdx = new ArrayList<>();
-                for (int i = 0; i < cols.size(); i++) {
-                    if (partitionNames.contains(cols.get(i).getName())) {
-                        partitionColIdx.add(i);
+                // A partition column present in cols == its value comes from the query == a
+                // dynamic-partition write (static partition cols are excluded from cols by
+                // BindSink.bindConnectorTableSink). If any remains, this is a dynamic / partial-static
+                // write that must be hash-distributed and locally sorted by partition columns.
+                Set<String> colNames = cols.stream()
+                        .map(Column::getName)
+                        .collect(Collectors.toSet());
+                boolean hasDynamicPartition = partitionNames.stream().anyMatch(colNames::contains);
+                if (hasDynamicPartition) {
+                    // Index by FULL-SCHEMA position, NOT cols. For a static / partial-static write the
+                    // bind layer projects the child to full schema (static partition cols filled), so
+                    // child().getOutput() is aligned 1:1 with the full schema while cols excludes the
+                    // static partition cols. Indexing by full-schema position is required to hash/sort
+                    // by the correct (dynamic) column in the partial-static case. Mirrors legacy
+                    // PhysicalMaxComputeTableSink.
+                    List<Integer> columnIdx = new ArrayList<>();
+                    List<Column> fullSchema = targetTable.getFullSchema();
+                    for (int i = 0; i < fullSchema.size(); i++) {
+                        if (partitionNames.contains(fullSchema.get(i).getName())) {
+                            columnIdx.add(i);
+                        }
                     }
-                }
-                if (!partitionColIdx.isEmpty()) {
-                    List<ExprId> exprIds = partitionColIdx.stream()
+                    List<ExprId> exprIds = columnIdx.stream()
                             .map(idx -> child().getOutput().get(idx).getExprId())
                             .collect(Collectors.toList());
                     DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
                             = new DistributionSpecHiveTableSinkHashPartitioned();
                     shuffleInfo.setOutputColExprIds(exprIds);
                     // Local sort by partition columns so rows for the same partition are grouped
-                    // together before the streaming partition writer.
-                    List<OrderKey> orderKeys = partitionColIdx.stream()
+                    // together before the streaming partition writer (MaxCompute Storage API closes a
+                    // partition writer once a different partition value appears).
+                    List<OrderKey> orderKeys = columnIdx.stream()
                             .map(idx -> new OrderKey(child().getOutput().get(idx), true, false))
                             .collect(Collectors.toList());
                     return new PhysicalProperties(shuffleInfo)

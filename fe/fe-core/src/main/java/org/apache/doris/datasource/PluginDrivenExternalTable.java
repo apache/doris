@@ -100,6 +100,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT);
     }
 
+    /**
+     * Returns whether the underlying connector maps write data columns positionally against the full
+     * table schema (e.g. MaxCompute), requiring the sink to project rows to full-schema order with
+     * unmentioned columns filled. Name-mapped connectors (e.g. JDBC) return false and keep their data
+     * in user/cols order. Used by {@code BindSink.bindConnectorTableSink}; defaults to false.
+     */
+    public boolean requiresFullSchemaWriteOrder() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
+    }
+
     @Override
     public boolean supportsExternalMetadataPreload() {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
