@@ -120,6 +120,16 @@ Two `ConnectorSession` instances exist (executor's, built for id-alloc; sink's, 
 
 ### 4.2 Binding-time context: overwrite + static partition (G4+G5)
 
+> ⚠️ **INCOMPLETE — corrected by P0-3 / FIX-BIND-STATIC-PARTITION ([D-030], 2026-06-07).** G4/G5 below
+> only wired the static spec into `UnboundConnectorTableSink` and `PluginDrivenInsertCommandContext`
+> (for the BE write-plan). They did **NOT** mirror the legacy **bind-time** handling in
+> `BindSink.bindConnectorTableSink`: (a) excluding the static partition columns from the bound columns,
+> and (b) projecting the child to **full-schema** order. So the "faithful generic mirror" claim was
+> false — the very INSERT-PARTITION regression DECISION-3 promised to prevent was live (no-column-list
+> static INSERT threw at bind; reordered/partial explicit lists silently mis-mapped columns). P0-3
+> completes the mirror (gated by capability `SINK_REQUIRE_FULL_SCHEMA_ORDER`). See
+> `reviews/P4-T06e-FIX-BIND-STATIC-PARTITION-review-rounds.md`.
+
 Required so **INSERT OVERWRITE** and **INSERT … PARTITION(col=val)** keep working post-cutover (else a user-visible regression at the flip). Faithful generic mirror of the legacy MC path:
 - **G4**: `UnboundConnectorTableSink` — add `staticPartitionKeyValues` (+ ctor variant), mirroring `UnboundMaxComputeTableSink`. `UnboundTableSinkCreator:66-110`: pass static partitions to the connector unbound sink for plugin-driven tables.
 - **G5**: fill `PluginDrivenInsertCommandContext` (already has `staticPartitionSpec`+getter/setter from T04; `overwrite` inherited from `BaseExternalTableInsertCommandContext:24`):

@@ -8,6 +8,16 @@
 > (`OdpsLiveConnectivityTest` + manual smoke) — per [D-027], removal is sequenced *after*
 > live-validation so the T06b flip stays independently revertable until then.
 > Mirrors the completed trino-connector removal: `524097e38d3` (code) + `c4ac2c5911d` (pom drop).
+>
+> ⚠️ **[D-028] UPDATE (2026-06-07) — gate raised + §2 amended.** Live-verification recon (code-verified)
+> found the cutover **functionally incomplete**: only read(SELECT)/CREATE TABLE/write(INSERT) route
+> through SPI; **DROP TABLE / CREATE DB / DROP DB / SHOW PARTITIONS / partitions() TVF FE-dispatch was
+> never wired** (connector impls exist since P4-T01/T02, FE has zero callers). So **P4-T06c must land
+> first** (wire those FE sites to the SPI, generically on `PluginDrivenExternalCatalog`), then live
+> verification must be **all-green**, *then* Batch D. Consequence for §2: the `ShowPartitionsCommand`
+> / `MetadataGenerator` / `PartitionsTableValuedFunction` entries change from **delete-branch** to
+> **delete only the residual legacy `MaxComputeExternalCatalog` reference** — the working dispatch is
+> the `PluginDrivenExternalCatalog` branch T06c adds (do NOT delete that). See §2 note.
 
 ---
 
@@ -56,6 +66,15 @@ at `CatalogFactory:147` (removed by flip); everything else is reachable only fro
 ---
 
 ## 2. Reverse-ref cleanup — ~30 files, 84 refs (32 remove-import · 43 delete-branch · 9 keep)
+
+> ⚠️ **[D-028] amendment:** for the 3 partition/show dispatch sites below —
+> `ShowPartitionsCommand` (:203/:286/:415), `MetadataGenerator` (:1310/:1337 `dealMaxComputeCatalog`),
+> `PartitionsTableValuedFunction` (:173/:200) — **P4-T06c adds a `PluginDrivenExternalCatalog` branch
+> that routes to the connector SPI** (the actual functionality). After T06c, Batch D must **delete
+> only the residual legacy `MaxComputeExternalCatalog`/`MaxComputeExternalTable` branch + import**, and
+> **KEEP** the new PluginDriven branch. (Pre-T06c this table said "delete-branch" outright, which would
+> have permanently broken SHOW PARTITIONS / partitions TVF — see [D-028].) The DDL gap (createDb/dropDb/
+> dropTable) is fixed by T06c via `PluginDrivenExternalCatalog` overrides, not by any §2 edit here.
 
 Per file (edit, NOT delete) — remove the import(s) + delete the now-dead `instanceof`/visitor/rule branch:
 

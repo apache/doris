@@ -87,6 +87,15 @@ dynamic→hash+sort), but the design note records the intended pairing.
 
 ### The fe-core sink logic — **critical correction vs legacy: index by `cols`, not full-schema**
 
+> ⚠️ **SUPERSEDED by P0-3 / FIX-BIND-STATIC-PARTITION ([D-030], 2026-06-07).** This section's "index by
+> `cols`" decision was **reverted to legacy full-schema indexing**. Reason: P0-3 makes
+> `bindConnectorTableSink` project the child to **full-schema** order for positional-write connectors
+> (MaxCompute, gated by capability `SINK_REQUIRE_FULL_SCHEMA_ORDER`), so `child().getOutput()` is again
+> aligned with `table.getFullSchema()` — *not* `cols` (cols excludes static partition cols and may be
+> user-reordered). `cols`-indexing silently shuffled by the wrong column in the partial-static and
+> reordered-explicit-list cases. The "`cols.size() == child output size`" invariant below holds only for
+> the non-positional (JDBC/ES) path. See `reviews/P4-T06e-FIX-BIND-STATIC-PARTITION-review-rounds.md`.
+
 The generic sink's `getRequirePhysicalProperties()` reproduces the legacy 3-branch, **but the
 partition-column → child-output index mapping MUST differ from legacy.** This is the single most
 important correctness point of this fix:

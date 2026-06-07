@@ -13,10 +13,12 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **12** 项。
+> 时间倒序；当前共 **14** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-014 | P4-T06e FIX-BIND-STATIC-PARTITION bind 期投影无 fe-core 单测（KNOWN-LIMITATION）：`bindConnectorTableSink` 的 full-schema 投影（NULL 填充 + 分区列在末尾 + 按位置投影）未被 connector-path 单测直接 pin——`bind()` 走 `RelationUtil.getDbAndTable` 真 Env 解析，外表 PluginDriven catalog 需连接器插件,无现成轻量 analyze harness（OLAP analyze 测仅覆盖 `createTable` 内表）。覆盖经：①与 legacy `bindMaxComputeTableSink` 及 Iceberg 路径**共享** helper `getColumnToOutput`/`getOutputProjectByCoercion`（被既有 OLAP/Hive/Iceberg insert 测充分覆盖）；②列选择 helper `selectConnectorSinkBindColumns` 单测 + 分布 full-schema 索引测（要求 child full-schema 序方过）；③p2 live `test_mc_write_insert` Test 3/3b（部分/重排列名）+ `test_mc_write_static_partitions`。capability 声明/reader 按既有约定不单测（既有 readers 亦仅被 mock）| [FIX-BIND-STATIC-PARTITION 设计](./tasks/designs/P4-T06e-FIX-BIND-STATIC-PARTITION-design.md) / [D-030] | 2026-06-07 | 🟢 已登记（无 harness,parity+p2 覆盖；待外表 analyze harness 落地补）|
+| DV-013 | P4-T06e FIX-WRITE-DISTRIBUTION 两处 planner 写分发 parity 微差（均非回归，default `strict` 下与 legacy MC 同果）：① `ShuffleKeyPruner` connector 分支缺 `enableStrictConsistencyDml` 短路 → non-strict 下少剪 shuffle-key（更保守 missed optimization）；② `enable_strict_consistency_dml=false` 下动态分区 local-sort 被丢（legacy MC 亦丢）| [FIX-WRITE-DISTRIBUTION 设计](./tasks/designs/P4-T06e-FIX-WRITE-DISTRIBUTION-design.md) / [D-029] | 2026-06-07 | 🟢 已登记（非回归，接受）|
 | DV-012 | P4-T04 `TMaxComputeTableSink.partition_columns`(field 14) 源：legacy `MaxComputeTableSink` 取 `targetTable.getPartitionColumns()`（fe-core Doris `Column`）；连接器 `MaxComputeWritePlanProvider.planWrite` 取 `odpsTable.getSchema().getPartitionColumns()`（odps-sdk 列）——**源不同、值同**（分区列名）| [tasks/P4 P4-T04](./tasks/P4-maxcompute-migration.md) / [P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md) | 2026-06-06 | 🟢 已落地（P4-T04，值等价）|
 | DV-011 | P4-T03 连接器事务 block 上限源：legacy fe-core `Config.max_compute_write_max_block_count`（fe.conf 可调，默认 20000）→ 连接器常量 `MAX_BLOCK_COUNT=20000L`（import-gate 禁 `common.Config`，丢可调性）；附 legacy `throws UserException`→`DorisConnectorException`（unchecked，SPI 面无 checked throws）| [tasks/P4 P4-T03](./tasks/P4-maxcompute-migration.md) / [P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md) | 2026-06-06 | 🟢 已修正（P4-T03）|
 | DV-010 | P4-T01 修共享 fe-core `ConnectorColumnConverter.toConnectorType` 丢 CHAR/VARCHAR 长度（写 `precision=0`；长度存 `len` 非 `precision`）→ CREATE TABLE 经 SPI 丢长度。特判 CHAR/VARCHAR 把 `getLength()` 写入 precision 字段（与逆 `convertScalarType`+`MCTypeMapping` 约定一致）| [tasks/P4 P4-T01](./tasks/P4-maxcompute-migration.md) / `ConnectorColumnConverter` | 2026-06-06 | 🟢 已修正（P4-T01）|
@@ -33,6 +35,21 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-013 — P4-T06e FIX-WRITE-DISTRIBUTION：两处 planner 写分发 parity 微差（均非回归）
+
+- **发现日期**：2026-06-07
+- **发现 session / agent**：FIX-WRITE-DISTRIBUTION clean-room review（workflow `ww1g95bba`，Phase A parity/delivery lens）
+- **当前状态**：🟢 已登记（非回归，接受；default `enable_strict_consistency_dml=true` 下与 legacy MC 同果）
+- **原计划位置**：[FIX-WRITE-DISTRIBUTION 设计](./tasks/designs/P4-T06e-FIX-WRITE-DISTRIBUTION-design.md)（§"Known minor divergence — ShuffleKeyPruner" + §"Why no change in RequestPropertyDeriver"）
+- **偏差描述**：
+  - **① ShuffleKeyPruner**：`ShuffleKeyPruner.visitPhysicalConnectorTableSink`（通用 connector 分支，`:286-295`）缺 legacy `visitPhysicalMaxComputeTableSink`（`:272-283`）的 `enableStrictConsistencyDml==false → childAllowShuffleKeyPrune=true` 短路；通用分支恒 `required.equals(ANY)?true:false`。
+  - **② local-sort under non-strict**：`enable_strict_consistency_dml=false` 时 `RequestPropertyDeriver` 对 connector sink（required≠GATHER）下推 `ANY` → 动态分区 hash+local-sort 需求被丢。
+- **为何非回归**：default `enable_strict_consistency_dml=`**`true`**（`SessionVariable.java:1566`）下——① 两路均 `required≠ANY → prune=false`（**同果**）；② `RequestPropertyDeriver` 下推 `getRequirePhysicalProperties()` = hash+local-sort（**enforce**，与 legacy MC 同）。仅 non-strict（用户显式关）时分歧：① 通用分支**少剪**（更保守 = missed optimization，无正确性损）；② local-sort 被丢——但 **legacy MC 在 non-strict 下亦丢**（`visitPhysicalMaxComputeTableSink` 同样下推 ANY）→ parity，非本 fix 引入。clean-room review Phase B 把 ① 多数 refute 为 non-regression。
+- **影响范围**：仅 `enable_strict_consistency_dml=false` 的 MaxCompute 动态分区写；default 不触及。① 纯性能（少剪 shuffle-key）；② 与 legacy 同行为。
+- **关联**：[D-029]、[review-rounds](./reviews/P4-T06e-FIX-WRITE-DISTRIBUTION-review-rounds.md)、[复审 §A.NG-2/NG-4](./reviews/P4-maxcompute-full-rereview-2026-06-07.md)
+- **后续动作**：
+  - [ ] 如需 non-strict 下完全 parity：给 `ShuffleKeyPruner` 通用 connector 分支补 `enableStrictConsistencyDml` 短路（影响 jdbc/es 共享分支，超本 fix scope）
 
 ### DV-012 — P4-T04：`partition_columns` 取 ODPS 表列（源不同、值同）
 
