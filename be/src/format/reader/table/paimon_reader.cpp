@@ -121,8 +121,8 @@ Status PaimonReader::prepare_split(const reader::SplitReadOptions& options) {
 }
 
 reader::TableColumnMappingMode PaimonReader::mapping_mode() const {
-    if (_split_schema_id < 0 || _scan_params == nullptr || !_scan_params->__isset.current_schema_id ||
-        !_scan_params->__isset.history_schema_info) {
+    if (_split_schema_id < 0 || _scan_params == nullptr ||
+        !_scan_params->__isset.current_schema_id || !_scan_params->__isset.history_schema_info) {
         return reader::TableColumnMappingMode::BY_NAME;
     }
     return find_schema(_scan_params, _split_schema_id) == nullptr

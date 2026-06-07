@@ -493,7 +493,7 @@ parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
 reader::FileColumnPredicateFilter bloom_filter_with_predicate(
         const std::shared_ptr<ColumnPredicate>& predicate) {
     reader::FileColumnPredicateFilter filter;
-    filter.file_column_id = 0;
+    filter.file_column_id = reader::LocalColumnId(0);
     filter.predicates.push_back(predicate);
     return filter;
 }
@@ -1431,7 +1431,7 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
     request->column_predicate_filters.push_back(std::move(column_filter));
@@ -1474,7 +1474,7 @@ TEST_F(NewParquetReaderTest, ColumnPredicateOnlyPrunesAndDoesNotFilterRowsInside
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
     request->column_predicate_filters.push_back(std::move(column_filter));
@@ -1611,7 +1611,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(2), false));
     request->column_predicate_filters.push_back(std::move(column_filter));
@@ -1662,7 +1662,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
 
     reader::FileScanRequest plan_request;
     reader::FileColumnPredicateFilter plan_column_filter;
-    plan_column_filter.file_column_id = 1;
+    plan_column_filter.file_column_id = reader::LocalColumnId(1);
     auto value_type = std::make_shared<DataTypeString>();
     plan_column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
             1, "value", value_type, Field::create_field<TYPE_STRING>("lm"), false));
@@ -1691,7 +1691,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"lm"}));
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 1;
+    column_filter.file_column_id = reader::LocalColumnId(1);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
             1, "value", schema[1].type, Field::create_field<TYPE_STRING>("lm"), false));
     request->column_predicate_filters.push_back(std::move(column_filter));
@@ -1735,7 +1735,7 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByStatistics) 
 
     reader::FileScanRequest request;
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     column_filter.file_child_id_path = {0};
     auto id_type = std::make_shared<DataTypeInt32>();
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
@@ -1779,7 +1779,7 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByDictionary) 
 
     reader::FileScanRequest request;
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     column_filter.file_child_id_path = {1};
     auto name_type = std::make_shared<DataTypeString>();
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
@@ -1820,7 +1820,7 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
 
     reader::FileScanRequest request;
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     auto id_type = std::make_shared<DataTypeInt32>();
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", id_type, Field::create_field<TYPE_INT>(63), false));
@@ -1865,7 +1865,7 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
 
     reader::FileScanRequest request;
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     column_filter.file_child_id_path = {0};
     auto id_type = std::make_shared<DataTypeInt32>();
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
@@ -1905,7 +1905,7 @@ TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
     set->insert(const_cast<char*>("az"), 2);
     set->insert(const_cast<char*>("za"), 2);
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 1;
+    column_filter.file_column_id = reader::LocalColumnId(1);
     column_filter.predicates.push_back(create_in_list_predicate<PredicateType::IN_LIST>(
             1, "value", schema[1].type, set, false));
     request->column_predicate_filters.push_back(std::move(column_filter));
@@ -1958,7 +1958,7 @@ TEST_F(NewParquetReaderTest, DictionaryPageV2StringEdgesSurviveSelection) {
     set->insert(const_cast<char*>(""), 0);
     set->insert(const_cast<char*>("same"), 4);
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 1;
+    column_filter.file_column_id = reader::LocalColumnId(1);
     column_filter.predicates.push_back(create_in_list_predicate<PredicateType::IN_LIST>(
             1, "value", schema[1].type, set, false));
     request->column_predicate_filters.push_back(std::move(column_filter));
@@ -2003,7 +2003,7 @@ TEST_F(NewParquetReaderTest, StatisticsPruningSkipsPrefixRowGroupsAndReadsLaterG
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 3));
     reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = 0;
+    column_filter.file_column_id = reader::LocalColumnId(0);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(4), false));
     request->column_predicate_filters.push_back(std::move(column_filter));

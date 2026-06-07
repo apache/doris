@@ -809,6 +809,21 @@ ColumnDefinition make_file_column(int32_t id, const std::string& name, const Dat
     return field;
 }
 
+void set_name_identifiers(std::vector<ColumnDefinition>* columns);
+
+void set_name_identifier(ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    column->identifier = Field::create_field<TYPE_STRING>(column->name);
+    set_name_identifiers(&column->children);
+}
+
+void set_name_identifiers(std::vector<ColumnDefinition>* columns) {
+    DORIS_CHECK(columns != nullptr);
+    for (auto& column : *columns) {
+        set_name_identifier(&column);
+    }
+}
+
 void add_column_predicate(TableColumnPredicates* column_predicates, GlobalIndex global_index,
                           std::shared_ptr<ColumnPredicate> predicate) {
     auto& entry = (*column_predicates)[global_index];
@@ -843,13 +858,14 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 0))},
+                                            std::make_shared<TableInt32GreaterThanExpr>(1, 1, 0))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -908,6 +924,7 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -949,6 +966,7 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -996,6 +1014,7 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt64>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1040,9 +1059,10 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"id"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child};
-    const std::vector<ColumnDefinition> projected_columns = {struct_column};
+    std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1088,9 +1108,10 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
     auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
-    const std::vector<ColumnDefinition> projected_columns = {list_column};
+    std::vector<ColumnDefinition> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1152,13 +1173,16 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     auto a_child = make_table_column(0, "a", int_type);
     auto element_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
-    auto element_child = make_table_column(0, "element", element_type);
+    auto nullable_element_type = make_nullable(element_type);
+    auto element_child = make_table_column(0, "element", nullable_element_type);
     element_child.children = {a_child};
-    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    auto list_column =
+            make_table_column(100, "xs", std::make_shared<DataTypeArray>(nullable_element_type));
     list_column.children = {element_child};
-    const std::vector<ColumnDefinition> projected_columns = {list_column};
+    std::vector<ColumnDefinition> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1219,9 +1243,10 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     auto map_column =
             make_table_column(100, "kv", std::make_shared<DataTypeMap>(key_type, value_type));
     map_column.children = {entry_child};
-    const std::vector<ColumnDefinition> projected_columns = {map_column};
+    std::vector<ColumnDefinition> projected_columns = {map_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1277,6 +1302,7 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1320,6 +1346,7 @@ TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1360,6 +1387,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1410,6 +1438,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1453,6 +1482,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
             make_table_column(99, "missing_id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1495,6 +1525,7 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1580,6 +1611,7 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1636,6 +1668,7 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1834,7 +1867,7 @@ TEST(TableReaderTest, CreateScanRequestBuildsConstantFilterEntry) {
 
 TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<ColumnDefinition> projected_columns = {
+    std::vector<ColumnDefinition> projected_columns = {
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
@@ -1844,6 +1877,7 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    set_name_identifiers(&projected_columns);
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableFilter table_filter {
@@ -1933,7 +1967,7 @@ TEST(TableColumnMapperMatcherTest, NestedIndexMappingUsesTableStructChildIndex) 
 
 TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<ColumnDefinition> projected_columns = {
+    std::vector<ColumnDefinition> projected_columns = {
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
@@ -1943,6 +1977,7 @@ TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    set_name_identifiers(&projected_columns);
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableColumnPredicates column_predicates;
@@ -1975,6 +2010,7 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
     projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2030,6 +2066,7 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
             make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2074,6 +2111,7 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
             make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2120,9 +2158,10 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child, missing_child};
-    const std::vector<ColumnDefinition> projected_columns = {struct_column};
+    std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2172,6 +2211,7 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     projected_columns.push_back(std::move(partition_column));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2222,6 +2262,7 @@ TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
     projected_columns.push_back(std::move(partition_column));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2268,6 +2309,7 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
     projected_columns.push_back(std::move(partition_column));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -3081,6 +3123,7 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
     projected_columns.push_back(make_table_column(2, "value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -3130,6 +3173,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
     projected_columns.push_back(make_table_column(99, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -3177,6 +3221,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
     projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,

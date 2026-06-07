@@ -215,9 +215,7 @@ protected:
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos);
-    virtual TableColumnMappingMode mapping_mode() const {
-        return TableColumnMappingMode::BY_NAME;
-    }
+    virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
@@ -304,7 +302,6 @@ protected:
         }
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_open_mapping_exprs());
-        LOG(WARNING) << "==========1 " << debug_string();
         return Status::OK();
     }
 
