@@ -469,6 +469,88 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         }
     }
 
+    @Test
+    public void testCreateTableIfNotExistsExistingRemoteTableReturnsTrueAndSkipsSideEffects() throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        // Distinct replay db: production resets the cache via getDbForReplay(...).resetMetaCacheNames()
+        // on the REPLAY db object (NOT catalog.resetMetaCacheNames()), so we must assert on it.
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.of(handle));
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(true);
+
+        boolean res = catalog.createTable(info);
+
+        // WHY (Rule 9 / DG-6): returning false here makes CreateTableCommand:103 not short-circuit,
+        // so CTAS (CREATE TABLE IF NOT EXISTS ... AS SELECT) runs an INSERT into the pre-existing
+        // table -- a SILENT DATA CHANGE. The fix must return true and skip create/editlog/cache-reset.
+        Assertions.assertTrue(res,
+                "IF NOT EXISTS on an existing table must return true so CTAS short-circuits (no INSERT)");
+        Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
+        Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
+        Mockito.verify(replayDb, Mockito.never()).resetMetaCacheNames();
+    }
+
+    @Test
+    public void testCreateTableIfNotExistsExistingLocalTableReturnsTrue() throws Exception {
+        // Remote says absent (getTableHandle empty) but the FE cache HAS it -- the local arm of the
+        // legacy OR (createTableImpl:189, the case-sensitivity / stale-remote guard).
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        Mockito.doReturn(Mockito.mock(ExternalTable.class)).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.empty());
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(true);
+
+        boolean res = catalog.createTable(info);
+
+        // WHY: legacy checks BOTH remote AND local; this pins the local arm so a refactor that drops
+        // the `|| db.getTableNullable(...) != null` probe (keeping only getTableHandle) goes red.
+        Assertions.assertTrue(res, "existing local table + IF NOT EXISTS must return true");
+        Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
+        Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
+    }
+
+    @Test
+    public void testCreateTableExistingTableWithoutIfNotExistsStillErrors() throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.of(handle));
+
+        try (MockedStatic<CreateTableInfoToConnectorRequestConverter> conv =
+                Mockito.mockStatic(CreateTableInfoToConnectorRequestConverter.class)) {
+            ConnectorCreateTableRequest req = Mockito.mock(ConnectorCreateTableRequest.class);
+            conv.when(() -> CreateTableInfoToConnectorRequestConverter.convert(Mockito.any(), Mockito.any()))
+                    .thenReturn(req);
+            Mockito.doThrow(new DorisConnectorException("Table 't1' already exists in database 'DB1'"))
+                    .when(metadata).createTable(session, req);
+            CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+            Mockito.when(info.getDbName()).thenReturn("db1");
+            Mockito.when(info.getTableName()).thenReturn("t1");
+            Mockito.when(info.isIfNotExists()).thenReturn(false);
+
+            // WHY (Rule 9 / Rule 12): existing table + NO IF NOT EXISTS must NOT short-circuit -- it
+            // must reach connector.createTable and surface its "already exists" as DdlException
+            // (fail-loud, legacy parity). A mutation that returns true on `exists` regardless of
+            // isIfNotExists() would skip createTable -> no throw -> this assertThrows + verify go red.
+            DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+            Assertions.assertTrue(ex.getMessage().contains("already exists"));
+            Mockito.verify(metadata).createTable(session, req);
+            Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
+        }
+    }
+
     // ==================== helpers ====================
 
     @SuppressWarnings("unchecked")

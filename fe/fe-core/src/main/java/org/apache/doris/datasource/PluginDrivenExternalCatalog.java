@@ -254,11 +254,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * to the SPI's "CREATE TABLE not supported" exception, which is wrapped
      * here as a {@link DdlException} to match the existing caller contract.</p>
      *
-     * <p>The SPI signature is {@code void}: it does not distinguish
-     * "newly created" from "already existed (IF NOT EXISTS)". This override
-     * conservatively assumes creation happened and writes the edit log, matching
-     * the more common branch of the legacy path. Refining this when a connector
-     * actually needs the distinction is left to P5/P6/P7 connector migrations.</p>
+     * <p>The SPI {@code createTable} is {@code void} and this override has no
+     * {@code metadataOps}, so it mirrors legacy
+     * {@code MaxComputeMetadataOps.createTableImpl}: when the table already exists
+     * and {@code IF NOT EXISTS} was given it returns {@code true} and skips the
+     * connector create + edit log + cache reset (so a {@code CREATE TABLE IF NOT
+     * EXISTS ... AS SELECT} short-circuits per the {@code Env.createTable} contract
+     * instead of INSERTing into the existing table); otherwise it creates the table,
+     * writes the edit log, resets the cache, and returns {@code false}.</p>
      */
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
@@ -275,10 +278,26 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     + "' in catalog: " + getName());
         }
         ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        // Mirror legacy MaxComputeMetadataOps.createTableImpl:178-197 -- probe BOTH the remote
+        // (connector) and the local FE cache for an existing table. On IF NOT EXISTS this lets CTAS
+        // short-circuit (Env.createTable contract: return true when the table already exists), so a
+        // "CREATE TABLE IF NOT EXISTS ... AS SELECT" does NOT fall through to an INSERT into the
+        // pre-existing table. The table name is intentionally NOT remote-resolved (legacy parity).
+        boolean exists = metadata.getTableHandle(session, db.getRemoteName(),
+                createTableInfo.getTableName()).isPresent()
+                || db.getTableNullable(createTableInfo.getTableName()) != null;
+        if (exists && createTableInfo.isIfNotExists()) {
+            LOG.info("create table[{}.{}.{}] which already exists; skipping (IF NOT EXISTS)",
+                    getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
+            return true;
+        }
+        // existing + !IF NOT EXISTS falls through to connector.createTable, which throws
+        // "already exists" -> DdlException (unchanged); only the IF NOT EXISTS hit short-circuits.
         ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter
                 .convert(createTableInfo, db.getRemoteName());
         try {
-            connector.getMetadata(session).createTable(session, request);
+            metadata.createTable(session, request);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
