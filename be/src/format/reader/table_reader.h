@@ -215,9 +215,7 @@ protected:
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos);
-    virtual TableColumnMappingMode mapping_mode() const {
-        return TableColumnMappingMode::BY_NAME;
-    }
+    virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
@@ -304,7 +302,6 @@ protected:
         }
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_open_mapping_exprs());
-        LOG(WARNING) << "==========1 " << debug_string();
         return Status::OK();
     }
 
@@ -321,6 +318,9 @@ protected:
             }
             Block eval_block;
             RETURN_IF_ERROR(_build_constant_filter_block(table_filter, &eval_block));
+            RowDescriptor row_desc;
+            RETURN_IF_ERROR(table_filter.conjunct->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(table_filter.conjunct->open(_runtime_state));
             int result_column_id = -1;
             RETURN_IF_ERROR(table_filter.conjunct->execute(&eval_block, &result_column_id));
             DORIS_CHECK(result_column_id >= 0);
@@ -673,6 +673,8 @@ protected:
             if (parent_null_map != nullptr) {
                 DORIS_CHECK(parent_null_map->size() == rows);
                 null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            } else {
+                std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
             *column = ColumnNullable::create(std::move(result), std::move(null_map));
         } else {
@@ -706,6 +708,8 @@ protected:
             if (parent_null_map != nullptr) {
                 DORIS_CHECK(parent_null_map->size() == rows);
                 null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            } else {
+                std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
             *column = ColumnNullable::create(std::move(result), std::move(null_map));
         } else {
@@ -746,6 +750,8 @@ protected:
             if (parent_null_map != nullptr) {
                 DORIS_CHECK(parent_null_map->size() == rows);
                 null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            } else {
+                std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
             *column = ColumnNullable::create(std::move(result), std::move(null_map));
         } else {

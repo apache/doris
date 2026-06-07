@@ -119,8 +119,8 @@ std::string expr_context_debug_string(const VExprContextSPtr& context) {
         return "VExprContext{root=null}";
     }
     std::ostringstream out;
-    out << "VExprContext{root_name=" << root->expr_name()
-        << ", root_debug=" << root->debug_string() << "}";
+    out << "VExprContext{root_name=" << root->expr_name() << ", root_debug=" << root->debug_string()
+        << "}";
     return out.str();
 }
 
@@ -171,8 +171,9 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
     collect_global_indices(conjunct->root(), &global_indices);
     if (!global_indices.empty()) {
         TableFilter table_filter;
-        table_filter.conjunct = nullptr;
-        RETURN_IF_ERROR(conjunct->clone(state, table_filter.conjunct));
+        VExprSPtr filter_root;
+        RETURN_IF_ERROR(clone_table_expr_tree(conjunct->root(), &filter_root));
+        table_filter.conjunct = VExprContext::create_shared(std::move(filter_root));
         for (const auto global_index : global_indices) {
             table_filter.global_indices.push_back(global_index);
         }
@@ -285,11 +286,10 @@ std::string TableReader::debug_string() const {
         << ", table_column_predicates="
         << table_column_predicates_debug_string(_table_column_predicates)
         << ", conjunct_count=" << _conjuncts.size() << ", conjuncts="
-        << join_table_reader_debug_strings(
-                   _conjuncts,
-                   [](const VExprContextSPtr& conjunct) {
-                       return expr_context_debug_string(conjunct);
-                   })
+        << join_table_reader_debug_strings(_conjuncts,
+                                           [](const VExprContextSPtr& conjunct) {
+                                               return expr_context_debug_string(conjunct);
+                                           })
         << ", file_schema="
         << join_table_reader_debug_strings(_data_reader.file_schema,
                                            [](const ColumnDefinition& field) {

@@ -66,7 +66,7 @@ enum TableVirtualColumnType {
 
 enum class FilterConversionType {
     COPY_DIRECTLY, // filter can be copied directly from file layer without any change, e.g. column type and table type are the same and no complex nested projection is involved.
-    CAST_FILTER,   // filter can be converted from file layer by adding a cast, e.g. column type is nullable but table type is not, or file column has a trivial nested projection but table column has a complex nested projection.
+    CAST_FILTER, // filter can be converted from file layer by adding a cast, e.g. column type is nullable but table type is not, or file column has a trivial nested projection but table column has a complex nested projection.
     READER_EXPRESSION,
     FINALIZE_ONLY, // filter cannot be converted to file layer and should be evaluated at table reader finalize phase, e.g. a child column of a nested column is null in file schema.
     CONSTANT,

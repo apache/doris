@@ -137,6 +137,13 @@ suite("test_insert_into_s3_tvf", "p0,external") {
         ) SELECT * FROM test_insert_into_s3_tvf_src ORDER BY c_int;
     """
 
+    sql """ set enable_file_scanner_v2 = false; """
+    order_qt_s3_parquet_basic_types """
+        SELECT * FROM s3(
+            ${s3ReadProps("basic_parquet/*", "parquet")}
+        ) ORDER BY c_int;
+    """
+    sql """ set enable_file_scanner_v2 = true; """
     order_qt_s3_parquet_basic_types """
         SELECT * FROM s3(
             ${s3ReadProps("basic_parquet/*", "parquet")}

@@ -34,9 +34,9 @@
 #include "exprs/create_predicate_function.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vdirect_in_predicate.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
-#include "exprs/vectorized_fn_call.h"
 #include "format/reader/expr/cast.h"
 #include "format/reader/expr/literal.h"
 #include "format/reader/expr/slot_ref.h"
@@ -310,8 +310,8 @@ std::string TableColumnMapperOptions::debug_string() const {
 
 std::string TableColumnMapper::debug_string(const ColumnDefinition& column) {
     std::ostringstream out;
-    out << "ColumnDefinition{name=" << column.name << ", identifier="
-        << field_debug_string(column.identifier)
+    out << "ColumnDefinition{name=" << column.name
+        << ", identifier=" << field_debug_string(column.identifier)
         << ", local_id=" << column.local_id << ", type=" << data_type_debug_string(column.type)
         << ", children="
         << join_debug_strings(column.children,
@@ -519,10 +519,10 @@ Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
 
     VExprSPtr cloned;
     if (const auto* table_slot_ref = dynamic_cast<const TableSlotRef*>(expr.get())) {
-        cloned = TableSlotRef::create_shared(
-                table_slot_ref->slot_id(), table_slot_ref->column_id(),
-                table_slot_ref->column_uniq_id(), table_slot_ref->data_type(),
-                table_slot_ref->column_name());
+        cloned = TableSlotRef::create_shared(table_slot_ref->slot_id(), table_slot_ref->column_id(),
+                                             table_slot_ref->column_uniq_id(),
+                                             table_slot_ref->data_type(),
+                                             table_slot_ref->column_name());
     } else if (const auto* vslot_ref = dynamic_cast<const VSlotRef*>(expr.get())) {
         cloned = TableSlotRef::create_shared(vslot_ref->slot_id(), vslot_ref->column_id(),
                                              vslot_ref->column_uniq_id(), vslot_ref->data_type(),
@@ -1258,8 +1258,8 @@ static bool rewrite_binary_slot_literal_predicate(
         return false;
     }
 
-    auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info,
-                                                         rewrite_context);
+    auto rewritten_literal =
+            rewrite_literal_to_file_type(literal_expr, *rewrite_info, rewrite_context);
     if (rewritten_literal == nullptr) {
         children[literal_child_idx] = original_table_literal(literal_expr, rewrite_context);
         expr->set_children(std::move(children));
@@ -1295,15 +1295,15 @@ static bool rewrite_in_slot_literal_predicate(
         if (literal_expr == nullptr) {
             return false;
         }
-        auto rewritten_literal = rewrite_literal_to_file_type(literal_expr, *rewrite_info,
-                                                             rewrite_context);
+        auto rewritten_literal =
+                rewrite_literal_to_file_type(literal_expr, *rewrite_info, rewrite_context);
         if (rewritten_literal == nullptr) {
             for (size_t restore_idx = 1; restore_idx < children.size(); ++restore_idx) {
                 auto restore_literal = unwrap_literal_for_file_cast(children[restore_idx],
                                                                     rewrite_info->table_type);
                 if (restore_literal != nullptr) {
-                    children[restore_idx] = original_table_literal(restore_literal,
-                                                                   rewrite_context);
+                    children[restore_idx] =
+                            original_table_literal(restore_literal, rewrite_context);
                 }
             }
             expr->set_children(std::move(children));
@@ -1344,8 +1344,7 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
                 // struct_element must see the actual file struct layout. Casting the parent struct
                 // to the output projection can hide filter-only children such as `s.id` in
                 // `SELECT s.name WHERE s.id > 5`.
-                children[0] = create_file_slot_ref(*slot_ref, rewrite_it->second,
-                                                   rewrite_context);
+                children[0] = create_file_slot_ref(*slot_ref, rewrite_it->second, rewrite_context);
                 expr->set_children(std::move(children));
                 return expr;
             }
@@ -1383,8 +1382,8 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
                     global_to_file_slot.find(GlobalIndex(cast_set<size_t>(slot_ref->slot_id())));
             if (rewrite_it != global_to_file_slot.end() &&
                 expr->data_type()->equals(*rewrite_it->second.table_type)) {
-                auto rewritten_child = create_file_slot_ref(*slot_ref, rewrite_it->second,
-                                                            rewrite_context);
+                auto rewritten_child =
+                        create_file_slot_ref(*slot_ref, rewrite_it->second, rewrite_context);
                 if (rewrite_it->second.file_type->equals(*rewrite_it->second.table_type)) {
                     return rewritten_child;
                 }
@@ -1973,9 +1972,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             if (!clone_status.ok()) {
                 continue;
             }
-            auto localized_root =
-                    rewrite_table_expr_to_file_expr(rewrite_root, global_to_file_slot,
-                                                    &rewrite_context);
+            auto localized_root = rewrite_table_expr_to_file_expr(rewrite_root, global_to_file_slot,
+                                                                  &rewrite_context);
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
@@ -2063,7 +2061,6 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
             // If complex projection prunes some children, we have to rebuild the projected file type to make sure the reader expression can find the correct child types by name.
             RETURN_IF_ERROR(build_projected_child_type(mapping->file_type, mapping->child_mappings,
                                                        &mapping->file_type));
-            DCHECK(!complex_projection_has_pruned_children(*mapping));
             DCHECK(mapping->table_type != nullptr);
             mapping->is_trivial = mapping->table_type->equals(*mapping->file_type);
             // TODO: ? READER_EXPRESSION

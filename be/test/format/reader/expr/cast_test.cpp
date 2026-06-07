@@ -681,8 +681,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     reader::FileScanRequest bigint_request;
     ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns,
-                                             &bigint_request, &state)
+                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request,
+                                             &state)
                         .ok());
     ASSERT_EQ(bigint_request.conjuncts.size(), 1);
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
@@ -781,8 +781,8 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     reader::FileScanRequest bigint_request;
     ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns,
-                                             &bigint_request, &state)
+                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request,
+                                             &state)
                         .ok());
     ASSERT_EQ(bigint_request.conjuncts.size(), 1);
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
@@ -864,13 +864,12 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
     table_filter.global_indices = {reader::GlobalIndex(0)};
 
     reader::FileScanRequest first_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &first_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &first_request,
+                                           &state)
+                        .ok());
     reader::FileScanRequest second_request;
-    ASSERT_TRUE(mapper
-                        .create_scan_request({table_filter}, {}, projected_columns,
-                                             &second_request, &state)
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &second_request,
+                                           &state)
                         .ok());
 
     ASSERT_EQ(second_request.conjuncts.size(), 1);
@@ -923,8 +922,8 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     reader::FileScanRequest bigint_request;
     ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns,
-                                             &bigint_request, &state)
+                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request,
+                                             &state)
                         .ok());
 
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();

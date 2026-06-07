@@ -45,6 +45,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "format/format_common.h"
 #include "format/reader/expr/slot_ref.h"
@@ -151,38 +152,43 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByLocalId) {
     EXPECT_TRUE(projected_type->get_element(0)->equals(*string_type));
 }
 
-class TableInt32GreaterThanExpr final : public VExpr {
+class TestFunctionExpr final : public VectorizedFnCall {
 public:
-    TableInt32GreaterThanExpr(int slot_id, int column_id, int32_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
-        add_child(TableSlotRef::create_shared(slot_id, column_id, slot_id,
-                                              std::make_shared<DataTypeInt32>(), "id"));
-        set_node_type(TExprNodeType::BINARY_PRED);
-        _opcode = TExprOpcode::GT;
-    }
-
-    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override {
-        const auto* slot_ref = assert_cast<const VSlotRef*>(get_child(0).get());
-        const auto& input = assert_cast<const ColumnInt32&>(
-                *block->get_by_position(slot_ref->column_id()).column);
-        auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
-        result_data.resize(count);
-        for (size_t row = 0; row < count; ++row) {
-            const size_t input_row = selector == nullptr ? row : (*selector)[row];
-            result_data[row] = input.get_element(input_row) > _value;
-        }
-        result_column = std::move(result);
-        return Status::OK();
+    TestFunctionExpr(const std::string& function_name, DataTypePtr data_type,
+                     TExprNodeType::type node_type = TExprNodeType::FUNCTION_CALL,
+                     TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE)
+            : VectorizedFnCall(), _expr_name(function_name) {
+        _data_type = std::move(data_type);
+        TFunctionName fn_name;
+        fn_name.__set_function_name(function_name);
+        _fn.__set_name(fn_name);
+        set_node_type(node_type);
+        _opcode = opcode;
     }
 
     const std::string& expr_name() const override { return _expr_name; }
 
 private:
-    const int32_t _value;
-    const std::string _expr_name = "TableInt32GreaterThanExpr";
+    const std::string _expr_name;
 };
+
+VExprSPtr table_int32_slot_ref(int slot_id, int column_id, const std::string& column_name) {
+    return TableSlotRef::create_shared(slot_id, column_id, slot_id,
+                                       std::make_shared<DataTypeInt32>(), column_name);
+}
+
+VExprSPtr table_int32_literal(int32_t value) {
+    return TableLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                       Field::create_field<TYPE_INT>(value));
+}
+
+VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t value) {
+    auto expr = std::make_shared<TestFunctionExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                   TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    expr->add_child(table_int32_slot_ref(slot_id, column_id, "id"));
+    expr->add_child(table_int32_literal(value));
+    return expr;
+}
 
 class IcebergTableReaderDeleteFileTestHelper final : public doris::iceberg::IcebergTableReader {
 public:
@@ -236,85 +242,33 @@ private:
     DeleteRows _delete_rows_storage;
 };
 
-class TableInt32SumGreaterThanExpr final : public VExpr {
-public:
-    TableInt32SumGreaterThanExpr(int left_slot_id, int left_column_id, int right_slot_id,
-                                 int right_column_id, int32_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
-        add_child(TableSlotRef::create_shared(left_slot_id, left_column_id, left_slot_id,
-                                              std::make_shared<DataTypeInt32>(), "id"));
-        add_child(TableSlotRef::create_shared(right_slot_id, right_column_id, right_slot_id,
-                                              std::make_shared<DataTypeInt32>(), "score"));
-        set_node_type(TExprNodeType::BINARY_PRED);
-        _opcode = TExprOpcode::GT;
-    }
+VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
+                               int right_column_id) {
+    auto expr = std::make_shared<TestFunctionExpr>("add", std::make_shared<DataTypeInt32>());
+    expr->add_child(table_int32_slot_ref(left_slot_id, left_column_id, "id"));
+    expr->add_child(table_int32_slot_ref(right_slot_id, right_column_id, "score"));
+    return expr;
+}
 
-    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override {
-        const auto* left_slot_ref = assert_cast<const VSlotRef*>(get_child(0).get());
-        const auto* right_slot_ref = assert_cast<const VSlotRef*>(get_child(1).get());
-        const auto& left_input = assert_cast<const ColumnInt32&>(
-                *block->get_by_position(left_slot_ref->column_id()).column);
-        const auto& right_input = assert_cast<const ColumnInt32&>(
-                *block->get_by_position(right_slot_ref->column_id()).column);
-        auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
-        result_data.resize(count);
-        for (size_t row = 0; row < count; ++row) {
-            const size_t input_row = selector == nullptr ? row : (*selector)[row];
-            result_data[row] =
-                    left_input.get_element(input_row) + right_input.get_element(input_row) > _value;
-        }
-        result_column = std::move(result);
-        return Status::OK();
-    }
+VExprSPtr table_int32_sum_greater_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
+                                            int right_column_id, int32_t value) {
+    auto expr = std::make_shared<TestFunctionExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                   TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    expr->add_child(
+            table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
+    expr->add_child(table_int32_literal(value));
+    return expr;
+}
 
-    const std::string& expr_name() const override { return _expr_name; }
-
-private:
-    const int32_t _value;
-    const std::string _expr_name = "TableInt32SumGreaterThanExpr";
-};
-
-class TableInt32SumLessThanExpr final : public VExpr {
-public:
-    TableInt32SumLessThanExpr(int left_slot_id, int left_column_id, int right_slot_id,
-                              int right_column_id, int32_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
-        add_child(TableSlotRef::create_shared(left_slot_id, left_column_id, left_slot_id,
-                                              std::make_shared<DataTypeInt32>(), "id"));
-        add_child(TableSlotRef::create_shared(right_slot_id, right_column_id, right_slot_id,
-                                              std::make_shared<DataTypeInt32>(), "score"));
-        set_node_type(TExprNodeType::BINARY_PRED);
-        _opcode = TExprOpcode::LT;
-    }
-
-    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override {
-        const auto* left_slot_ref = assert_cast<const VSlotRef*>(get_child(0).get());
-        const auto* right_slot_ref = assert_cast<const VSlotRef*>(get_child(1).get());
-        const auto& left_input = assert_cast<const ColumnInt32&>(
-                *block->get_by_position(left_slot_ref->column_id()).column);
-        const auto& right_input = assert_cast<const ColumnInt32&>(
-                *block->get_by_position(right_slot_ref->column_id()).column);
-        auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
-        result_data.resize(count);
-        for (size_t row = 0; row < count; ++row) {
-            const size_t input_row = selector == nullptr ? row : (*selector)[row];
-            result_data[row] =
-                    left_input.get_element(input_row) + right_input.get_element(input_row) < _value;
-        }
-        result_column = std::move(result);
-        return Status::OK();
-    }
-
-    const std::string& expr_name() const override { return _expr_name; }
-
-private:
-    const int32_t _value;
-    const std::string _expr_name = "TableInt32SumLessThanExpr";
-};
+VExprSPtr table_int32_sum_less_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
+                                         int right_column_id, int32_t value) {
+    auto expr = std::make_shared<TestFunctionExpr>("lt", std::make_shared<DataTypeUInt8>(),
+                                                   TExprNodeType::BINARY_PRED, TExprOpcode::LT);
+    expr->add_child(
+            table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
+    expr->add_child(table_int32_literal(value));
+    return expr;
+}
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     std::shared_ptr<arrow::Array> array;
@@ -809,6 +763,21 @@ ColumnDefinition make_file_column(int32_t id, const std::string& name, const Dat
     return field;
 }
 
+void set_name_identifiers(std::vector<ColumnDefinition>* columns);
+
+void set_name_identifier(ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    column->identifier = Field::create_field<TYPE_STRING>(column->name);
+    set_name_identifiers(&column->children);
+}
+
+void set_name_identifiers(std::vector<ColumnDefinition>* columns) {
+    DORIS_CHECK(columns != nullptr);
+    for (auto& column : *columns) {
+        set_name_identifier(&column);
+    }
+}
+
 void add_column_predicate(TableColumnPredicates* column_predicates, GlobalIndex global_index,
                           std::shared_ptr<ColumnPredicate> predicate) {
     auto& entry = (*column_predicates)[global_index];
@@ -843,13 +812,13 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 0))},
+                                            &state, table_int32_greater_than_expr(1, 1, 0))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -875,7 +844,8 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
 
         Block block = build_table_block(projected_columns);
         bool eos = false;
-        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        auto status = reader.get_block(&block, &eos);
+        ASSERT_TRUE(status.ok()) << status;
         ASSERT_FALSE(eos);
 
         const auto& value_column =
@@ -908,6 +878,7 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -949,6 +920,7 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -996,6 +968,7 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt64>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1040,9 +1013,10 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"id"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child};
-    const std::vector<ColumnDefinition> projected_columns = {struct_column};
+    std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1088,9 +1062,10 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
     auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
-    const std::vector<ColumnDefinition> projected_columns = {list_column};
+    std::vector<ColumnDefinition> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1152,13 +1127,16 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     auto a_child = make_table_column(0, "a", int_type);
     auto element_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
-    auto element_child = make_table_column(0, "element", element_type);
+    auto nullable_element_type = make_nullable(element_type);
+    auto element_child = make_table_column(0, "element", nullable_element_type);
     element_child.children = {a_child};
-    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    auto list_column =
+            make_table_column(100, "xs", std::make_shared<DataTypeArray>(nullable_element_type));
     list_column.children = {element_child};
-    const std::vector<ColumnDefinition> projected_columns = {list_column};
+    std::vector<ColumnDefinition> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1209,19 +1187,23 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
 
     const auto key_type = std::make_shared<DataTypeInt32>();
     const auto string_type = std::make_shared<DataTypeString>();
+    auto key_child = make_table_column(0, "key", key_type);
     auto b_child = make_table_column(1, "b", string_type);
     auto value_type = std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"b"});
-    auto value_child = make_table_column(1, "value", value_type);
+    auto nullable_value_type = make_nullable(value_type);
+    auto value_child = make_table_column(1, "value", nullable_value_type);
     value_child.children = {b_child};
-    auto entry_type = std::make_shared<DataTypeStruct>(DataTypes {value_type}, Strings {"value"});
-    auto entry_child = make_table_column(0, "entries", entry_type);
-    entry_child.children = {value_child};
-    auto map_column =
-            make_table_column(100, "kv", std::make_shared<DataTypeMap>(key_type, value_type));
+    auto entry_type = std::make_shared<DataTypeStruct>(DataTypes {key_type, nullable_value_type},
+                                                       Strings {"key", "value"});
+    auto entry_child = make_table_column(0, "key_value", entry_type);
+    entry_child.children = {key_child, value_child};
+    auto map_column = make_table_column(
+            100, "kv", std::make_shared<DataTypeMap>(key_type, nullable_value_type));
     map_column.children = {entry_child};
-    const std::vector<ColumnDefinition> projected_columns = {map_column};
+    std::vector<ColumnDefinition> projected_columns = {map_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1252,7 +1234,12 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     EXPECT_EQ(keys.get_element(0), 1);
     EXPECT_EQ(keys.get_element(1), 2);
     EXPECT_EQ(keys.get_element(2), 3);
-    const auto& value_struct = assert_cast<const ColumnStruct&>(map_result.get_values());
+    const auto& nullable_values = assert_cast<const ColumnNullable&>(map_result.get_values());
+    for (const auto is_null : nullable_values.get_null_map_data()) {
+        EXPECT_EQ(is_null, 0);
+    }
+    const auto& value_struct =
+            assert_cast<const ColumnStruct&>(nullable_values.get_nested_column());
     ASSERT_EQ(value_struct.get_columns().size(), 1);
     const auto& b_values = assert_cast<const ColumnString&>(value_struct.get_column(0));
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
@@ -1277,6 +1264,7 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1320,6 +1308,7 @@ TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1360,13 +1349,13 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2))},
+                                            &state, table_int32_greater_than_expr(0, 0, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1410,6 +1399,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1453,6 +1443,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
             make_table_column(99, "missing_id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1495,13 +1486,13 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 2))},
+                                            &state, table_int32_greater_than_expr(1, 1, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1514,9 +1505,9 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
 
-    // open_reader() should convert the table-level conjunct on projected column id 0 into
+    // open_reader() should convert the table-level conjunct on projected column id 1 into
     // _table_filters before ColumnMapper creates the FileScanRequest. ColumnMapper then rewrites
-    // the conjunct's slot ref from table column id 0 to the file-local block position used by
+    // the conjunct's slot ref from table column id 1 to the file-local block position used by
     // ParquetReader. The projection order intentionally puts value before id, so the id filter
     // column is not at position 0 in the file block.
     Block block = build_table_block(projected_columns);
@@ -1530,22 +1521,21 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     ASSERT_TRUE(reader.close().ok());
 
     TableReader filtered_reader;
-    ASSERT_TRUE(
-            filtered_reader
-                    .init({
-                            .projected_columns = projected_columns,
-                            .column_predicates = {},
-                            .conjuncts = {prepared_conjunct(
-                                    &state, std::make_shared<TableInt32GreaterThanExpr>(0, 0, 4))},
-                            .format = FileFormat::PARQUET,
-                            .scan_params = nullptr,
-                            .io_ctx = nullptr,
-                            .runtime_state = &state,
-                            .scanner_profile = nullptr,
-                            .allow_missing_columns = true,
-                            .profile = nullptr,
-                    })
-                    .ok());
+    ASSERT_TRUE(filtered_reader
+                        .init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = {},
+                                .conjuncts = {prepared_conjunct(
+                                        &state, table_int32_greater_than_expr(1, 1, 4))},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
+                        })
+                        .ok());
     ASSERT_TRUE(filtered_reader.prepare_split(build_split_options(file_path)).ok());
 
     block = build_table_block(projected_columns);
@@ -1580,6 +1570,7 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1636,6 +1627,7 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1690,13 +1682,12 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
 
     std::vector<TableFilter> table_filters;
     table_filters.push_back({
-            .conjunct = VExprContext::create_shared(
-                    std::make_shared<TableInt32SumGreaterThanExpr>(0, 0, 1, 1, 1)),
+            .conjunct =
+                    VExprContext::create_shared(table_int32_sum_greater_than_expr(0, 0, 1, 1, 1)),
             .global_indices = {GlobalIndex(0), GlobalIndex(1)},
     });
     table_filters.push_back({
-            .conjunct = VExprContext::create_shared(
-                    std::make_shared<TableInt32SumLessThanExpr>(0, 0, 2, 2, 3)),
+            .conjunct = VExprContext::create_shared(table_int32_sum_less_than_expr(0, 0, 2, 2, 3)),
             .global_indices = {GlobalIndex(0), GlobalIndex(2)},
     });
 
@@ -1736,8 +1727,7 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableFilter table_filter {
-            .conjunct = VExprContext::create_shared(
-                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 1)),
             .global_indices = {GlobalIndex(0)},
     };
 
@@ -1767,8 +1757,7 @@ TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableFilter table_filter {
-            .conjunct = VExprContext::create_shared(
-                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 1)),
             .global_indices = {GlobalIndex(0)},
     };
 
@@ -1813,8 +1802,7 @@ TEST(TableReaderTest, CreateScanRequestBuildsConstantFilterEntry) {
                         .ok());
 
     TableFilter table_filter {
-            .conjunct = VExprContext::create_shared(
-                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 1)),
             .global_indices = {GlobalIndex(0)},
     };
 
@@ -1834,7 +1822,7 @@ TEST(TableReaderTest, CreateScanRequestBuildsConstantFilterEntry) {
 
 TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<ColumnDefinition> projected_columns = {
+    std::vector<ColumnDefinition> projected_columns = {
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
@@ -1844,11 +1832,11 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    set_name_identifiers(&projected_columns);
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableFilter table_filter {
-            .conjunct = VExprContext::create_shared(
-                    std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1)),
+            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 1)),
             .global_indices = {GlobalIndex(0)},
     };
 
@@ -1933,7 +1921,7 @@ TEST(TableColumnMapperMatcherTest, NestedIndexMappingUsesTableStructChildIndex) 
 
 TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<ColumnDefinition> projected_columns = {
+    std::vector<ColumnDefinition> projected_columns = {
             make_table_column(10, "id", int_type),
             make_table_column(11, "score", int_type),
     };
@@ -1943,6 +1931,7 @@ TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     };
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    set_name_identifiers(&projected_columns);
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableColumnPredicates column_predicates;
@@ -1975,22 +1964,23 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
     projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
-    ASSERT_TRUE(reader.init({
-                                    .projected_columns = projected_columns,
-                                    .column_predicates = {},
-                                    .conjuncts = {prepared_conjunct(
-                                            &state, std::make_shared<TableInt32SumGreaterThanExpr>(
-                                                            0, 0, 1, 1, 8))},
-                                    .format = FileFormat::PARQUET,
-                                    .scan_params = nullptr,
-                                    .io_ctx = nullptr,
-                                    .runtime_state = &state,
-                                    .scanner_profile = nullptr,
-                                    .allow_missing_columns = true,
-                                    .profile = nullptr,
-                            })
-                        .ok());
+    ASSERT_TRUE(
+            reader.init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = {},
+                                .conjuncts = {prepared_conjunct(
+                                        &state, table_int32_sum_greater_than_expr(1, 1, 2, 2, 8))},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .allow_missing_columns = true,
+                                .profile = nullptr,
+                        })
+                    .ok());
 
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
 
@@ -2030,6 +2020,7 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
             make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2074,6 +2065,7 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
             make_table_column(99, "missing_value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2120,9 +2112,10 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child, missing_child};
-    const std::vector<ColumnDefinition> projected_columns = {struct_column};
+    std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2172,6 +2165,7 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     projected_columns.push_back(std::move(partition_column));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -2222,13 +2216,13 @@ TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
     projected_columns.push_back(std::move(partition_column));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 10))},
+                                            &state, table_int32_greater_than_expr(0, 0, 10))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2268,13 +2262,13 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
     projected_columns.push_back(std::move(partition_column));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1))},
+                                            &state, table_int32_greater_than_expr(2, 2, 1))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2325,8 +2319,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1))},
+                                            &state, table_int32_greater_than_expr(2, 2, 1))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2381,8 +2374,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state,
-                                            std::make_shared<TableInt32GreaterThanExpr>(0, 0, 1))},
+                                            &state, table_int32_greater_than_expr(2, 2, 1))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -3081,6 +3073,7 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
     projected_columns.push_back(make_table_column(2, "value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -3130,6 +3123,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
     projected_columns.push_back(make_table_column(99, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -3177,6 +3171,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
     projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
