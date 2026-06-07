@@ -265,7 +265,11 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
             for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
                 result.add(MaxComputeScanRange.builder()
                         .start(((IndexedInputSplit) split).getSplitIndex())
-                        .length(splitByteSize)
+                        // -1 is the BE sentinel that distinguishes BYTE_SIZE from ROW_OFFSET
+                        // splits (MaxComputeJniScanner: split_size == -1 => BYTE_SIZE). The real
+                        // byte size lives in the session, not the range; mirrors legacy
+                        // MaxComputeScanNode's MaxComputeSplit(..., length=-1, ...).
+                        .length(-1L)
                         .scanSerialize(serialized)
                         .sessionId(split.getSessionId())
                         .splitType(MaxComputeScanRange.SPLIT_TYPE_BYTE_SIZE)

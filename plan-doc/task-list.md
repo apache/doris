@@ -12,7 +12,7 @@
 | # | issue | phase | sev | layer | 设计 | 实现 | 编译+UT | review 轮次 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | FIX-READ-DESC  | 1 read | blocker | connector | ✅ | ✅ | ✅ | 3 轮→收敛 | ✅ DONE (commit 待下方) |
-| 2 | FIX-READ-SPLIT | 1 read | blocker | connector | ⬜ | ⬜ | ⬜ | — | ⬜ TODO |
+| 2 | FIX-READ-SPLIT | 1 read | blocker | connector | ✅ | ✅ | ✅ | 1 轮→收敛 | ✅ DONE (commit 待下方) |
 | 3 | FIX-DDL-ENGINE | 2 DDL  | blocker | fe-core   | ⬜ | ⬜ | ⬜ | — | ⬜ TODO |
 | 4 | FIX-DDL-REMOTE | 2 DDL  | major   | fe-core   | ⬜ | ⬜ | ⬜ | — | ⬜ TODO |
 | 5 | FIX-PART-GATES | 3 part | major   | fe-core   | ⬜ | ⬜ | ⬜ | — | ⬜ TODO (⚠️OQ-6 待定) |
@@ -33,4 +33,5 @@
 
 ## review 轮次累计结论(防跨轮矛盾,精简索引;详见各 issue round 文件)
 
+- **FIX-READ-SPLIT (1 轮收敛)**: `MaxComputeScanPlanProvider:272` byte_size 分支 `.length(splitByteSize)`→`.length(-1L)`,恢复 BE BYTE_SIZE/ROW_OFFSET sentinel(否则默认 split 策略静默读错数据)。provider-level UT mutation 自证。2 reviewer CLEAN:legacy parity 精确;3 个 getLength 消费者(含 FileSplit.length→FederationBackendPolicy/FileQueryScanNode)均 benign 且更贴 legacy。⚠️登记本批外: PluginDrivenScanNode 未 override isBatchMode(分区表不走 batch split,READ-P3 同族)。
 - **FIX-READ-DESC (3 轮收敛)**: 生产修复(MaxComputeConnectorMetadata.buildTableDescriptor override + ctor 透传 endpoint/quota/properties;getMetadata passthrough)R1 正确性/BE-parity + R3 回归/build 两维 CLEAN。R1 R2 抓 [medium]=fe-core 调用点 wiring 无测试守门+doc 过度声明 → R2 补 `PluginDrivenExternalTableEngineTest#testToThriftPassesRemoteNamesAndNumColsToBuildTableDescriptor`(mutation 自证)→ R3 独立验证 CLEAN。结论基线: project/table 用 remote 名(OQ-7 有意修正);deprecated TMCTable 字段不 set(同 legacy,空串非 UB);连接器测试须 `-am`。
