@@ -775,8 +775,7 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
 bool FSFileCacheStorage::handle_already_loaded_block(
         BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset, size_t new_size,
         const CacheContext& context, const std::string& key_path, const std::string& offset_path,
-        bool is_tmp,
-        std::lock_guard<std::mutex>& cache_lock) const {
+        bool is_tmp, std::lock_guard<std::mutex>& cache_lock) const {
     auto file_it = mgr->_files.find(hash);
     if (file_it == mgr->_files.end()) {
         return false;
@@ -805,9 +804,8 @@ bool FSFileCacheStorage::handle_already_loaded_block(
     if (accepted_storage_path && old_size != new_size) {
         mgr->reset_range(hash, offset, old_size, new_size, cache_lock);
     }
-    if (accepted_storage_path &&
-        (block->cache_type() != context.cache_type ||
-         block->expiration_time() != context.expiration_time)) {
+    if (accepted_storage_path && (block->cache_type() != context.cache_type ||
+                                  block->expiration_time() != context.expiration_time)) {
         mgr->update_hash_logical_meta(hash, context.cache_type, context.expiration_time,
                                       cache_lock);
     }
@@ -816,8 +814,7 @@ bool FSFileCacheStorage::handle_already_loaded_block(
 
 void FSFileCacheStorage::load_blocks_from_dir_unlocked(
         BlockFileCache* mgr, const UInt128Wrapper& hash, const KeyDir& key_dir,
-        const FileCacheKey* logical_key,
-        std::lock_guard<std::mutex>& cache_lock) const {
+        const FileCacheKey* logical_key, std::lock_guard<std::mutex>& cache_lock) const {
     CacheContext context_original;
     context_original.query_id = TUniqueId();
     context_original.expiration_time =
@@ -836,8 +833,8 @@ void FSFileCacheStorage::load_blocks_from_dir_unlocked(
         bool is_tmp = false;
         FileCacheType cache_type = FileCacheType::NORMAL;
         if (!parse_filename_suffix_to_cache_type(fs, check_it->path().filename().native(),
-                                                 key_dir.expiration_time, size, &offset,
-                                                 &is_tmp, &cache_type)) {
+                                                 key_dir.expiration_time, size, &offset, &is_tmp,
+                                                 &cache_type)) {
             continue;
         }
         context_original.cache_type = logical_key == nullptr ? cache_type : logical_key->meta.type;
@@ -1023,10 +1020,9 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         return;
     }
 
-    load_blocks_from_dir_unlocked(mgr, key.hash,
-                                  KeyDir {.expiration_time = key.meta.expiration_time,
-                                          .path = key_path},
-                                  &key, cache_lock);
+    load_blocks_from_dir_unlocked(
+            mgr, key.hash, KeyDir {.expiration_time = key.meta.expiration_time, .path = key_path},
+            &key, cache_lock);
     if (mgr->get_cell(key.hash, key.offset, cache_lock) != nullptr) {
         return;
     }

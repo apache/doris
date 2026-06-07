@@ -110,7 +110,8 @@ bool wait_async_open(BlockFileCache& cache) {
     return cache.get_async_open_success();
 }
 
-std::string cache_key_dir(BlockFileCache& cache, const UInt128Wrapper& key, uint64_t expiration_time) {
+std::string cache_key_dir(BlockFileCache& cache, const UInt128Wrapper& key,
+                          uint64_t expiration_time) {
     auto* storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
     EXPECT_NE(storage, nullptr);
     if (storage == nullptr) {
@@ -2475,8 +2476,8 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal) {
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
             std::string dir = storage->get_path_in_local_cache(key2, cur_time + 180);
-            EXPECT_TRUE(fs::exists(
-                    storage->get_path_in_local_cache(dir, 50, io::FileCacheType::TTL)));
+            EXPECT_TRUE(
+                    fs::exists(storage->get_path_in_local_cache(dir, 50, io::FileCacheType::TTL)));
             EXPECT_FALSE(fs::exists(storage->get_path_in_local_cache(key2, 0)));
         }
         auto blocks = fromHolder(holder);
@@ -5795,7 +5796,8 @@ TEST_F(BlockFileCacheTest, ttl_new_hole_inherits_existing_storage_expiration) {
     EXPECT_EQ(blocks[1]->storage_expiration_time(), old_expiration);
     ASSERT_TRUE(blocks[1]->get_or_set_downloader() == io::FileBlock::get_caller_id());
     download(blocks[1]);
-    EXPECT_TRUE(fs::exists(cache_file_path(cache, key, old_expiration, 10, io::FileCacheType::TTL)));
+    EXPECT_TRUE(
+            fs::exists(cache_file_path(cache, key, old_expiration, 10, io::FileCacheType::TTL)));
     EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, new_expiration)));
     EXPECT_EQ(count_cache_key_dirs(cache_base_path, key), 1);
 }
@@ -5859,6 +5861,62 @@ TEST_F(BlockFileCacheTest, ttl_modify_expiration_updates_logical_only) {
     EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, old_expiration)));
 }
 
+TEST_F(BlockFileCacheTest, ttl_gc_before_finalize_keeps_downloading_storage_path) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t old_expiration = UnixSeconds() + 3;
+    context.expiration_time = old_expiration;
+    auto key = io::BlockFileCache::hash("ttl_gc_before_finalize");
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    ASSERT_TRUE(wait_async_open(cache));
+    {
+        auto holder = cache.get_or_set(key, 0, 10, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        ASSERT_TRUE(blocks[0]->append(Slice("0000000000", 10)).ok());
+
+        cache.modify_expiration_time(key, 0);
+        EXPECT_EQ(blocks[0]->cache_type(), io::FileCacheType::NORMAL);
+        EXPECT_EQ(blocks[0]->expiration_time(), 0);
+        EXPECT_EQ(blocks[0]->storage_expiration_time(), old_expiration);
+        EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, 0)));
+
+        ASSERT_TRUE(blocks[0]->finalize().ok());
+        ASSERT_EQ(blocks[0]->state(), io::FileBlock::State::DOWNLOADED);
+        EXPECT_TRUE(
+                fs::exists(cache_file_path(cache, key, old_expiration, 0, io::FileCacheType::TTL)));
+        EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, 0)));
+
+        std::string buffer(10, '1');
+        ASSERT_TRUE(blocks[0]->read(Slice(buffer.data(), buffer.size()), 0).ok());
+        EXPECT_EQ(buffer, std::string(10, '0'));
+    }
+    cache.remove_if_cached(key);
+    EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, old_expiration)));
+    EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, 0)));
+}
+
 TEST_F(BlockFileCacheTest, ttl_lazy_load_misses_exact_dir_and_loads_old_hash_dirs) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -5919,7 +5977,8 @@ TEST_F(BlockFileCacheTest, ttl_lazy_load_misses_exact_dir_and_loads_old_hash_dir
     ASSERT_TRUE(blocks[1]->get_or_set_downloader() == io::FileBlock::get_caller_id());
     download(blocks[1]);
     EXPECT_EQ(blocks[1]->storage_expiration_time(), old_expiration);
-    EXPECT_TRUE(fs::exists(cache_file_path(cache, key, old_expiration, 10, io::FileCacheType::TTL)));
+    EXPECT_TRUE(
+            fs::exists(cache_file_path(cache, key, old_expiration, 10, io::FileCacheType::TTL)));
     EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, new_expiration)));
 }
 
@@ -5959,7 +6018,8 @@ TEST_F(BlockFileCacheTest, remove_if_cached_removes_unloaded_hash_dirs) {
         ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
         download(blocks[0]);
     }
-    write_cache_file(cache, key, stale_expiration, 20, io::FileCacheType::TTL, std::string(10, 's'));
+    write_cache_file(cache, key, stale_expiration, 20, io::FileCacheType::TTL,
+                     std::string(10, 's'));
     ASSERT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
 
     cache.remove_if_cached(key);

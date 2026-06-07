@@ -94,8 +94,7 @@ public:
     bool handle_already_loaded_block(BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset,
                                      size_t new_size, const CacheContext& context,
                                      const std::string& key_path, const std::string& offset_path,
-                                     bool is_tmp,
-                                     std::lock_guard<std::mutex>& cache_lock) const;
+                                     bool is_tmp, std::lock_guard<std::mutex>& cache_lock) const;
 
 private:
     struct KeyDir {
@@ -126,8 +125,7 @@ private:
     [[nodiscard]] std::vector<KeyDir> list_key_dirs(const UInt128Wrapper& hash) const;
 
     void load_blocks_from_dir_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
-                                       const KeyDir& key_dir,
-                                       const FileCacheKey* logical_key,
+                                       const KeyDir& key_dir, const FileCacheKey* logical_key,
                                        std::lock_guard<std::mutex>& cache_lock) const;
 
     void drop_unbound_loaded_blocks(BlockFileCache* mgr) const;
