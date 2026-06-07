@@ -40,6 +40,17 @@ Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
                                 get_name());
 }
 
+Status DataTypeSerDe::read_field_from_decoded_value(const IDataType& data_type, Field* field,
+                                                    const DecodedColumnView& view) const {
+    DORIS_CHECK(field != nullptr);
+    DORIS_CHECK(view.row_count == 1);
+    auto column = data_type.create_column();
+    RETURN_IF_ERROR(read_column_from_decoded_values(*column, view));
+    DORIS_CHECK(column->size() == 1);
+    column->get(0, *field);
+    return Status::OK();
+}
+
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
     DataTypeSerDeSPtrs serdes;
     serdes.reserve(types.size());
