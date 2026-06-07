@@ -290,6 +290,13 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
         return true;
     }
 
+    @Override
+    public boolean supportsInsertOverwrite() {
+        // MaxCompute honors overwrite end-to-end: MaxComputeWritePlanProvider sets
+        // builder.overwrite(true) on the write session when the sink requests it.
+        return true;
+    }
+
     /**
      * MaxCompute uses the SPI transaction model: the engine opens a
      * {@link MaxComputeConnectorTransaction} via {@link #beginTransaction} and binds it to

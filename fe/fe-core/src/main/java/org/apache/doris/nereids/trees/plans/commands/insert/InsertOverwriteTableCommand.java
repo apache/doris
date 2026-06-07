@@ -26,6 +26,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -141,7 +143,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         // check allow insert overwrite
         if (!allowInsertOverwrite(targetTableIf)) {
-            String errMsg = "insert into overwrite only support OLAP/Remote OLAP and HMS/ICEBERG table."
+            String errMsg = "insert into overwrite only support OLAP/Remote OLAP table and external"
+                    + " tables (HMS/Iceberg, or a plugin-driven connector that supports overwrite)."
                     + " But current table type is " + targetTableIf.getType();
             LOG.error(errMsg);
             throw new AnalysisException(errMsg);
@@ -318,8 +321,23 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         } else {
             return targetTable instanceof HMSExternalTable
                     || targetTable instanceof IcebergExternalTable
-                    || targetTable instanceof MaxComputeExternalTable;
+                    || targetTable instanceof MaxComputeExternalTable
+                    || (targetTable instanceof PluginDrivenExternalTable
+                            && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable));
         }
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table supports INSERT OVERWRITE only if its connector
+     * declares the capability. Connectors that support plain INSERT but not overwrite (e.g. jdbc)
+     * must be rejected here so the command fails loud, rather than reaching the sink and silently
+     * degrading OVERWRITE to a plain append. Mirrors the connector-access pattern in
+     * {@code PhysicalPlanTranslator}.
+     */
+    private static boolean pluginConnectorSupportsInsertOverwrite(PluginDrivenExternalTable table) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        return catalog.getConnector().getMetadata(catalog.buildConnectorSession())
+                .supportsInsertOverwrite();
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,

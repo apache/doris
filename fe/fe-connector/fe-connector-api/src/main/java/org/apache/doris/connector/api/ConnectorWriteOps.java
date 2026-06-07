@@ -48,6 +48,16 @@ public interface ConnectorWriteOps {
         return false;
     }
 
+    /**
+     * Returns {@code true} if this connector supports INSERT OVERWRITE (truncate-and-insert)
+     * semantics. A connector that supports plain INSERT but not overwrite must keep this
+     * {@code false} so callers reject the command up front (fail loud) instead of silently
+     * degrading OVERWRITE to a plain append.
+     */
+    default boolean supportsInsertOverwrite() {
+        return false;
+    }
+
     /** Returns {@code true} if this connector supports DELETE operations. */
     default boolean supportsDelete() {
         return false;
