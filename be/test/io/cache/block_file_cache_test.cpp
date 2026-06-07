@@ -206,6 +206,15 @@ void complete_into_memory(const io::FileBlocksHolder& holder) {
 }
 
 void test_file_cache(io::FileCacheType cache_type) {
+    int64_t orig_evict_interval = config::file_cache_evict_in_advance_interval_ms;
+    int64_t orig_gc_interval = config::file_cache_background_gc_interval_ms;
+    int64_t orig_lru_update_interval = config::file_cache_background_block_lru_update_interval_ms;
+    int64_t orig_monitor_interval = config::file_cache_background_monitor_interval_ms;
+    config::file_cache_evict_in_advance_interval_ms = 10000000;
+    config::file_cache_background_gc_interval_ms = 10000000;
+    config::file_cache_background_block_lru_update_interval_ms = 10000000;
+    config::file_cache_background_monitor_interval_ms = 10000000;
+
     TUniqueId query_id;
     query_id.hi = 1;
     query_id.lo = 1;
@@ -638,9 +647,23 @@ void test_file_cache(io::FileCacheType cache_type) {
         assert_range(49, blocks1[1], io::FileBlock::Range(10, 19), io::FileBlock::State::EMPTY);
         assert_range(50, blocks1[2], io::FileBlock::Range(20, 24), io::FileBlock::State::EMPTY);
     }
+
+    config::file_cache_evict_in_advance_interval_ms = orig_evict_interval;
+    config::file_cache_background_gc_interval_ms = orig_gc_interval;
+    config::file_cache_background_block_lru_update_interval_ms = orig_lru_update_interval;
+    config::file_cache_background_monitor_interval_ms = orig_monitor_interval;
 }
 
 void test_file_cache_memory_storage(io::FileCacheType cache_type) {
+    int64_t orig_evict_interval = config::file_cache_evict_in_advance_interval_ms;
+    int64_t orig_gc_interval = config::file_cache_background_gc_interval_ms;
+    int64_t orig_lru_update_interval = config::file_cache_background_block_lru_update_interval_ms;
+    int64_t orig_monitor_interval = config::file_cache_background_monitor_interval_ms;
+    config::file_cache_evict_in_advance_interval_ms = 10000000;
+    config::file_cache_background_gc_interval_ms = 10000000;
+    config::file_cache_background_block_lru_update_interval_ms = 10000000;
+    config::file_cache_background_monitor_interval_ms = 10000000;
+
     TUniqueId query_id;
     query_id.hi = 1;
     query_id.lo = 1;
@@ -1034,6 +1057,11 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
         auto blocks1 = fromHolder(holder1);
         ASSERT_EQ(blocks1.size(), 1);
     }
+
+    config::file_cache_evict_in_advance_interval_ms = orig_evict_interval;
+    config::file_cache_background_gc_interval_ms = orig_gc_interval;
+    config::file_cache_background_block_lru_update_interval_ms = orig_lru_update_interval;
+    config::file_cache_background_monitor_interval_ms = orig_monitor_interval;
 }
 
 TEST_F(BlockFileCacheTest, init) {
