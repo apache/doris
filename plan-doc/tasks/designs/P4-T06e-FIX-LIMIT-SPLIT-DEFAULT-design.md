@@ -238,7 +238,7 @@ CI-skipped live E2E below (record as the DV truth-gate, same posture as P1-4 DV-
   `getSessionProperties()` (no SPI change).
 - review-rounds file: `plan-doc/reviews/P4-T06e-FIX-LIMIT-SPLIT-DEFAULT-review-rounds.md`.
 
-## Outcome ✅ DONE (commit `<hash>`)
+## Outcome ✅ DONE (commit `952b08e0cc8`)
 
 Implemented as designed (1 prod file `MaxComputeScanPlanProvider` + tests; no SPI/fe-core change).
 Design-validation workflow `w17wzd0el` 0 mustFix; impl-review workflow `walkff1vf` 1 mustFix
