@@ -175,6 +175,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ROW_STORE_COLUMNS = "row_store_columns";
 
+    public static final String PROPERTIES_ROW_STORE_ONLY = "row_store_only";
+
     public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
 
     public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
@@ -877,6 +879,9 @@ public class PropertyAnalyzer {
             return null;
         }
         properties.remove(PROPERTIES_ROW_STORE_COLUMNS);
+        if (!value.trim().isEmpty()) {
+            throw new AnalysisException(PROPERTIES_ROW_STORE_COLUMNS + " is temporarily disabled");
+        }
         String[] rsColumnArr = value.split(COMMA_SEPARATOR);
         rowStoreColumns.addAll(Arrays.asList(rsColumnArr));
         if (rowStoreColumns.isEmpty()) {
@@ -912,6 +917,26 @@ public class PropertyAnalyzer {
             return false;
         } else {
             throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN + "must be `true` or `false`");
+        }
+    }
+
+    public static Boolean analyzeRowStoreOnly(Map<String, String> properties)
+                        throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ROW_STORE_ONLY);
+        // set row_store_only false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ROW_STORE_ONLY);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        } else {
+            throw new AnalysisException(PROPERTIES_ROW_STORE_ONLY + " must be `true` or `false`");
         }
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
@@ -32,11 +33,13 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -57,6 +60,8 @@ import java.util.stream.Collectors;
  * some check need to do after analyze whole plan.
  */
 public class CheckAfterRewrite extends OneAnalysisRuleFactory {
+    private static final String ROW_STORE_ONLY_COMPLEX_QUERY_ERROR_MSG =
+            "row_store_only table does not support queries with aggregate or join";
 
     @Override
     public Rule build() {
@@ -65,8 +70,51 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
             checkMatchIsUsedCorrectly(plan);
+            checkRowStoreOnlyComplexQuery(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
+    }
+
+    private void checkRowStoreOnlyComplexQuery(Plan plan) {
+        if (shouldBlockRowStoreOnlyComplexQuery(plan)) {
+            throw new AnalysisException(ROW_STORE_ONLY_COMPLEX_QUERY_ERROR_MSG);
+        }
+    }
+
+    private boolean shouldBlockRowStoreOnlyComplexQuery(Plan plan) {
+        if (!Config.enable_row_store_only_complex_query_block) {
+            return false;
+        }
+
+        boolean hasRowStoreOnlyOlapScan = plan.collect(OlapScan.class::isInstance).stream()
+                .map(OlapScan.class::cast)
+                .anyMatch(scan -> scan.getTable().rowStoreOnly());
+        if (!hasRowStoreOnlyOlapScan) {
+            return false;
+        }
+
+        if (plan.anyMatch(node -> node instanceof LogicalJoin)) {
+            return true;
+        }
+        if (!plan.anyMatch(node -> node instanceof LogicalAggregate)) {
+            return false;
+        }
+        if (plan.anyMatch(node -> node instanceof LogicalSort || node instanceof LogicalTopN)) {
+            return true;
+        }
+
+        return plan.collect(node -> node instanceof LogicalAggregate).stream()
+                .map(node -> (LogicalAggregate<?>) node)
+                .anyMatch(aggregate -> !isCountStarOnly(aggregate));
+    }
+
+    private boolean isCountStarOnly(LogicalAggregate<?> aggregate) {
+        if (!aggregate.getGroupByExpressions().isEmpty() || aggregate.getSourceRepeat().isPresent()) {
+            return false;
+        }
+        return aggregate.getOutputExpressions().size() == 1
+                && aggregate.getOutputExpressions().get(0)
+                        .anyMatch(expr -> expr instanceof Count && ((Count) expr).isStar());
     }
 
     private void checkUnexpectedExpression(Plan plan) {

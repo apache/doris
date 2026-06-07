@@ -961,10 +961,8 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     //   - _output_schema / ref_block columns: [k1, v2] (2 columns)
     //   - SegmentIterator reads v1 internally for delete predicate, but does not
     //     output it to ref_block. copy_rows only iterates 2 columns — no OOB access.
-    size_t num_cols =
-            request.columns.empty() ? _base_tablet_schema->num_columns() : request.columns.size();
-    return_columns.resize(num_cols);
-    for (int i = 0; i < num_cols; ++i) {
+    return_columns.resize(_base_tablet_schema->num_columns());
+    for (int i = 0; i < _base_tablet_schema->num_columns(); ++i) {
         return_columns[i] = i;
     }
     std::vector<uint32_t> cluster_key_idxes;
@@ -1389,6 +1387,21 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             sc_params.materialized_params_map;
     DescriptorTbl desc_tbl = *sc_params.desc_tbl;
 
+    const bool has_row_store_only =
+            base_tablet_schema->row_store_only() || new_tablet_schema->row_store_only();
+    if (base_tablet_schema->row_store_only() != new_tablet_schema->row_store_only()) {
+        return Status::Error<SCHEMA_SCHEMA_INVALID>(
+                "row_store_only layout conversion is not supported by schema change");
+    }
+
+    auto check_row_store_only_strategy = [&]() -> Status {
+        if (has_row_store_only && (*sc_directly || *sc_sorting)) {
+            return Status::Error<SCHEMA_SCHEMA_INVALID>(
+                    "row_store_only table only supports linked schema change");
+        }
+        return Status::OK();
+    };
+
     // set column mapping
     for (size_t i = 0, new_schema_size = new_tablet_schema->num_columns(); i < new_schema_size;
          ++i) {
@@ -1396,6 +1409,13 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         const std::string& column_name_lower = to_lower(new_column.name());
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
+
+        if (new_column.is_row_store_column()) {
+            column_mapping->ref_column_idx = -1;
+            RETURN_IF_ERROR(
+                    _init_column_mapping(column_mapping, new_column, new_column.default_value()));
+            continue;
+        }
 
         column_mapping->ref_column_idx = base_tablet_schema->field_index(new_column.name());
 
@@ -1461,7 +1481,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 
         if (column_mapping->ref_column_idx != i - num_default_value) {
             *sc_sorting = true;
-            return Status::OK();
+            return check_row_store_only_strategy();
         }
     }
 
@@ -1469,7 +1489,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         // only when base table is dup and mv is agg
         // the rollup job must be reagg.
         *sc_sorting = true;
-        return Status::OK();
+        return check_row_store_only_strategy();
     }
 
     // If the sort of key has not been changed but the new keys num is less then base's,
@@ -1485,30 +1505,30 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         // is less, which means the data in new tablet should be more aggregated.
         // so we use sorting schema change to sort and merge the data.
         *sc_sorting = true;
-        return Status::OK();
+        return check_row_store_only_strategy();
     }
 
     if (sc_params.alter_tablet_type == ROLLUP) {
         *sc_directly = true;
-        return Status::OK();
+        return check_row_store_only_strategy();
     }
 
     if (sc_params.enable_unique_key_merge_on_write &&
         new_tablet_schema->num_key_columns() > base_tablet_schema->num_key_columns()) {
         *sc_directly = true;
-        return Status::OK();
+        return check_row_store_only_strategy();
     }
 
     if (base_tablet_schema->num_short_key_columns() != new_tablet_schema->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
-        return Status::OK();
+        return check_row_store_only_strategy();
     }
 
     if (!sc_params.delete_handler->empty()) {
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
-        return Status::OK();
+        return check_row_store_only_strategy();
     }
 
     // if new tablet enable row store, or new tablet has different row store columns
@@ -1525,14 +1545,14 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         if (column_mapping->expr != nullptr) {
             *sc_directly = true;
-            return Status::OK();
+            return check_row_store_only_strategy();
         } else if (column_mapping->ref_column_idx >= 0) {
             // index changed
             if (variant_util::has_schema_index_diff(new_tablet_schema, base_tablet_schema,
                                                     cast_set<int32_t>(i),
                                                     column_mapping->ref_column_idx)) {
                 *sc_directly = true;
-                return Status::OK();
+                return check_row_store_only_strategy();
             }
         }
     }
@@ -1550,7 +1570,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         }
     }
 
-    return Status::OK();
+    return check_row_store_only_strategy();
 }
 
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,

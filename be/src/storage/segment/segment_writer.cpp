@@ -185,6 +185,12 @@ Status SegmentWriter::init() {
 
 Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
                                             const TabletSchemaSPtr& schema) {
+    _olap_data_convertor->add_column_data_convertor(column);
+    if (!schema->should_persist_column(cid)) {
+        _column_writers.push_back(nullptr);
+        return Status::OK();
+    }
+
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
     opts.storage_format = schema->storage_format();
@@ -311,8 +317,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
     _column_writers.push_back(std::move(writer));
-
-    _olap_data_convertor->add_column_data_convertor(column);
     return Status::OK();
 }
 
@@ -543,10 +547,19 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
     // write including columns
     std::vector<IOlapColumnDataAccessor*> key_columns;
     IOlapColumnDataAccessor* seq_column = nullptr;
-    size_t segment_start_pos = 0;
+    auto segment_start_cid = including_cids.front();
+    if (_tablet_schema->row_store_only()) {
+        segment_start_cid = cast_set<uint32_t>(_tablet_schema->num_columns());
+        for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+            if (_tablet_schema->should_persist_column(cid)) {
+                segment_start_cid = cid;
+                break;
+            }
+        }
+        CHECK_LT(segment_start_cid, _tablet_schema->num_columns());
+    }
+    size_t segment_start_pos = _column_writers[segment_start_cid]->get_next_rowid();
     for (auto cid : including_cids) {
-        // here we get segment column row num before append data.
-        segment_start_pos = _column_writers[cid]->get_next_rowid();
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (!converted_result.first.ok()) {
@@ -559,9 +572,11 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
             seq_column = converted_result.second;
             have_input_seq_column = true;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                     converted_result.second->get_data(),
-                                                     num_rows));
+        if (_tablet_schema->should_persist_column(cid)) {
+            RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
+                                                         converted_result.second->get_data(),
+                                                         num_rows));
+        }
     }
 
     bool has_default_or_nullable = false;
@@ -651,9 +666,11 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
             DCHECK_EQ(seq_column, nullptr);
             seq_column = converted_result.second;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                     converted_result.second->get_data(),
-                                                     num_rows));
+        if (_tablet_schema->should_persist_column(cid)) {
+            RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
+                                                         converted_result.second->get_data(),
+                                                         num_rows));
+        }
     }
     _num_rows_updated += stats.num_rows_updated;
     _num_rows_deleted += stats.num_rows_deleted;
@@ -707,10 +724,11 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size()
             << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
-    // Row column should be filled here when it's a directly write from memtable
-    // or it's schema change write(since column data type maybe changed, so we should reubild)
+    // Row column should be filled here when it's a directly write from memtable,
+    // schema change write(since column data type maybe changed, so we should reubild),
+    // or rowstore-only compaction write.
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE || _tablet_schema->row_store_only()) {
         _serialize_block_to_row_column(*const_cast<Block*>(block));
     }
 
@@ -738,8 +756,11 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
                    cid == _tablet_schema->sequence_col_idx()) {
             seq_column = converted_result.second;
         }
-        RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
-                                                    converted_result.second->get_data(), num_rows));
+        if (_tablet_schema->should_persist_column(cid)) {
+            RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
+                                                        converted_result.second->get_data(),
+                                                        num_rows));
+        }
     }
     if (_opts.write_type == DataWriteType::TYPE_COMPACTION) {
         RETURN_IF_ERROR(
@@ -903,6 +924,9 @@ uint64_t SegmentWriter::estimate_segment_size() {
     // footer_size(4) + checksum(4) + segment_magic(4)
     uint64_t size = 12;
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         size += column_writer->estimate_buffer_size();
     }
     if (_is_mow_with_cluster_key()) {
@@ -934,6 +958,9 @@ Status SegmentWriter::finalize_columns_data() {
     _num_rows_written = 0;
 
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->finish());
     }
     RETURN_IF_ERROR(_write_data());
@@ -1032,6 +1059,9 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
 
 void SegmentWriter::clear() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         column_writer.reset();
     }
     _column_writers.clear();
@@ -1042,6 +1072,9 @@ void SegmentWriter::clear() {
 // write column data to file one by one
 Status SegmentWriter::_write_data() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_data());
 
         auto* column_meta = column_writer->get_column_meta();
@@ -1064,6 +1097,9 @@ Status SegmentWriter::_write_data() {
 // write ordinal index after data has been written
 Status SegmentWriter::_write_ordinal_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }
     return Status::OK();
@@ -1071,6 +1107,9 @@ Status SegmentWriter::_write_ordinal_index() {
 
 Status SegmentWriter::_write_zone_map() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_zone_map());
     }
     return Status::OK();
@@ -1078,6 +1117,9 @@ Status SegmentWriter::_write_zone_map() {
 
 Status SegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_inverted_index());
     }
     return Status::OK();
@@ -1085,6 +1127,9 @@ Status SegmentWriter::_write_inverted_index() {
 
 Status SegmentWriter::_write_ann_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
@@ -1092,6 +1137,9 @@ Status SegmentWriter::_write_ann_index() {
 
 Status SegmentWriter::_write_bloom_filter_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_bloom_filter_index());
     }
     return Status::OK();

@@ -105,6 +105,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean storeRowColumn = false;
 
+    private boolean rowStoreOnly = false;
+
     private boolean skipWriteIndexOnLoad = false;
 
     private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
@@ -397,6 +399,8 @@ public class TableProperty implements GsonPostProcessable {
     public TableProperty buildStoreRowColumn() {
         storeRowColumn = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        rowStoreOnly = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ROW_STORE_ONLY, "false"));
         return this;
     }
 
@@ -414,6 +418,10 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public boolean rowStoreOnly() {
+        return rowStoreOnly;
     }
 
     public TableProperty buildRowStorePageSize() {

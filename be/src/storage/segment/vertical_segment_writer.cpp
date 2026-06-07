@@ -193,6 +193,11 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
                                                     const TabletSchemaSPtr& tablet_schema) {
+    _olap_data_convertor->add_column_data_convertor_at(column, cid);
+    if (!tablet_schema->should_persist_column(cid)) {
+        return Status::OK();
+    }
+
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
     opts.storage_format = tablet_schema->storage_format();
@@ -320,7 +325,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
     _column_writers[cid] = std::move(writer);
-    _olap_data_convertor->add_column_data_convertor_at(column, cid);
     return Status::OK();
 };
 
@@ -566,13 +570,15 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // write including columns
     std::vector<IOlapColumnDataAccessor*> key_columns;
     IOlapColumnDataAccessor* seq_column = nullptr;
-    uint32_t segment_start_pos = 0;
+    uint32_t segment_start_pos = _tablet_schema->row_store_only() ? _num_rows_written : 0;
     for (auto cid : including_cids) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                 &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         // here we get segment column row num before append data.
-        segment_start_pos = cast_set<uint32_t>(_column_writers[cid]->get_next_rowid());
+        if (!_tablet_schema->row_store_only()) {
+            segment_start_pos = cast_set<uint32_t>(_column_writers[cid]->get_next_rowid());
+        }
         // olap data convertor alway start from id = 0
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
@@ -585,9 +591,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             seq_column = column;
             have_input_seq_column = true;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
-                                                     data.num_rows));
-        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        if (_tablet_schema->should_persist_column(cid)) {
+            RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
+                                                         data.num_rows));
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        }
         // Don't clear source content for key columns and sequence column here,
         // as they will be used later in _full_encode_keys() and _generate_primary_key_index().
         // They will be cleared at the end of this method.
@@ -692,9 +700,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             DCHECK_EQ(seq_column, nullptr);
             seq_column = column;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
-                                                     data.num_rows));
-        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        if (_tablet_schema->should_persist_column(cid)) {
+            RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
+                                                         data.num_rows));
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        }
         // Don't clear source content for sequence column here if it will be used later
         // in _generate_primary_key_index(). It will be cleared at the end of this method.
         bool is_seq_column = (_tablet_schema->has_sequence_col() && !have_input_seq_column &&
@@ -806,11 +816,13 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     // 4. write primary key columns data
     for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
         const auto& column = key_columns[cid];
-        DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
-        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
-                                                     data.num_rows));
-        DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
-        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        if (_tablet_schema->should_persist_column(cid)) {
+            DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
+            RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
+                                                         data.num_rows));
+            DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        }
     }
 
     // 5. genreate read plan
@@ -863,7 +875,12 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
         if (_tablet_schema->column(cid).is_row_store_column()) {
             continue;
         }
-        if (cid != _tablet_schema->sequence_col_idx()) {
+        bool is_sequence_column =
+                _tablet_schema->has_sequence_col() && cid == _tablet_schema->sequence_col_idx();
+        if (!_tablet_schema->should_persist_column(cid) && !is_sequence_column) {
+            continue;
+        }
+        if (!is_sequence_column) {
             RETURN_IF_ERROR(_create_column_writer(cast_set<uint32_t>(cid),
                                                   _tablet_schema->column(cid), _tablet_schema));
         }
@@ -874,15 +891,17 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
         if (!status.ok()) {
             return status;
         }
-        if (cid == _tablet_schema->sequence_col_idx()) {
+        if (is_sequence_column) {
             // should use the latest encoded sequence column to build the primary index
             seq_column = column;
         }
-        DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
-        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
-                                                     data.num_rows));
-        DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
-        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        if (_tablet_schema->should_persist_column(cid)) {
+            DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
+            RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
+                                                         data.num_rows));
+            DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        }
     }
 
     _num_rows_updated += stats.num_rows_updated;
@@ -1104,12 +1123,16 @@ Status VerticalSegmentWriter::write_batch() {
                           column_unique_id) != _tablet_schema->cluster_key_uids().end()) {
                 cid_to_column[column_unique_id] = column;
             }
-            RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
-                                                         data.num_rows));
+            if (_tablet_schema->should_persist_column(cid)) {
+                RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(),
+                                                             column->get_data(), data.num_rows));
+            }
             _olap_data_convertor->clear_source_content();
         }
-        RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
-        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        if (_tablet_schema->should_persist_column(cid)) {
+            RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        }
     }
 
     for (auto& data : _batched_blocks) {
@@ -1386,6 +1409,9 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
 
 void VerticalSegmentWriter::clear() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         column_writer.reset();
     }
     _column_writers.clear();
@@ -1395,6 +1421,9 @@ void VerticalSegmentWriter::clear() {
 // write ordinal index after data has been written
 Status VerticalSegmentWriter::_write_ordinal_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }
     return Status::OK();
@@ -1402,6 +1431,9 @@ Status VerticalSegmentWriter::_write_ordinal_index() {
 
 Status VerticalSegmentWriter::_write_zone_map() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_zone_map());
     }
     return Status::OK();
@@ -1409,6 +1441,9 @@ Status VerticalSegmentWriter::_write_zone_map() {
 
 Status VerticalSegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_inverted_index());
     }
     return Status::OK();
@@ -1416,6 +1451,9 @@ Status VerticalSegmentWriter::_write_inverted_index() {
 
 Status VerticalSegmentWriter::_write_ann_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
@@ -1423,6 +1461,9 @@ Status VerticalSegmentWriter::_write_ann_index() {
 
 Status VerticalSegmentWriter::_write_bloom_filter_index() {
     for (auto& column_writer : _column_writers) {
+        if (column_writer == nullptr) {
+            continue;
+        }
         RETURN_IF_ERROR(column_writer->write_bloom_filter_index());
     }
     return Status::OK();
