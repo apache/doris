@@ -188,12 +188,12 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
     std::vector<StringRef> binary_values;
     std::vector<std::shared_ptr<::arrow::Array>> binary_chunks;
     DecodedColumnView view;
-    view.value_kind = decoded_value_kind(*context.type_descriptor);
-    view.time_unit = decoded_time_unit(context.type_descriptor->time_unit);
+    view.value_kind = decoded_value_kind(context.type_descriptor);
+    view.time_unit = decoded_time_unit(context.type_descriptor.time_unit);
     view.row_count = row_count;
-    view.decimal_precision = context.type_descriptor->decimal_precision;
-    view.decimal_scale = context.type_descriptor->decimal_scale;
-    view.fixed_length = context.type_descriptor->fixed_length;
+    view.decimal_precision = context.type_descriptor.decimal_precision;
+    view.decimal_scale = context.type_descriptor.decimal_scale;
+    view.fixed_length = context.type_descriptor.fixed_length;
     view.null_map = null_map == nullptr || null_map->empty() ? nullptr : null_map->data();
     if (view.value_kind == DecodedValueKind::BINARY ||
         view.value_kind == DecodedValueKind::FIXED_BINARY) {
@@ -301,7 +301,7 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
     batch->values_column = value_type->create_column();
     if (values_written > 0) {
         ArrowLeafReaderContext value_context = context;
-        value_context.type = &value_type;
+        value_context.type = value_type;
         RETURN_IF_ERROR(append_leaf_values(value_context, *record_reader, values_written, nullptr,
                                            batch->values_column));
     }

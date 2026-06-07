@@ -44,8 +44,7 @@ public:
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
     ArrowLeafReaderContext leaf_context() const {
-        return ArrowLeafReaderContext {_descriptor, &_type_descriptor, &_type, &_name,
-                                       _record_reader};
+        return ArrowLeafReaderContext {_descriptor, _type_descriptor, _type, _name, _record_reader};
     }
 
 private:

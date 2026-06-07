@@ -193,9 +193,8 @@ VExprSPtr table_function_expr(const std::string& function_name, const DataTypePt
 
 VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t value) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(),
-                                    {int_type, int_type}, TExprNodeType::BINARY_PRED,
-                                    TExprOpcode::GT);
+    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
+                                    TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     expr->add_child(table_int32_slot_ref(slot_id, column_id, "id"));
     expr->add_child(table_int32_literal(value));
     return expr;
@@ -265,9 +264,8 @@ VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_s
 VExprSPtr table_int32_sum_greater_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                             int right_column_id, int32_t value) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(),
-                                    {int_type, int_type}, TExprNodeType::BINARY_PRED,
-                                    TExprOpcode::GT);
+    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
+                                    TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     expr->add_child(
             table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
     expr->add_child(table_int32_literal(value));
@@ -277,9 +275,8 @@ VExprSPtr table_int32_sum_greater_than_expr(int left_slot_id, int left_column_id
 VExprSPtr table_int32_sum_less_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                          int right_column_id, int32_t value) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto expr = table_function_expr("lt", std::make_shared<DataTypeUInt8>(),
-                                    {int_type, int_type}, TExprNodeType::BINARY_PRED,
-                                    TExprOpcode::LT);
+    auto expr = table_function_expr("lt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
+                                    TExprNodeType::BINARY_PRED, TExprOpcode::LT);
     expr->add_child(
             table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
     expr->add_child(table_int32_literal(value));
