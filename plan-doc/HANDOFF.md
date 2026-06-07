@@ -30,7 +30,12 @@
 
 ## 🧭 复审方法(建议 workflow 编排)
 
-> 这是给**编排者(下一 session 的你)**的方法;编排者可读全文,但**喂给 Phase A/B 子 agent 的 prompt 必须只含代码指针,不含本文件「先验隔离区」与任何结论**。
+> **✅ workflow 脚本已预写**:`plan-doc/reviews/maxcompute-full-rereview.workflow.js`(已 syntax-check)。下一 session 直接:
+> `Workflow({ scriptPath: "plan-doc/reviews/maxcompute-full-rereview.workflow.js" })`(可选 `args: { verifyVotes: 3, lensesPerDomain: 2, includeBe: true }`)。
+> 脚本已内建 clean-room 纪律:Phase A/B 子 agent 的 prompt **只含 6 域的代码指针 + cutover↔legacy 对照**,显式禁读 plan-doc;先验仅在 Phase C(脚本内 `QUARANTINE` 常量)解禁做交叉核对。脚本**返回结构化数据**(parityAssessments / newGaps / disagreements / confirmed),编排者据此写报告 `reviews/P4-maxcompute-full-rereview-<date>.md`(写时填日期)。
+> ⚠️ 跑前仍建议**人工扫一眼脚本里 6 域的 review prompt**,确认无开发结论泄漏(脚本里的 `DOMAINS[].scope/questions` 与 `LENS_ANGLES` 应只有代码指针与中立问题)。脚本规模:6 域 × `lensesPerDomain` lens(默认 2 = 12 个 Phase-A agent)→ 每 finding × `verifyVotes`(默认 3)refute → 存活项各 1 Phase-C;可用 args 调小。
+
+> 以下是脚本背后的方法(也是给编排者的心智模型);编排者可读全文,但**喂给 Phase A/B 子 agent 的 prompt 必须只含代码指针,不含本文件「先验隔离区」与任何结论**。
 
 - **Phase A — 独立审阅(并行,按 6 域 × 多 lens)**:每 agent 拿到「某功能路径的 cutover 入口 + legacy 基线 + BE 锚点」,自行 `git`/读码,产出结构化 findings(severity / category / cutover-vs-legacy 差异 / 回归判定 / file:line)+ 该路径的「cutover↔legacy 行为差异清单」。**clean-room prompt 模板见本 session 跑过的 `reviews/P4-T06d-*` workflow 脚本**(在 session workflows/scripts 目录;可复用其 CLEANROOM 常量结构,但把 scope 换成下面 6 域)。
 - **Phase B — 对抗验证**:每条 finding 派 3 个 skeptic(默认 refuted=true,除非代码铁证),≥2 票存活。
