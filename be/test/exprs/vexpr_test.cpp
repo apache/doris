@@ -837,7 +837,7 @@ namespace doris {
 // The declared type is set via set_data_type(); the returned column may differ.
 class FakeVExpr final : public VExpr {
 public:
-    FakeVExpr() = default;
+    FakeVExpr() { _node_type = TExprNodeType::BOOL_LITERAL; }
     const std::string& expr_name() const override {
         static const std::string name = "FakeVExpr";
         return name;
@@ -855,7 +855,51 @@ private:
     ColumnPtr _column;
 };
 
+class SlotRefTestExpr final : public VExpr {
+public:
+    explicit SlotRefTestExpr(DataTypePtr type, bool is_slotref)
+            : VExpr(std::move(type), is_slotref) {}
+    const std::string& expr_name() const override {
+        static const std::string name = "SlotRefTestExpr";
+        return name;
+    }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::OK();
+    }
+};
+
 } // namespace doris
+
+TEST(VExprConstructorTest, IsSlotRefTrueWhenConstructedWithSlotRef) {
+    using namespace doris;
+    auto type = std::make_shared<DataTypeInt32>();
+    SlotRefTestExpr expr(type, true);
+    EXPECT_TRUE(expr.is_slot_ref());
+    EXPECT_EQ(TExprNodeType::SLOT_REF, expr.node_type());
+}
+
+TEST(VExprConstructorTest, IsSlotRefFalseWhenConstructedWithoutSlotRef) {
+    using namespace doris;
+    auto type = std::make_shared<DataTypeInt32>();
+    SlotRefTestExpr expr(type, false);
+    EXPECT_FALSE(expr.is_slot_ref());
+    EXPECT_NE(TExprNodeType::SLOT_REF, expr.node_type());
+}
+
+TEST(VExprConstructorTest, FakeVExprDefaultConstructorInitializesNodeType) {
+    using namespace doris;
+    FakeVExpr expr;
+    EXPECT_FALSE(expr.is_slot_ref());
+    EXPECT_EQ(TExprNodeType::BOOL_LITERAL, expr.node_type());
+}
+
+TEST(VExprConstructorTest, VLiteralFromTExprNodeInitializesNodeType) {
+    using namespace doris;
+    VLiteral literal(create_literal<TYPE_INT>(42));
+    EXPECT_FALSE(literal.is_slot_ref());
+    EXPECT_EQ(TExprNodeType::INT_LITERAL, literal.node_type());
+}
 
 // Tests for VExpr::execute_column post-condition checks.
 TEST(VExprExecuteColumnTest, SizeCheckFails) {

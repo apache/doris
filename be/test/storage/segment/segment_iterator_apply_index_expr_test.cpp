@@ -48,7 +48,10 @@ namespace {
 // A test VExpr that returns a configurable Status from evaluate_inverted_index.
 class MockEvalExpr : public VExpr {
 public:
-    MockEvalExpr() { _data_type = std::make_shared<DataTypeUInt8>(); }
+    MockEvalExpr() {
+        _node_type = TExprNodeType::BOOL_LITERAL;
+        _data_type = std::make_shared<DataTypeUInt8>();
+    }
 
     void set_evaluate_status(Status st) { _eval_status = std::move(st); }
 
