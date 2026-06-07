@@ -156,15 +156,24 @@ struct CacheContext {
     CacheContext() = default;
     bool operator==(const CacheContext& rhs) const {
         return query_id == rhs.query_id && cache_type == rhs.cache_type &&
-               expiration_time == rhs.expiration_time && is_cold_data == rhs.is_cold_data;
+               expiration_time == rhs.expiration_time &&
+               storage_expiration_time == rhs.storage_expiration_time &&
+               is_cold_data == rhs.is_cold_data;
     }
     TUniqueId query_id;
     FileCacheType cache_type;
     int64_t expiration_time {0};
+    // Used only by cache internals when logical TTL and storage directory diverge.
+    // -1 means using expiration_time as the storage directory expiration.
+    int64_t storage_expiration_time {-1};
     bool is_cold_data {false};
     ReadStatistics* stats;
     bool is_warmup {false};
     int64_t tablet_id {0};
+
+    int64_t storage_expiration() const {
+        return storage_expiration_time >= 0 ? storage_expiration_time : expiration_time;
+    }
 };
 
 template <class Lock>

@@ -22,6 +22,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <thread>
+#include <vector>
 
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
@@ -40,6 +41,7 @@ public:
     void insert_file_reader(const AccessKeyAndOffset& key, std::shared_ptr<FileReader> file_reader);
 
     void remove_file_reader(const AccessKeyAndOffset& key);
+    void remove_file_readers(const UInt128Wrapper& hash);
 
     // use for test
     bool contains_file_reader(const AccessKeyAndOffset& key);
@@ -67,6 +69,7 @@ public:
     Status finalize(const FileCacheKey& key) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status remove(const FileCacheKey& key) override;
+    Status remove_all_by_hash(const UInt128Wrapper& hash) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) override;
     Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
@@ -89,10 +92,17 @@ public:
     FileCacheStorageType get_type() override { return DISK; }
 
     bool handle_already_loaded_block(BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset,
-                                     size_t new_size,
+                                     size_t new_size, const CacheContext& context,
+                                     const std::string& key_path, const std::string& offset_path,
+                                     bool is_tmp,
                                      std::lock_guard<std::mutex>& cache_lock) const;
 
 private:
+    struct KeyDir {
+        uint64_t expiration_time;
+        std::string path;
+    };
+
     void remove_old_version_directories();
 
     Status collect_directory_entries(const std::filesystem::path& dir_path,
@@ -113,8 +123,21 @@ private:
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
+    [[nodiscard]] std::vector<KeyDir> list_key_dirs(const UInt128Wrapper& hash) const;
+
+    void load_blocks_from_dir_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
+                                       const KeyDir& key_dir,
+                                       const FileCacheKey* logical_key,
+                                       std::lock_guard<std::mutex>& cache_lock) const;
+
+    void drop_unbound_loaded_blocks(BlockFileCache* mgr) const;
+
+    bool storage_file_exists(const FileCacheKey& key) const;
+
+    void remove_file_and_empty_dir(const std::string& file_path, const std::string& dir_path) const;
+
     [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
-            const std::string& dir, size_t offset);
+            const std::string& dir, size_t offset) const;
 
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;

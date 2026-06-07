@@ -37,11 +37,13 @@ namespace io {
 
 struct FileBlocksHolder;
 class BlockFileCache;
+class FSFileCacheStorage;
 struct FileBlockCell;
 
 class FileBlock {
     friend struct FileBlocksHolder;
     friend class BlockFileCache;
+    friend class FSFileCacheStorage;
     friend class CachedRemoteFileReader;
     friend struct FileBlockCell;
     friend class FileBlockTestAccessor;
@@ -65,6 +67,8 @@ public:
     };
 
     FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state);
+    FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state,
+              uint64_t logical_expiration_time);
 
     ~FileBlock() = default;
 
@@ -113,7 +117,9 @@ public:
 
     bool is_downloader() const;
 
-    FileCacheType cache_type() const { return _key.meta.type; }
+    FileCacheType cache_type() const { return _logical_cache_type; }
+
+    FileCacheType storage_cache_type() const { return _key.meta.type; }
 
     static uint64_t get_caller_id();
 
@@ -125,7 +131,11 @@ public:
 
     [[nodiscard]] Status update_expiration_time(uint64_t expiration_time);
 
-    uint64_t expiration_time() const { return _key.meta.expiration_time; }
+    uint64_t expiration_time() const { return _logical_expiration_time; }
+
+    uint64_t storage_expiration_time() const { return _key.meta.expiration_time; }
+
+    FileCacheKey storage_key() const { return _key; }
 
     std::string get_cache_file() const;
 
@@ -152,6 +162,12 @@ private:
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& block_lock);
 
+    void update_storage_expiration_time(uint64_t expiration_time);
+
+    void update_storage_cache_type(FileCacheType type);
+
+    Status update_logical_cache_type(FileCacheType new_type);
+
     Range _block_range;
 
     State _download_state;
@@ -166,6 +182,8 @@ private:
     mutable std::mutex _mutex;
     std::condition_variable _cv;
     FileCacheKey _key;
+    FileCacheType _logical_cache_type {FileCacheType::NORMAL};
+    uint64_t _logical_expiration_time {0};
     size_t _downloaded_size {0};
     bool _is_deleting {false};
 

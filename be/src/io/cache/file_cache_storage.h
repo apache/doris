@@ -55,6 +55,8 @@ public:
     virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
+    // remove all directories for the same hash, including unloaded hash_* dirs
+    virtual Status remove_all_by_hash(const UInt128Wrapper& hash) { return Status::OK(); }
     // change the block meta
     virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) = 0;
     virtual Status change_key_meta_expiration(const FileCacheKey& key,

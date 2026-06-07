@@ -481,12 +481,22 @@ TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     }
     ASSERT_TRUE(cache2.get_async_open_success());
 
-    // the dup part should be ttl because ttl has higner priority
-    ASSERT_EQ(cache2._ttl_queue.get_elements_num_unsafe(), 5);
+    // LRU dump restore is only a heat hint. The following disk scan must bind the
+    // real storage path and logical type instead of keeping the fake ttl hint.
+    ASSERT_EQ(cache2._ttl_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache2._index_queue.get_elements_num_unsafe(), 0);
-    ASSERT_EQ(cache2._normal_queue.get_elements_num_unsafe(), 0);
+    ASSERT_EQ(cache2._normal_queue.get_elements_num_unsafe(), 5);
     ASSERT_EQ(cache2._disposable_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache2._cur_cache_size, 500000);
+    for (offset = 0; offset < 500000; offset += 100000) {
+        auto holder = cache2.get_or_set(key1, offset, 100000, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+        EXPECT_EQ(blocks[0]->cache_type(), io::FileCacheType::NORMAL);
+        EXPECT_EQ(blocks[0]->storage_expiration_time(), 0);
+    }
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);

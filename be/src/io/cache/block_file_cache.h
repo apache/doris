@@ -30,6 +30,7 @@
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "io/cache/cache_lru_dumper.h"
@@ -42,6 +43,7 @@
 
 namespace doris::io {
 using RecycleFileCacheKeys = moodycamel::ConcurrentQueue<FileCacheKey>;
+using RecycleFileCacheHashes = moodycamel::ConcurrentQueue<UInt128Wrapper>;
 
 class LockScopedTimer {
 public:
@@ -403,6 +405,26 @@ private:
                                     size_t offset, size_t size, FileBlock::State state,
                                     std::lock_guard<std::mutex>& cache_lock);
 
+    CacheContext make_cell_context(const UInt128Wrapper& hash, const CacheContext& context,
+                                   std::lock_guard<std::mutex>& cache_lock) const;
+
+    void enqueue_hash_for_cleanup(const UInt128Wrapper& hash);
+
+    void update_hash_logical_expiration_time(const UInt128Wrapper& hash,
+                                             uint64_t new_expiration_time,
+                                             std::lock_guard<std::mutex>& cache_lock);
+
+    void update_hash_logical_meta(const UInt128Wrapper& hash, FileCacheType new_type,
+                                  uint64_t new_expiration_time,
+                                  std::lock_guard<std::mutex>& cache_lock);
+
+    Status update_cell_logical_meta(FileBlockCell& cell, FileCacheType new_type,
+                                    uint64_t new_expiration_time,
+                                    std::lock_guard<std::mutex>& cache_lock);
+
+    void erase_key_expiration_time(const UInt128Wrapper& hash, uint64_t expiration_time,
+                                   std::lock_guard<std::mutex>& cache_lock);
+
     Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
     void update_block_lru(FileBlockSPtr block, std::lock_guard<std::mutex>& cache_lock);
@@ -456,7 +478,8 @@ private:
     bool need_to_move(FileCacheType cell_type, FileCacheType query_type) const;
 
     bool remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, bool remove_directly,
-                                   std::lock_guard<std::mutex>&, bool sync);
+                                   std::lock_guard<std::mutex>&, bool sync,
+                                   bool* has_unreleasable = nullptr);
 
     void run_background_monitor();
     void run_background_ttl_gc();
@@ -550,6 +573,8 @@ private:
 
     // keys for async remove
     RecycleFileCacheKeys _recycle_keys;
+    RecycleFileCacheHashes _recycle_hashes;
+    std::unordered_set<UInt128Wrapper, KeyHash> _hashes_pending_cleanup;
 
     std::unique_ptr<LRUQueueRecorder> _lru_recorder;
     std::unique_ptr<CacheLRUDumper> _lru_dumper;
