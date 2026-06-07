@@ -25,13 +25,18 @@ import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.DropDbInfo;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
@@ -42,6 +47,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * An {@link ExternalCatalog} backed by a Connector SPI plugin.
@@ -271,9 +277,100 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                         createTableInfo.getDbName(),
                         createTableInfo.getTableName());
         Env.getCurrentEnv().getEditLog().logCreateTable(persistInfo);
+        // Invalidate the FE-side table-name cache so the new table is immediately visible on
+        // this FE. The legacy metadataOps path did this via afterCreateTable(); since
+        // PluginDrivenExternalCatalog has no metadataOps, the override must do it here.
+        getDbForReplay(createTableInfo.getDbName()).ifPresent(db -> db.resetMetaCacheNames());
         LOG.info("finished to create table {}.{}.{}", getName(),
                 createTableInfo.getDbName(), createTableInfo.getTableName());
         return false;
+    }
+
+    /**
+     * Routes {@code CREATE DATABASE} through the SPI's
+     * {@code ConnectorSchemaOps.createDatabase(session, dbName, properties)}.
+     *
+     * <p>The SPI signature carries no {@code ifNotExists}; this override honors it
+     * FE-side by short-circuiting when the database already exists. On success it
+     * writes the edit log and invalidates the cached db-name list (mirroring the
+     * legacy {@code metadataOps.afterCreateDb()} the plugin path no longer has).</p>
+     */
+    @Override
+    public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+        makeSureInitialized();
+        if (ifNotExists && getDbNullable(dbName) != null) {
+            return;
+        }
+        ConnectorSession session = buildConnectorSession();
+        try {
+            connector.getMetadata(session).createDatabase(session, dbName, properties);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        Env.getCurrentEnv().getEditLog().logCreateDb(new CreateDbInfo(getName(), dbName, null));
+        resetMetaCacheNames();
+        LOG.info("finished to create database {}.{}", getName(), dbName);
+    }
+
+    /**
+     * Routes {@code DROP DATABASE} through the SPI's
+     * {@code ConnectorSchemaOps.dropDatabase(session, dbName, ifExists)}.
+     *
+     * <p>The SPI carries no {@code force}; cascade semantics, if any, are left to
+     * the connector, so {@code force} is intentionally not forwarded. On success it
+     * writes the edit log and unregisters the database from the cache (mirroring the
+     * legacy {@code metadataOps.afterDropDb()}).</p>
+     */
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        makeSureInitialized();
+        if (getDbNullable(dbName) == null) {
+            if (ifExists) {
+                return;
+            }
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
+        }
+        ConnectorSession session = buildConnectorSession();
+        try {
+            connector.getMetadata(session).dropDatabase(session, dbName, ifExists);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), dbName));
+        unregisterDatabase(dbName);
+        LOG.info("finished to drop database {}.{}", getName(), dbName);
+    }
+
+    /**
+     * Routes {@code DROP TABLE} through the SPI's
+     * {@code ConnectorTableOps.dropTable(session, handle)}.
+     *
+     * <p>The SPI takes a {@link ConnectorTableHandle} and carries no {@code ifExists};
+     * this override resolves the handle first (absent = table does not exist) and
+     * enforces {@code IF EXISTS} FE-side. On success it writes the edit log and
+     * unregisters the table from the cache (mirroring {@code metadataOps.afterDropTable()}).</p>
+     */
+    @Override
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
+        makeSureInitialized();
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, tableName);
+        if (!handle.isPresent()) {
+            if (ifExists) {
+                return;
+            }
+            throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
+        }
+        try {
+            metadata.dropTable(session, handle.get());
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
+        getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tableName));
+        LOG.info("finished to drop table {}.{}.{}", getName(), dbName, tableName);
     }
 
     @Override
