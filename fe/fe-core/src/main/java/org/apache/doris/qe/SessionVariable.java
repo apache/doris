@@ -1741,6 +1741,15 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.EXPERIMENTAL)
     public boolean topNLazyMaterializationUsingIndex = false;
 
+    @VarAttrDef.VarAttr(name = "enable_topn_expr_pullup", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否将TopN下方Project中的非平凡表达式上拉至TopN之上，"
+                    + "以扩大延迟物化范围",
+                    "Whether to pull up non-trivial expressions from Project below TopN, "
+                            + "to expand lazy materialization scope"})
+    public boolean enableTopnExprPullup = true;
+
     @VarAttrDef.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL,
