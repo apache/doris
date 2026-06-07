@@ -81,7 +81,7 @@ public:
     /**
      * Clears data of all file cache instances
      *
-     * @param sync wait until all data cleared
+     * @param sync run a safe clear scan and synchronously remove blocks releasable during the scan
      * @return summary message
      */
     std::string clear_file_caches(bool sync);

@@ -240,12 +240,10 @@ public:
      */
     void add_need_update_lru_block(FileBlockSPtr block);
 
-    /**
-     * Clear all cached data for this cache instance async
-     *
-     * @returns summary message
-     */
+    /// Clear all cached data for this cache instance using the safe async cleanup path.
     std::string clear_file_cache_async();
+    /// Run a safe clear scan and synchronously remove blocks that are releasable during the scan.
+    std::string clear_file_cache_sync();
     std::string clear_file_cache_directly();
 
     /**
@@ -396,6 +394,13 @@ public:
     Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
 private:
+    struct ClearFileCacheSummary {
+        int64_t num_files_all = 0;
+        int64_t num_cells_all = 0;
+        int64_t num_cells_to_delete = 0;
+        int64_t num_cells_wait_recycle = 0;
+    };
+
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
@@ -490,6 +495,7 @@ private:
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
                             std::string& reason);
+    ClearFileCacheSummary clear_file_cache_common(bool sync_remove_releasable);
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,

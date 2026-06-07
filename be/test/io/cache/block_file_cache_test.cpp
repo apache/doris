@@ -58,6 +58,48 @@ io::FileCacheSettings cached_remote_reader_cache_settings() {
     return settings;
 }
 
+io::FileCacheSettings sync_clear_test_settings() {
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.index_queue_size = 30;
+    settings.index_queue_elements = 5;
+    settings.disposable_queue_size = 30;
+    settings.disposable_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 0;
+    return settings;
+}
+
+FileCacheKey make_clear_test_cache_key(const UInt128Wrapper& hash) {
+    FileCacheKey cache_key;
+    cache_key.hash = hash;
+    cache_key.offset = 0;
+    cache_key.meta.type = io::FileCacheType::NORMAL;
+    cache_key.meta.expiration_time = 0;
+    cache_key.meta.tablet_id = 0;
+    return cache_key;
+}
+
+class ScopedLongBackgroundGcInterval {
+public:
+    ScopedLongBackgroundGcInterval()
+            : _origin_background_gc_interval_ms(config::file_cache_background_gc_interval_ms) {
+        config::file_cache_background_gc_interval_ms = 60 * 60 * 1000;
+    }
+
+    ~ScopedLongBackgroundGcInterval() {
+        config::file_cache_background_gc_interval_ms = _origin_background_gc_interval_ms;
+    }
+
+    ScopedLongBackgroundGcInterval(const ScopedLongBackgroundGcInterval&) = delete;
+    ScopedLongBackgroundGcInterval& operator=(const ScopedLongBackgroundGcInterval&) = delete;
+
+private:
+    int64_t _origin_background_gc_interval_ms;
+};
+
 void reset_file_cache_factory_for_test() {
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
@@ -3003,6 +3045,253 @@ TEST_F(BlockFileCacheTest, late_holder_remove_skips_replaced_cache_cell) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_removes_releasable_blocks_before_return) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    ScopedLongBackgroundGcInterval background_gc_interval;
+
+    io::BlockFileCache cache(cache_base_path, sync_clear_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+
+    auto held_key = io::BlockFileCache::hash("sync-clear-held-block");
+    auto free_key = io::BlockFileCache::hash("sync-clear-free-block");
+
+    auto held_holder =
+            std::make_unique<FileBlocksHolder>(cache.get_or_set(held_key, 0, 5, context));
+    auto held_blocks = fromHolder(*held_holder);
+    ASSERT_EQ(held_blocks.size(), 1);
+    ASSERT_EQ(held_blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+    download(held_blocks[0]);
+
+    {
+        auto free_holder = cache.get_or_set(free_key, 0, 5, context);
+        auto free_blocks = fromHolder(free_holder);
+        ASSERT_EQ(free_blocks.size(), 1);
+        ASSERT_EQ(free_blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        download(free_blocks[0]);
+    }
+
+    auto held_file = cache._storage->get_local_file(make_clear_test_cache_key(held_key));
+    auto free_file = cache._storage->get_local_file(make_clear_test_cache_key(free_key));
+    ASSERT_TRUE(fs::exists(held_file));
+    ASSERT_TRUE(fs::exists(free_file));
+    ASSERT_EQ(cache._cur_cache_size, 10);
+
+    auto result = cache.clear_file_cache_sync();
+    EXPECT_NE(result.find("finish clear_file_cache_sync"), std::string::npos);
+    EXPECT_NE(result.find("num_cells_to_delete=1"), std::string::npos);
+    EXPECT_NE(result.find("num_cells_wait_recycle=1"), std::string::npos);
+    EXPECT_TRUE(fs::exists(held_file));
+    EXPECT_FALSE(fs::exists(free_file));
+
+    EXPECT_EQ(cache._cur_cache_size, 5);
+    {
+        auto* cache_ptr = &cache;
+        SCOPED_CACHE_LOCK(cache_ptr->_mutex, cache_ptr);
+        auto* held_cell = cache.get_cell(held_key, 0, cache_lock);
+        ASSERT_NE(held_cell, nullptr);
+        EXPECT_TRUE(held_cell->file_block->is_deleting());
+        EXPECT_EQ(cache.get_cell(free_key, 0, cache_lock), nullptr);
+    }
+
+    held_blocks.clear();
+    held_holder.reset();
+
+    EXPECT_EQ(cache._cur_cache_size, 0);
+    EXPECT_TRUE(cache._files.empty());
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_makes_held_blocks_invisible_to_new_lookup) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    ScopedLongBackgroundGcInterval background_gc_interval;
+
+    io::BlockFileCache cache(cache_base_path, sync_clear_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+
+    auto key = io::BlockFileCache::hash("sync-clear-held-block-invisible");
+    auto holder = std::make_unique<FileBlocksHolder>(cache.get_or_set(key, 0, 5, context));
+    auto blocks = fromHolder(*holder);
+    ASSERT_EQ(blocks.size(), 1);
+    auto* old_block = blocks[0].get();
+    ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+    download(blocks[0]);
+
+    auto file = cache._storage->get_local_file(make_clear_test_cache_key(key));
+    ASSERT_TRUE(fs::exists(file));
+
+    auto result = cache.clear_file_cache_sync();
+    EXPECT_NE(result.find("finish clear_file_cache_sync"), std::string::npos);
+    EXPECT_NE(result.find("num_cells_to_delete=0"), std::string::npos);
+    EXPECT_NE(result.find("num_cells_wait_recycle=1"), std::string::npos);
+
+    {
+        auto new_holder = cache.get_or_set(key, 0, 5, context);
+        auto new_blocks = fromHolder(new_holder);
+        ASSERT_EQ(new_blocks.size(), 1);
+        EXPECT_NE(new_blocks[0].get(), old_block);
+        EXPECT_EQ(new_blocks[0]->range().left, 0);
+        EXPECT_EQ(new_blocks[0]->range().right, 4);
+        EXPECT_EQ(new_blocks[0]->state(), io::FileBlock::State::SKIP_CACHE);
+    }
+
+    EXPECT_EQ(cache._cur_cache_size, 5);
+    {
+        auto* cache_ptr = &cache;
+        SCOPED_CACHE_LOCK(cache_ptr->_mutex, cache_ptr);
+        auto* cell = cache.get_cell(key, 0, cache_lock);
+        ASSERT_NE(cell, nullptr);
+        EXPECT_EQ(cell->file_block.get(), old_block);
+        EXPECT_TRUE(cell->file_block->is_deleting());
+    }
+
+    blocks.clear();
+    holder.reset();
+
+    EXPECT_EQ(cache._cur_cache_size, 0);
+    EXPECT_TRUE(cache._files.empty());
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, file_cache_factory_sync_clear_uses_safe_sync_wrapper) {
+    reset_file_cache_factory_for_test();
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    ScopedLongBackgroundGcInterval background_gc_interval;
+    Defer cleanup {[&] {
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+        reset_file_cache_factory_for_test();
+    }};
+
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_cache(cache_base_path, sync_clear_test_settings())
+                        .ok());
+    auto* cache = FileCacheFactory::instance()->get_by_path(cache_base_path);
+    ASSERT_NE(cache, nullptr);
+    wait_until_cache_ready(*cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+
+    auto key = io::BlockFileCache::hash("factory-sync-clear-held-block");
+    auto holder = std::make_unique<FileBlocksHolder>(cache->get_or_set(key, 0, 5, context));
+    auto blocks = fromHolder(*holder);
+    ASSERT_EQ(blocks.size(), 1);
+    ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+    download(blocks[0]);
+    auto free_key = io::BlockFileCache::hash("factory-sync-clear-free-block");
+    {
+        auto free_holder = cache->get_or_set(free_key, 0, 5, context);
+        auto free_blocks = fromHolder(free_holder);
+        ASSERT_EQ(free_blocks.size(), 1);
+        ASSERT_EQ(free_blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        download(free_blocks[0]);
+    }
+
+    auto free_file = cache->_storage->get_local_file(make_clear_test_cache_key(free_key));
+    ASSERT_TRUE(fs::exists(free_file));
+    ASSERT_EQ(cache->_cur_cache_size, 10);
+
+    auto result = FileCacheFactory::instance()->clear_file_caches(true);
+    EXPECT_NE(result.find("finish clear_file_cache_sync"), std::string::npos);
+    EXPECT_EQ(result.find("finish clear_file_cache_directly"), std::string::npos);
+    EXPECT_NE(result.find("num_cells_to_delete=1"), std::string::npos);
+    EXPECT_NE(result.find("num_cells_wait_recycle=1"), std::string::npos);
+    EXPECT_FALSE(fs::exists(free_file));
+
+    EXPECT_EQ(cache->_cur_cache_size, 5);
+    {
+        SCOPED_CACHE_LOCK(cache->_mutex, cache);
+        auto* cell = cache->get_cell(key, 0, cache_lock);
+        ASSERT_NE(cell, nullptr);
+        EXPECT_TRUE(cell->file_block->is_deleting());
+    }
+
+    blocks.clear();
+    holder.reset();
+    EXPECT_EQ(cache->_cur_cache_size, 0);
+    EXPECT_TRUE(cache->_files.empty());
+}
+
+TEST_F(BlockFileCacheTest, file_cache_factory_async_clear_enqueues_recycle_without_sync_remove) {
+    reset_file_cache_factory_for_test();
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    ScopedLongBackgroundGcInterval background_gc_interval;
+    Defer cleanup {[&] {
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+        reset_file_cache_factory_for_test();
+    }};
+
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_cache(cache_base_path, sync_clear_test_settings())
+                        .ok());
+    auto* cache = FileCacheFactory::instance()->get_by_path(cache_base_path);
+    ASSERT_NE(cache, nullptr);
+    wait_until_cache_ready(*cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+
+    auto key = io::BlockFileCache::hash("factory-async-clear-free-block");
+    {
+        auto holder = cache->get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+    ASSERT_EQ(cache->_cur_cache_size, 5);
+    auto free_file = cache->_storage->get_local_file(make_clear_test_cache_key(key));
+    ASSERT_TRUE(fs::exists(free_file));
+
+    auto result = FileCacheFactory::instance()->clear_file_caches(false);
+    EXPECT_NE(result.find("finish clear_file_cache_async"), std::string::npos);
+    EXPECT_EQ(result.find("finish clear_file_cache_sync"), std::string::npos);
+    EXPECT_EQ(result.find("finish clear_file_cache_directly"), std::string::npos);
+    EXPECT_NE(result.find("num_cells_to_delete=1"), std::string::npos);
+
+    EXPECT_EQ(cache->_cur_cache_size, 0);
+    EXPECT_TRUE(cache->_files.empty());
+    EXPECT_EQ(cache->_recycle_keys.size_approx(), 1);
+    EXPECT_TRUE(fs::exists(free_file));
 }
 
 TEST_F(BlockFileCacheTest, test_factory_1) {

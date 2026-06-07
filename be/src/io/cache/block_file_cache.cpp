@@ -53,6 +53,7 @@
 #include "io/cache/mem_file_cache_storage.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
+#include "util/defer_op.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
@@ -592,6 +593,21 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
     }
 
     FileBlocks result;
+    auto use_visible_cell = [&](const FileBlockCell& cell) {
+        if (cell.file_block->is_deleting()) {
+            FileCacheKey key;
+            key.hash = hash;
+            key.offset = cell.file_block->offset();
+            key.meta.type = context.cache_type;
+            key.meta.expiration_time = context.expiration_time;
+            key.meta.tablet_id = context.tablet_id;
+            result.push_back(std::make_shared<FileBlock>(key, cell.file_block->range().size(), this,
+                                                         FileBlock::State::SKIP_CACHE));
+            return;
+        }
+        use_cell(cell, &result, need_to_move(cell.file_block->cache_type(), context.cache_type),
+                 cache_lock);
+    };
     auto block_it = file_blocks.lower_bound(range.left);
     if (block_it == file_blocks.end()) {
         /// N - last cached block for given file hash, block{N}.offset < range.left:
@@ -606,8 +622,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
             return {};
         }
 
-        use_cell(cell, &result, need_to_move(cell.file_block->cache_type(), context.cache_type),
-                 cache_lock);
+        use_visible_cell(cell);
     } else { /// block_it <-- segmment{k}
         if (block_it != file_blocks.begin()) {
             const auto& prev_cell = std::prev(block_it)->second;
@@ -620,9 +635,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
                 ///       ^
                 ///       range.left
 
-                use_cell(prev_cell, &result,
-                         need_to_move(prev_cell.file_block->cache_type(), context.cache_type),
-                         cache_lock);
+                use_visible_cell(prev_cell);
             }
         }
 
@@ -638,8 +651,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
                 break;
             }
 
-            use_cell(cell, &result, need_to_move(cell.file_block->cache_type(), context.cache_type),
-                     cache_lock);
+            use_visible_cell(cell);
             ++block_it;
         }
     }
@@ -656,51 +668,74 @@ void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
 std::string BlockFileCache::clear_file_cache_async() {
     LOG(INFO) << "start clear_file_cache_async, path=" << _cache_base_path;
     _lru_dumper->remove_lru_dump_files();
-    int64_t num_cells_all = 0;
-    int64_t num_cells_to_delete = 0;
-    int64_t num_cells_wait_recycle = 0;
-    int64_t num_files_all = 0;
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_async");
+    auto summary = clear_file_cache_common(false);
+
+    std::stringstream ss;
+    ss << "finish clear_file_cache_async, path=" << _cache_base_path
+       << " num_files_all=" << summary.num_files_all << " num_cells_all=" << summary.num_cells_all
+       << " num_cells_to_delete=" << summary.num_cells_to_delete
+       << " num_cells_wait_recycle=" << summary.num_cells_wait_recycle;
+    auto msg = ss.str();
+    LOG(INFO) << msg;
+    _lru_dumper->remove_lru_dump_files();
+    return msg;
+}
+
+std::string BlockFileCache::clear_file_cache_sync() {
+    LOG(INFO) << "start clear_file_cache_sync, path=" << _cache_base_path;
+    pause_ttl_manager();
+    Defer resume_ttl_manager_guard {[this] { resume_ttl_manager(); }};
+
+    _lru_dumper->remove_lru_dump_files();
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_sync");
+    auto summary = clear_file_cache_common(true);
+
+    std::stringstream ss;
+    ss << "finish clear_file_cache_sync, path=" << _cache_base_path
+       << " num_files_all=" << summary.num_files_all << " num_cells_all=" << summary.num_cells_all
+       << " num_cells_to_delete=" << summary.num_cells_to_delete
+       << " num_cells_wait_recycle=" << summary.num_cells_wait_recycle;
+    auto msg = ss.str();
+    LOG(INFO) << msg;
+    _lru_dumper->remove_lru_dump_files();
+    return msg;
+}
+
+BlockFileCache::ClearFileCacheSummary BlockFileCache::clear_file_cache_common(
+        bool sync_remove_releasable) {
+    ClearFileCacheSummary summary;
     {
         SCOPED_CACHE_LOCK(_mutex, this);
 
         std::vector<FileBlockCell*> deleting_cells;
         for (auto& [_, offset_to_cell] : _files) {
-            ++num_files_all;
+            ++summary.num_files_all;
             for (auto& [_1, cell] : offset_to_cell) {
-                ++num_cells_all;
+                ++summary.num_cells_all;
                 deleting_cells.push_back(&cell);
             }
         }
 
-        // we cannot delete the element in the loop above, because it will break the iterator
+        // Removing cells invalidates _files iterators, so the scan first records cell pointers.
         for (auto& cell : deleting_cells) {
             if (!cell->releasable()) {
                 LOG(INFO) << "cell is not releasable, hash="
                           << " offset=" << cell->file_block->offset();
                 cell->file_block->set_deleting();
-                ++num_cells_wait_recycle;
+                ++summary.num_cells_wait_recycle;
                 continue;
             }
             FileBlockSPtr file_block = cell->file_block;
             if (file_block) {
                 std::lock_guard block_lock(file_block->_mutex);
-                remove(file_block, cache_lock, block_lock, false);
-                ++num_cells_to_delete;
+                remove(file_block, cache_lock, block_lock, sync_remove_releasable);
+                ++summary.num_cells_to_delete;
             }
         }
         clear_need_update_lru_blocks();
     }
-
-    std::stringstream ss;
-    ss << "finish clear_file_cache_async, path=" << _cache_base_path
-       << " num_files_all=" << num_files_all << " num_cells_all=" << num_cells_all
-       << " num_cells_to_delete=" << num_cells_to_delete
-       << " num_cells_wait_recycle=" << num_cells_wait_recycle;
-    auto msg = ss.str();
-    LOG(INFO) << msg;
-    _lru_dumper->remove_lru_dump_files();
-    return msg;
+    return summary;
 }
 
 FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
