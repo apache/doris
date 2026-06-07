@@ -745,8 +745,12 @@ SIMPLE_COMMENT
     : '--' ('\\\n' | ~[\r\n])* '\r'? '\n'? -> channel(HIDDEN)
     ;
 
+// Block comments are NOT nested, matching MySQL/standard SQL semantics: a `/*`
+// is closed by the first following `*/`. Allowing nesting (the recursive
+// `BRACKETED_COMMENT` alternative) made `/* ... /* ... */ ... */` require
+// balanced markers and swallowed trailing SQL, producing wrong results (#59691).
 BRACKETED_COMMENT
-    : COMMENT_START ( BRACKETED_COMMENT | . )*? '*/' -> channel(2)
+    : COMMENT_START .*? '*/' -> channel(2)
     ;
 
 
