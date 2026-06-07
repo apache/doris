@@ -329,10 +329,13 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * Routes {@code DROP DATABASE} through the SPI's
      * {@code ConnectorSchemaOps.dropDatabase(session, dbName, ifExists)}.
      *
-     * <p>The SPI carries no {@code force}; cascade semantics, if any, are left to
-     * the connector, so {@code force} is intentionally not forwarded. On success it
-     * writes the edit log and unregisters the database from the cache (mirroring the
-     * legacy {@code metadataOps.afterDropDb()}).</p>
+     * <p>{@code force} is forwarded to the connector, which performs the table
+     * cascade (mirroring legacy {@code MaxComputeMetadataOps.dropDbImpl}; ODPS
+     * {@code schemas().delete()} does not auto-cascade). On success it writes the
+     * edit log and unregisters the database from the cache (mirroring the legacy
+     * {@code metadataOps.afterDropDb()}); legacy emits no per-table editlog for the
+     * cascaded tables, so the single {@code logDropDb} + {@code unregisterDatabase}
+     * below is the complete legacy db-level FE bookkeeping.</p>
      */
     @Override
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
@@ -345,7 +348,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ConnectorSession session = buildConnectorSession();
         try {
-            connector.getMetadata(session).dropDatabase(session, dbName, ifExists);
+            connector.getMetadata(session).dropDatabase(session, dbName, ifExists, force);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }

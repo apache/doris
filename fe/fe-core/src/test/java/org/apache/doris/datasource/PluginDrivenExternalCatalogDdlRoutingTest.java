@@ -136,7 +136,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.dropDb("db1", false, false);
 
-        Mockito.verify(metadata).dropDatabase(session, "db1", false);
+        Mockito.verify(metadata).dropDatabase(session, "db1", false, false);
         Mockito.verify(mockEditLog).logDropDb(Mockito.any());
         Assertions.assertEquals("db1", catalog.unregisteredDb,
                 "dropDb must remove the db from the cache (legacy afterDropDb parity)");
@@ -148,7 +148,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.dropDb("missing", true, false);
 
-        Mockito.verify(metadata, Mockito.never()).dropDatabase(Mockito.any(), Mockito.any(), Mockito.anyBoolean());
+        Mockito.verify(metadata, Mockito.never())
+                .dropDatabase(Mockito.any(), Mockito.any(), Mockito.anyBoolean(), Mockito.anyBoolean());
         Assertions.assertNull(catalog.unregisteredDb);
     }
 
@@ -164,11 +165,35 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testDropDbWrapsConnectorException() {
         catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
         Mockito.doThrow(new DorisConnectorException("boom"))
-                .when(metadata).dropDatabase(Mockito.any(), Mockito.any(), Mockito.anyBoolean());
+                .when(metadata).dropDatabase(Mockito.any(), Mockito.any(), Mockito.anyBoolean(), Mockito.anyBoolean());
 
         DdlException ex = Assertions.assertThrows(DdlException.class,
                 () -> catalog.dropDb("db1", false, false));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
+    }
+
+    @Test
+    public void testDropDbForceForwardsForceTrueToConnector() throws Exception {
+        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+
+        catalog.dropDb("db1", false, true);
+
+        // WHY (Rule 9 / Rule 12): the regression (DG-3) is that the user's FORCE intent was
+        // silently dropped at the FE→SPI boundary, so DROP DB FORCE stopped cascading table
+        // drops. This asserts force=true actually reaches the connector. A mutation reverting
+        // PluginDrivenExternalCatalog.dropDb to the 3-arg / hardcoded-false call makes it red.
+        Mockito.verify(metadata).dropDatabase(session, "db1", false, true);
+    }
+
+    @Test
+    public void testDropDbNonForceForwardsForceFalseToConnector() throws Exception {
+        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+
+        catalog.dropDb("db1", false, false);
+
+        // WHY: guards that the fix does NOT over-correct into always-cascading -- a plain
+        // (non-FORCE) DROP DB must forward force=false so the connector never deletes tables.
+        Mockito.verify(metadata).dropDatabase(session, "db1", false, false);
     }
 
     // ==================== DROP TABLE ====================

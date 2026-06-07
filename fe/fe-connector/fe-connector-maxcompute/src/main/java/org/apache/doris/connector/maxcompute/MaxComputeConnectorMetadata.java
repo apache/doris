@@ -414,9 +414,23 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public void dropDatabase(ConnectorSession session, String dbName,
-            boolean ifExists) {
+            boolean ifExists, boolean force) {
+        if (force) {
+            // ODPS schemas().delete() does NOT auto-cascade; enumerate and drop each
+            // table first (mirrors legacy MaxComputeMetadataOps.dropDbImpl force branch,
+            // whose enumerate-loop is itself proof that the schema delete won't cascade).
+            for (String tableName : structureHelper.listTableNames(odps, dbName)) {
+                try {
+                    structureHelper.dropTable(odps, dbName, tableName, true);
+                } catch (OdpsException e) {
+                    throw new DorisConnectorException("Failed to drop MaxCompute table '"
+                            + tableName + "' during force-drop of database '" + dbName
+                            + "': " + e.getMessage(), e);
+                }
+            }
+        }
         structureHelper.dropDb(odps, dbName, ifExists);
-        LOG.info("dropped MaxCompute database {}", dbName);
+        LOG.info("dropped MaxCompute database {} (force={})", dbName, force);
     }
 
     // ==================== DDL helpers ====================
