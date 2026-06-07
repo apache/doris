@@ -147,6 +147,18 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
         if (writeOps != null && insertHandle != null) {
             writeOps.finishInsert(connectorSession, insertHandle, Collections.emptyList());
         }
+        if (connectorTx != null) {
+            // SPI transaction model (e.g. maxcompute): the BE sink reports row counts via the
+            // connector transaction's commit-data (TMCCommitData.row_count), NOT via the
+            // coordinator's DPP_NORMAL_ALL load counter, so AbstractInsertExecutor leaves
+            // loadedRows at 0. Backfill it here, mirroring legacy MCInsertExecutor.doBeforeCommit
+            // (loadedRows = transaction.getUpdateCnt()); without it the client / SHOW INSERT RESULT
+            // / audit log report "affected rows: 0" even though data was written. The commit itself
+            // happens via the transaction manager (onComplete), so no finishInsert is needed here.
+            // This branch is mutually exclusive with the insert-handle branch above (the transaction
+            // model never opens a per-statement insert handle).
+            loadedRows = connectorTx.getUpdateCnt();
+        }
     }
 
     /**

@@ -23,6 +23,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorWriteOps;
+import org.apache.doris.connector.api.handle.ConnectorInsertHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -128,6 +130,42 @@ public class PluginDrivenInsertExecutorTest {
                 "the transaction-model executor reports MAXCOMPUTE (profiling-only; sole adopter)");
     }
 
+    @Test
+    public void doBeforeCommitBackfillsLoadedRowsFromConnectorTxnInTransactionModel() throws UserException {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        // Transaction model: connectorTx present, no insert handle. The BE sink reports the row count
+        // only through the connector transaction's commit-data, so doBeforeCommit must backfill
+        // loadedRows from it -- otherwise affected-rows is reported as 0 (WRITE-P1 regression,
+        // mirroring legacy MCInsertExecutor.doBeforeCommit's loadedRows = transaction.getUpdateCnt()).
+        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70040L, 42L));
+
+        exec.doBeforeCommit();
+
+        Long loadedRows = Deencapsulation.getField(exec, "loadedRows");
+        Assertions.assertEquals(42L, loadedRows.longValue(),
+                "transaction-model doBeforeCommit must set loadedRows = connectorTx.getUpdateCnt()");
+    }
+
+    @Test
+    public void doBeforeCommitUsesHandleModelAndSkipsTxnBackfillWhenNoConnectorTxn() throws UserException {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        // JDBC / auto-commit handle model: connectorTx is null. doBeforeCommit must run the
+        // insert-handle finishInsert path, and must NOT touch loadedRows via the (null) connector
+        // transaction -- a missing connectorTx==null guard would NPE here.
+        RecordingHandleWriteOps writeOps = new RecordingHandleWriteOps();
+        Deencapsulation.setField(exec, "writeOps", writeOps);
+        Deencapsulation.setField(exec, "insertHandle", new ConnectorInsertHandle() { });
+        Deencapsulation.setField(exec, "connectorSession", ConnectorSessionBuilder.create().build());
+
+        exec.doBeforeCommit();
+
+        Assertions.assertTrue(writeOps.finishInsertCalled,
+                "handle-model doBeforeCommit must still call writeOps.finishInsert");
+        Long loadedRows = Deencapsulation.getField(exec, "loadedRows");
+        Assertions.assertEquals(0L, loadedRows.longValue(),
+                "with no connector transaction, loadedRows must not be backfilled (stays at default)");
+    }
+
     /**
      * Creates a {@link PluginDrivenInsertExecutor} without running its constructor. See the class
      * javadoc: the constructor builds a Coordinator that needs a live planner/EnvFactory.
@@ -166,17 +204,28 @@ public class PluginDrivenInsertExecutorTest {
         }
     }
 
-    /** Minimal hand-written {@link ConnectorTransaction}; only identity matters here. */
+    /** Minimal hand-written {@link ConnectorTransaction}; identity plus an affected-row count. */
     private static final class StubConnectorTransaction implements ConnectorTransaction {
         private final long txnId;
+        private final long updateCnt;
 
         private StubConnectorTransaction(long txnId) {
+            this(txnId, 0L);
+        }
+
+        private StubConnectorTransaction(long txnId, long updateCnt) {
             this.txnId = txnId;
+            this.updateCnt = updateCnt;
         }
 
         @Override
         public long getTransactionId() {
             return txnId;
+        }
+
+        @Override
+        public long getUpdateCnt() {
+            return updateCnt;
         }
 
         @Override
@@ -189,6 +238,17 @@ public class PluginDrivenInsertExecutorTest {
 
         @Override
         public void close() {
+        }
+    }
+
+    /** Handle-model write ops that record whether finishInsert was invoked. */
+    private static final class RecordingHandleWriteOps implements ConnectorWriteOps {
+        private boolean finishInsertCalled;
+
+        @Override
+        public void finishInsert(ConnectorSession session, ConnectorInsertHandle handle,
+                Collection<byte[]> fragments) {
+            finishInsertCalled = true;
         }
     }
 }
