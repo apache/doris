@@ -440,13 +440,22 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
 
     // ==================== DDL helpers ====================
 
-    private void validateColumns(List<ConnectorColumn> columns) {
+    // package-private for unit test; reached only via createTable() in production.
+    void validateColumns(List<ConnectorColumn> columns) {
         if (columns == null || columns.isEmpty()) {
             throw new DorisConnectorException(
                     "Table must have at least one column.");
         }
         Set<String> seen = new HashSet<>();
         for (ConnectorColumn col : columns) {
+            // MaxCompute cannot store auto-increment columns; reject them with the same message
+            // as legacy MaxComputeMetadataOps.validateColumns (silent drop is a data-model
+            // regression -- the user's AUTO_INCREMENT intent would be lost without warning).
+            if (col.isAutoInc()) {
+                throw new DorisConnectorException(
+                        "Auto-increment columns are not supported for MaxCompute tables: "
+                                + col.getName());
+            }
             if (!seen.add(col.getName().toLowerCase())) {
                 throw new DorisConnectorException(
                         "Duplicate column name: " + col.getName());

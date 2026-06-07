@@ -97,6 +97,50 @@ public class CreateTableInfoToConnectorRequestConverterTest {
     }
 
     @Test
+    public void autoIncInitValueIsPropagatedAsIsAutoInc() {
+        // ColumnDefinition is mocked (its auto-inc ctor pulls in ColumnNullableType machinery);
+        // the converter only reads these getters. A column is auto-inc when getAutoIncInitValue() != -1.
+        ColumnDefinition autoIncCol = Mockito.mock(ColumnDefinition.class);
+        Mockito.when(autoIncCol.getName()).thenReturn("id");
+        Mockito.when(autoIncCol.getType()).thenReturn(IntegerType.INSTANCE);
+        Mockito.when(autoIncCol.getComment()).thenReturn("");
+        Mockito.when(autoIncCol.isNullable()).thenReturn(false);
+        Mockito.when(autoIncCol.isKey()).thenReturn(false);
+        Mockito.when(autoIncCol.getAutoIncInitValue()).thenReturn(1L); // != -1 => auto-increment
+
+        CreateTableInfo info = stubInfo("t", Collections.singletonList(autoIncCol),
+                null, null, "", Collections.emptyMap(), false, false);
+        ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+
+        // WHY (Rule 9): the connector can only reject what the converter carries. This proves the
+        // auto-inc flag survives the ColumnDefinition -> ConnectorColumn boundary (without it, the
+        // connector's auto-inc rejection would be dead code). MUTATION: reverting the converter to
+        // the 6-arg ctor (dropping `d.getAutoIncInitValue() != -1`) makes this red.
+        Assertions.assertTrue(req.getColumns().get(0).isAutoInc(),
+                "autoIncInitValue != -1 must propagate to ConnectorColumn.isAutoInc");
+    }
+
+    @Test
+    public void plainColumnIsNotAutoInc() {
+        ColumnDefinition plainCol = Mockito.mock(ColumnDefinition.class);
+        Mockito.when(plainCol.getName()).thenReturn("c");
+        Mockito.when(plainCol.getType()).thenReturn(IntegerType.INSTANCE);
+        Mockito.when(plainCol.getComment()).thenReturn("");
+        Mockito.when(plainCol.isNullable()).thenReturn(true);
+        Mockito.when(plainCol.isKey()).thenReturn(false);
+        Mockito.when(plainCol.getAutoIncInitValue()).thenReturn(-1L); // default => not auto-increment
+
+        CreateTableInfo info = stubInfo("t", Collections.singletonList(plainCol),
+                null, null, "", Collections.emptyMap(), false, false);
+        ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+
+        // WHY: guards the `!= -1` predicate boundary -- a normal column must map to false, not true
+        // (catches an inverted or constant-true mistake).
+        Assertions.assertFalse(req.getColumns().get(0).isAutoInc(),
+                "autoIncInitValue == -1 (a normal column) must map to isAutoInc=false");
+    }
+
+    @Test
     public void identityPartitionStyle() {
         // PARTITIONED BY (dt) on a Hive-style external table.
         PartitionTableInfo partition = new PartitionTableInfo(

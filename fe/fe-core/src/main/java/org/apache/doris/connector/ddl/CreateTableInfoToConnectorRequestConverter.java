@@ -89,7 +89,7 @@ public final class CreateTableInfoToConnectorRequestConverter {
             // typed default-value carrier. See HANDOFF open issues.
             out.add(new ConnectorColumn(
                     d.getName(), type, d.getComment(),
-                    d.isNullable(), null, d.isKey()));
+                    d.isNullable(), null, d.isKey(), d.getAutoIncInitValue() != -1));
         }
         return out;
     }
