@@ -22,8 +22,12 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -31,8 +35,11 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Physical table sink for plugin-driven connector catalogs.
@@ -104,17 +111,70 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     }
 
     /**
-     * Get required physical properties for sink distribution.
+     * Get required physical properties for sink distribution. Generalizes the legacy
+     * {@code PhysicalMaxComputeTableSink.getRequirePhysicalProperties()} 3-branch behavior, gated
+     * by connector capabilities so non-partitioned connectors (JDBC, ES) keep the GATHER default:
      *
-     * <p>Connectors that declare {@code SUPPORTS_PARALLEL_WRITE} capability
-     * (e.g., Hive, Iceberg) use random partitioned distribution for parallel writers.
-     * All other connectors (e.g., JDBC, ES) default to GATHER (single writer)
-     * for transactional safety.</p>
+     * <ul>
+     *   <li><b>Dynamic-partition write</b> (a partition column is present in {@code cols}) when the
+     *       connector declares {@code SINK_REQUIRE_PARTITION_LOCAL_SORT}: hash-distribute by the
+     *       partition columns and require a mandatory local sort on them. Streaming partition
+     *       writers (MaxCompute Storage API) close the previous partition writer once a different
+     *       partition value appears; un-grouped rows cause "writer has been closed".</li>
+     *   <li><b>Non-partitioned / all-static-partition write</b> when the connector declares
+     *       {@code SUPPORTS_PARALLEL_WRITE}: {@code SINK_RANDOM_PARTITIONED} (parallel writers).</li>
+     *   <li><b>Otherwise</b> (e.g. JDBC, ES): {@code GATHER} (single writer) for transactional
+     *       safety.</li>
+     * </ul>
+     *
+     * <p><b>Index by {@code cols}, not full schema.</b> Unlike legacy {@code bindMaxComputeTableSink}
+     * (which projects the child to full-schema order), {@code BindSink.bindConnectorTableSink}
+     * projects the child to {@code cols} order and enforces {@code cols.size() == child output size},
+     * so {@code child().getOutput().get(i)} corresponds to {@code cols.get(i)}. Partition columns are
+     * therefore located by their position in {@code cols}.</p>
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        if (targetTable instanceof PluginDrivenExternalTable
-                && ((PluginDrivenExternalTable) targetTable).supportsParallelWrite()) {
+        if (!(targetTable instanceof PluginDrivenExternalTable)) {
+            return PhysicalProperties.GATHER;
+        }
+        PluginDrivenExternalTable table = (PluginDrivenExternalTable) targetTable;
+
+        if (table.requirePartitionLocalSortOnWrite()) {
+            Set<String> partitionNames = table.getPartitionColumns().stream()
+                    .map(Column::getName)
+                    .collect(Collectors.toSet());
+            if (!partitionNames.isEmpty()) {
+                // A partition column present in cols == its value comes from the query == a dynamic
+                // partition write. Locate partition columns by their position in cols, which is
+                // aligned 1:1 with child().getOutput() (see class/method note above).
+                List<Integer> partitionColIdx = new ArrayList<>();
+                for (int i = 0; i < cols.size(); i++) {
+                    if (partitionNames.contains(cols.get(i).getName())) {
+                        partitionColIdx.add(i);
+                    }
+                }
+                if (!partitionColIdx.isEmpty()) {
+                    List<ExprId> exprIds = partitionColIdx.stream()
+                            .map(idx -> child().getOutput().get(idx).getExprId())
+                            .collect(Collectors.toList());
+                    DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
+                            = new DistributionSpecHiveTableSinkHashPartitioned();
+                    shuffleInfo.setOutputColExprIds(exprIds);
+                    // Local sort by partition columns so rows for the same partition are grouped
+                    // together before the streaming partition writer.
+                    List<OrderKey> orderKeys = partitionColIdx.stream()
+                            .map(idx -> new OrderKey(child().getOutput().get(idx), true, false))
+                            .collect(Collectors.toList());
+                    return new PhysicalProperties(shuffleInfo)
+                            .withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
+                }
+                // Partition columns exist but none in cols == all partitions statically specified;
+                // fall through to the parallel/gather branch (no sort/shuffle needed).
+            }
+        }
+
+        if (table.supportsParallelWrite()) {
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
         }
         return PhysicalProperties.GATHER;

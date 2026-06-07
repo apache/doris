@@ -50,6 +50,20 @@ public enum ConnectorCapability {
      */
     SUPPORTS_PARALLEL_WRITE,
     /**
+     * Indicates the connector requires dynamic-partition writes to be hash-distributed by
+     * partition columns and locally sorted by them before reaching the sink.
+     *
+     * <p>Streaming partition writers (e.g. the MaxCompute Storage API) close the previous
+     * partition writer as soon as a new partition value appears; un-grouped (unsorted)
+     * multi-partition rows therefore cause "writer has been closed" errors. The planner uses
+     * this capability to require a hash-by-partition distribution plus a mandatory local sort
+     * on the partition columns for dynamic-partition writes.</p>
+     *
+     * <p>A connector declaring this is expected to also declare
+     * {@link #SUPPORTS_PARALLEL_WRITE} (hash distribution is inherently parallel).</p>
+     */
+    SINK_REQUIRE_PARTITION_LOCAL_SORT,
+    /**
      * Indicates the connector supports passthrough query via the {@code query()} TVF.
      *
      * <p>Connectors declaring this capability must implement

@@ -85,6 +85,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_PARALLEL_WRITE);
     }
 
+    /**
+     * Returns whether the underlying connector requires dynamic-partition writes to be
+     * hash-distributed by partition columns and locally sorted by them (e.g. MaxCompute Storage
+     * API). Used by {@code PhysicalConnectorTableSink} to require that distribution + sort for
+     * dynamic-partition writes; defaults to false so non-partitioned connectors are unaffected.
+     */
+    public boolean requirePartitionLocalSortOnWrite() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT);
+    }
+
     @Override
     public boolean supportsExternalMetadataPreload() {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {

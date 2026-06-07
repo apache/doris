@@ -18,6 +18,7 @@
 package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
@@ -34,7 +35,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Main Connector implementation for MaxCompute (ODPS).
@@ -159,6 +162,20 @@ public class MaxComputeDorisConnector implements Connector {
         ensureInitialized();
         return new MaxComputeConnectorMetadata(
                 odps, structureHelper, defaultProject, endpoint, quota, properties);
+    }
+
+    /**
+     * MaxCompute writes use multiple parallel writers, and dynamic-partition writes must be
+     * hash-distributed and locally sorted by the partition columns: the ODPS Storage API streams
+     * partition writers and closes the previous one when a new partition value appears, so
+     * un-grouped rows trigger "writer has been closed". These two capabilities drive the planner
+     * sink distribution ({@code PhysicalConnectorTableSink.getRequirePhysicalProperties}), mirroring
+     * the legacy {@code PhysicalMaxComputeTableSink}.
+     */
+    @Override
+    public Set<ConnectorCapability> getCapabilities() {
+        return EnumSet.of(ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
+                ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT);
     }
 
     @Override
