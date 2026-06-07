@@ -31,6 +31,7 @@
 #include "core/data_type/convert_field_to_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/primitive_type.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vdirect_in_predicate.h"
@@ -515,12 +516,12 @@ static TExprNode rebuild_expr_node(const VExpr& expr) {
     TExprNode node;
     node.__set_node_type(expr.node_type());
     node.__set_opcode(expr.op());
-    node.__set_type(expr.data_type()->to_thrift());
+    node.__set_type(create_type_desc(remove_nullable(expr.data_type())->get_primitive_type(),
+                                     cast_set<int>(expr.data_type()->get_precision()),
+                                     cast_set<int>(expr.data_type()->get_scale())));
     node.__set_is_nullable(expr.data_type()->is_nullable());
     node.__set_num_children(expr.get_num_children());
-    if (expr.fn().__isset.name) {
-        node.__set_fn(expr.fn());
-    }
+    node.__set_fn(expr.fn());
     if (const auto* in_pred = dynamic_cast<const VInPredicate*>(&expr)) {
         TInPredicate in_predicate;
         in_predicate.__set_is_not_in(in_pred->is_not_in());
@@ -1243,6 +1244,9 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
         return nullptr;
     }
     if (file_field.is_null()) {
+        return nullptr;
+    }
+    if (file_field.get_type() != remove_nullable(rewrite_info.file_type)->get_primitive_type()) {
         return nullptr;
     }
     auto literal = std::make_shared<SplitLocalFileLiteral>(
