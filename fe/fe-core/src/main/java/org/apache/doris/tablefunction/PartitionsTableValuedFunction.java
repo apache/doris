@@ -28,6 +28,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
@@ -170,7 +172,8 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         }
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog)) {
+                || catalog instanceof MaxComputeExternalCatalog
+                || catalog instanceof PluginDrivenExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                     catalog.getType()));
         }
@@ -182,7 +185,8 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         TableIf table = null;
         try {
             table = db.get().getTableOrMetaException(tableName, TableType.OLAP,
-                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
+                    TableType.PLUGIN_EXTERNAL_TABLE);
         } catch (MetaNotFoundException e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -199,6 +203,16 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
 
         if (table instanceof MaxComputeExternalTable) {
             if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
+                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
+            }
+        }
+
+        if (table instanceof PluginDrivenExternalTable) {
+            // Keyed on partition columns (isPartitionedTable), consistent with the SHOW PARTITIONS
+            // gate (ShowPartitionsCommand). A partitioned-but-empty table returns 0 rows rather than
+            // throwing -- a deliberate, more-correct deviation from legacy MC's partition-instance
+            // check above.
+            if (!((PluginDrivenExternalTable) table).isPartitionedTable()) {
                 throw new AnalysisException("Table " + tableName + " is not a partitioned table");
             }
         }
