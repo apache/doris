@@ -9,7 +9,7 @@
 
 ## ▶ RESUME (fresh session 从这里接)
 
-- **✅ 全部完成(6/6)**: Phase 1 读 —— `4dba013d514`(FIX-READ-DESC)+ `0a545d319f8`(FIX-READ-SPLIT)；Phase 2 DDL —— `0d95d837924`(FIX-DDL-ENGINE,1 轮)+ `6c68e502662`(FIX-DDL-REMOTE,2 轮)；Phase 3 分区 —— `35cfa50f988`(FIX-PART-GATES,2 轮)；Phase 4 写 —— FIX-WRITE-ROWS(1 轮 sound,commit 待下方填)。
+- **✅ 全部完成(6/6)**: Phase 1 读 —— `4dba013d514`(FIX-READ-DESC)+ `0a545d319f8`(FIX-READ-SPLIT)；Phase 2 DDL —— `0d95d837924`(FIX-DDL-ENGINE,1 轮)+ `6c68e502662`(FIX-DDL-REMOTE,2 轮)；Phase 3 分区 —— `35cfa50f988`(FIX-PART-GATES,2 轮)；Phase 4 写 —— `b31021696e8`(FIX-WRITE-ROWS,1 轮 sound)。
 - **下一步(后续,非本 task 范围)**: ① **live 验证**(真实 ODPS,CI 默认跳)—— 6 fix 的 e2e 全套(`external_table_p2/maxcompute/*` 读/CREATE/DROP/SHOW PARTITIONS/partitions TVF/INSERT affected-rows)= 翻闸真正完成门,需带凭证人工跑。② **doc-sync**(prior-session WIP,本批未混入 commit): Batch-D 设计 :70-77/:102 amendment 措辞("T06c adds"→"FIX-PART-GATES adds")+ decisions-log(D-028 ordering、CACHE-P1 降级、`P4-T05-T06-cutover-design.md:114` "doBeforeCommit 跳过正确" 更正)。③ Batch-D 删 legacy(须排在 6 fix 之后;🔴红线见下)。
 - **FIX-PART-GATES 落地要点**(供防回退): 新 `PluginDrivenSchemaCacheValue`(存 partition 列 + raw 远端名)；`PluginDrivenExternalTable` initSchema 填分区列(raw→mapped 经 `fromRemoteColumnName` 桥接)+ 4 override(isPartitionedTable/getPartitionColumns/supportInternalPartitionPruned/getNameToPartitionItems);`getNameToPartitionItems` 单次 `listPartitions` + 复用 `TablePartitionValues.addPartitions`(与 legacy `MaxComputeExternalMetaCache.loadPartitionValues` 同构,ListPartitionItem/isHive=false)再 invert。**决策①**: `supportInternalPartitionPruned()` keyed on `!getPartitionColumns().isEmpty()`(非 legacy MC 无条件 true)——因 override 被 jdbc/es/trino 共享,无条件 true 会改非分区连接器行为。`PartitionsTableValuedFunction` 3 网关只增不删(🔴Batch-D 红线 :173 守住)。`PartitionValuesTableValuedFunction` 不动(仅 HMS,非回归)。per-call 远端 listPartitions 无二级 cache = CACHE-P1 既定方向(登记降级)。
 - **FIX-DDL-REMOTE 落地要点**(供后续防回退): `PluginDrivenExternalCatalog.java` createTable/dropTable 两 override 加 FE 端 local→remote 名解析(createTable `db.getRemoteName()` 喂 converter 第二参、表名不解析=legacy parity;dropTable 精确 mirror base `ExternalCatalog.dropTable:1119-1129` —— **db==null 无条件抛**[非 ifExists-gate,推翻 parent 设计文本]、table==null/handle-absent 才 ifExists)。editlog/cache 仍用本地名(follower-replay)。源码仅 fe-core 2 override;无 import 新增(同包)。Batch-D 协同:勿据 T06c §5:187 已证伪的"连接器内部解析 remote"假定行事。
@@ -26,7 +26,7 @@
 | 3 | FIX-DDL-ENGINE | 2 DDL  | blocker | fe-core   | ✅ | ✅ | ✅ | 1 轮→收敛(sound) | ✅ DONE (commit `0d95d837924`) |
 | 4 | FIX-DDL-REMOTE | 2 DDL  | major   | fe-core   | ✅ | ✅ | ✅ | 2 轮→收敛 | ✅ DONE (commit `6c68e502662`) |
 | 5 | FIX-PART-GATES | 3 part | major   | fe-core   | ✅ | ✅ | ✅ | 2 轮→收敛 | ✅ DONE (commit `35cfa50f988`) |
-| 6 | FIX-WRITE-ROWS | 4 write| major   | fe-core   | ✅ | ✅ | ✅ | 1 轮→sound | ✅ DONE (commit 待下方) |
+| 6 | FIX-WRITE-ROWS | 4 write| major   | fe-core   | ✅ | ✅ | ✅ | 1 轮→sound | ✅ DONE (commit `b31021696e8`) |
 
 图例: ⬜ 未开始 / 🔄 进行中 / ✅ 完成
 
