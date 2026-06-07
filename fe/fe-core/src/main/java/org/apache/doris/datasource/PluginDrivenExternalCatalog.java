@@ -263,9 +263,20 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         makeSureInitialized();
+        // Resolve the local db name to its remote (ODPS) name before handing it to the connector,
+        // mirroring legacy MaxComputeMetadataOps.createTableImpl (db.getRemoteName()). Without this,
+        // name-mapped catalogs (lower_case_meta_names / meta_names_mapping, where the local display
+        // name differs from the remote name) would address the wrong remote schema. The table name
+        // is intentionally NOT remote-resolved (legacy parity: the table does not exist yet, so
+        // there is no local->remote mapping for it).
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(createTableInfo.getDbName());
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + createTableInfo.getDbName()
+                    + "' in catalog: " + getName());
+        }
         ConnectorSession session = buildConnectorSession();
         ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter
-                .convert(createTableInfo, createTableInfo.getDbName());
+                .convert(createTableInfo, db.getRemoteName());
         try {
             connector.getMetadata(session).createTable(session, request);
         } catch (DorisConnectorException e) {
@@ -280,7 +291,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // Invalidate the FE-side table-name cache so the new table is immediately visible on
         // this FE. The legacy metadataOps path did this via afterCreateTable(); since
         // PluginDrivenExternalCatalog has no metadataOps, the override must do it here.
-        getDbForReplay(createTableInfo.getDbName()).ifPresent(db -> db.resetMetaCacheNames());
+        // (Edit log and cache invalidation deliberately use the LOCAL db/table names for
+        // follower-replay consistency; only the connector-bound name is remote-resolved.)
+        getDbForReplay(createTableInfo.getDbName()).ifPresent(d -> d.resetMetaCacheNames());
         LOG.info("finished to create table {}.{}.{}", getName(),
                 createTableInfo.getDbName(), createTableInfo.getTableName());
         return false;
@@ -354,9 +367,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
                           boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
+        // Resolve the local db/table names to their remote (ODPS) names before handing them to the
+        // connector, mirroring base ExternalCatalog.dropTable -- the exact path legacy
+        // MaxComputeMetadataOps.dropTableImpl ran through, which used dorisTable.getRemoteDbName() /
+        // getRemoteName(). Without this, name-mapped catalogs would locate the wrong remote table
+        // (IF EXISTS silently no-ops / non-IF-EXISTS wrongly reports "not found"). Matching base:
+        // a missing db ALWAYS throws (even with IF EXISTS); a missing table honors IF EXISTS.
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
+        }
+        ExternalTable dorisTable = db.getTableNullable(tableName);
+        if (dorisTable == null) {
+            if (ifExists) {
+                return;
+            }
+            throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
+        }
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, tableName);
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+                session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        // The table is present in the FE cache but may have been dropped out-of-band on the remote
+        // side; preserve the existing IF EXISTS handling for that case.
         if (!handle.isPresent()) {
             if (ifExists) {
                 return;
@@ -368,8 +401,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Edit log and cache invalidation deliberately use the LOCAL db/table names for
+        // follower-replay consistency; only the connector-bound names are remote-resolved.
         Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
-        getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tableName));
+        getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
         LOG.info("finished to drop table {}.{}.{}", getName(), dbName, tableName);
     }
 

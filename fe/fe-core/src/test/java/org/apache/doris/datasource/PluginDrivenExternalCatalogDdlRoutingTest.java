@@ -34,6 +34,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -171,44 +172,132 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     // ==================== DROP TABLE ====================
+    // FIX-DDL-REMOTE: dropTable now resolves the local db/table names to their REMOTE (ODPS)
+    // names (via getDbNullable + db.getTableNullable + getRemoteDbName/getRemoteName) before
+    // calling the connector, mirroring base ExternalCatalog.dropTable / legacy
+    // MaxComputeMetadataOps.dropTableImpl. Every drop test therefore stubs dbNullableResult and
+    // db.getTableNullable; edit log / cache invalidation still use the LOCAL names.
 
     @Test
-    public void testDropTableResolvesHandleRoutesAndUnregisters() throws Exception {
+    public void testDropTableResolvesRemoteNamesRoutesAndUnregisters() throws Exception {
+        // local db1.t1 maps to remote DB1.TBL1 (name mapping enabled).
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();   // resolution db (getDbNullable)
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        // Distinct replay db: locks that cache invalidation uses the getDbForReplay lookup, NOT
+        // the resolution db (a refactor routing unregister through the resolution db must go red).
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
+
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
-        Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.of(handle));
-        ExternalDatabase<? extends ExternalTable> mockDb = mockExternalDatabase();
-        catalog.dbForReplayResult = Optional.of(mockDb);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
 
         catalog.dropTable("db1", "t1", false, false, false, false, false, false);
 
+        // WHY: the connector must receive the REMOTE names so name-mapped catalogs hit the real
+        // ODPS object; a mutation that passes the local "db1"/"t1" makes this verify red.
+        Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
         Mockito.verify(metadata).dropTable(session, handle);
-        Mockito.verify(mockEditLog).logDropTable(Mockito.any());
-        Mockito.verify(mockDb).unregisterTable("t1");
+        // WHY: edit log + cache invalidation MUST use the LOCAL names -- followers replay the
+        // persisted DropInfo and the on-FE cache is keyed by local name. A mutation building
+        // DropInfo / looking up getDbForReplay with the remote names must turn these red.
+        ArgumentCaptor<org.apache.doris.persist.DropInfo> dropInfo =
+                ArgumentCaptor.forClass(org.apache.doris.persist.DropInfo.class);
+        Mockito.verify(mockEditLog).logDropTable(dropInfo.capture());
+        Assertions.assertEquals("db1", dropInfo.getValue().getDb(),
+                "edit-log DropInfo must carry the LOCAL db name for follower replay");
+        Assertions.assertEquals("t1", dropInfo.getValue().getTableName(),
+                "edit-log DropInfo must carry the LOCAL table name for follower replay");
+        Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
+                "cache invalidation must look up the LOCAL db name");
+        Mockito.verify(replayDb).unregisterTable("t1");
+        Mockito.verify(db, Mockito.never()).unregisterTable(Mockito.anyString());
     }
 
     @Test
-    public void testDropTableIfExistsWhenMissingIsNoop() throws Exception {
-        Mockito.when(metadata.getTableHandle(session, "db1", "missing")).thenReturn(Optional.empty());
+    public void testDropTableMissingDbThrowsEvenWithIfExists() {
+        catalog.dbNullableResult = null; // db not present
+
+        // WHY: mirror base ExternalCatalog.dropTable -- a missing db ALWAYS throws, even with
+        // IF EXISTS (only a missing TABLE honors IF EXISTS). A mutation that ifExists-gates the
+        // db==null branch makes this test red.
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.dropTable("missing", "t1", false, false, false, true, false, false));
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testDropTableIfExistsWhenMissingTableIsNoop() throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.doReturn(null).when(db).getTableNullable("missing");
+        catalog.dbNullableResult = db;
 
         catalog.dropTable("db1", "missing", false, false, false, true, false, false);
 
+        // Table missing + IF EXISTS => no-op; the connector is never even consulted.
+        Mockito.verifyNoInteractions(metadata);
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+    }
+
+    @Test
+    public void testDropTableMissingTableWithoutIfExistsThrows() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.doReturn(null).when(db).getTableNullable("missing");
+        catalog.dbNullableResult = db;
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.dropTable("db1", "missing", false, false, false, false, false, false));
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testDropTableHandleAbsentAfterLocalResolveIsNoopWithIfExists() throws Exception {
+        // FE cache has the table (resolves locally), but it was dropped out-of-band remotely:
+        // getTableHandle returns empty. IF EXISTS must still no-op.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        catalog.dropTable("db1", "t1", false, false, false, true, false, false);
+
+        Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
         Mockito.verify(metadata, Mockito.never()).dropTable(Mockito.any(), Mockito.any());
         Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
     }
 
     @Test
-    public void testDropTableMissingWithoutIfExistsThrows() {
-        Mockito.when(metadata.getTableHandle(session, "db1", "missing")).thenReturn(Optional.empty());
+    public void testDropTableHandleAbsentAfterLocalResolveThrowsWithoutIfExists() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
 
         Assertions.assertThrows(DdlException.class,
-                () -> catalog.dropTable("db1", "missing", false, false, false, false, false, false));
+                () -> catalog.dropTable("db1", "t1", false, false, false, false, false, false));
         Mockito.verify(metadata, Mockito.never()).dropTable(Mockito.any(), Mockito.any());
     }
 
     @Test
     public void testDropTableWrapsConnectorException() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
-        Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
         Mockito.doThrow(new DorisConnectorException("boom"))
                 .when(metadata).dropTable(session, handle);
 
@@ -217,12 +306,58 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertTrue(ex.getMessage().contains("boom"));
     }
 
-    // ==================== CREATE TABLE (cache-invalidation fix) ====================
+    // ==================== CREATE TABLE ====================
+    // FIX-DDL-REMOTE: createTable now resolves the local db name to its REMOTE (ODPS) name (via
+    // getDbNullable + db.getRemoteName()) and passes THAT to the converter; the table name is
+    // intentionally NOT remote-resolved (legacy parity). Edit log / cache invalidation still use
+    // the local names.
 
     @Test
-    public void testCreateTableInvalidatesDbCache() throws UserException {
-        ExternalDatabase<? extends ExternalTable> mockDb = mockExternalDatabase();
-        catalog.dbForReplayResult = Optional.of(mockDb);
+    public void testCreateTablePassesRemoteDbNameToConverter() throws UserException {
+        // local db1 maps to remote DB1.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        catalog.dbForReplayResult = Optional.of(db);
+
+        try (MockedStatic<CreateTableInfoToConnectorRequestConverter> conv =
+                Mockito.mockStatic(CreateTableInfoToConnectorRequestConverter.class)) {
+            ConnectorCreateTableRequest req = Mockito.mock(ConnectorCreateTableRequest.class);
+            conv.when(() -> CreateTableInfoToConnectorRequestConverter.convert(Mockito.any(), Mockito.any()))
+                    .thenReturn(req);
+            CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+            Mockito.when(info.getDbName()).thenReturn("db1");
+            Mockito.when(info.getTableName()).thenReturn("t1");
+
+            catalog.createTable(info);
+
+            // WHY: the converter (and thus the connector) must receive the REMOTE db name "DB1",
+            // not the local "db1", so name-mapped catalogs address the real ODPS schema. We assert
+            // on the SECOND argument actually passed to convert() -- NOT on req.getDbName(), which
+            // would be vacuous here because the converter is mocked and returns a stub unaffected
+            // by the dbName argument. A mutation that passes info.getDbName() makes this red.
+            conv.verify(() -> CreateTableInfoToConnectorRequestConverter.convert(info, "DB1"));
+        }
+    }
+
+    @Test
+    public void testCreateTableMissingDbThrows() {
+        catalog.dbNullableResult = null; // db not present
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("missing");
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testCreateTableInvalidatesDbCacheUsingLocalNames() throws UserException {
+        // remote DB1 != local db1, so the LOCAL-name assertions below are meaningful.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
 
         try (MockedStatic<CreateTableInfoToConnectorRequestConverter> conv =
                 Mockito.mockStatic(CreateTableInfoToConnectorRequestConverter.class)) {
@@ -236,7 +371,20 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
             catalog.createTable(info);
 
             Mockito.verify(metadata).createTable(session, req);
-            Mockito.verify(mockDb).resetMetaCacheNames();
+            // WHY: edit log MUST carry the LOCAL names (followers replay this persist entry), even
+            // though the connector got the remote "DB1". A mutation persisting db.getRemoteName()
+            // must turn these red.
+            ArgumentCaptor<org.apache.doris.persist.CreateTableInfo> persist =
+                    ArgumentCaptor.forClass(org.apache.doris.persist.CreateTableInfo.class);
+            Mockito.verify(mockEditLog).logCreateTable(persist.capture());
+            Assertions.assertEquals("db1", persist.getValue().getDbName(),
+                    "edit-log CreateTableInfo must carry the LOCAL db name for follower replay");
+            Assertions.assertEquals("t1", persist.getValue().getTblName(),
+                    "edit-log CreateTableInfo must carry the LOCAL table name for follower replay");
+            // Cache invalidation must look up the LOCAL db name and act on the replay db.
+            Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
+                    "cache invalidation must look up the LOCAL db name");
+            Mockito.verify(replayDb).resetMetaCacheNames();
         }
     }
 
@@ -258,6 +406,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Optional<ExternalDatabase<? extends ExternalTable>> dbForReplayResult = Optional.empty();
         int resetMetaCacheNamesCount;
         String unregisteredDb;
+        // Records the arg passed to getDbForReplay so tests can assert the cache-invalidation
+        // lookup uses the LOCAL db name (follower-replay parity), not the remote-resolved one.
+        String lastGetDbForReplayArg;
 
         TestablePluginCatalog(Connector initial) {
             super(1L, "test-catalog", null, testProps(), "", initial);
@@ -281,6 +432,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         @Override
         public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(String dbName) {
+            lastGetDbForReplayArg = dbName;
             return dbForReplayResult;
         }
 
