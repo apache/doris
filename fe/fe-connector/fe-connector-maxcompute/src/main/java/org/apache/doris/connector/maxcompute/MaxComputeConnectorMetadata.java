@@ -68,13 +68,22 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     private final Odps odps;
     private final McStructureHelper structureHelper;
     private final String defaultProject;
+    private final String endpoint;
+    private final String quota;
+    private final Map<String, String> properties;
 
     public MaxComputeConnectorMetadata(Odps odps,
             McStructureHelper structureHelper,
-            String defaultProject) {
+            String defaultProject,
+            String endpoint,
+            String quota,
+            Map<String, String> properties) {
         this.odps = odps;
         this.structureHelper = structureHelper;
         this.defaultProject = defaultProject;
+        this.endpoint = endpoint;
+        this.quota = quota;
+        this.properties = properties;
     }
 
     @Override
@@ -171,6 +180,39 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
                     new MaxComputeColumnHandle(partCol.getName(), true));
         }
         return result;
+    }
+
+    /**
+     * Builds the typed MaxCompute table descriptor for the read path. The BE
+     * {@code file_scanner} static_casts {@code table_desc()} to
+     * {@code MaxComputeTableDescriptor} unconditionally for
+     * {@code table_format_type=="max_compute"}, so the descriptor MUST be
+     * {@code MAX_COMPUTE_TABLE} with {@code mcTable} set; the null / SCHEMA_TABLE
+     * fallback would produce type confusion in BE. Mirrors legacy
+     * {@code MaxComputeExternalTable.toThrift()}.
+     *
+     * <p>{@code project}/{@code table} use the remote-name params: the SPI read
+     * session also addresses ODPS with remote names, so the descriptor must match
+     * (see design OQ-7). The 6th ctor arg ({@code dbName}) mirrors legacy and is
+     * unread by BE for MC reads. Fully-qualified thrift names match the jdbc/es
+     * overrides and avoid new connector imports.</p>
+     */
+    @Override
+    public org.apache.doris.thrift.TTableDescriptor buildTableDescriptor(
+            ConnectorSession session,
+            long tableId, String tableName, String dbName,
+            String remoteName, int numCols, long catalogId) {
+        org.apache.doris.thrift.TMCTable tMcTable = new org.apache.doris.thrift.TMCTable();
+        tMcTable.setEndpoint(endpoint);
+        tMcTable.setQuota(quota);
+        tMcTable.setProject(dbName);
+        tMcTable.setTable(remoteName);
+        tMcTable.setProperties(properties);
+        org.apache.doris.thrift.TTableDescriptor desc = new org.apache.doris.thrift.TTableDescriptor(
+                tableId, org.apache.doris.thrift.TTableType.MAX_COMPUTE_TABLE,
+                numCols, 0, tableName, dbName);
+        desc.setMcTable(tMcTable);
+        return desc;
     }
 
     // ==================== Partition listing ====================

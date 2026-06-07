@@ -158,7 +158,7 @@ public class MaxComputeDorisConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         ensureInitialized();
         return new MaxComputeConnectorMetadata(
-                odps, structureHelper, defaultProject);
+                odps, structureHelper, defaultProject, endpoint, quota, properties);
     }
 
     @Override
