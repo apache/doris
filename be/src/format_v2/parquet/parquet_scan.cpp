@@ -123,7 +123,8 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
         row_group_plan.row_group_rows = row_group_rows;
         RETURN_IF_ERROR(select_row_group_ranges_by_page_index(
                 file_reader, file_schema, request, row_group_idx, row_group_rows,
-                &row_group_plan.selected_ranges, &plan->pruning_stats));
+                &row_group_plan.selected_ranges, &row_group_plan.page_skip_plans,
+                &plan->pruning_stats));
         if (row_group_plan.selected_ranges.empty()) {
             continue;
         }
@@ -283,7 +284,8 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_non_predicate_columns.clear();
 
     ParquetColumnReaderFactory column_reader_factory(_current_row_group,
-                                                     file_context.schema->num_columns());
+                                                     file_context.schema->num_columns(),
+                                                     &row_group_plan.page_skip_plans);
     for (const auto& col : request.predicate_columns) {
         const auto local_id = col.field_id();
         if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {

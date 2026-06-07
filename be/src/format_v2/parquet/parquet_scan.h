@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -59,6 +60,7 @@ struct RowGroupReadPlan {
     int64_t first_file_row = 0;
     int64_t row_group_rows = 0;
     std::vector<RowRange> selected_ranges;
+    std::map<int, ParquetPageSkipPlan> page_skip_plans;
 };
 
 struct RowGroupScanPlan {

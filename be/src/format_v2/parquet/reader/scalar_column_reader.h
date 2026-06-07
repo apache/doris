@@ -37,7 +37,8 @@ namespace doris::parquet {
 class ScalarColumnReader final : public ParquetColumnReader {
 public:
     ScalarColumnReader(const ParquetColumnSchema& column_schema,
-                       std::shared_ptr<::parquet::internal::RecordReader> record_reader);
+                       std::shared_ptr<::parquet::internal::RecordReader> record_reader,
+                       const ParquetPageSkipPlan* page_skip_plan = nullptr);
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
@@ -46,11 +47,17 @@ public:
     ArrowLeafReaderContext leaf_context() const {
         return ArrowLeafReaderContext {_descriptor, _type_descriptor, _type, _name, _record_reader};
     }
+    void advance_rows_read(int64_t rows);
 
 private:
+    Status skip_records(int64_t rows);
+    int64_t page_filtered_rows_to_skip(int64_t rows) const;
+
     const ::parquet::ColumnDescriptor* _descriptor = nullptr;
     ParquetTypeDescriptor _type_descriptor;
     std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
+    const ParquetPageSkipPlan* _page_skip_plan = nullptr;
+    int64_t _row_group_rows_read = 0;
 };
 
 } // namespace doris::parquet

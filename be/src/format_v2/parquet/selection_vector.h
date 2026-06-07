@@ -30,6 +30,18 @@ struct RowRange {
     int64_t length = 0;
 };
 
+struct ParquetPageSkipPlan {
+    int leaf_column_id = -1;
+    std::vector<uint8_t> skipped_pages;
+    std::vector<RowRange> skipped_ranges;
+
+    bool empty() const { return skipped_ranges.empty(); }
+
+    bool should_skip_page(size_t page_idx) const {
+        return page_idx < skipped_pages.size() && skipped_pages[page_idx] != 0;
+    }
+};
+
 // 类似 DuckDB SelectionVector 的轻量行号视图。
 // 它只表达一个 batch 内被选中的 row offset，不持有 table/global schema 语义。
 // 未绑定 data 时表示 identity selection：get_index(i) == i。

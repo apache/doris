@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -95,7 +96,8 @@ protected:
 class ParquetColumnReaderFactory {
 public:
     ParquetColumnReaderFactory(std::shared_ptr<::parquet::RowGroupReader> row_group,
-                               int num_leaf_columns);
+                               int num_leaf_columns,
+                               const std::map<int, ParquetPageSkipPlan>* page_skip_plans = nullptr);
 
     static constexpr int ROW_POSITION_COLUMN_ID = -10001;
     static constexpr const char* ROW_POSITION_COLUMN_NAME = "__parquet_row_position";
@@ -145,6 +147,7 @@ private:
 
     std::shared_ptr<::parquet::RowGroupReader> _row_group;
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>> _record_readers;
+    const std::map<int, ParquetPageSkipPlan>* _page_skip_plans = nullptr;
 };
 
 } // namespace parquet

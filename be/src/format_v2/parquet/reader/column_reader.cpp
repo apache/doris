@@ -17,8 +17,10 @@
 
 #include "format_v2/parquet/reader/column_reader.h"
 
+#include <arrow/memory_pool.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/schema.h>
+#include <parquet/level_conversion.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -107,9 +109,11 @@ Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected
 }
 
 ParquetColumnReaderFactory::ParquetColumnReaderFactory(
-        std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns)
+        std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns,
+        const std::map<int, ParquetPageSkipPlan>* page_skip_plans)
         : _row_group(std::move(row_group)),
-          _record_readers(static_cast<size_t>(num_leaf_columns)) {}
+          _record_readers(static_cast<size_t>(num_leaf_columns)),
+          _page_skip_plans(page_skip_plans) {}
 
 format::ColumnDefinition ParquetColumnReaderFactory::row_position_column_definition() {
     format::ColumnDefinition field;
@@ -133,7 +137,15 @@ Status ParquetColumnReaderFactory::create_scalar_reader(
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
-    *reader = std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader));
+    const ParquetPageSkipPlan* page_skip_plan = nullptr;
+    if (_page_skip_plans != nullptr) {
+        auto plan_it = _page_skip_plans->find(column_schema.leaf_column_id);
+        if (plan_it != _page_skip_plans->end()) {
+            page_skip_plan = &plan_it->second;
+        }
+    }
+    *reader = std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader),
+                                                   page_skip_plan);
     return Status::OK();
 }
 
@@ -214,8 +226,26 @@ Status ParquetColumnReaderFactory::get_record_reader(
     }
     if (_record_readers[leaf_column_id] == nullptr) {
         try {
-            _record_readers[leaf_column_id] =
-                    _row_group->RecordReader(leaf_column_id, /*read_dictionary=*/false);
+            auto page_reader = _row_group->GetColumnPageReader(leaf_column_id);
+            if (_page_skip_plans != nullptr) {
+                auto plan_it = _page_skip_plans->find(leaf_column_id);
+                if (plan_it != _page_skip_plans->end()) {
+                    const ParquetPageSkipPlan* page_skip_plan = &plan_it->second;
+                    page_reader->set_data_page_filter(
+                            [page_skip_plan,
+                             page_idx = size_t {0}](const ::parquet::DataPageStats&) mutable {
+                                const bool skip = page_skip_plan->should_skip_page(page_idx);
+                                ++page_idx;
+                                return skip;
+                            });
+                }
+            }
+            const auto level_info = ::parquet::internal::LevelInfo::ComputeLevelInfo(descriptor);
+            _record_readers[leaf_column_id] = ::parquet::internal::RecordReader::Make(
+                    descriptor, level_info, ::arrow::default_memory_pool(),
+                    /*read_dictionary=*/false,
+                    /*read_dense_for_nullable=*/false);
+            _record_readers[leaf_column_id]->SetPageReader(std::move(page_reader));
         } catch (const ::parquet::ParquetException& e) {
             return Status::Corruption("Failed to create parquet record reader for column {}: {}",
                                       name, e.what());
