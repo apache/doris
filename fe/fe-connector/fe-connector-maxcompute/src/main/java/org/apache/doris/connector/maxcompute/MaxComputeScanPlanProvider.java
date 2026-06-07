@@ -20,7 +20,12 @@ package org.apache.doris.connector.maxcompute;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.pushdown.ConnectorAnd;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.connector.api.pushdown.ConnectorIn;
+import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 
@@ -68,6 +73,16 @@ import java.util.stream.Collectors;
 public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static final Logger LOG = LogManager.getLogger(MaxComputeScanPlanProvider.class);
+
+    /**
+     * FE session variable name gating the LIMIT-split optimization (default OFF). Hardcoded
+     * here because the connector must not depend on fe-core's {@code SessionVariable} constant;
+     * it is read from {@link ConnectorSession#getSessionProperties()} (same pattern the JDBC
+     * connector uses for its session vars). Must stay byte-identical to
+     * {@code SessionVariable.ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION}.
+     */
+    private static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION =
+            "enable_mc_limit_split_optimization";
 
     private final MaxComputeDorisConnector connector;
 
@@ -196,10 +211,13 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
         // PluginDrivenScanNode.getSplits, so it never reaches here.
         List<com.aliyun.odps.PartitionSpec> requiredPartitionSpecs = toPartitionSpecs(requiredPartitions);
 
-        // Check limit optimization eligibility
-        boolean onlyPartitionEquality = filter.isPresent()
-                && checkOnlyPartitionEquality(filter.get(), partitionColumnNames);
-        boolean useLimitOpt = limit > 0 && (onlyPartitionEquality || !filter.isPresent());
+        // Check limit optimization eligibility. Mirrors legacy MaxComputeScanNode's three-gate
+        // (sessionVariable.enableMcLimitSplitOptimization && onlyPartitionEqualityPredicate
+        // && hasLimit()), default OFF: the optimization fires only when the user enabled the
+        // session var AND (there is no filter OR every conjunct is partition-column equality).
+        boolean limitOptEnabled = isLimitOptEnabled(session.getSessionProperties());
+        boolean useLimitOpt = shouldUseLimitOptimization(
+                limitOptEnabled, limit, filter, partitionColumnNames);
 
         try {
             if (useLimitOpt) {
@@ -383,16 +401,88 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Check if all filter predicates are partition-column equality predicates.
-     * This enables the limit optimization path.
+     * Gate (1): reads the {@code enable_mc_limit_split_optimization} session variable
+     * (default {@code false}). Map-typed for direct unit testing without a live session.
      */
-    private boolean checkOnlyPartitionEquality(ConnectorExpression expr,
+    static boolean isLimitOptEnabled(Map<String, String> sessionProperties) {
+        return Boolean.parseBoolean(
+                sessionProperties.getOrDefault(ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION, "false"));
+    }
+
+    /**
+     * Whether the LIMIT-split optimization is eligible, mirroring legacy
+     * {@code MaxComputeScanNode}'s {@code enableMcLimitSplitOptimization
+     * && onlyPartitionEqualityPredicate && hasLimit()} (default OFF). Pure → unit-testable.
+     *
+     * @param limitOptEnabled gate (1): the session var value
+     * @param limit gate (3): {@code > 0} means a LIMIT is present
+     * @param filter the pushed-down filter; empty means no predicate
+     * @param partitionColumnNames the table's partition column names
+     */
+    static boolean shouldUseLimitOptimization(boolean limitOptEnabled, long limit,
+            Optional<ConnectorExpression> filter, Set<String> partitionColumnNames) {
+        if (!limitOptEnabled || limit <= 0) {
+            return false;
+        }
+        if (!filter.isPresent()) {
+            // No predicate: every row qualifies, so the first min(limit, total) rows are correct.
+            return true;
+        }
+        return checkOnlyPartitionEquality(filter.get(), partitionColumnNames);
+    }
+
+    /**
+     * Gate (2): true iff every conjunct in {@code expr} is a partition-column equality
+     * ({@code partcol = literal}) or partition-column IN-list ({@code partcol IN (literal, ...)}).
+     * Mirrors legacy {@code MaxComputeScanNode.checkOnlyPartitionEqualityPredicate()}: when this
+     * holds, every row in the (pruned) partitions qualifies, so reading the first {@code limit}
+     * rows by row offset is correct.
+     *
+     * <p>The empty-filter case is handled upstream in {@link #shouldUseLimitOptimization}
+     * (legacy treats empty conjuncts as eligible).</p>
+     */
+    static boolean checkOnlyPartitionEquality(ConnectorExpression expr,
             Set<String> partitionColumnNames) {
-        // Conservative: return false to disable limit optimization when filter is complex.
-        // The full check would walk the expression tree to verify all leaves are
-        // partition_col = literal or partition_col IN (literal, ...).
-        // For the first iteration, we keep it simple and always return false.
+        if (expr instanceof ConnectorAnd) {
+            for (ConnectorExpression conjunct : ((ConnectorAnd) expr).getConjuncts()) {
+                if (!isPartitionEqualityLeaf(conjunct, partitionColumnNames)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return isPartitionEqualityLeaf(expr, partitionColumnNames);
+    }
+
+    private static boolean isPartitionEqualityLeaf(ConnectorExpression expr,
+            Set<String> partitionColumnNames) {
+        // partcol = literal (mirror legacy: column on the LEFT, literal on the RIGHT, EQ only).
+        if (expr instanceof ConnectorComparison) {
+            ConnectorComparison cmp = (ConnectorComparison) expr;
+            return cmp.getOperator() == ConnectorComparison.Operator.EQ
+                    && isPartitionColumnRef(cmp.getLeft(), partitionColumnNames)
+                    && cmp.getRight() instanceof ConnectorLiteral;
+        }
+        // partcol IN (literal, ...) (not NOT-IN; all list elements must be literals).
+        if (expr instanceof ConnectorIn) {
+            ConnectorIn in = (ConnectorIn) expr;
+            if (in.isNegated() || !isPartitionColumnRef(in.getValue(), partitionColumnNames)) {
+                return false;
+            }
+            for (ConnectorExpression item : in.getInList()) {
+                if (!(item instanceof ConnectorLiteral)) {
+                    return false;
+                }
+            }
+            return true;
+        }
         return false;
+    }
+
+    private static boolean isPartitionColumnRef(ConnectorExpression expr,
+            Set<String> partitionColumnNames) {
+        return expr instanceof ConnectorColumnRef
+                && partitionColumnNames.contains(((ConnectorColumnRef) expr).getColumnName());
     }
 
     private static String serializeSession(Serializable object) throws IOException {
