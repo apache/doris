@@ -9,7 +9,7 @@
 
 ## ▶ RESUME (fresh session 从这里接)
 
-- **已完成**: Phase 1 读路径两 blocker —— commit `4dba013d514`(FIX-READ-DESC)+ `0a545d319f8`(FIX-READ-SPLIT);Phase 2 DDL blocker —— commit `316ed2abed1`(FIX-DDL-ENGINE,sound 1 轮收敛)。
+- **已完成**: Phase 1 读路径两 blocker —— commit `4dba013d514`(FIX-READ-DESC)+ `0a545d319f8`(FIX-READ-SPLIT);Phase 2 DDL blocker —— commit `0d95d837924`(FIX-DDL-ENGINE,sound 1 轮收敛)。
 - **下一个**: issue 4 **FIX-DDL-REMOTE**(needs-revision **major**,fe-core)。动手前必读其 parent critic 更正(`P4-cutover-fix-design.md` :277-294):5 个既有 drop UT 会因新增 `getDbNullable` 前置而**变红需重写**(`PluginDrivenExternalCatalogDdlRoutingTest` 的 4 drop + 1 createTable cache 用例,须 stub `dbNullableResult`/`db.getTableNullable`)/ createTable/dropTable override 由 4 个 SPI_READY_TYPES **共享**(jdbc/es/trino 也继承,DROP 新增 `getTableNullable` 远端往返,end-state 仍 throw 不回归但须登记)/ "逐字节一致"声称对未开映射的 FE 控制流不成立(改了异常类型/控制流)/ CREATE 不解析远端表名(legacy parity,显式登记为 non-goal)/ UT 不能 mock converter 否则 `req.getDbName()` 断言 vacuous(须捕 `convert()` 第二参)/ depends_on=DDL-P1(本 issue 3 已落,CREATE 路径现可达)。
 - **FIX-DDL-ENGINE 落地要点**(供后续防回退): `CreateTableInfo.java` 两网关加 `PluginDrivenExternalCatalog` 分支 + helper `pluginCatalogTypeToEngine`(`max_compute`→`ENGINE_MAXCOMPUTE`,**其余 SPI 类型返 null**——精炼过 parent 的 default-throw,使 jdbc/es/trino 在两网关均 legacy parity)。Batch-D 顺序依赖:本 fix 先落 PluginDriven 分支,Batch-D 仅删 legacy MC `instanceof` 分支 + `maxcompute.MaxComputeExternalCatalog` import。
 - **⚠️ issue 5 FIX-PART-GATES 前置决策 OQ-6 未定**(见下「关键前置决策」)—— 到 issue 5 前问用户。
@@ -21,7 +21,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | FIX-READ-DESC  | 1 read | blocker | connector | ✅ | ✅ | ✅ | 3 轮→收敛 | ✅ DONE (commit 待下方) |
 | 2 | FIX-READ-SPLIT | 1 read | blocker | connector | ✅ | ✅ | ✅ | 1 轮→收敛 | ✅ DONE (commit 待下方) |
-| 3 | FIX-DDL-ENGINE | 2 DDL  | blocker | fe-core   | ✅ | ✅ | ✅ | 1 轮→收敛(sound) | ✅ DONE (commit `316ed2abed1`) |
+| 3 | FIX-DDL-ENGINE | 2 DDL  | blocker | fe-core   | ✅ | ✅ | ✅ | 1 轮→收敛(sound) | ✅ DONE (commit `0d95d837924`) |
 | 4 | FIX-DDL-REMOTE | 2 DDL  | major   | fe-core   | ⬜ | ⬜ | ⬜ | — | ⬜ TODO |
 | 5 | FIX-PART-GATES | 3 part | major   | fe-core   | ⬜ | ⬜ | ⬜ | — | ⬜ TODO (⚠️OQ-6 待定) |
 | 6 | FIX-WRITE-ROWS | 4 write| major   | fe-core   | ⬜ | ⬜ | ⬜ | — | ⬜ TODO |
