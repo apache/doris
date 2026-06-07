@@ -38,6 +38,7 @@ import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -100,6 +101,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Set during filter pushdown; may be updated from the original table handle.
     private ConnectorTableHandle currentHandle;
 
+    // Nereids partition-pruning result, injected by the translator. Defaults to NOT_PRUNED
+    // so that connectors / non-partitioned tables read all partitions unless pruning applies.
+    private SelectedPartitions selectedPartitions = SelectedPartitions.NOT_PRUNED;
+
     // Populated from ConnectorScanPlanProvider.getScanNodePropertiesResult()
     private ScanNodePropertiesResult cachedPropertiesResult;
     private Map<String, String> scanNodeProperties;
@@ -134,6 +139,31 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         "Table handle not found for plugin-driven table: " + dbName + "." + tableName));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
                 scanContext, connector, session, handle);
+    }
+
+    /**
+     * Injects the Nereids partition-pruning result. Called by the translator so the pruned
+     * partition set can be pushed down to the connector's scan plan (see {@link #getSplits}).
+     */
+    public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
+        this.selectedPartitions = selectedPartitions;
+    }
+
+    /**
+     * Resolves the pruned partition spec strings to push to the connector SPI.
+     *
+     * <p>Mirrors legacy {@code MaxComputeScanNode.getSplits()} three-state handling:</p>
+     * <ul>
+     *   <li>not pruned (NOT_PRUNED / non-partitioned) &rarr; {@code null}: scan all partitions;</li>
+     *   <li>pruned to a non-empty set &rarr; that set's partition names;</li>
+     *   <li>pruned to zero partitions &rarr; empty list: caller short-circuits with no splits.</li>
+     * </ul>
+     */
+    static List<String> resolveRequiredPartitions(SelectedPartitions selectedPartitions) {
+        if (selectedPartitions == null || !selectedPartitions.isPruned) {
+            return null;
+        }
+        return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
     }
 
     @Override
@@ -363,12 +393,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return Collections.emptyList();
         }
 
+        // Push the Nereids partition-pruning result down to the connector so the read session
+        // covers only the surviving partitions. A pruned-to-zero set means no data to read,
+        // mirroring legacy MaxComputeScanNode.getSplits()'s empty-selection short-circuit.
+        List<String> requiredPartitions = resolveRequiredPartitions(selectedPartitions);
+        if (requiredPartitions != null && requiredPartitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         List<ConnectorColumnHandle> columns = buildColumnHandles();
         tryPushDownProjection(columns);
         Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
 
         List<ConnectorScanRange> ranges = scanProvider.planScan(
-                connectorSession, currentHandle, columns, remainingFilter, limit);
+                connectorSession, currentHandle, columns, remainingFilter, limit, requiredPartitions);
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {

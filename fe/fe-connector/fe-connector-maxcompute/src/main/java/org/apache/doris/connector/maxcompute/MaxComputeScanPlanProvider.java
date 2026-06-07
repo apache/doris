@@ -157,6 +157,13 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
     public List<ConnectorScanRange> planScan(ConnectorSession session,
             ConnectorTableHandle handle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit) {
+        return planScan(session, handle, columns, filter, limit, null);
+    }
+
+    @Override
+    public List<ConnectorScanRange> planScan(ConnectorSession session,
+            ConnectorTableHandle handle, List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions) {
         ensureInitialized();
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
         Table odpsTable = mcHandle.getOdpsTable();
@@ -183,6 +190,12 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
         // Convert filter to ODPS predicate
         Predicate filterPredicate = convertFilter(filter, odpsTable);
 
+        // Partition pruning: restrict the read session to the pruned partitions when present.
+        // null/empty => not pruned => scan all (mirrors legacy MaxComputeScanNode's empty
+        // requiredPartitionSpecs). The "pruned to zero" case is short-circuited upstream in
+        // PluginDrivenScanNode.getSplits, so it never reaches here.
+        List<com.aliyun.odps.PartitionSpec> requiredPartitionSpecs = toPartitionSpecs(requiredPartitions);
+
         // Check limit optimization eligibility
         boolean onlyPartitionEquality = filter.isPresent()
                 && checkOnlyPartitionEquality(filter.get(), partitionColumnNames);
@@ -192,17 +205,36 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
             if (useLimitOpt) {
                 return planScanWithLimitOptimization(mcHandle.getTableIdentifier(),
                         requiredPartitionCols, requiredDataCols,
-                        filterPredicate, limit, odpsTable);
+                        filterPredicate, limit, requiredPartitionSpecs, odpsTable);
             }
 
             TableBatchReadSession readSession = createReadSession(
                     mcHandle.getTableIdentifier(),
                     requiredPartitionCols, requiredDataCols,
-                    filterPredicate, Collections.emptyList(), splitOptions);
+                    filterPredicate, requiredPartitionSpecs, splitOptions);
             return buildSplitsFromSession(readSession, odpsTable);
         } catch (IOException e) {
             throw new RuntimeException("Failed to create MaxCompute read session", e);
         }
+    }
+
+    /**
+     * Converts pruned partition spec strings (the keys of the Nereids selected-partition map,
+     * e.g. {@code "pt=1,region=cn"}) into ODPS {@link com.aliyun.odps.PartitionSpec}s.
+     * Mirrors legacy {@code MaxComputeScanNode}'s {@code new PartitionSpec(key)} conversion.
+     *
+     * <p>{@code null} or empty input returns an empty list, which the ODPS read session
+     * builder treats as "read all partitions" — preserving the pre-pruning behavior.</p>
+     */
+    static List<com.aliyun.odps.PartitionSpec> toPartitionSpecs(List<String> requiredPartitions) {
+        if (requiredPartitions == null || requiredPartitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<com.aliyun.odps.PartitionSpec> specs = new ArrayList<>(requiredPartitions.size());
+        for (String name : requiredPartitions) {
+            specs.add(new com.aliyun.odps.PartitionSpec(name));
+        }
+        return specs;
     }
 
     private Predicate convertFilter(Optional<ConnectorExpression> filter, Table odpsTable) {
@@ -307,6 +339,7 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
             TableIdentifier tableId,
             List<String> partitionCols, List<String> dataCols,
             Predicate filterPredicate, long limit,
+            List<com.aliyun.odps.PartitionSpec> requiredPartitions,
             Table odpsTable) throws IOException {
         long t0 = System.currentTimeMillis();
 
@@ -317,7 +350,7 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
 
         TableBatchReadSession readSession = createReadSession(
                 tableId, partitionCols, dataCols,
-                filterPredicate, Collections.emptyList(), rowOffsetOptions);
+                filterPredicate, requiredPartitions, rowOffsetOptions);
 
         String serialized = serializeSession(readSession);
         InputSplitAssigner assigner = readSession.getInputSplitAssigner();

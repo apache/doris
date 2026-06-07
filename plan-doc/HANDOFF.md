@@ -7,19 +7,17 @@
 
 ## 📅 最后一次 handoff
 
-- **日期**：2026-06-07（第 7 次 handoff）
-- **本 session 主题**：复审发现的 **3 个 P0 写路径 blocker 全清**（P0-1/P0-2 前序 session + 本 session 完成 P0-3）。live tracker = `plan-doc/task-list-P4-rereview.md`。
-  - **P0-1 FIX-OVERWRITE-GATE** ✅ `59699a62f33`（2 轮）— 新 SPI cap `supportsInsertOverwrite()` 守门。
-  - **P0-2 FIX-WRITE-DISTRIBUTION** ✅ `f0adedba20c`（1 轮）— 新 cap `SINK_REQUIRE_PARTITION_LOCAL_SORT`+`SUPPORTS_PARALLEL_WRITE`，重写 legacy 3 分支。
-  - **P0-3 FIX-BIND-STATIC-PARTITION** ✅ `7cc86c66440`（本 session，3 轮收敛 0 mustFix）— **判别键三轮迭代 static→partitioned→capability**：新 cap `SINK_REQUIRE_FULL_SCHEMA_ORDER`（MaxCompute BE 按位置写 full-schema），`bindConnectorTableSink` 据此投影 = legacy `bindMaxComputeTableSink` 全写形 parity；并回退 P0-2 分布索引 cols→full-schema（[D-030] 回退 [D-029]）。详见 `plan-doc/reviews/P4-T06e-FIX-BIND-STATIC-PARTITION-review-rounds.md`。
-- **分支**：`catalog-spi-05`（本地,未 push）。本 session 4 commit（P0-3 fix `7cc86c66440` + task-list 回填 `e38cb635446` + 本次 HANDOFF/doc-sync commit）。
-- **doc-sync 已落**：[D-030]/[DV-014] 登记、cutover-design §4.2 + FIX-WRITE-DISTRIBUTION-design「index-by-cols」superseded 更正、本 HANDOFF——**随本 session commit（不再 WIP）**。
-- **复审已验层（legacy parity 达成）**：返回行结果正确、descriptor/JNI/BE 线、事务生命周期、schema cache（含 downcast 安全）、editlog/replay——均独立验为与 legacy 等价。**剩余问题集中在读裁剪下推 / DB-DDL / minors（见下 P1+）。**
+- **日期**：2026-06-08（第 8 次 handoff）
+- **本 session 主题**：**P1-4 FIX-PRUNE-PUSHDOWN ✅ 完成**（DG-1：读裁剪下推证伪）。3 P0 写 blocker 前序已全清。live tracker = `plan-doc/task-list-P4-rereview.md`。
+  - **P1-4 FIX-PRUNE-PUSHDOWN** ✅ `<PENDING>`（1 轮收敛 0 mustFix）— 用户批准「Fix it」。翻闸后 plugin-driven MaxCompute 读 Nereids `SelectedPartitions` 在 translator 被丢、`MaxComputeScanPlanProvider` 恒传 `requiredPartitions=emptyList` → read session 跨全分区（纯性能/内存回归，行正确）。修 = **additive 6 参 `planScan` SPI overload**（[D-031]：`ConnectorScanPlanProvider` 加 6 参 default 委托 5 参→零破坏其余 6 连接器，唯 MaxCompute override）+ `PluginDrivenScanNode` 三态 `resolveRequiredPartitions`（NOT_PRUNED→null/pruned-非空→names/pruned-空→fe-core 短路，镜像 legacy `MaxComputeScanNode:718-731`）+ translator 注入 + MaxCompute `toPartitionSpecs` 喂两 read-session 路径。详见 `plan-doc/reviews/P4-T06e-FIX-PRUNE-PUSHDOWN-review-rounds.md`。
+- **分支**：`catalog-spi-05`（本地,未 push）。本 session commit（P1-4 fix + doc-sync `<PENDING>` + hash 回填）。
+- **doc-sync 已落（随本 commit）**：[D-031] 登记、[DV-015] 登记（+补 [DV-014] 详细段、计数 14→15）、FIX-PART-GATES design/review-rounds「pruning 不变式 clean」⚠️ 更正（= 仅元数据可见性、read-session 下推由 D-031 补）、[D-028] ⚠️ 补注、本 HANDOFF。
+- **复审已验层（legacy parity 达成）**：返回行结果正确、descriptor/JNI/BE 线、事务生命周期、schema cache（含 downcast 安全）、editlog/replay、**读裁剪下推（本 session 修复 DG-1）**——均独立验为与 legacy 等价。**剩余问题集中在 DB-DDL / CTAS / minors（见下 P2+）。**
 - **状态详情**：见报告 §A(newGaps) / §B(disagreements) / §C(各域 parity 判定) / §D(33 存活 finding 表) / §E(元观察+triage 顺序)。
 
 ---
 
-# 🎯 下一 session = P1 起（P0 三写 blocker 已全清，按优先级续）
+# 🎯 下一 session = P2 起（P0 三写 blocker + P1 读裁剪下推已全清，按优先级续）
 
 > 来源全部出自 `plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md`（每条带 `file:line` + cutover↔legacy diff + 处置建议 + 历史交叉核对证据）。下面是浓缩可执行清单——**动手前按指针核码（Rule 8）**。
 > **⚠️ 把 newGaps∪disagreements 当一个"必须 triage"集**：同一根因被两个审阅者按各自查到的历史 artifact 分别归 new-gap / disagreement（静态分区 bind F19=F48；CREATE DB 预检 F23=F26），别被 status 标签的细分误导。
@@ -31,9 +29,9 @@
 - [x] **FIX-WRITE-DISTRIBUTION**（blocker+major, F17/F18/F43）✅ **DONE @`f0adedba20c`**（1 轮收敛 0 must-fix；详见 `plan-doc/reviews/P4-T06e-FIX-WRITE-DISTRIBUTION-review-rounds.md`、[D-029]/[DV-013]）。做法 = **Option A：新增 SPI capability `SINK_REQUIRE_PARTITION_LOCAL_SORT`**（`ConnectorCapability` 默认不声明 / MaxCompute `getCapabilities()` 声明它 + `SUPPORTS_PARALLEL_WRITE`），`PluginDrivenExternalTable.requirePartitionLocalSortOnWrite()` 读之，`getRequirePhysicalProperties()` 重写 legacy 3 分支。**关键修正 vs legacy**：分区列→child output 索引按 **cols 位置**（通用 sink child 投影到 cols 序）非 legacy full-schema。〔原始计划：〕`PhysicalConnectorTableSink.getRequirePhysicalProperties:114-121` 照搬 legacy `PhysicalMaxComputeTableSink:111-155` 三分支。**⚠️ 不只翻 `SUPPORTS_PARALLEL_WRITE`**——那缺 local-sort，动态分区照样 "writer has been closed"。**Batch-D 红线**：删 `PhysicalMaxComputeTableSink`（唯一逻辑副本）须待本 fix + P0-3 双落。**真值闸**：live e2e 跨多动态分区无 "writer has been closed" + 并行吞吐（CI 跳，须与 P0-3 一并 live 验）。
 - [x] **FIX-BIND-STATIC-PARTITION**（blocker, F19/F48）✅ **DONE @`7cc86c66440`**（3 轮收敛 0 mustFix；[D-030]/[DV-014]；详见 `plan-doc/reviews/P4-T06e-FIX-BIND-STATIC-PARTITION-review-rounds.md`）。⚠️**下面原始计划不完整**——只剔除静态分区列不够：MaxCompute BE/JNI writer **按位置**映射数据到完整表 schema，故**所有** MC 写（不止静态/分区）须投影 full-schema 序（非分区/重排或部分显式列名否则静默错列/丢列）。实际做法 = **新增 SPI cap `SINK_REQUIRE_FULL_SCHEMA_ORDER`**（MaxCompute 声明 / JDBC 不声明），`bindConnectorTableSink` 据此分支（true→full-schema 投影镜像 legacy `bindMaxComputeTableSink` 全写形 + 剔除静态分区列;false→cols 序 JDBC/ES）+ `InsertUtils` VALUES 分支 + **回退 P0-2 分布索引 cols→full-schema**（[D-030] 回退 [D-029]）。判别键三轮 static→partitioned→capability。〔原始计划：`BindSink.bindConnectorTableSink` 剔除 `getStaticPartitionKeyValues().keySet()` + `InsertUtils:377-389` VALUES 分支〕。**doc-sync 已落**：cutover-design §4.2 + FIX-WRITE-DISTRIBUTION-design「index-by-cols」superseded 更正（随本 session commit）。**Batch-D 红线**：删 legacy `bindMaxComputeTableSink`/`PhysicalMaxComputeTableSink` 须待本 fix 落（已落）。**真值闸**：live e2e（p2 `test_mc_write_insert` Test 3/3b + `test_mc_write_static_partitions`）；bind 投影无 fe-core analyze harness 单测 = DV-014。
 
-## 🟠 P1 — 分区裁剪下推证伪（disagreement, major）
+## 🟠 P1 — 分区裁剪下推证伪（disagreement, major）✅ DONE 2026-06-08
 
-- [ ] **FIX-PRUNE-PUSHDOWN**（F1/F7）：FIX-PART-GATES 只落了 FE 元数据半边，裁剪集在 translator 被丢、ODPS read session 仍跨全分区。(a) `PluginDrivenScanNode` 加 SelectedPartitions 字段/setter，`PhysicalPlanTranslator:756-758` 调 `setSelectedPartitions(fileScan.getSelectedPartitions())`（照 legacy `:797`）；(b) 扩 SPI `planScan` 把裁剪分区集穿到 `MaxComputeScanPlanProvider:198-202,320`，由 prunedSpecs 建 `requiredPartitions`（替 `Collections.emptyList()`），补 legacy 空选短路(`MaxComputeScanNode:724-727`)。**或** 接受+重分类：更正 FIX-PART-GATES design/review-rounds/decisions-log 措辞（"只恢复元数据可见性, read-session requiredPartitions 下推仍 open"）+ 登记 deviations-log。**无论哪条，"production CLEAN / pruning 不变式 clean" 裁决必须更正。**
+- [x] **FIX-PRUNE-PUSHDOWN**（F1/F7）✅ **DONE @`<PENDING>`**（1 轮收敛 0 mustFix；[D-031]/[DV-015]；详见 `plan-doc/reviews/P4-T06e-FIX-PRUNE-PUSHDOWN-review-rounds.md`）。**用户批准「Fix it」**。做法 = (a) `PluginDrivenScanNode` 加 `selectedPartitions` 字段/setter + 三态 `resolveRequiredPartitions`（NOT_PRUNED→null / pruned-非空→names / pruned-空→`getSplits` 短路无 split，镜像 legacy `MaxComputeScanNode:718-731`）；`PhysicalPlanTranslator` plugin 分支注入 `setSelectedPartitions(fileScan.getSelectedPartitions())`；(b) **additive 6 参 SPI overload** —— `ConnectorScanPlanProvider.planScan(...,List<String> requiredPartitions)` **default** 委托 5 参（零破坏 es/jdbc/hive/paimon/hudi/trino，唯 MaxCompute override），MaxCompute `toPartitionSpecs` 喂**两** read-session 路径（标准 `:201` + limit-opt `:320`，替 `Collections.emptyList()`），空选短路上移 fe-core。**契约**：null/空=全部、非空=子集、零分区 fe-core 短路不下达 SPI。**已更正**「production CLEAN / pruning 不变式 clean」裁决（FIX-PART-GATES design/review-rounds ⚠️ + D-028 ⚠️，见 doc-sync）。**Batch-D 红线**：删 legacy `MaxComputeScanNode`（读裁剪逻辑副本）须待本 fix 落（已落）。**真值闸**：live e2e p2 `test_max_compute_partition_prune.groovy` + EXPLAIN/profile 证仅扫目标分区（DV-015；CI 跳）。**与 NG-7 batch-mode 解耦但为其前置。**
 
 ## 🟠 P2 — DB-DDL / CTAS 语义回归
 
@@ -51,9 +49,9 @@
 
 ## ⛓️ 横切 / 别忘
 
-- [ ] **Batch-D 红线扩充**：删 legacy 前须先在 PluginDriven/connector 路径补齐 → `PhysicalMaxComputeTableSink`(写分发唯一副本)、`allowInsertOverwrite` 的 MC 分支、`bindMaxComputeTableSink` 静态分区过滤。复查 Batch-D 设计对这些文件的"zero survivor"声明（连同既有 `PartitionsTableValuedFunction` 红线）。
+- [ ] **Batch-D 红线扩充**：删 legacy 前须先在 PluginDriven/connector 路径补齐 → `PhysicalMaxComputeTableSink`(写分发唯一副本)、`allowInsertOverwrite` 的 MC 分支、`bindMaxComputeTableSink` 静态分区过滤、**`MaxComputeScanNode` 读裁剪下推（P1-4 已补 plugin 侧）**。复查 Batch-D 设计对这些文件的"zero survivor"声明（连同既有 `PartitionsTableValuedFunction` 红线）。
 - [ ] **复查一条 known-degradation**：F9 `CAST 谓词被剥壳下推 ODPS → 可能丢行`（category=**correctness**, `ExprToConnectorExpressionConverter.java:108-109`, confirms 3/3）。虽被 Phase C 归"已登记降级"，但属正确性/丢行风险，建议二次确认是否真安全/真已登记。
-- [~] **doc-sync**：P0-1/P0-2/P0-3 部分**已落并 commit**（decisions-log D-027..D-030、deviations-log DV-013/DV-014、cutover-design §4.2、FIX-WRITE-DISTRIBUTION-design index-by-cols superseded、本 HANDOFF、task-list）。**剩余（随 P1-4 处理）**：更正 FIX-PART-GATES「pruning 不变式 clean」措辞（DG-1，见 P1）、其余 P1+ 各项落地时同步 design/log。
+- [~] **doc-sync**：P0-1/P0-2/P0-3 + **P1-4 已落并 commit**（decisions-log D-027..D-031、deviations-log DV-013/DV-014/DV-015、cutover-design §4.2、FIX-WRITE-DISTRIBUTION-design index-by-cols superseded、**FIX-PART-GATES design/review-rounds「pruning 不变式 clean」⚠️ 更正 + D-028 ⚠️ 补注（DG-1✅）**、本 HANDOFF、task-list）。**剩余（随 P2+ 处理）**：DG-2 证伪 DECISION-3「忠实镜像」、DG-4/DG-6 task-list「6/6 完成」措辞，各 P2+ 项落地时同步 design/log。
 
 ---
 

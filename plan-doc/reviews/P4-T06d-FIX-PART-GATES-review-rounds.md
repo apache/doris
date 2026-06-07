@@ -4,6 +4,8 @@
 > 流程: clean-room 多 agent 对抗(Phase A 仅读代码 5 lens → Phase B 3 票 refute-by-default → Phase C 交叉核对设计/parent critic)。
 > 改动: 新 `PluginDrivenSchemaCacheValue.java` + `PluginDrivenExternalTable.java`(initSchema 填分区列 + 4 override)+ `PartitionsTableValuedFunction.java`(analyze 3 网关)+ 2 新测试。
 
+> ⚠️ **2026-06-08 更正（DG-1 / D-031 / DV-015）**：下文「**pruning 不变式 clean**」/「production CLEAN」的裁决**过度声明**，须按此更正。本 review 验证的是**分区元数据可见性**（SHOW PARTITIONS / partitions TVF / Nereids 能算 `SelectedPartitions`）正确——这层站得住。但「分区裁剪端到端生效」（算出的裁剪集真正下推到 ODPS read session `requiredPartitions`）**未**被本 fix 实现，亦未被本 review 覆盖：translator 丢弃 `SelectedPartitions`、`MaxComputeScanPlanProvider` 恒传 `emptyList` → read session 跨全分区（纯性能/内存回归，行正确）。该缺口由后续复审 **DG-1** 锁定、**FIX-PRUNE-PUSHDOWN（D-031）** 修复。故下文「pruning 不变式」应读作「**分区元数据/可见性**不变式」，不含 read-session 下推。
+
 ## Round 1 — verdict: `needs-revision`(4 findings 全 test-quality,production code CLEAN)
 
 review 配置: 5 lens(parity / pruning-invariant / cache / tvf-redline / test-quality)→ 每 finding 3 skeptic → Phase C 交叉核对。64 agent。

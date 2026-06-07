@@ -753,9 +753,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (table instanceof PluginDrivenExternalTable) {
             PluginDrivenExternalCatalog pluginCatalog =
                     (PluginDrivenExternalCatalog) table.getCatalog();
-            scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                    false, sv, context.getScanContext(), pluginCatalog,
+            PluginDrivenScanNode pluginScanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(),
+                    tupleDescriptor, false, sv, context.getScanContext(), pluginCatalog,
                     ((PluginDrivenExternalTable) table));
+            // Forward the pruned partitions so the connector reads only the surviving partitions
+            // (mirrors the legacy MaxCompute / Hive branches below).
+            pluginScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+            scanNode = pluginScanNode;
         } else if (table instanceof HMSExternalTable) {
             if (directoryLister == null) {
                 this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(

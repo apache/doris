@@ -89,6 +89,44 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Plans the scan restricted to a pruned set of partitions.
+     *
+     * <p>The engine computes partition pruning (Nereids {@code SelectedPartitions}) and
+     * threads the surviving partitions here so partition-aware connectors can build a read
+     * session over only those partitions instead of the whole table. The default ignores
+     * {@code requiredPartitions} and delegates to the 5-arg variant, so connectors that do
+     * not support partition pushdown are unaffected.</p>
+     *
+     * <p>Contract for {@code requiredPartitions}:</p>
+     * <ul>
+     *   <li>{@code null} or empty &rarr; not pruned; scan ALL partitions (default behavior).</li>
+     *   <li>non-empty &rarr; scan ONLY these partitions. Each entry is a partition spec string
+     *       (e.g. {@code "pt=1,region=cn"}), i.e. the keys of the pruned partition map.</li>
+     * </ul>
+     *
+     * <p>The "pruned to zero partitions" case (a partition predicate that matches nothing) is
+     * short-circuited by the engine before this method is called, so an empty list here always
+     * means "not pruned / scan all", never "scan nothing".</p>
+     *
+     * @param session           the current session
+     * @param handle            the table handle
+     * @param columns           the columns to read
+     * @param filter            an optional remaining filter expression
+     * @param limit             the maximum number of rows to return, or -1 for no limit
+     * @param requiredPartitions the pruned partition spec strings, or null/empty for all
+     * @return a list of scan ranges
+     */
+    default List<ConnectorScanRange> planScan(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit,
+            List<String> requiredPartitions) {
+        return planScan(session, handle, columns, filter, limit);
+    }
+
+    /**
      * Returns scan-node-level properties shared across all scan ranges.
      *
      * <p>Unlike per-range properties in {@link ConnectorScanRange#getProperties()},

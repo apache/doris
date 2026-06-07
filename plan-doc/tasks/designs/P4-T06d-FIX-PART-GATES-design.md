@@ -103,6 +103,8 @@ public List<Column> getPartitionColumns() {                                     
 4. [docs] commit ②: Batch-D 设计 amendment 措辞 + decisions-log D-028 ordering(本 fix 先于 Batch-D 删 :173)。
 5. **不涉及**: fe-connector(已 expose partition_columns/listPartition*)、fe-connector-api、be、thrift、`ShowPartitionsCommand`、`PartitionValuesTableValuedFunction`。
 
+> ⚠️ **2026-06-08 更正（DG-1 / D-031 / DV-015）**：本「fe-core only / 不涉及 fe-connector-api」scope 声明仅对本 fix 的**实际目标——分区元数据可见性**（SHOW PARTITIONS / partitions TVF / Nereids 能算出 `SelectedPartitions`）成立。它**不**等于「分区裁剪端到端恢复」：read-session `requiredPartitions` 下推（把算出的裁剪集真正喂到 ODPS）需 fe-connector-api（`planScan` 6 参 overload）+ fe-connector-maxcompute + translator 注入，**本 fix 未做**，由后续 **FIX-PRUNE-PUSHDOWN（D-031）** 补齐。原 cutover-review READ-C2 两半修复，本 fix 只落「①元数据 API」半。
+
 ## Risk
 - 回归面: C/D 仅新增 override/分支;非分区连接器经决策① 零变更。`PluginDrivenSchemaCacheValue` cast 仅对 PluginDriven 表(其 initSchema 恒产该子类)。
 - 🔴 Batch-D 红线守住(只增不删 :173)。

@@ -13,10 +13,11 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **14** 项。
+> 时间倒序；当前共 **15** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-015 | P4-T06e FIX-PRUNE-PUSHDOWN 端到端裁剪下推 wiring 无 fe-core 单测（KNOWN-LIMITATION）：`getSplits()` pruned-to-zero 短路 + translator `setSelectedPartitions` 注入 + `getSplits→planScan` 6 参 threading 无 fe-core 端到端 UT（连接器 scan 无轻量 analyze/spy harness，同 [DV-014] 因）。逻辑半（`PluginDrivenScanNode.resolveRequiredPartitions` 三态 + `MaxComputeScanPlanProvider.toPartitionSpecs` 转换）已 UT+mutation pin；wiring 半 + 真实裁剪生效由 p2 live `test_max_compute_partition_prune.groovy` 覆盖（真值=EXPLAIN/profile 仅扫目标分区 + `WHERE pt='不存在'`→0 行不建全分区 session）。与既有约定一致（`HiveScanNodeTest` 亦直构 node 测 setter、不经 translator）| [FIX-PRUNE-PUSHDOWN 设计](./tasks/designs/P4-T06e-FIX-PRUNE-PUSHDOWN-design.md) / [D-031] | 2026-06-08 | 🟢 已登记（逻辑 UT+mutation，wiring 待 live；外表 scan analyze/spy harness 落地后补）|
 | DV-014 | P4-T06e FIX-BIND-STATIC-PARTITION bind 期投影无 fe-core 单测（KNOWN-LIMITATION）：`bindConnectorTableSink` 的 full-schema 投影（NULL 填充 + 分区列在末尾 + 按位置投影）未被 connector-path 单测直接 pin——`bind()` 走 `RelationUtil.getDbAndTable` 真 Env 解析，外表 PluginDriven catalog 需连接器插件,无现成轻量 analyze harness（OLAP analyze 测仅覆盖 `createTable` 内表）。覆盖经：①与 legacy `bindMaxComputeTableSink` 及 Iceberg 路径**共享** helper `getColumnToOutput`/`getOutputProjectByCoercion`（被既有 OLAP/Hive/Iceberg insert 测充分覆盖）；②列选择 helper `selectConnectorSinkBindColumns` 单测 + 分布 full-schema 索引测（要求 child full-schema 序方过）；③p2 live `test_mc_write_insert` Test 3/3b（部分/重排列名）+ `test_mc_write_static_partitions`。capability 声明/reader 按既有约定不单测（既有 readers 亦仅被 mock）| [FIX-BIND-STATIC-PARTITION 设计](./tasks/designs/P4-T06e-FIX-BIND-STATIC-PARTITION-design.md) / [D-030] | 2026-06-07 | 🟢 已登记（无 harness,parity+p2 覆盖；待外表 analyze harness 落地补）|
 | DV-013 | P4-T06e FIX-WRITE-DISTRIBUTION 两处 planner 写分发 parity 微差（均非回归，default `strict` 下与 legacy MC 同果）：① `ShuffleKeyPruner` connector 分支缺 `enableStrictConsistencyDml` 短路 → non-strict 下少剪 shuffle-key（更保守 missed optimization）；② `enable_strict_consistency_dml=false` 下动态分区 local-sort 被丢（legacy MC 亦丢）| [FIX-WRITE-DISTRIBUTION 设计](./tasks/designs/P4-T06e-FIX-WRITE-DISTRIBUTION-design.md) / [D-029] | 2026-06-07 | 🟢 已登记（非回归，接受）|
 | DV-012 | P4-T04 `TMaxComputeTableSink.partition_columns`(field 14) 源：legacy `MaxComputeTableSink` 取 `targetTable.getPartitionColumns()`（fe-core Doris `Column`）；连接器 `MaxComputeWritePlanProvider.planWrite` 取 `odpsTable.getSchema().getPartitionColumns()`（odps-sdk 列）——**源不同、值同**（分区列名）| [tasks/P4 P4-T04](./tasks/P4-maxcompute-migration.md) / [P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md) | 2026-06-06 | 🟢 已落地（P4-T04，值等价）|
@@ -35,6 +36,34 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-015 — P4-T06e FIX-PRUNE-PUSHDOWN：端到端裁剪下推 wiring 无 fe-core 单测（KNOWN-LIMITATION）
+
+- **发现日期**：2026-06-08
+- **发现 session / agent**：FIX-PRUNE-PUSHDOWN clean-room review（workflow `w31i0vfo5`，test-quality lens，4 finding 全 verifier 判 minor/非 must-fix）
+- **当前状态**：🟢 已登记（逻辑半 UT+mutation 守门，wiring 半 + 真实裁剪生效待 live e2e）
+- **原计划位置**：[FIX-PRUNE-PUSHDOWN 设计](./tasks/designs/P4-T06e-FIX-PRUNE-PUSHDOWN-design.md) §Test Plan
+- **偏差描述**：本 fix 三处产线点无 fe-core 端到端 UT：① `PluginDrivenScanNode.getSplits()` 的 pruned-to-zero 短路（`requiredPartitions!=null && isEmpty()→return emptyList()`）；② `PhysicalPlanTranslator` plugin 分支 `setSelectedPartitions(fileScan.getSelectedPartitions())` 注入；③ `getSplits→planScan` 6 参 requiredPartitions threading。原因：`PluginDrivenScanNode` 是 `FileQueryScanNode` 子类，裸构造需绕 ctor 链 + stub `getScanPlanProvider`/`buildColumnHandles`/`buildRemainingFilter`/`applyLimit`（无现成轻量 analyze/spy harness；同 [DV-014] 外表 bind harness 缺位）。
+- **覆盖经**：① 最易错的三态映射逻辑（NOT_PRUNED→null / pruned-非空→names / pruned-空→空 list）由 `PluginDrivenScanNodePartitionPruningTest`（5 测）+ mutation（去 `!isPruned` 守卫双红）pin；② 名→PartitionSpec 转换由 `MaxComputeScanPlanProviderTest`（3 测）+ mutation（恒 emptyList 红）pin；③ wiring 半（短路/注入/threading 单变量直线流）+ **真实裁剪生效** 由 p2 live `test_max_compute_partition_prune.groovy` 覆盖——真值证据 = EXPLAIN/profile 仅扫目标分区（split 数/规划耗时 ≪ 全表）+ `WHERE pt='不存在'`→0 行且不建全分区 session。
+- **为何可接受**：与既有约定一致（`HiveScanNodeTest`/legacy-MC/Hudi 的 translator 注入均无 translator 级测，`HiveScanNodeTest:99-115` 直构 node 调 setter）；fail-safe（默认 `selectedPartitions=NOT_PRUNED`→`resolveRequiredPartitions`→null→scan all，去 wiring 退化为修前全表扫**非丢数据**）。
+- **影响范围**：仅测试覆盖层；产线行为正确。
+- **关联**：[D-031]、[review-rounds](./reviews/P4-T06e-FIX-PRUNE-PUSHDOWN-review-rounds.md)、[复审 §B DG-1](./reviews/P4-maxcompute-full-rereview-2026-06-07.md)、[DV-014]（同类 harness 缺位）
+- **后续动作**：
+  - [ ] 待外表 scan 的 fe-core spy/analyze harness 落地（`MaxComputeScanNodeTest`/`PaimonScanNodeTest` 用 `Mockito.spy`+反射，可借鉴），补 `getSplits()` 短路 + threading 的 CI 级测，把 correctness 不变式从 live-only 提到 CI。
+  - [ ] **live e2e（必经）**：真实 ODPS 跑 `test_max_compute_partition_prune.groovy`，并核 EXPLAIN/profile 证裁剪真正下推（行正确不足以证——修前行已正确）。
+
+### DV-014 — P4-T06e FIX-BIND-STATIC-PARTITION：bind 期 full-schema 投影无 fe-core 单测（KNOWN-LIMITATION）
+
+> 补登：本条索引行（见上）此前已录，详细记录段遗漏，现补齐（doc-sync 横切债）。
+
+- **发现日期**：2026-06-07
+- **发现 session / agent**：FIX-BIND-STATIC-PARTITION clean-room review（workflow `wi3mnjymb`/`wy299gtsh`/`wlwpw0b2s`，test-quality lens）
+- **当前状态**：🟢 已登记（无 harness，parity + p2 覆盖；待外表 analyze harness 落地补）
+- **原计划位置**：[FIX-BIND-STATIC-PARTITION 设计](./tasks/designs/P4-T06e-FIX-BIND-STATIC-PARTITION-design.md) / [D-030]
+- **偏差描述**：`bindConnectorTableSink` 的 full-schema 投影（NULL 填充 + 分区列末尾 + 按位置投影）未被 connector-path 单测直接 pin——`bind()` 经 `RelationUtil.getDbAndTable` 真 Env 解析，外表 PluginDriven catalog 需连接器插件，无现成轻量 analyze harness（OLAP analyze 测仅覆盖 `createTable` 内表）。
+- **覆盖经**：① 与 legacy `bindMaxComputeTableSink` 及 Iceberg 路径**共享** helper `getColumnToOutput`/`getOutputProjectByCoercion`（被既有 OLAP/Hive/Iceberg insert 测覆盖）；② 列选择 helper `selectConnectorSinkBindColumns` 单测 + 分布 full-schema 索引测；③ p2 live `test_mc_write_insert` Test 3/3b + `test_mc_write_static_partitions`。
+- **关联**：[D-030]、[review-rounds](./reviews/P4-T06e-FIX-BIND-STATIC-PARTITION-review-rounds.md)、[DV-015]（同类 harness 缺位）
+- **后续动作**：[ ] 待外表 analyze harness 落地补 bind 投影 CI 级测。
 
 ### DV-013 — P4-T06e FIX-WRITE-DISTRIBUTION：两处 planner 写分发 parity 微差（均非回归）
 
