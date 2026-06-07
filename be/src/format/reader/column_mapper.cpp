@@ -43,6 +43,7 @@
 #include "format/reader/file_reader.h"
 #include "format/reader/schema_projection.h"
 #include "format/reader/table_reader.h"
+#include "gen_cpp/Exprs_types.h"
 #include "storage/predicate/predicate_creator.h"
 
 namespace doris::reader {
@@ -510,6 +511,24 @@ static Field literal_field(const VExprSPtr& literal_expr) {
     return field;
 }
 
+static TExprNode rebuild_expr_node(const VExpr& expr) {
+    TExprNode node;
+    node.__set_node_type(expr.node_type());
+    node.__set_opcode(expr.op());
+    node.__set_type(expr.data_type()->to_thrift());
+    node.__set_is_nullable(expr.data_type()->is_nullable());
+    node.__set_num_children(expr.get_num_children());
+    if (expr.fn().__isset.name) {
+        node.__set_fn(expr.fn());
+    }
+    if (const auto* in_pred = dynamic_cast<const VInPredicate*>(&expr)) {
+        TInPredicate in_predicate;
+        in_predicate.__set_is_not_in(in_pred->is_not_in());
+        node.__set_in_predicate(in_predicate);
+    }
+    return node;
+}
+
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
     DORIS_CHECK(cloned_expr != nullptr);
     if (expr == nullptr) {
@@ -536,15 +555,16 @@ Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
     } else if (expr->is_literal()) {
         cloned = TableLiteral::create_shared(expr->data_type(), literal_field(expr));
     } else if (const auto* cast_expr = dynamic_cast<const Cast*>(expr.get())) {
-        cloned = std::make_shared<Cast>(*cast_expr);
+        cloned = std::make_shared<Cast>(cast_expr->data_type());
     } else if (const auto* in_pred = dynamic_cast<const VInPredicate*>(expr.get())) {
-        cloned = std::make_shared<VInPredicate>(*in_pred);
+        cloned = VInPredicate::create_shared(rebuild_expr_node(*in_pred));
     } else if (const auto* direct_in_pred = dynamic_cast<const VDirectInPredicate*>(expr.get())) {
-        cloned = std::make_shared<VDirectInPredicate>(*direct_in_pred);
+        cloned = std::make_shared<VDirectInPredicate>(rebuild_expr_node(*direct_in_pred),
+                                                      direct_in_pred->get_set_func());
     } else if (const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get())) {
-        cloned = std::make_shared<VCompoundPred>(*compound_pred);
+        cloned = VCompoundPred::create_shared(rebuild_expr_node(*compound_pred));
     } else if (const auto* fn_call = dynamic_cast<const VectorizedFnCall*>(expr.get())) {
-        cloned = std::make_shared<VectorizedFnCall>(*fn_call);
+        cloned = VectorizedFnCall::create_shared(rebuild_expr_node(*fn_call));
     } else {
         return Status::NotSupported("Cannot clone expression {} for file-local rewrite",
                                     expr->expr_name());
@@ -1218,7 +1238,7 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
     Field file_field;
     try {
         convert_field_to_type(original_field, *rewrite_info.file_type, &file_field,
-                              rewrite_info.table_type.get());
+                              original_literal->data_type().get());
     } catch (const Exception&) {
         return nullptr;
     }
@@ -1984,12 +2004,22 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         const auto entry_it = _filter_entries.find(global_index);
         if (mapping == nullptr || !mapping->file_local_id.has_value() || predicates.empty() ||
             entry_it == _filter_entries.end() || !entry_it->second.is_local() ||
-            !column_predicate_can_use_local_source(mapping->filter_conversion)) {
+            !column_predicate_can_use_local_source(mapping->filter_conversion) ||
+            mapping->file_type == nullptr) {
             continue;
         }
         FileColumnPredicateFilter column_predicate_filter;
         column_predicate_filter.file_column_id = LocalColumnId(*mapping->file_local_id);
-        column_predicate_filter.predicates = predicates;
+        const auto file_primitive_type = remove_nullable(mapping->file_type)->get_primitive_type();
+        for (const auto& predicate : predicates) {
+            DORIS_CHECK(predicate != nullptr);
+            if (predicate->primitive_type() == file_primitive_type) {
+                column_predicate_filter.predicates.push_back(predicate);
+            }
+        }
+        if (column_predicate_filter.predicates.empty()) {
+            continue;
+        }
         file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
     }
     for (const auto& table_filter : table_filters) {

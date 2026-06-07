@@ -51,6 +51,7 @@
 #include "format/reader/expr/slot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_reader_v2.h"
+#include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "roaring/roaring64map.hh"
@@ -152,26 +153,6 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByLocalId) {
     EXPECT_TRUE(projected_type->get_element(0)->equals(*string_type));
 }
 
-class TestFunctionExpr final : public VectorizedFnCall {
-public:
-    TestFunctionExpr(const std::string& function_name, DataTypePtr data_type,
-                     TExprNodeType::type node_type = TExprNodeType::FUNCTION_CALL,
-                     TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE)
-            : VectorizedFnCall(), _expr_name(function_name) {
-        _data_type = std::move(data_type);
-        TFunctionName fn_name;
-        fn_name.__set_function_name(function_name);
-        _fn.__set_name(fn_name);
-        set_node_type(node_type);
-        _opcode = opcode;
-    }
-
-    const std::string& expr_name() const override { return _expr_name; }
-
-private:
-    const std::string _expr_name;
-};
-
 VExprSPtr table_int32_slot_ref(int slot_id, int column_id, const std::string& column_name) {
     return TableSlotRef::create_shared(slot_id, column_id, slot_id,
                                        std::make_shared<DataTypeInt32>(), column_name);
@@ -182,9 +163,39 @@ VExprSPtr table_int32_literal(int32_t value) {
                                        Field::create_field<TYPE_INT>(value));
 }
 
+VExprSPtr table_function_expr(const std::string& function_name, const DataTypePtr& return_type,
+                              const std::vector<DataTypePtr>& arg_types,
+                              TExprNodeType::type node_type = TExprNodeType::FUNCTION_CALL,
+                              TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE) {
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    std::vector<TTypeDesc> thrift_arg_types;
+    thrift_arg_types.reserve(arg_types.size());
+    for (const auto& arg_type : arg_types) {
+        thrift_arg_types.push_back(arg_type->to_thrift());
+    }
+    fn.__set_arg_types(thrift_arg_types);
+    fn.__set_ret_type(return_type->to_thrift());
+    fn.__set_has_var_args(false);
+
+    TExprNode node;
+    node.__set_node_type(node_type);
+    node.__set_opcode(opcode);
+    node.__set_type(return_type->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(static_cast<int16_t>(arg_types.size()));
+    node.__set_is_nullable(return_type->is_nullable());
+    return VectorizedFnCall::create_shared(node);
+}
+
 VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t value) {
-    auto expr = std::make_shared<TestFunctionExpr>("gt", std::make_shared<DataTypeUInt8>(),
-                                                   TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(),
+                                    {int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                    TExprOpcode::GT);
     expr->add_child(table_int32_slot_ref(slot_id, column_id, "id"));
     expr->add_child(table_int32_literal(value));
     return expr;
@@ -244,7 +255,8 @@ private:
 
 VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                int right_column_id) {
-    auto expr = std::make_shared<TestFunctionExpr>("add", std::make_shared<DataTypeInt32>());
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto expr = table_function_expr("add", int_type, {int_type, int_type});
     expr->add_child(table_int32_slot_ref(left_slot_id, left_column_id, "id"));
     expr->add_child(table_int32_slot_ref(right_slot_id, right_column_id, "score"));
     return expr;
@@ -252,8 +264,10 @@ VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_s
 
 VExprSPtr table_int32_sum_greater_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                             int right_column_id, int32_t value) {
-    auto expr = std::make_shared<TestFunctionExpr>("gt", std::make_shared<DataTypeUInt8>(),
-                                                   TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(),
+                                    {int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                    TExprOpcode::GT);
     expr->add_child(
             table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
     expr->add_child(table_int32_literal(value));
@@ -262,8 +276,10 @@ VExprSPtr table_int32_sum_greater_than_expr(int left_slot_id, int left_column_id
 
 VExprSPtr table_int32_sum_less_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                          int right_column_id, int32_t value) {
-    auto expr = std::make_shared<TestFunctionExpr>("lt", std::make_shared<DataTypeUInt8>(),
-                                                   TExprNodeType::BINARY_PRED, TExprOpcode::LT);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto expr = table_function_expr("lt", std::make_shared<DataTypeUInt8>(),
+                                    {int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                    TExprOpcode::LT);
     expr->add_child(
             table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
     expr->add_child(table_int32_literal(value));

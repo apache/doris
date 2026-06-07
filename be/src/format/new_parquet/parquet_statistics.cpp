@@ -17,6 +17,7 @@
 
 #include "format/new_parquet/parquet_statistics.h"
 
+#include <cctz/time_zone.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/schema.h>
 #include <parquet/bloom_filter.h>
@@ -43,6 +44,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
+#include "core/value/vdatetime_value.h"
 #include "format/new_parquet/parquet_column_schema.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
@@ -52,6 +54,40 @@
 namespace doris::parquet {
 
 namespace {
+
+constexpr int32_t PARQUET_DATE_EPOCH_DAYNR = 719528;
+
+DateV2Value<DateV2ValueType> parquet_date_to_datev2(int32_t days_since_epoch) {
+    DateV2Value<DateV2ValueType> value;
+    value.get_date_from_daynr(days_since_epoch + PARQUET_DATE_EPOCH_DAYNR);
+    return value;
+}
+
+DateV2Value<DateTimeV2ValueType> parquet_timestamp_to_datetimev2(int64_t epoch_value,
+                                                                 ParquetTimeUnit time_unit) {
+    int64_t second_mask = 0;
+    switch (time_unit) {
+    case ParquetTimeUnit::MILLIS:
+        second_mask = 1000;
+        break;
+    case ParquetTimeUnit::MICROS:
+        second_mask = 1000000;
+        break;
+    default:
+        DORIS_CHECK(false);
+    }
+    int64_t epoch_seconds = epoch_value / second_mask;
+    int64_t sub_second = epoch_value % second_mask;
+    if (sub_second < 0) {
+        sub_second += second_mask;
+        --epoch_seconds;
+    }
+    static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
+    DateV2Value<DateTimeV2ValueType> value;
+    value.from_unixtime(epoch_seconds, utc_time_zone);
+    value.set_microsecond(static_cast<uint64_t>(sub_second * (1000000 / second_mask)));
+    return value;
+}
 
 PrimitiveType physical_filter_type(const ParquetColumnSchema& column_schema) {
     if (column_schema.type == nullptr) {
@@ -534,16 +570,34 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         return result;
     }
 
+    DORIS_CHECK(column_schema.type != nullptr);
     switch (statistics->physical_type()) {
     case ::parquet::Type::BOOLEAN:
         result.has_min_max = set_typed_min_max<::parquet::BooleanType, TYPE_BOOLEAN>(
                 statistics, [](bool value) { return static_cast<UInt8>(value); }, &result);
         return result;
     case ::parquet::Type::INT32:
+        if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATEV2) {
+            result.has_min_max = set_typed_min_max<::parquet::Int32Type, TYPE_DATEV2>(
+                    statistics, [](int32_t value) { return parquet_date_to_datev2(value); },
+                    &result);
+            return result;
+        }
         result.has_min_max = set_typed_min_max<::parquet::Int32Type, TYPE_INT>(
                 statistics, [](int32_t value) { return value; }, &result);
         return result;
     case ::parquet::Type::INT64:
+        if (column_schema.type_descriptor.is_timestamp &&
+            remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATETIMEV2) {
+            result.has_min_max = set_typed_min_max<::parquet::Int64Type, TYPE_DATETIMEV2>(
+                    statistics,
+                    [&](int64_t value) {
+                        return parquet_timestamp_to_datetimev2(
+                                value, column_schema.type_descriptor.time_unit);
+                    },
+                    &result);
+            return result;
+        }
         result.has_min_max = set_typed_min_max<::parquet::Int64Type, TYPE_BIGINT>(
                 statistics, [](int64_t value) { return value; }, &result);
         return result;
@@ -804,15 +858,32 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
 bool set_page_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
                       const ParquetColumnSchema& column_schema, size_t page_idx,
                       ParquetColumnStatistics* page_statistics) {
+    DORIS_CHECK(column_schema.type != nullptr);
     switch (column_schema.descriptor->physical_type()) {
     case ::parquet::Type::BOOLEAN:
         return set_page_typed_min_max<::parquet::BooleanType, TYPE_BOOLEAN>(
                 column_index, page_idx, [](bool value) { return static_cast<UInt8>(value); },
                 page_statistics);
     case ::parquet::Type::INT32:
+        if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATEV2) {
+            return set_page_typed_min_max<::parquet::Int32Type, TYPE_DATEV2>(
+                    column_index, page_idx,
+                    [](int32_t value) { return parquet_date_to_datev2(value); },
+                    page_statistics);
+        }
         return set_page_typed_min_max<::parquet::Int32Type, TYPE_INT>(
                 column_index, page_idx, [](int32_t value) { return value; }, page_statistics);
     case ::parquet::Type::INT64:
+        if (column_schema.type_descriptor.is_timestamp &&
+            remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATETIMEV2) {
+            return set_page_typed_min_max<::parquet::Int64Type, TYPE_DATETIMEV2>(
+                    column_index, page_idx,
+                    [&](int64_t value) {
+                        return parquet_timestamp_to_datetimev2(
+                                value, column_schema.type_descriptor.time_unit);
+                    },
+                    page_statistics);
+        }
         return set_page_typed_min_max<::parquet::Int64Type, TYPE_BIGINT>(
                 column_index, page_idx, [](int64_t value) { return value; }, page_statistics);
     case ::parquet::Type::FLOAT:
