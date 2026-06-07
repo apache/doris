@@ -44,6 +44,16 @@ public interface ConnectorSchemaOps {
                 "getDatabase not implemented");
     }
 
+    /**
+     * Whether this connector supports CREATE DATABASE. Defaults to false so the FE
+     * {@code CREATE DATABASE IF NOT EXISTS} remote existence precheck applies only to
+     * connectors that can actually create databases; connectors that cannot keep their
+     * existing "CREATE DATABASE not supported" behavior unchanged.
+     */
+    default boolean supportsCreateDatabase() {
+        return false;
+    }
+
     /** Creates a new database with the given name and properties. */
     default void createDatabase(ConnectorSession session,
             String dbName, Map<String, String> properties) {

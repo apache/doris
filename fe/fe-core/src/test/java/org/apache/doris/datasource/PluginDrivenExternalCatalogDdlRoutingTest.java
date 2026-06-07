@@ -128,6 +128,62 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertTrue(ex.getMessage().contains("boom"));
     }
 
+    @Test
+    public void testCreateDbIfNotExistsSkipsWhenRemoteExistsAndConnectorSupportsCreate() throws Exception {
+        catalog.dbNullableResult = null; // FE-cache miss
+        Mockito.when(metadata.supportsCreateDatabase()).thenReturn(true);
+        Mockito.when(metadata.databaseExists(session, "db1")).thenReturn(true);
+
+        catalog.createDb("db1", true, new HashMap<>());
+
+        // WHY (Rule 9): DG-4 regression -- a db that exists REMOTELY but is not yet in this FE's
+        // cache must make CREATE DATABASE IF NOT EXISTS a clean no-op (legacy createDbImpl consulted
+        // the remote databaseExist), NOT surface a remote "already exists" error. A mutation that
+        // removes the remote precheck calls createDatabase/logCreateDb -> these never() asserts red.
+        Mockito.verify(metadata).databaseExists(session, "db1");
+        Mockito.verify(metadata, Mockito.never()).createDatabase(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(mockEditLog, Mockito.never()).logCreateDb(Mockito.any());
+        Assertions.assertEquals(0, catalog.resetMetaCacheNamesCount);
+    }
+
+    @Test
+    public void testCreateDbIfNotExistsCreatesWhenRemoteAbsent() throws Exception {
+        catalog.dbNullableResult = null; // FE-cache miss
+        Mockito.when(metadata.supportsCreateDatabase()).thenReturn(true);
+        Mockito.when(metadata.databaseExists(session, "db1")).thenReturn(false); // absent remotely
+        Map<String, String> props = new HashMap<>();
+
+        catalog.createDb("db1", true, props);
+
+        // WHY: remote-absent must still create + editlog + cache reset -- proves the fix did not
+        // degrade IF NOT EXISTS into "never create". Paired with the test above (exists<->absent),
+        // this pins both sides of legacy createDbImpl's existence branch.
+        Mockito.verify(metadata).databaseExists(session, "db1");
+        Mockito.verify(metadata).createDatabase(session, "db1", props);
+        Mockito.verify(mockEditLog).logCreateDb(Mockito.any());
+        Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
+    }
+
+    @Test
+    public void testCreateDbIfNotExistsBypassesPrecheckWhenConnectorLacksCreateSupport() throws Exception {
+        catalog.dbNullableResult = null; // FE-cache miss
+        // supportsCreateDatabase() defaults to false on the mock -- the connector cannot create
+        // databases (jdbc/es/trino). databaseExists is intentionally NOT stubbed: it must never
+        // be consulted (the && short-circuits on the capability gate).
+        Map<String, String> props = new HashMap<>();
+
+        catalog.createDb("db1", true, props);
+
+        // WHY (Rule 9): the capability gate keeps jdbc/es/trino byte-identical -- a connector that
+        // cannot create databases must fall through to createDatabase ("not supported" in
+        // production), and the && must short-circuit so the remote databaseExists query is never
+        // even issued. MUTATION: dropping the `supportsCreateDatabase() &&` gate makes databaseExists
+        // get consulted here -> the never().databaseExists verify goes red (createDatabase still runs
+        // because databaseExists defaults to false; the gate's job is to skip the remote probe).
+        Mockito.verify(metadata, Mockito.never()).databaseExists(Mockito.any(), Mockito.any());
+        Mockito.verify(metadata).createDatabase(session, "db1", props);
+    }
+
     // ==================== DROP DATABASE ====================
 
     @Test

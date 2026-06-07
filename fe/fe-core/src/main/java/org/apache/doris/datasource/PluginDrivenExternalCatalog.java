@@ -304,19 +304,36 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * {@code ConnectorSchemaOps.createDatabase(session, dbName, properties)}.
      *
      * <p>The SPI signature carries no {@code ifNotExists}; this override honors it
-     * FE-side by short-circuiting when the database already exists. On success it
+     * FE-side. It short-circuits on the local FE cache, and — for connectors that
+     * support CREATE DATABASE ({@code supportsCreateDatabase()}) — also consults the
+     * remote {@code databaseExists} so {@code CREATE DATABASE IF NOT EXISTS} on a
+     * database that exists remotely but is not yet in this FE's cache cleanly no-ops
+     * instead of surfacing a remote "already exists" error (mirroring legacy
+     * {@code MaxComputeMetadataOps.createDbImpl}, which checked both). On success it
      * writes the edit log and invalidates the cached db-name list (mirroring the
      * legacy {@code metadataOps.afterCreateDb()} the plugin path no longer has).</p>
      */
     @Override
     public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         makeSureInitialized();
+        // Fast path: FE-cache hit + IF NOT EXISTS => no-op (legacy createDbImpl: dorisDb != null).
         if (ifNotExists && getDbNullable(dbName) != null) {
             return;
         }
         ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        // FE-cache miss but the db may already exist REMOTELY (created on another FE / before this
+        // FE's db-name cache was populated). Legacy MaxComputeMetadataOps.createDbImpl consulted
+        // BOTH getDbNullable AND the remote databaseExist, and IF NOT EXISTS then no-oped. Mirror
+        // that remote check. Gated on supportsCreateDatabase() so connectors that cannot create
+        // databases (jdbc/es/trino) keep their prior behavior (fall through to createDatabase ->
+        // "not supported"); the && short-circuit means they never even issue the remote query.
+        if (ifNotExists && metadata.supportsCreateDatabase() && metadata.databaseExists(session, dbName)) {
+            LOG.info("create database[{}] which already exists remotely, skip", dbName);
+            return;
+        }
         try {
-            connector.getMetadata(session).createDatabase(session, dbName, properties);
+            metadata.createDatabase(session, dbName, properties);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
