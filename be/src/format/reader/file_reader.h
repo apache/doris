@@ -58,6 +58,8 @@ struct FileColumnPredicateFilter {
     // Parquet this is the child ordinal under that parent, not the optional Parquet field_id.
     std::vector<int32_t> file_child_id_path;
     std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+
+    std::string debug_string() const;
 };
 
 enum class FileFormat {
@@ -72,6 +74,8 @@ enum class FileFormat {
 // 列都应在 table 层完成。
 struct FileScanRequest {
     virtual ~FileScanRequest() = default;
+
+    std::string debug_string() const;
 
     // Columns that must be read before row-level filtering. They are materialized eagerly because
     // conjuncts/delete_conjuncts need them to decide the selected rows.

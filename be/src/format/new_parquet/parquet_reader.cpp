@@ -108,8 +108,10 @@ Status ParquetReader::init(RuntimeState* state) {
     _state = std::make_unique<ParquetReaderScanState>();
     _state->enable_bloom_filter =
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
-    // Open parquet file and parse metadata and file schema.
+    // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get()));
+    // Build file schema from parquet metadata.
+    // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     RETURN_IF_ERROR(
             build_parquet_column_schema(*_state->file_context.schema, &_state->file_schema));
     return Status::OK();

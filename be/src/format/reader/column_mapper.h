@@ -196,22 +196,11 @@ public:
         _mappings.clear();
         _constant_map.clear();
         _filter_entries.clear();
-        _column_map_results.clear();
-        _result_mapping = {};
     }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
     const std::map<GlobalIndex, FilterEntry>& filter_entries() const { return _filter_entries; }
-    const std::map<GlobalIndex, ColumnMapResult>& column_map_results() const {
-        return _column_map_results;
-    }
-    const ResultColumnMapping& result_mapping() const { return _result_mapping; }
     const ConstantMap& constant_map() const { return _constant_map; }
     std::string debug_string() const;
-
-    static std::string debug_string(const ColumnDefinition& column);
-    static std::string debug_string(const LocalColumnIndex& projection);
-    static std::string debug_string(const FileColumnPredicateFilter& filter);
-    static std::string debug_string(const FileScanRequest& request);
 
 private:
     const ColumnDefinition* _find_file_field(
@@ -229,14 +218,11 @@ private:
     void _set_constant_mapping(ColumnMapping* mapping, VExprContextSPtr expr);
 
     ColumnMapping* _find_mapping(GlobalIndex global_index);
-    const ColumnMapping* _find_mapping(GlobalIndex global_index) const;
 
     TableColumnMapperOptions _options;
     // Column mapping for each projected column, in the same order as projected_columns. Each entry describes how to get one table/global column from file-local sources, and carries metadata for filter localization and result finalize.
     std::vector<ColumnMapping> _mappings;
     std::map<GlobalIndex, FilterEntry> _filter_entries;
-    std::map<GlobalIndex, ColumnMapResult> _column_map_results;
-    ResultColumnMapping _result_mapping;
     ConstantMap _constant_map;
 };
 

@@ -280,6 +280,8 @@ struct ColumnDefinition {
         }
         return get_identifier_field_id();
     }
+
+    std::string debug_string() const;
 };
 
 // Recursive file-local projection path.
@@ -308,6 +310,7 @@ struct LocalColumnIndex {
 
     LocalColumnId column_id() const { return LocalColumnId(index); }
     int32_t field_id() const { return index; }
+    std::string debug_string() const;
 };
 
 inline bool is_full_projection(const LocalColumnIndex* projection) {

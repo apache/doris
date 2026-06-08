@@ -155,7 +155,8 @@ void collect_global_indices(const VExprSPtr& expr, std::set<GlobalIndex>* global
     }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        global_indices->insert(GlobalIndex(cast_set<size_t>(slot_ref->slot_id())));
+        DORIS_CHECK(slot_ref->column_id() >= 0);
+        global_indices->insert(GlobalIndex(cast_set<size_t>(slot_ref->column_id())));
     }
     for (const auto& child : expr->children()) {
         collect_global_indices(child, global_indices);
@@ -276,7 +277,7 @@ std::string TableReader::debug_string() const {
         << ", mapper_options=" << _mapper_options.debug_string() << ", projected_columns="
         << join_table_reader_debug_strings(_projected_columns,
                                            [](const ColumnDefinition& column) {
-                                               return TableColumnMapper::debug_string(column);
+                                               return column.debug_string();
                                            })
         << ", partition_values=" << partition_values_debug_string(_partition_values)
         << ", table_filters="
@@ -293,7 +294,7 @@ std::string TableReader::debug_string() const {
         << ", file_schema="
         << join_table_reader_debug_strings(_data_reader.file_schema,
                                            [](const ColumnDefinition& field) {
-                                               return TableColumnMapper::debug_string(field);
+                                               return field.debug_string();
                                            })
         << ", file_block_layout="
         << join_table_reader_debug_strings(

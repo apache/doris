@@ -97,6 +97,7 @@ void propagate_child_levels(ParquetColumnSchema* column_schema) {
     }
 }
 
+// Recursively builds ParquetColumnSchema for the given schema node and its children in Parquet file's metadata.
 Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
                          const ::parquet::schema::Node& node, const SchemaBuildContext& context,
                          std::unique_ptr<ParquetColumnSchema>* result) {

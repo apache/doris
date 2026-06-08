@@ -105,7 +105,6 @@ private:
     std::vector<reader::ColumnDefinition> _projected_columns;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
     std::unordered_map<int32_t, reader::GlobalIndex> _slot_id_to_global_index;
-    std::unordered_map<int32_t, reader::GlobalIndex> _column_unique_id_to_global_index;
     std::unordered_map<std::string, const SlotDescriptor*> _partition_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
