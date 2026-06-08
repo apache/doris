@@ -5,6 +5,29 @@
 
 ---
 
+# 🔥 第 13 次 handoff（2026-06-08，覆盖）— G0 FIX-DATETIME-PUSHDOWN-FORMAT 完成
+
+> **本 session 主题**：续做 Batch-D 红线扩充 gap 修复 campaign 的 **G0**（Tier 1，major correctness/perf）。设计 → （用户定 **skip** 设计验证 workflow）→ 实现 → 守门 → 单 Agent impl-review → 独立 commit。
+
+## ✅ 本 session 已完成
+- **G0 FIX-DATETIME-PUSHDOWN-FORMAT（Tier 1）DONE @`0d983a1c056`**：DATETIME/TIMESTAMP/TIMESTAMP_NTZ 谓词下推坏（两 delta）。**delta-1**：`MaxComputePredicateConverter` 用 `String.valueOf(LocalDateTime)`（'T' 分隔变精度，如 `"2023-02-02T00:00"`）喂空格定长 formatter → 非 UTC session `LocalDateTime.parse` 抛 → 整 conjunct 树降 `NO_PREDICATE`（谓词永不下推=perf 回归）/ UTC session 推 malformed 字面量。**delta-2**：source TZ 取 project-region（endpoint 推）而非 session TZ → 跨 TZ 静默丢行。**修**（连接器局部、无 SPI 变更，对齐 legacy `MaxComputeScanNode.convertLiteralToOdpsValues`）=① 直接对 `LocalDateTime` 用目标 formatter 格式化（逐字镜像 legacy `getStringValue(DatetimeV2Type(3|6))`，删字符串版 `convertDateTimezone`）；② source TZ 改 `ConnectorSession.getTimeZone()`（≡ legacy `DateUtils.getTimeZone()`），TZ id 以**字符串**传入、在 converter 内**惰性** `ZoneId.of`（`convert()` 的 catch 内）。
+  - **⚠️ impl-review F1（real regression，已折入）**：初版 `convertFilter` 内 eager `ZoneId.of(session.getTimeZone())`。但 Doris `SET time_zone='CST'`（华区常见，本 Alibaba 连接器尤甚）被 `TimeUtils.checkTimeZoneValidAndStandardize` **逐字存**，而 `java.time.ZoneId.of("CST")` 抛 `ZoneRulesException`（PST/EST/MST 同；UTC/GMT/+08:00/Asia*/Z/PRC OK——已实测）→ eager 解析炸出 `planScan`（无 catch）→ **整查询失败**（含非 datetime 如 `id=5`），比 legacy（per-conjunct catch 降级、仅 datetime 解析 TZ）+ 翻闸前（`resolveProjectTimeZone` 永不抛）双回归。**惰性解析修法** → datetime+CST 降级 `NO_PREDICATE`（BE 兜底，结果仍正确）、非 datetime 仍下推、NTZ 不解析 = **legacy parity**。
+  - 守门：编译 + UT `MaxComputePredicateConverterTest` **13/13** + 连接器模块 55(1 skip，live) + checkstyle 0 + import-gate 0 + mutation（M1 `format→toString` 8红 / M2 `忽略 session zone` 3红 → 还原绿）。**真值闸 live ODPS=DV-022**（跨 UTC/非-UTC session TZ datetime 谓词正确下推、不丢行）。
+  - 设计 `plan-doc/tasks/designs/P4-T06e-FIX-DATETIME-PUSHDOWN-FORMAT-design.md`。**Batch-D 死代码清理项**：`MCConnectorEndpoint.resolveProjectTimeZone` + `REGION_ZONE_MAP`（~60 行）翻闸后零调用方（本 fix 仅删 provider 内死的私有 wrapper）。
+
+## 👤 用户定夺（2026-06-08）
+- **G0 design-verify = Skip → 直接 implement**（设计已深度核码：format 字节级对齐 + TZ source 经 `from(ctx)` 确认）；仍走守门 + 末端 impl-review。
+- **G0 死代码 = Keep + defer Batch-D**（仅删 provider 内死 wrapper；public 方法+map 留待 Batch-D 清理）。
+
+## 🎯 下一 session = 续 campaign（live tracker `plan-doc/task-list-batchD-redline-gaps.md`）
+> **下一个 = G6 FIX-CREATE-CATALOG-VALIDATION（Tier 2，major）**；余按优先序 **G5 → G7 → G2 → GC1**，再 **T3 Tier-3 DV batch（GAP3/4/9/10 登记 deviation）**，最后 **DOC（Batch-D redline 扩充 + scan-node LIMIT-split 注补）**。
+> 各走既有方法论：独立设计 `tasks/designs/P4-T06e-<FIX>-design.md` → 设计验证（**⚠️ Ultracode 仍关**：workflow 需用户 opt-in，否则单/双 Agent 对抗或经用户定 skip）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ impl-review → 独立 commit（`[P4-T06e]`）+ hash 回填 + tracker。
+> 待办详情（G6/G5/G7/G2/GC1/T3/DOC 的 file:line + 修法）见下方折叠的「第 12 次 handoff」§下一 session 待办，未变。
+
+---
+
+<details><summary>📅 历史：第 12 次 handoff（Batch-D 红线扩充查出 11 gap + 2 critic；G8 已修，G0 见上）</summary>
+
 # 🔥 第 12 次 handoff（2026-06-08，覆盖）— Batch-D 红线扩充查出新 gap 修复 campaign
 
 > **本 session 主题**：执行横切「**Batch-D 红线扩充**」——跑 clean-room 对抗 workflow `wbw4xszrg`（117 agent，13 carrier-unit × inventory→adversarial-verify + 3 critic）复查 Batch-D 设计「zero survivor」声明的**行为逻辑副本**层面（非仅实例化链）。**查出 11 gap + 2 critic-only finding。Critic-2 独立复核：13 条 per-fix 等价物全 present+wired（前修无回退）。** 这些是 per-fix review 漏掉的**新**发现。
@@ -46,10 +69,11 @@
 8. **DOC：Batch-D redline 扩充（原任务交付，仍欠）**：把上述全部行为逻辑副本作为 **must-land-before-delete 红线** 补入 `plan-doc/tasks/designs/P4-batchD-maxcompute-removal-design.md` §1/§2（镜像现有 MaxComputeScanNode 红线注格式）；并**更正 scan-node 红线注**——critic-3 证其漏列 **LIMIT-split 优化（第 3 行为副本）**（等价物在 P3-9，注应 cite）。另 critic-2 提醒：`MetadataGenerator`/`PartitionsTableValuedFunction` 仍有 live-but-dead legacy refs，Batch-D 删 legacy 类前须连这些 reverse-ref 一并删否则不编译（已在 §2，复核）。
 
 ## ⚙️ 操作须知（本 session 新增/复用）
-- **磁盘 `/mnt/disk1` 98%**（56G free，bulk 非本 repo）——`/dev/shm` 备份做 mutation（勿用 disk，曾 truncate 产线文件）。**需用户排查磁盘**。
 - maven 必绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml` + `-pl :fe-core -am`（改连接器 `:fe-connector-maxcompute`）+ `-Dmaven.build.cache.enabled=false`；读真实 `Tests run:`/`BUILD`/`MVN_EXIT`，勿信后台 task exit code。checkstyle `-pl :fe-core checkstyle:check`；import-gate `bash tools/check-connector-imports.sh`。
 - 分支 `catalog-spi-05`，本地未 push。本 session 2 commit（G8 fix + 回填）。
 - auto-memory 新增 [[catalog-spi-nonpartitioned-prune-dataloss]]。clean-room 对抗偏好见 [[clean-room-adversarial-review-pref]]；测基建坑见 [[catalog-spi-fe-core-test-infra]]。
+
+</details>
 
 ---
 
