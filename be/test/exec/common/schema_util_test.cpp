@@ -1946,8 +1946,8 @@ TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
 
     // Prepare the variant column with the string column as root
     ColumnVariant::Subcolumns dynamic_subcolumns;
-    dynamic_subcolumns.create_root(
-            ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
+    dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(string_col->assume_mutable(),
+                                                            string_type, true, true /*root*/));
 
     auto variant_col = ColumnVariant::create(0, false, std::move(dynamic_subcolumns));
     auto variant_type = std::make_shared<DataTypeVariant>();
