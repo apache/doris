@@ -752,6 +752,77 @@ TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_is_query_w
     EXPECT_EQ(state.admitted_data_bytes(), 1_mb);
 }
 
+TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_segment_meta_config) {
+    const bool old_file_cache_query_limit_segment_meta =
+            config::file_cache_query_limit_segment_meta;
+    Defer restore_config {[&] {
+        config::file_cache_query_limit_segment_meta = old_file_cache_query_limit_segment_meta;
+    }};
+
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_query_segment_meta_cache" / "").string();
+    if (fs::exists(local_cache_path)) {
+        fs::remove_all(local_cache_path);
+    }
+    fs::create_directories(local_cache_path);
+
+    io::BlockFileCache mgr(local_cache_path, remote_only_on_miss_test_settings());
+    ASSERT_TRUE(mgr.initialize().ok());
+
+    TUniqueId query_id;
+    query_id.hi = 25;
+    query_id.lo = 26;
+
+    io::IOContext segment_footer_io_ctx;
+    segment_footer_io_ctx.reader_type = ReaderType::READER_QUERY;
+    segment_footer_io_ctx.query_id = &query_id;
+    segment_footer_io_ctx.is_index_data = true;
+    segment_footer_io_ctx.is_inverted_index = false;
+
+    config::file_cache_query_limit_segment_meta = false;
+    RemoteScanCacheWriteLimiter default_state(query_id, 1_mb);
+    segment_footer_io_ctx.remote_scan_cache_write_limiter = &default_state;
+    io::CacheContext default_context(&segment_footer_io_ctx);
+    ReadStatistics default_read_stats;
+    default_context.stats = &default_read_stats;
+    EXPECT_FALSE(default_context.admit_cache_write_by_remote_scan_limiter);
+    EXPECT_EQ(default_context.cache_type, io::FileCacheType::INDEX);
+
+    auto default_key = io::BlockFileCache::hash("remote_only_on_miss_default_segment_meta_key");
+    auto default_holder = mgr.get_or_set(default_key, 0, 1_mb, default_context);
+    ASSERT_EQ(default_holder.file_blocks.size(), 1);
+    EXPECT_EQ(default_holder.file_blocks.front()->state(), FileBlock::State::EMPTY);
+    complete_into_memory(default_holder);
+    EXPECT_FALSE(default_state.remote_only_on_miss());
+    EXPECT_EQ(default_state.admitted_data_bytes(), 0);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 1);
+
+    config::file_cache_query_limit_segment_meta = true;
+    RemoteScanCacheWriteLimiter enabled_state(query_id, 1_mb);
+    segment_footer_io_ctx.remote_scan_cache_write_limiter = &enabled_state;
+    io::CacheContext enabled_context(&segment_footer_io_ctx);
+    ReadStatistics enabled_read_stats;
+    enabled_context.stats = &enabled_read_stats;
+    EXPECT_TRUE(enabled_context.admit_cache_write_by_remote_scan_limiter);
+    EXPECT_EQ(enabled_context.cache_type, io::FileCacheType::INDEX);
+
+    auto enabled_key = io::BlockFileCache::hash("remote_only_on_miss_enabled_segment_meta_key");
+    auto first = mgr.get_or_set(enabled_key, 0, 1_mb, enabled_context);
+    ASSERT_EQ(first.file_blocks.size(), 1);
+    EXPECT_EQ(first.file_blocks.front()->state(), FileBlock::State::EMPTY);
+    complete_into_memory(first);
+    EXPECT_FALSE(enabled_state.remote_only_on_miss());
+    EXPECT_EQ(enabled_state.admitted_data_bytes(), 1_mb);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 2);
+
+    auto second = mgr.get_or_set(enabled_key, 1_mb, 1, enabled_context);
+    ASSERT_EQ(second.file_blocks.size(), 1);
+    EXPECT_EQ(second.file_blocks.front()->state(), FileBlock::State::SKIP_CACHE);
+    EXPECT_TRUE(enabled_state.remote_only_on_miss());
+    EXPECT_EQ(enabled_state.admitted_data_bytes(), 1_mb);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 2);
+}
+
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_specialized_write_cache_stats) {
     const fs::path cache_path = caches_dir / "specialized_write_cache_stats_cache";
     clear_cached_remote_reader_factory();

@@ -19,7 +19,9 @@
 
 #include <random>
 
+#include "cpp/sync_point.h"
 #include "core/field.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
@@ -139,6 +141,8 @@ class SegmentFooterCacheTest : public ::testing::Test {
     }
 
     void TearDown() override {
+        _segments.clear();
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         EXPECT_TRUE(io::global_local_filesystem()
                             ->delete_directory(segment_footer_cache_test_segment_dir)
                             .ok());
@@ -160,6 +164,54 @@ TEST_F(SegmentFooterCacheTest, TestGetSegmentFooter) {
         Status st = segment_ptr->_get_segment_footer(footer, nullptr);
         ASSERT_TRUE(st.ok());
     }
+}
+
+TEST_F(SegmentFooterCacheTest, GetSegmentFooterPropagatesIoContext) {
+    auto segment_ptr = _segments.front();
+    auto* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
+    ASSERT_NE(segment_footer_cache, nullptr);
+    segment_footer_cache->erase(segment_ptr->get_segment_footer_cache_key(),
+                                segment_v2::PageTypePB::INDEX_PAGE);
+    segment_ptr->_footer_pb.reset();
+
+    TUniqueId query_id;
+    query_id.hi = 100;
+    query_id.lo = 200;
+    io::RemoteScanCacheWriteLimiter limiter(query_id, 1024);
+    OlapReaderStatistics stats;
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.query_id = &query_id;
+    io_ctx.file_cache_miss_policy = io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    io_ctx.remote_scan_cache_write_limiter = &limiter;
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    bool observed_parse_footer_io_ctx = false;
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "Segment::_parse_footer::io_ctx",
+            [&](auto&& args) {
+                auto* actual = try_any_cast<io::IOContext*>(args[0]);
+                observed_parse_footer_io_ctx = true;
+                EXPECT_EQ(actual->reader_type, ReaderType::READER_QUERY);
+                EXPECT_EQ(actual->query_id, &query_id);
+                EXPECT_EQ(actual->file_cache_stats, &stats.file_cache_stats);
+                EXPECT_EQ(actual->file_cache_miss_policy,
+                          io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS);
+                EXPECT_EQ(actual->remote_scan_cache_write_limiter, &limiter);
+                EXPECT_TRUE(actual->is_index_data);
+                EXPECT_FALSE(actual->is_inverted_index);
+            },
+            &guard);
+
+    std::shared_ptr<segment_v2::SegmentFooterPB> footer;
+    Status st = segment_ptr->_get_segment_footer(footer, &stats, &io_ctx);
+    sp->disable_processing();
+
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_NE(footer, nullptr);
+    EXPECT_TRUE(observed_parse_footer_io_ctx);
 }
 
 TEST_F(SegmentFooterCacheTest, TestGetSegmentFooterCacheKey) {

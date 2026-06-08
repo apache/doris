@@ -370,11 +370,12 @@ private:
     Status _try_build_leaf_plan(ReadPlan* plan, int32_t col_uid, const PathInData& relative_path,
                                 const SubcolumnColumnMetaInfo::Node* node,
                                 ColumnReaderCache* column_reader_cache,
-                                OlapReaderStatistics* stats);
+                                OlapReaderStatistics* stats, const io::IOContext* io_ctx);
     Status _try_build_external_leaf_plan(ReadPlan* plan, int32_t col_uid,
                                          const PathInData& relative_path,
                                          ColumnReaderCache* column_reader_cache,
-                                         OlapReaderStatistics* stats);
+                                         OlapReaderStatistics* stats,
+                                         const io::IOContext* io_ctx);
 
     // Materialize a concrete ColumnIterator according to the previously built plan.
     Status _create_iterator_from_plan(ColumnIteratorUPtr* iterator, const ReadPlan& plan,
@@ -395,7 +396,8 @@ private:
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats,
-                                       HierarchicalDataIterator::ReadType read_type);
+                                       HierarchicalDataIterator::ReadType read_type,
+                                       const io::IOContext* io_ctx);
     // Create a reader that merges subcolumns into the destination sparse column.
     // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,

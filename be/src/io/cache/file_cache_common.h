@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "common/config.h"
 #include "core/uint128.h"
 #include "io/io_common.h"
 
@@ -167,7 +168,8 @@ struct CacheContext {
         admit_cache_write_by_remote_scan_limiter =
                 remote_scan_cache_write_limiter != nullptr &&
                 io_context->reader_type == ReaderType::READER_QUERY &&
-                (!io_context->is_index_data || io_context->is_inverted_index) &&
+                (!io_context->is_index_data || io_context->is_inverted_index ||
+                 config::file_cache_query_limit_segment_meta) &&
                 !io_context->is_warmup;
     }
     CacheContext() = default;

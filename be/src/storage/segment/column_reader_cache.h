@@ -25,6 +25,10 @@
 #include "storage/tablet/tablet_fwd.h"
 #include "util/json/path_in_data.h"
 
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
+
 namespace doris::segment_v2 {
 
 class ColumnReader;
@@ -51,7 +55,8 @@ public:
     ColumnReaderCache(
             ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
             io::FileReaderSPtr file_reader, uint64_t num_rows,
-            std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)>
+            std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
+                                 const io::IOContext*)>
                     get_footer_cb);
     virtual ~ColumnReaderCache();
     // Get all available readers
@@ -62,13 +67,15 @@ public:
     // Get column reader by column unique id
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats,
+                             const io::IOContext* io_ctx = nullptr,
                              std::optional<Field> const_value = std::nullopt);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
     virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
                                           std::shared_ptr<ColumnReader>* column_reader,
                                           OlapReaderStatistics* stats,
-                                          const SubcolumnColumnMetaInfo::Node* node_hint = nullptr);
+                                          const SubcolumnColumnMetaInfo::Node* node_hint = nullptr,
+                                          const io::IOContext* io_ctx = nullptr);
 
 private:
     // Lookup function remains similar
@@ -95,7 +102,9 @@ private:
     io::FileReaderSPtr _file_reader;
     uint64_t _num_rows = 0;
     // Callback to get footer, usually bound to Segment::_get_segment_footer.
-    std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)> _get_footer_cb;
+    std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
+                         const io::IOContext*)>
+            _get_footer_cb;
 };
 
 } // namespace doris::segment_v2

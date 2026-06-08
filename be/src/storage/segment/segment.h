@@ -37,6 +37,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "storage/cache/page_cache.h"
 #include "storage/olap_common.h"
@@ -151,9 +152,9 @@ public:
                                   StorageReadOptions& storage_read_options,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);
 
-    Status load_index(OlapReaderStatistics* stats);
+    Status load_index(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
-    Status load_pk_index_and_bf(OlapReaderStatistics* stats);
+    Status load_pk_index_and_bf(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
     void update_healthy_status(Status new_status) { _healthy_status.update(new_status); }
     // The segment is loaded into SegmentCache and then will load indices, if there are something wrong
@@ -216,11 +217,13 @@ public:
     // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats,
+                             const io::IOContext* io_ctx = nullptr,
                              std::optional<Field> const_value = std::nullopt);
 
     // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats,
+                             const io::IOContext* io_ctx = nullptr,
                              std::optional<Field> const_value = std::nullopt);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
@@ -247,21 +250,23 @@ private:
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open(OlapReaderStatistics* stats);
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
-                         OlapReaderStatistics* stats = nullptr);
+                         OlapReaderStatistics* stats = nullptr,
+                         const io::IOContext* io_ctx = nullptr);
     Status _create_column_meta(const SegmentFooterPB& footer);
-    Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
-    // Must ensure _create_column_readers_once has been called before calling this function.
-    ColumnReader* _get_column_reader(const TabletColumn& col);
+    Status _load_pk_bloom_filter(OlapReaderStatistics* stats,
+                                 const io::IOContext* io_ctx = nullptr);
 
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                              io::IOContext& io_ctx);
 
     Status _open_index_file_reader();
 
-    Status _create_column_meta_once(OlapReaderStatistics* stats);
+    Status _create_column_meta_once(OlapReaderStatistics* stats,
+                                    const io::IOContext* io_ctx = nullptr);
 
     virtual Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&,
-                                       OlapReaderStatistics* stats);
+                                       OlapReaderStatistics* stats,
+                                       const io::IOContext* io_ctx = nullptr);
 
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
 
