@@ -9,6 +9,8 @@
 
 - **G8 = Fix now（repro-test 先行）**——确诊 live 静默丢行，最高优先。
 - **其余 = Fix Tier 1+2，Tier 3 接受+登记 deviation**。
+- **G0 = design-verify Skip + 死代码 Keep/defer Batch-D**（已 DONE `0d983a1c056`）。
+- **下一新 session = 批量修复 G6 + G5 + G7**（三者独立、可并行设计；各仍独立 design doc + 独立 commit + 各自守门）。
 
 ## 进度
 

@@ -19,10 +19,22 @@
 - **G0 design-verify = Skip → 直接 implement**（设计已深度核码：format 字节级对齐 + TZ source 经 `from(ctx)` 确认）；仍走守门 + 末端 impl-review。
 - **G0 死代码 = Keep + defer Batch-D**（仅删 provider 内死 wrapper；public 方法+map 留待 Batch-D 清理）。
 
-## 🎯 下一 session = 续 campaign（live tracker `plan-doc/task-list-batchD-redline-gaps.md`）
-> **下一个 = G6 FIX-CREATE-CATALOG-VALIDATION（Tier 2，major）**；余按优先序 **G5 → G7 → G2 → GC1**，再 **T3 Tier-3 DV batch（GAP3/4/9/10 登记 deviation）**，最后 **DOC（Batch-D redline 扩充 + scan-node LIMIT-split 注补）**。
-> 各走既有方法论：独立设计 `tasks/designs/P4-T06e-<FIX>-design.md` → 设计验证（**⚠️ Ultracode 仍关**：workflow 需用户 opt-in，否则单/双 Agent 对抗或经用户定 skip）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ impl-review → 独立 commit（`[P4-T06e]`）+ hash 回填 + tracker。
-> 待办详情（G6/G5/G7/G2/GC1/T3/DOC 的 file:line + 修法）见下方折叠的「第 12 次 handoff」§下一 session 待办，未变。
+## 🎯 下一 session = 批量修复 G6 + G5 + G7（用户定，2026-06-08）
+
+> **用户定夺**：下一新 session **同时修复 G6 + G5 + G7**。三者**逻辑独立、触不同区**（G6=连接器 provider 校验 / G5=fe-core 列校验 / G7=类型映射），可并行 research/设计；但各仍走**独立 design doc + 独立 `[P4-T06e]` commit + 各自守门**（不合并 commit）。其后 **G2 / GC1 → T3 Tier-3 DV batch（GAP3/4/9/10 登记 deviation）→ DOC（Batch-D redline 扩充 + scan-node LIMIT-split 注补）**。live tracker `plan-doc/task-list-batchD-redline-gaps.md`。
+
+> **方法论（每 issue）**：独立设计 `tasks/designs/P4-T06e-<FIX>-design.md` → 设计验证（**⚠️ Ultracode 仍关**：workflow 需用户 opt-in，否则单/双 Agent 对抗或经用户定 skip）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ impl-review → 独立 commit + hash 回填 + tracker。**动手前按指针核码（Rule 8）**——下列 file:line 为第 12 次 recon，G0 经验示其可漂移。
+> **G0 经验**（auto-memory [[catalog-spi-connector-session-tz-gotcha]]）：连接器**禁 import fe-core**（import-gate）；mutation 改 API 时用 **in-place cp 备份**（revert-to-HEAD 不可编译）；先验 anchor 务必核码。
+
+**本批三 issue（独立、可并行）：**
+
+1. **G6 FIX-CREATE-CATALOG-VALIDATION（Tier 2，major）— 连接器（fe-connector-maxcompute）**：CREATE CATALOG 属性校验缺失。`MaxComputeConnectorProvider` **未 override `validateProperties`**（继承 SPI no-op `ConnectorProvider:74-76`；jdbc/es/trino 都 override）→ required PROJECT/ENDPOINT、split_byte_size≥10485760 floor、split_strategy、account_format∈{name,id}、connect/read timeout>0、retry_count>0、`checkAuthProperties`（`MCConnectorClientFactory.checkAuthProperties:42-78` **定义但零调用**）全不在 CREATE 时校验 → use-time 晚失败 / 静默接受非法（account_format='foo'→默认 DISPLAYNAME；负 timeout）。legacy `MaxComputeExternalCatalog.checkProperties:387-457`。**修**=实现 `MaxComputeConnectorProvider.validateProperties`（或 preCreateValidation）镜像 legacy 六校验 + wire `checkAuthProperties`。
+
+2. **G5 FIX-AGG-COLUMN-REJECT（Tier 2，minor）— fe-core**：`CREATE TABLE (c INT SUM)` 聚合列拒绝丢失（证伪 P2-8「非-OLAP 路径已覆盖」）。链：`ConnectorColumn` 无 aggType 载体 → `CreateTableInfoToConnectorRequestConverter:90-92` 丢 aggType → `MaxComputeConnectorMetadata.validateColumns:476-498` 不查 → nereids `ColumnDefinition.validate(isOlap=false):358-411` 不拒 bare non-key aggType（`validateKeyColumns:1083` 拒但 gated 在 ENGINE_OLAP-only 块、非-OLAP 不可达）。legacy `MaxComputeMetadataOps:426-429` 拒。**修**=FE-core guard（convert/createTable 路径对 maxcompute engine 拒非空 aggType，因 ConnectorColumn 无 aggType 连接器看不到）。**⚠️ 设计定夺点**：FE-core guard（不动 SPI，倾向）vs 改 SPI 加 `ConnectorColumn.aggType`（如 P2-8 加 isAutoInc，见 [[catalog-spi-p2-ddl-decisions]]）。
+
+3. **G7 FIX-VOID-TYPE-MAPPING（Tier 2，minor）— 连接器/fe-core 边界**：ODPS `VOID` → 新路映 `UNSUPPORTED`（legacy=`Type.NULL`）。链：`MCTypeMapping:51-52` emit `of("NULL")` → `ConnectorColumnConverter.convertScalarType` 无 "NULL" case → `ScalarType.createType("NULL")` 抛（只认 "NULL_TYPE"）被 catch→UNSUPPORTED。次生缺陷：未知 OdpsType legacy 硬抛、新路静默 UNSUPPORTED。**修**=加 "NULL" case 返 `Type.NULL`，或 `MCTypeMapping` emit `of("NULL_TYPE")`（设计时定哪侧）。
+
+> G6/G5/G7 完整证据 + 其余待办（G2/GC1/T3/DOC 的 file:line + 修法）见下方折叠「第 12 次 handoff」§下一 session 待办，未变。
 
 ---
 
