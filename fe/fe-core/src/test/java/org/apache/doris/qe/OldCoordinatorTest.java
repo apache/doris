@@ -17,16 +17,24 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SortNode;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -98,5 +106,28 @@ public class OldCoordinatorTest extends TestWithFeService {
             }
         }.test();
         Assertions.assertTrue(shuffleFragmentHasMultiInstances.get());
+    }
+
+    @Test
+    public void testFragmentExecParamsMarksNonOlapTopnFilterSource() {
+        ScanNode scanNode = Mockito.mock(ScanNode.class);
+        SortNode sortNode = Mockito.mock(SortNode.class);
+        Mockito.when(scanNode.getTopnFilterSortNodes()).thenReturn(Collections.singletonList(sortNode));
+
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(fragment.getFragmentId()).thenReturn(new PlanFragmentId(0));
+        Mockito.when(fragment.toThrift()).thenReturn(new TPlanFragment());
+        Mockito.when(fragment.isTransferQueryStatisticsWithEveryBatch()).thenReturn(false);
+
+        Coordinator.FragmentExecParams fragParams = new Coordinator(0L, new TUniqueId(1L, 1L),
+                new DescriptorTable(), Collections.singletonList(fragment), Collections.singletonList(scanNode),
+                "UTC", false, false).new FragmentExecParams(fragment);
+        TNetworkAddress host = new TNetworkAddress("127.0.0.1", 9060);
+        fragParams.instanceExecParams.add(
+                new Coordinator.FInstanceExecParam(new TUniqueId(2L, 2L), host, fragParams));
+
+        fragParams.toThrift(0);
+
+        Mockito.verify(sortNode).setHasRuntimePredicate();
     }
 }
