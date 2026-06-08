@@ -41,15 +41,22 @@ public final class RowStoreFetchChecker {
                 return false;
             }
             SlotReference slotReference = (SlotReference) lazySlot;
-            // BE row-store fetch maps values only by col_unique_id and does not carry sub-column paths.
-            if (slotReference.hasSubColPath()) {
+            // BE row-store fetch maps values only by col_unique_id and does not apply sub-column
+            // paths or nested-column pruning access paths.
+            if (slotReference.hasSubColPath() || hasNestedAccessPaths(slotReference)) {
                 return false;
             }
             Optional<Column> originalColumn = slotReference.getOriginalColumn();
-            if (!originalColumn.isPresent() || !originalColumnUniqueIds.add(originalColumn.get().getUniqueId())) {
+            if (!originalColumn.isPresent() || originalColumn.get().getType().isComplexType()
+                    || !originalColumnUniqueIds.add(originalColumn.get().getUniqueId())) {
                 return false;
             }
         }
         return true;
+    }
+
+    private static boolean hasNestedAccessPaths(SlotReference slotReference) {
+        return slotReference.getAllAccessPaths().map(paths -> !paths.isEmpty()).orElse(false)
+                || slotReference.getPredicateAccessPaths().map(paths -> !paths.isEmpty()).orElse(false);
     }
 }
