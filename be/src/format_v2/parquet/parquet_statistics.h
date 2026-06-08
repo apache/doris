@@ -24,8 +24,8 @@
 
 #include "common/status.h"
 #include "core/field.h"
-#include "format_v2/parquet/selection_vector.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/selection_vector.h"
 
 namespace parquet {
 class BloomFilter;

@@ -125,6 +125,9 @@ int64_t ScalarColumnReader::page_filtered_rows_to_skip(int64_t rows) const {
         const int64_t start = std::max(range.start, _row_group_rows_read);
         const int64_t end = std::min(range_end, skip_end);
         if (start < end) {
+            // Scheduler gap skips are derived from page-index selected_ranges. A page-filtered
+            // range can only overlap such a gap when the whole data page is outside every selected
+            // range, so partial overlap would mean the planner and scheduler are out of sync.
             DORIS_CHECK(start == range.start);
             DORIS_CHECK(end == range_end);
             filtered_rows += end - start;

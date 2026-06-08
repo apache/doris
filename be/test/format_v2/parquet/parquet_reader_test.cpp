@@ -45,14 +45,14 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format_v2/parquet/parquet_column_schema.h"
-#include "format_v2/parquet/parquet_scan.h"
-#include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/expr/literal.h"
 #include "format_v2/expr/slot_ref.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_scan.h"
+#include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
@@ -1602,7 +1602,7 @@ TEST_F(NewParquetReaderTest, EmptySelectionUpdatesProfileCounters) {
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<format::FileScanRequest>();
+    auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 10));
@@ -2061,7 +2061,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
     ASSERT_EQ(schema.size(), 2);
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<format::FileScanRequest>();
+    auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 63));

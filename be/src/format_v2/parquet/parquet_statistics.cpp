@@ -1116,6 +1116,8 @@ bool build_page_skip_plan_for_leaf(
         int64_t row_group_rows, ParquetPageSkipPlan* page_skip_plan) {
     DORIS_CHECK(page_skip_plan != nullptr);
     *page_skip_plan = ParquetPageSkipPlan {};
+    // OffsetIndex first_row_index is row-based only for non-repeated leaves. LIST/MAP/repeated
+    // leaves need repetition-level-aware range mapping and are intentionally left out for now.
     if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
         column_schema.descriptor == nullptr || column_schema.leaf_column_id < 0 ||
         column_schema.descriptor->max_repetition_level() != 0) {

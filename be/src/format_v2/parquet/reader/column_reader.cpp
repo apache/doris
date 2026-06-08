@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -35,17 +36,74 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/reader/list_column_reader.h"
 #include "format_v2/parquet/reader/map_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
 #include "format_v2/parquet/reader/scalar_column_reader.h"
 #include "format_v2/parquet/reader/struct_column_reader.h"
-#include "format_v2/file_reader.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris::parquet {
 namespace {
+
+class DataPageSkipFilter {
+public:
+    DataPageSkipFilter(const ParquetPageSkipPlan* page_skip_plan,
+                       ParquetPageSkipProfile page_skip_profile)
+            : _page_skip_plan(page_skip_plan), _page_skip_profile(page_skip_profile) {
+        DORIS_CHECK(_page_skip_plan != nullptr);
+    }
+
+    bool operator()(const ::parquet::DataPageStats&) {
+        // Arrow invokes this callback once for each DATA_PAGE/DATA_PAGE_V2 and never for
+        // dictionary pages, so this ordinal matches Parquet OffsetIndex page locations.
+        const size_t page_idx = _next_data_page_idx++;
+        const bool skip = _page_skip_plan->should_skip_page(page_idx);
+        if (!skip) {
+            return false;
+        }
+        update_skip_profile(page_idx);
+        return true;
+    }
+
+private:
+    void update_skip_profile(size_t page_idx) const {
+        if (_page_skip_profile.skipped_pages != nullptr) {
+            COUNTER_UPDATE(_page_skip_profile.skipped_pages, 1);
+        }
+        if (_page_skip_profile.skipped_bytes != nullptr) {
+            COUNTER_UPDATE(_page_skip_profile.skipped_bytes,
+                           _page_skip_plan->skipped_page_compressed_size(page_idx));
+        }
+    }
+
+    const ParquetPageSkipPlan* _page_skip_plan = nullptr;
+    ParquetPageSkipProfile _page_skip_profile;
+    size_t _next_data_page_idx = 0;
+};
+
+const ParquetPageSkipPlan* find_page_skip_plan(
+        const std::map<int, ParquetPageSkipPlan>* page_skip_plans, int leaf_column_id) {
+    if (page_skip_plans == nullptr) {
+        return nullptr;
+    }
+    const auto plan_it = page_skip_plans->find(leaf_column_id);
+    return plan_it == page_skip_plans->end() ? nullptr : &plan_it->second;
+}
+
+void install_data_page_filter(std::unique_ptr<::parquet::PageReader>& page_reader,
+                              const std::map<int, ParquetPageSkipPlan>* page_skip_plans,
+                              int leaf_column_id, ParquetPageSkipProfile page_skip_profile) {
+    DORIS_CHECK(page_reader != nullptr);
+    const ParquetPageSkipPlan* page_skip_plan =
+            find_page_skip_plan(page_skip_plans, leaf_column_id);
+    if (page_skip_plan == nullptr) {
+        return;
+    }
+    page_reader->set_data_page_filter(DataPageSkipFilter(page_skip_plan, page_skip_profile));
+}
 
 bool supports_nested_scalar_record_reader(const ParquetColumnSchema& column_schema) {
     if (supports_record_reader(column_schema.type_descriptor)) {
@@ -156,13 +214,8 @@ Status ParquetColumnReaderFactory::create_scalar_reader(
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
-    const ParquetPageSkipPlan* page_skip_plan = nullptr;
-    if (_page_skip_plans != nullptr) {
-        auto plan_it = _page_skip_plans->find(column_schema.leaf_column_id);
-        if (plan_it != _page_skip_plans->end()) {
-            page_skip_plan = &plan_it->second;
-        }
-    }
+    const auto* page_skip_plan =
+            find_page_skip_plan(_page_skip_plans, column_schema.leaf_column_id);
     *reader = std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader),
                                                    page_skip_plan, _column_reader_profile);
     return Status::OK();
@@ -246,29 +299,8 @@ Status ParquetColumnReaderFactory::get_record_reader(
     if (_record_readers[leaf_column_id] == nullptr) {
         try {
             auto page_reader = _row_group->GetColumnPageReader(leaf_column_id);
-            if (_page_skip_plans != nullptr) {
-                auto plan_it = _page_skip_plans->find(leaf_column_id);
-                if (plan_it != _page_skip_plans->end()) {
-                    const ParquetPageSkipPlan* page_skip_plan = &plan_it->second;
-                    page_reader->set_data_page_filter(
-                            [page_skip_plan, page_skip_profile = _page_skip_profile,
-                             page_idx = size_t {0}](const ::parquet::DataPageStats&) mutable {
-                                const bool skip = page_skip_plan->should_skip_page(page_idx);
-                                if (skip) {
-                                    if (page_skip_profile.skipped_pages != nullptr) {
-                                        COUNTER_UPDATE(page_skip_profile.skipped_pages, 1);
-                                    }
-                                    if (page_skip_profile.skipped_bytes != nullptr) {
-                                        COUNTER_UPDATE(page_skip_profile.skipped_bytes,
-                                                       page_skip_plan->skipped_page_compressed_size(
-                                                               page_idx));
-                                    }
-                                }
-                                ++page_idx;
-                                return skip;
-                            });
-                }
-            }
+            install_data_page_filter(page_reader, _page_skip_plans, leaf_column_id,
+                                     _page_skip_profile);
             const auto level_info = ::parquet::internal::LevelInfo::ComputeLevelInfo(descriptor);
             _record_readers[leaf_column_id] = ::parquet::internal::RecordReader::Make(
                     descriptor, level_info, ::arrow::default_memory_pool(),

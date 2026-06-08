@@ -33,8 +33,12 @@ struct RowRange {
 
 struct ParquetPageSkipPlan {
     int leaf_column_id = -1;
+    // Page ordinal is the data-page ordinal in the column chunk. It intentionally excludes
+    // dictionary pages, matching Arrow PageReader::set_data_page_filter().
     std::vector<uint8_t> skipped_pages;
     std::vector<int64_t> skipped_page_compressed_sizes;
+    // Row ranges covered by skipped data pages. ScalarColumnReader uses these ranges to avoid
+    // calling RecordReader::SkipRecords() again for pages already skipped by Arrow.
     std::vector<RowRange> skipped_ranges;
 
     bool empty() const { return skipped_ranges.empty(); }

@@ -25,11 +25,11 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
+#include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
-#include "format_v2/file_reader.h"
 #include "runtime/runtime_profile.h"
 
 namespace parquet {

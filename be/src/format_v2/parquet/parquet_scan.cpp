@@ -257,6 +257,9 @@ Status ParquetScanScheduler::open_next_row_group(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, bool* has_row_group) {
     *has_row_group = false;
+    if (_next_row_group_plan_idx >= _row_group_plans.size()) {
+        return Status::OK();
+    }
     const RowGroupReadPlan& row_group_plan = _row_group_plans[_next_row_group_plan_idx++];
     const int row_group_idx = row_group_plan.row_group_id;
     try {

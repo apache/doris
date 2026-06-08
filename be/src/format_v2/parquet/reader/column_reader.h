@@ -25,10 +25,10 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_type.h"
 #include "format_v2/parquet/selection_vector.h"
-#include "format_v2/column_data.h"
 #include "runtime/runtime_profile.h"
 
 namespace parquet {
