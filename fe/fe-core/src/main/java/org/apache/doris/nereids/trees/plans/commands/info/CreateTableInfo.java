@@ -47,6 +47,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
@@ -389,6 +390,13 @@ public class CreateTableInfo {
             throw new AnalysisException("Paimon type catalog can only use `paimon` engine.");
         } else if (catalog instanceof MaxComputeExternalCatalog && !engineName.equals(ENGINE_MAXCOMPUTE)) {
             throw new AnalysisException("MaxCompute type catalog can only use `maxcompute` engine.");
+        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+            // After the SPI cutover a max_compute catalog is a PluginDrivenExternalCatalog; mirror the
+            // legacy MaxComputeExternalCatalog consistency check, keyed on the connector type.
+            String pluginEngine = pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog);
+            if (pluginEngine != null && !engineName.equals(pluginEngine)) {
+                throw new AnalysisException("MaxCompute type catalog can only use `maxcompute` engine.");
+            }
         }
     }
 
@@ -911,9 +919,32 @@ public class CreateTableInfo {
                 engineName = ENGINE_PAIMON;
             } else if (catalog instanceof MaxComputeExternalCatalog) {
                 engineName = ENGINE_MAXCOMPUTE;
+            } else if (catalog instanceof PluginDrivenExternalCatalog
+                    && pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog) != null) {
+                // After the SPI cutover a max_compute catalog is a PluginDrivenExternalCatalog; pad the
+                // legacy engine so the no-ENGINE CREATE TABLE keeps working (mirrors the MC branch above).
+                engineName = pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog);
             } else {
                 throw new AnalysisException("Current catalog does not support create table: " + ctlName);
             }
+        }
+    }
+
+    /**
+     * Maps a PluginDriven (SPI) catalog's type to the legacy engine name used for DDL engine-padding
+     * and catalog-engine consistency. Keyed on {@link PluginDrivenExternalCatalog#getType()} (the
+     * CatalogFactory key, e.g. "max_compute"), mirroring
+     * {@code PluginDrivenExternalTable.getEngine()/getEngineTableTypeName()} — the two switches must
+     * stay in sync if SPI_READY_TYPES gains a CREATE-TABLE-capable full-adopter. Returns {@code null}
+     * for SPI types that do not support CREATE TABLE (jdbc/es/trino-connector) so callers preserve
+     * their existing (legacy-equivalent) behavior for those types.
+     */
+    private static String pluginCatalogTypeToEngine(PluginDrivenExternalCatalog catalog) {
+        switch (catalog.getType()) {
+            case "max_compute":
+                return ENGINE_MAXCOMPUTE;
+            default:
+                return null;
         }
     }
 

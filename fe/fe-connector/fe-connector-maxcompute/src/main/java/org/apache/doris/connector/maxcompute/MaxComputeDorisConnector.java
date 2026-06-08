@@ -18,26 +18,35 @@
 package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.account.AccountFormat;
+import com.aliyun.odps.table.configuration.RestOptions;
+import com.aliyun.odps.table.enviroment.Credentials;
+import com.aliyun.odps.table.enviroment.EnvironmentSettings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Main Connector implementation for MaxCompute (ODPS).
  * Manages the Odps client lifecycle and provides metadata access.
  *
- * <p>Note: EnvironmentSettings and SplitOptions (from odps-sdk-table-api)
- * are managed by {@link MaxComputeScanPlanProvider} which handles scan planning.
+ * <p>Note: the shared ODPS {@link EnvironmentSettings} (from odps-sdk-table-api)
+ * is built here and consumed by both {@link MaxComputeScanPlanProvider} and
+ * {@link MaxComputeWritePlanProvider}; SplitOptions remains scan-specific and
+ * stays in the scan plan provider.
  */
 public class MaxComputeDorisConnector implements Connector {
     private static final Logger LOG = LogManager.getLogger(
@@ -52,6 +61,8 @@ public class MaxComputeDorisConnector implements Connector {
     private String quota;
     private McStructureHelper structureHelper;
     private MaxComputeScanPlanProvider scanPlanProvider;
+    private MaxComputeWritePlanProvider writePlanProvider;
+    private EnvironmentSettings settings;
 
     private volatile boolean initialized;
 
@@ -103,20 +114,84 @@ public class MaxComputeDorisConnector implements Connector {
                                 .DEFAULT_ENABLE_NAMESPACE_SCHEMA));
         structureHelper = McStructureHelper.getHelper(
                 enableNamespaceSchema, defaultProject);
+        settings = buildSettings();
         scanPlanProvider = new MaxComputeScanPlanProvider(this);
+        writePlanProvider = new MaxComputeWritePlanProvider(this);
+    }
+
+    /**
+     * Builds the shared ODPS {@link EnvironmentSettings} (credentials, endpoint,
+     * quota, REST timeouts). Mirrors the legacy {@code MaxComputeExternalCatalog}
+     * which holds a single {@code settings} used by both the scan path
+     * ({@code MaxComputeScanNode}) and the write path ({@code MCTransaction});
+     * the connector likewise shares one instance across
+     * {@link MaxComputeScanPlanProvider} and {@link MaxComputeWritePlanProvider}.
+     */
+    private EnvironmentSettings buildSettings() {
+        int connectTimeout = Integer.parseInt(properties.getOrDefault(
+                MCConnectorProperties.CONNECT_TIMEOUT,
+                MCConnectorProperties.DEFAULT_CONNECT_TIMEOUT));
+        int readTimeout = Integer.parseInt(properties.getOrDefault(
+                MCConnectorProperties.READ_TIMEOUT,
+                MCConnectorProperties.DEFAULT_READ_TIMEOUT));
+        int retryTimes = Integer.parseInt(properties.getOrDefault(
+                MCConnectorProperties.RETRY_COUNT,
+                MCConnectorProperties.DEFAULT_RETRY_COUNT));
+
+        RestOptions restOptions = RestOptions.newBuilder()
+                .withConnectTimeout(connectTimeout)
+                .withReadTimeout(readTimeout)
+                .withRetryTimes(retryTimes)
+                .build();
+
+        Credentials credentials = Credentials.newBuilder()
+                .withAccount(odps.getAccount())
+                .withAppAccount(odps.getAppAccount())
+                .build();
+
+        return EnvironmentSettings.newBuilder()
+                .withCredentials(credentials)
+                .withServiceEndpoint(odps.getEndpoint())
+                .withQuotaName(quota)
+                .withRestOptions(restOptions)
+                .build();
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         ensureInitialized();
         return new MaxComputeConnectorMetadata(
-                odps, structureHelper, defaultProject);
+                odps, structureHelper, defaultProject, endpoint, quota, properties);
+    }
+
+    /**
+     * MaxCompute writes use multiple parallel writers, and dynamic-partition writes must be
+     * hash-distributed and locally sorted by the partition columns: the ODPS Storage API streams
+     * partition writers and closes the previous one when a new partition value appears, so
+     * un-grouped rows trigger "writer has been closed". These two capabilities drive the planner
+     * sink distribution ({@code PhysicalConnectorTableSink.getRequirePhysicalProperties}), mirroring
+     * the legacy {@code PhysicalMaxComputeTableSink}.
+     */
+    @Override
+    public Set<ConnectorCapability> getCapabilities() {
+        return EnumSet.of(ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
+                ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT,
+                // MaxCompute's columnar Storage API / JNI writer maps data positionally against the
+                // full table schema, so the sink must project rows to full-schema order (see
+                // BindSink.bindConnectorTableSink); not declared by name-mapped connectors like JDBC.
+                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
     }
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
         ensureInitialized();
         return scanPlanProvider;
+    }
+
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        ensureInitialized();
+        return writePlanProvider;
     }
 
     @Override
@@ -159,6 +234,15 @@ public class MaxComputeDorisConnector implements Connector {
     public McStructureHelper getStructureHelper() {
         ensureInitialized();
         return structureHelper;
+    }
+
+    /**
+     * Returns the shared ODPS {@link EnvironmentSettings} used by both scan and
+     * write planning (see {@link #buildSettings()}).
+     */
+    public EnvironmentSettings getSettings() {
+        ensureInitialized();
+        return settings;
     }
 
     @Override

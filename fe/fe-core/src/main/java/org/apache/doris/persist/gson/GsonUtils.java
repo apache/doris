@@ -165,9 +165,6 @@ import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.paimon.PaimonDLFExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
@@ -394,7 +391,6 @@ public class GsonUtils {
                 .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonRestExternalCatalog.class, PaimonRestExternalCatalog.class.getSimpleName())
-                .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName())
@@ -409,7 +405,10 @@ public class GsonUtils {
                         PluginDrivenExternalCatalog.class, "JdbcExternalCatalog")
                 // Migrate old Trino-connector catalogs to PluginDriven on deserialization
                 .registerCompatibleSubtype(
-                        PluginDrivenExternalCatalog.class, "TrinoConnectorExternalCatalog");
+                        PluginDrivenExternalCatalog.class, "TrinoConnectorExternalCatalog")
+                // Migrate old MaxCompute catalogs to PluginDriven on deserialization
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "MaxComputeExternalCatalog");
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -449,7 +448,6 @@ public class GsonUtils {
             .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
             .registerSubtype(LakeSoulExternalDatabase.class, LakeSoulExternalDatabase.class.getSimpleName())
             .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
             .registerSubtype(ExternalMysqlDatabase.class, ExternalMysqlDatabase.class.getSimpleName())
             .registerSubtype(TestExternalDatabase.class, TestExternalDatabase.class.getSimpleName())
@@ -460,7 +458,9 @@ public class GsonUtils {
             .registerCompatibleSubtype(
                     PluginDrivenExternalDatabase.class, "JdbcExternalDatabase")
             .registerCompatibleSubtype(
-                    PluginDrivenExternalDatabase.class, "TrinoConnectorExternalDatabase");
+                    PluginDrivenExternalDatabase.class, "TrinoConnectorExternalDatabase")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "MaxComputeExternalDatabase");
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
@@ -469,7 +469,6 @@ public class GsonUtils {
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
             .registerSubtype(LakeSoulExternalTable.class, LakeSoulExternalTable.class.getSimpleName())
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
             .registerSubtype(ExternalMysqlTable.class, ExternalMysqlTable.class.getSimpleName())
             .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName())
@@ -481,6 +480,8 @@ public class GsonUtils {
                     PluginDrivenExternalTable.class, "JdbcExternalTable")
             .registerCompatibleSubtype(
                     PluginDrivenExternalTable.class, "TrinoConnectorExternalTable")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalTable.class, "MaxComputeExternalTable")
             .registerSubtype(BrokerTable.class, BrokerTable.class.getSimpleName())
             .registerSubtype(EsTable.class, EsTable.class.getSimpleName())
             .registerSubtype(FunctionGenTable.class, FunctionGenTable.class.getSimpleName())

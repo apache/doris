@@ -36,11 +36,15 @@ import com.aliyun.odps.table.write.WriterCommitMessage;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.ByteArrayInputStream;
 import java.io.ObjectInputStream;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,6 +71,17 @@ public class MCTransaction implements Transaction {
         synchronized (this) {
             this.commitDataList.addAll(commitDataList);
         }
+    }
+
+    @Override
+    public void addCommitData(byte[] commitFragment) {
+        TMCCommitData data = new TMCCommitData();
+        try {
+            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(data, commitFragment);
+        } catch (TException e) {
+            throw new RuntimeException("failed to deserialize MaxCompute commit data", e);
+        }
+        updateMCCommitData(Collections.singletonList(data));
     }
 
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
@@ -163,6 +178,16 @@ public class MCTransaction implements Transaction {
         return start;
     }
 
+    @Override
+    public boolean supportsWriteBlockAllocation() {
+        return true;
+    }
+
+    @Override
+    public long allocateWriteBlockRange(String writeSessionId, long count) throws UserException {
+        return allocateBlockIdRange(writeSessionId, count);
+    }
+
     private void appendCommitMessages(List<WriterCommitMessage> allMessages, String encodedCommitMessage)
             throws Exception {
         byte[] bytes = Base64.getDecoder().decode(encodedCommitMessage);
@@ -234,6 +259,7 @@ public class MCTransaction implements Transaction {
         LOG.info("MCTransaction rollback called; uncommitted sessions will auto-expire.");
     }
 
+    @Override
     public long getUpdateCnt() {
         return commitDataList.stream().mapToLong(TMCCommitData::getRowCount).sum();
     }

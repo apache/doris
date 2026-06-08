@@ -379,6 +379,8 @@ public class InsertUtils {
             staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
             staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        } else if (unboundLogicalSink instanceof UnboundConnectorTableSink) {
+            staticPartitions = ((UnboundConnectorTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         }
         if (staticPartitions != null && !staticPartitions.isEmpty()
                 && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {

@@ -108,6 +108,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -918,19 +919,15 @@ public class BindSink implements AnalysisRuleFactory {
         PluginDrivenExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
-        }
+        // Static-partition columns (e.g. MaxCompute `PARTITION(pt='x')`) carry their value via the
+        // static partition spec rather than the query output, so they are excluded from the bound
+        // columns when no explicit column list is given (mirrors legacy bindMaxComputeTableSink).
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+
+        List<Column> bindColumns = selectConnectorSinkBindColumns(table, sink.getColNames(), staticPartitionColNames);
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
@@ -945,14 +942,51 @@ public class BindSink implements AnalysisRuleFactory {
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        // For JDBC-backed connector tables, we must keep columns in user-specified order
-        // because the INSERT SQL column list is built from cols (user order) and the data
-        // values must match. For file-based writes, full schema order with defaults is needed.
-        // Currently only JDBC catalogs use connector sink, so use the JDBC-compatible approach:
-        // only project user-specified columns in user-specified order.
+        if (table.requiresFullSchemaWriteOrder()) {
+            // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
+            // against the full table schema, so project the child to FULL-SCHEMA order with any
+            // unmentioned / static-partition columns filled in (NULL literals), exactly like legacy
+            // bindMaxComputeTableSink — for ALL such writes, partitioned or not. Required on three
+            // counts: (1) a reordered/partial explicit column list must land values in the correct
+            // remote columns (not user order); (2) for a static-partition write the BE writer strips the
+            // trailing partition columns by position, so they must sit at their full-schema (tail)
+            // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
+            // partition columns by their full-schema position, so the child must be in full-schema order.
+            Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, boundSink, child);
+            LogicalProject<?> fullOutputProject =
+                    getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+            return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        }
+        // Name-mapped connector tables (JDBC / ES): keep columns in user-specified order because the
+        // INSERT SQL column list is built from cols (user order) and the data values must match; only
+        // project user-specified columns in user order.
         Map<String, NamedExpression> columnToOutput = getConnectorColumnToOutput(bindColumns, child);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(bindColumns, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(outputProject);
+    }
+
+    /**
+     * Selects the bound columns for a connector table sink. With an explicit column list, binds those
+     * columns in user order. Without one, binds the full base schema minus any static partition columns
+     * (their value comes from the static partition spec, not the query output, so they must not be
+     * matched against the query columns) — mirrors legacy {@code bindMaxComputeTableSink}.
+     */
+    @VisibleForTesting
+    static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
+            List<String> colNames, Set<String> staticPartitionColNames) {
+        if (colNames.isEmpty()) {
+            return table.getBaseSchema(true).stream()
+                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .collect(ImmutableList.toImmutableList());
+        }
+        return colNames.stream().map(cn -> {
+            Column column = table.getColumn(cn);
+            if (column == null) {
+                throw new AnalysisException(String.format("column %s is not found in table %s",
+                        cn, table.getName()));
+            }
+            return column;
+        }).collect(ImmutableList.toImmutableList());
     }
 
     /**

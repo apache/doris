@@ -57,12 +57,16 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -136,6 +140,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -1309,6 +1314,8 @@ public class MetadataGenerator {
             return dealInternalCatalog((Database) db, table);
         } else if (catalog instanceof MaxComputeExternalCatalog) {
             return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, (ExternalTable) table);
+        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+            return dealPluginDrivenCatalog((PluginDrivenExternalCatalog) catalog, (ExternalTable) table);
         } else if (catalog instanceof HMSExternalCatalog) {
             return dealHMSCatalog((HMSExternalCatalog) catalog, (ExternalTable) table);
         }
@@ -1342,6 +1349,26 @@ public class MetadataGenerator {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));
             dataBatch.add(trow);
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult dealPluginDrivenCatalog(PluginDrivenExternalCatalog catalog,
+            ExternalTable table) {
+        List<TRow> dataBatch = Lists.newArrayList();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+                session, table.getRemoteDbName(), table.getRemoteName());
+        if (handle.isPresent()) {
+            for (String partition : metadata.listPartitionNames(session, handle.get())) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(partition));
+                dataBatch.add(trow);
+            }
         }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(dataBatch);

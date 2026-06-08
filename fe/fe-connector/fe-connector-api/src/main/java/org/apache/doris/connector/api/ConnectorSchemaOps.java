@@ -44,6 +44,16 @@ public interface ConnectorSchemaOps {
                 "getDatabase not implemented");
     }
 
+    /**
+     * Whether this connector supports CREATE DATABASE. Defaults to false so the FE
+     * {@code CREATE DATABASE IF NOT EXISTS} remote existence precheck applies only to
+     * connectors that can actually create databases; connectors that cannot keep their
+     * existing "CREATE DATABASE not supported" behavior unchanged.
+     */
+    default boolean supportsCreateDatabase() {
+        return false;
+    }
+
     /** Creates a new database with the given name and properties. */
     default void createDatabase(ConnectorSession session,
             String dbName, Map<String, String> properties) {
@@ -56,5 +66,16 @@ public interface ConnectorSchemaOps {
             String dbName, boolean ifExists) {
         throw new DorisConnectorException(
                 "DROP DATABASE not supported");
+    }
+
+    /**
+     * Drops the specified database, cascading to its tables when {@code force} is
+     * true. The default delegates to the non-cascading 3-arg form, so connectors
+     * that do not support cascade keep their current behavior with zero change;
+     * a connector that supports FORCE overrides this overload.
+     */
+    default void dropDatabase(ConnectorSession session,
+            String dbName, boolean ifExists, boolean force) {
+        dropDatabase(session, dbName, ifExists);
     }
 }
