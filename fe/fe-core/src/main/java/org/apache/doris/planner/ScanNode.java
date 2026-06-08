@@ -83,9 +83,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected static final int NUM_SPLITS_PER_PARTITION = 10;
     protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
-    public static final String DORIS_START_TIMESTAMP = "startTimestamp";
-    public static final String DORIS_END_TIMESTAMP = "endTimestamp";
-    public static final String DORIS_INCREMENT_TYPE = "incrementType";
     protected TupleDescriptor desc;
     // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = new CaseInsensitiveMap();

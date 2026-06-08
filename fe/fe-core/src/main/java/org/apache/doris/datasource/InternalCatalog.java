@@ -3991,7 +3991,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .build();
                 newStream.setComment(createStreamInfo.getComment());
                 // check base table type is supported for stream
-                baseTable.checkAsTableStreamBaseTable(newStream.getConsumeType());
+                baseTable.checkAsTableStreamBaseTable(newStream.getStreamScanType());
                 try {
                     newStream.setProperties(properties);
                 } catch (AnalysisException e) {

@@ -134,7 +134,7 @@ public abstract class BaseTableStream extends Table {
         return streamScanType.name();
     }
 
-    public StreamScanType getConsumeType() {
+    public StreamScanType getStreamScanType() {
         return streamScanType;
     }
 

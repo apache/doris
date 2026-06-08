@@ -78,9 +78,8 @@ public class WaitForChangeVisibleTest extends TestWithFeService {
         Mockito.when(table.getDatabase()).thenReturn(db);
 
         OlapScanNode scan = Mockito.mock(OlapScanNode.class);
-        Mockito.when(scan.hasChangeScan()).thenReturn(true);
-        Mockito.when(scan.hasChangeEndTimestamp()).thenReturn(true);
-        Mockito.when(scan.getChangeEndTimestamp()).thenReturn(endTs);
+        Mockito.when(scan.isChangeScan()).thenReturn(true);
+        Mockito.when(scan.getIncrementalScanEndTime()).thenReturn(endTs);
         Mockito.when(scan.getOlapTable()).thenReturn(table);
         return scan;
     }

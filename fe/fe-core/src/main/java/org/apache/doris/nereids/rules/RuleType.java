@@ -427,7 +427,6 @@ public enum RuleType {
     PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT(RuleTypeClass.REWRITE),
     // table stream scan rewrite
     NORMALIZE_OlAP_TABLE_STREAM_SCAN(RuleTypeClass.REWRITE),
-    NORMALIZE_OLAP_TABLE_BINLOG_SCAN(RuleTypeClass.REWRITE),
 
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),

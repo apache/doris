@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_min_delta_stream") {
+suite("test_min_delta_stream", "nonConcurrent") {
     if (isCloudMode()) {
         return
     }
@@ -101,6 +101,7 @@ suite("test_min_delta_stream") {
                 "show_initial_rows" = "false"
             )
         """
+        sql "sync"
         sql "INSERT INTO ${ukBase} VALUES (1, 11)"
         sql "sync"
         sleep(1200)

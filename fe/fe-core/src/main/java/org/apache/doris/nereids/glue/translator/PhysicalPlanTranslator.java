@@ -95,7 +95,6 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.nereids.trees.ChangeScanInfo;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
@@ -241,7 +240,6 @@ import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TRuntimeFilterType;
-import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -876,7 +874,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
-        if (olapScan.isIncrementalScan() && !olapScan.getChangeScanInfo().isPresent()) {
+        if (olapScan.isIncrementalScan()) {
             olapTable = new RowBinlogTableWrapper(((OlapTableStreamWrapper) olapTable).getBaseTable(),
                     (OlapTableStreamWrapper) olapTable);
         }
@@ -901,7 +899,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode",
-                context.getScanContext(), olapScan.isIncrementalScan());
+                context.getScanContext());
         olapScanNode.setNereidsId(olapScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(olapScan.getId(), olapScanNode.getId());
 
@@ -975,8 +973,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // apply change scan info if present
-        if (olapScan.getChangeScanInfo().isPresent()) {
-            applyChangeScanInfo(olapScanNode, olapScan.getChangeScanInfo().get());
+        if (olapScan.getScanParams().isPresent()) {
+            olapScanNode.setScanParams(olapScan.getScanParams().get());
         }
 
         // create scan range
@@ -1003,26 +1001,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), olapScan);
         return planFragment;
-    }
-
-    private void applyChangeScanInfo(OlapScanNode olapScanNode, ChangeScanInfo changeScanInfo) {
-        ChangeScanInfo.Position at = changeScanInfo.getAt();
-        if (at.kind != ChangeScanInfo.PositionKind.TIMESTAMP) {
-            throw new AnalysisException("only incr startTimestamp/endTimestamp is supported now");
-        }
-        long startTimestamp = at.value;
-
-        long endTimestamp = 0;
-        if (changeScanInfo.getEnd().isPresent()) {
-            ChangeScanInfo.Position end = changeScanInfo.getEnd().get();
-            if (end.kind != ChangeScanInfo.PositionKind.TIMESTAMP) {
-                throw new AnalysisException("only incr startTimestamp/endTimestamp is supported now");
-            }
-            endTimestamp = end.value;
-        } else {
-            endTimestamp = TSOTimestamp.extractPhysicalTime(Env.getCurrentEnv().getTSOService().getCurrentTSO());
-        }
-        olapScanNode.enableTimestampChangeScan(startTimestamp, endTimestamp, changeScanInfo.getInformationKind());
     }
 
     private void translateRuntimeFilter(PhysicalRelation physicalRelation, ScanNode scanNode,

@@ -131,7 +131,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
                 + " partition p2 values less than (\"200\"))\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
-                + "\"binlog.format\"=\"ROW\")");
+                + "\"binlog.format\"=\"ROW\","
+                + "\"binlog.need_historical_value\"=\"true\")");
         createTable("create stream test_stream_cleanup." + streamName + " on table test_stream_cleanup." + tableName
                 + " properties('type' = 'append_only', 'show_initial_rows' = 'true')");
 

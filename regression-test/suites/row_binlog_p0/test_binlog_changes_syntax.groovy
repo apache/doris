@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_binlog_changes_syntax") {
+suite("test_binlog_changes_syntax", "nonConcurrent") {
     if (isCloudMode()) {
         return
     }

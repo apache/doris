@@ -114,7 +114,6 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning;
-import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableBinlogScan;
 import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
@@ -900,12 +899,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     if (Config.enable_table_stream) {
                         rewriteJobs.addAll(jobs(
                                         topic("normalize olap table stream scan",
-                                                custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,
-                                                        NormalizeOlapTableStreamScan::new)
-                                        ),
-                                        topic("normalize olap table binlog scan",
-                                                custom(RuleType.NORMALIZE_OLAP_TABLE_BINLOG_SCAN,
-                                                        NormalizeOlapTableBinlogScan::new)
+                                                topDown(new NormalizeOlapTableStreamScan())
                                         )
                                 )
                         );

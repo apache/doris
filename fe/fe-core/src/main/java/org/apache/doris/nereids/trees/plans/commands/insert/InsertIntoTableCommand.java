@@ -317,7 +317,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     if (scanNode.getTableIf() instanceof OlapTableStreamWrapper) {
                         wrapper = (OlapTableStreamWrapper) scanNode.getTableIf();
                     } else {
-                        wrapper = ((RowBinlogTableWrapper) scanNode.getTableIf()).getParent();
+                        Preconditions.checkArgument(scanNode.getTableIf() instanceof RowBinlogTableWrapper,
+                                "RowBinlogTableWrapper expected");
+                        Preconditions.checkArgument(((RowBinlogTableWrapper) scanNode.getTableIf())
+                                .getParent().isPresent(), "RowBinlogTableWrapper parent expected");
+                        wrapper = ((RowBinlogTableWrapper) scanNode.getTableIf()).getParent().get();
                     }
                     if (!distinctUpdate.containsKey(
                             Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()))) {

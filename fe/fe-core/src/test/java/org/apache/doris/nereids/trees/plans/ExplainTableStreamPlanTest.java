@@ -42,13 +42,11 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -333,7 +331,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
         Assertions.assertFalse(scanNodes.isEmpty());
 
-        TBinlogScanType expectedScanType = BaseTableStream.StreamScanType.toThrift(stream.getConsumeType());
+        TBinlogScanType expectedScanType = BaseTableStream.StreamScanType.toThrift(stream.getStreamScanType());
         Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
         for (Partition partition : baseTable.getPartitions()) {
             MaterializedIndex baseIndex = partition.getIndex(baseTable.getBaseIndexId());
@@ -459,35 +457,6 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             }
         }
         return null;
-    }
-
-    private LogicalUnion findFirstLogicalUnion(Plan plan) {
-        if (plan instanceof LogicalUnion) {
-            return (LogicalUnion) plan;
-        }
-        for (Plan child : plan.children()) {
-            LogicalUnion found = findFirstLogicalUnion(child);
-            if (found != null) {
-                return found;
-            }
-        }
-        return null;
-    }
-
-    private void collectLogicalProjects(Plan plan, List<LogicalProject<?>> result) {
-        if (plan instanceof LogicalProject) {
-            result.add((LogicalProject<?>) plan);
-        }
-        for (Plan child : plan.children()) {
-            collectLogicalProjects(child, result);
-        }
-    }
-
-    private void assertWhenClause(WhenClause whenClause, long expectedOpCode, String expectedResult) {
-        Assertions.assertTrue(whenClause.getOperand() instanceof BigIntLiteral);
-        Assertions.assertEquals(expectedOpCode, ((BigIntLiteral) whenClause.getOperand()).getValue());
-        Assertions.assertTrue(whenClause.getResult() instanceof VarcharLiteral);
-        Assertions.assertEquals(expectedResult, ((VarcharLiteral) whenClause.getResult()).getValue());
     }
 
     private PlanFragment getFragment(String sql) throws Exception {

@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -38,6 +39,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.IndexToThriftConvertor;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -52,7 +54,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -64,8 +65,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.trees.ChangeScanInfo;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
@@ -124,6 +126,10 @@ public class OlapScanNode extends ScanNode {
 
     // average compression ratio in doris storage engine
     private static final int COMPRESSION_RATIO = 5;
+
+    public static final String OLAP_START_TIMESTAMP = "startTimestamp";
+    public static final String OLAP_END_TIMESTAMP = "endTimestamp";
+    public static final String OLAP_INCREMENT_TYPE = "incrementType";
 
     /*
      * When the field value is ON, the storage engine can return the data directly
@@ -222,14 +228,7 @@ public class OlapScanNode extends ScanNode {
 
     private Column globalRowIdColumn;
 
-    private final boolean incrementalScan;
-
-    // single-table CHANGES scan on base table
-    private boolean hasChangeScan = false;
-    private long changeStartTimestamp = -1L;
-    private boolean hasChangeEndTimestamp = false;
-    private long changeEndTimestamp = -1L;
-    private ChangeScanInfo.InformationKind informationKind = ChangeScanInfo.InformationKind.DETAIL;
+    protected TableScanParams scanParams;
 
     private static long decodeTsoToTimestamp(long tso) {
         return tso <= 0 ? 0 : TSOTimestamp.extractTimestamp(tso);
@@ -237,12 +236,6 @@ public class OlapScanNode extends ScanNode {
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
-        this (id, desc, planNodeName, scanContext, false);
-    }
-
-    // Constructs node to scan given data files of table 'tbl'.
-    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext,
-                        boolean incrementalScan) {
         super(id, desc, planNodeName, scanContext);
         olapTable = (OlapTable) desc.getTable();
         tableNameInPlan = olapTable.getName();
@@ -261,7 +254,6 @@ public class OlapScanNode extends ScanNode {
                 columnId++;
             }
         }
-        this.incrementalScan = incrementalScan;
     }
 
 
@@ -551,32 +543,23 @@ public class OlapScanNode extends ScanNode {
             );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
-            if (hasChangeScan) {
-                Preconditions.checkState(olapTable instanceof RowBinlogTableWrapper);
-                paloRange.setStartTso(changeStartTimestamp);
-                if (hasChangeEndTimestamp) {
-                    paloRange.setEndTso(changeEndTimestamp);
-                } else {
-                    paloRange.setEndTso(decodeTsoToTimestamp(partition.getTso()));
+            if (olapTable instanceof RowBinlogTableWrapper) {
+                TBinlogScanType binlogScanType =
+                        parseBinlogScanType(scanParams, ((RowBinlogTableWrapper) olapTable).getOriginTable());
+                if (((RowBinlogTableWrapper) olapTable).getParent().isPresent()) {
+                    Pair<Long, Long> update = getStreamUpdate(partition.getId());
+                    if (update.first != null) {
+                        paloRange.setStartTso(decodeTsoToTimestamp(update.first));
+                    }
+                    if (update.second != null) {
+                        paloRange.setEndTso(decodeTsoToTimestamp(update.second));
+                    } else {
+                        paloRange.setEndTso(decodeTsoToTimestamp(partition.getTso()));
+                    }
                 }
-                if (incrementalScan) {
-                    paloRange.setBinlogScanType(informationKindToSchemaScanType(informationKind));
+                if (binlogScanType != TBinlogScanType.NONE) {
+                    paloRange.setBinlogScanType(binlogScanType);
                 }
-            } else if (incrementalScan) {
-                Preconditions.checkState(olapTable instanceof RowBinlogTableWrapper);
-                RowBinlogTableWrapper binlogWrapper = ((RowBinlogTableWrapper) olapTable);
-                Pair<Long, Long> update = getStreamUpdate(partition.getId());
-                if (update.first != null) {
-                    paloRange.setStartTso(decodeTsoToTimestamp(update.first));
-                }
-                if (update.second != null) {
-                    paloRange.setEndTso(decodeTsoToTimestamp(update.second));
-                } else {
-                    paloRange.setEndTso(decodeTsoToTimestamp(partition.getTso()));
-                }
-                TBinlogScanType streamScanType =
-                        BaseTableStream.StreamScanType.toThrift(binlogWrapper.getParent().getConsumeType());
-                paloRange.setBinlogScanType(streamScanType);
             }
 
             // random shuffle List && only collect one copy
@@ -1315,7 +1298,7 @@ public class OlapScanNode extends ScanNode {
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
 
-        if (hasChangeScan
+        if (parseBinlogScanType(scanParams, olapTable) != TBinlogScanType.NONE
                 || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex())) {
             msg.olap_scan_node.setReadRowBinlog(true);
         }
@@ -1700,48 +1683,68 @@ public class OlapScanNode extends ScanNode {
         // unprotected assume partitionId is in SelectedPartitionIds
         Pair<Long, Long> streamUpdate;
         if (olapTable instanceof RowBinlogTableWrapper) {
-            streamUpdate = ((RowBinlogTableWrapper) olapTable).getParent().getStreamUpdate(partitionId);
+            streamUpdate = ((RowBinlogTableWrapper) olapTable).getParent().get().getStreamUpdate(partitionId);
         } else {
             streamUpdate = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partitionId);
         }
         return streamUpdate;
     }
 
+    public boolean isChangeScan() {
+        return scanParams != null && scanParams.incrementalRead() && !isIncrementalScan();
+    }
+
     public boolean isIncrementalScan() {
-        return incrementalScan;
+        return (olapTable instanceof RowBinlogTableWrapper)
+                && ((RowBinlogTableWrapper) olapTable).getParent().isPresent();
     }
 
-    public void enableTimestampChangeScan(
-            long startTimestamp, Long endTimestamp, ChangeScanInfo.InformationKind informationKind) {
-        this.hasChangeScan = true;
-        this.changeStartTimestamp = startTimestamp;
-        this.hasChangeEndTimestamp = endTimestamp != null;
-        this.changeEndTimestamp = endTimestamp != null ? endTimestamp : -1L;
-        this.informationKind = informationKind;
+    public void setScanParams(TableScanParams scanParams) {
+        this.scanParams = scanParams;
     }
 
-    public boolean hasChangeScan() {
-        return hasChangeScan;
-    }
-
-    public boolean hasChangeEndTimestamp() {
-        return hasChangeEndTimestamp;
-    }
-
-    public long getChangeEndTimestamp() {
-        return changeEndTimestamp;
-    }
-
-    TBinlogScanType informationKindToSchemaScanType(ChangeScanInfo.InformationKind informationKind) {
-        switch (informationKind) {
-            case MIN_DELTA:
-                return TBinlogScanType.MIN_DELTA;
-            case APPEND_ONLY:
-                return TBinlogScanType.APPEND_ONLY;
-            case DETAIL:
-                return TBinlogScanType.DETAIL;
-            default:
-                return TBinlogScanType.NONE;
+    public long getIncrementalScanEndTime() {
+        if (scanParams != null && scanParams.incrementalRead()
+                && scanParams.getMapParams().containsKey(OLAP_END_TIMESTAMP)) {
+            return parseChangeTimestamp(scanParams.getMapParams().get(OLAP_END_TIMESTAMP));
         }
+        return 0;
+    }
+
+    public static long parseChangeTimestamp(String ts) {
+        if (ts != null) {
+            long changeTimestamp;
+            if (ts.equals("0")) {
+                changeTimestamp = 0;
+            } else {
+                changeTimestamp = TimeUtils.timeStringToLong(ts);
+            }
+            if (changeTimestamp < 0) {
+                throw new ParseException("Invalid TIMESTAMP format in incr clause: " + ts);
+            }
+            return changeTimestamp;
+        }
+        throw new ParseException("Invalid timestamp:" + ts);
+    }
+
+    public static TBinlogScanType parseBinlogScanType(TableScanParams scanParams, OlapTable olapTable)
+            throws ParseException {
+        if (scanParams == null) {
+            return TBinlogScanType.NONE;
+        }
+        TBinlogScanType scanType = TBinlogScanType.DETAIL;
+        if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_INCREMENT_TYPE)) {
+            String info = scanParams.getMapParams().get(OlapScanNode.OLAP_INCREMENT_TYPE).toUpperCase();
+            if ("APPEND_ONLY".equals(info) || olapTable.getKeysType() == KeysType.DUP_KEYS) {
+                scanType = TBinlogScanType.APPEND_ONLY;
+            } else if ("MIN_DELTA".equals(info)) {
+                scanType = TBinlogScanType.MIN_DELTA;
+            } else if ("DETAIL".equals(info)) {
+                scanType = TBinlogScanType.DETAIL;
+            } else {
+                throw new ParseException("Unsupported increment type in incr query: " + info);
+            }
+        }
+        return scanType;
     }
 }

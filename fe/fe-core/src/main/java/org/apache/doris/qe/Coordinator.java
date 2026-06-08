@@ -639,10 +639,11 @@ public class Coordinator implements CoordInterface {
         for (ScanNode scanNode : scanNodes) {
             if (scanNode instanceof OlapScanNode) {
                 OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                if (olapScanNode.hasChangeScan()) {
-                    long endTs = olapScanNode.hasChangeEndTimestamp()
-                            ? olapScanNode.getChangeEndTimestamp()
-                            : queryGlobals.getTimestampMs();
+                if (olapScanNode.isChangeScan()) {
+                    long endTs = olapScanNode.getIncrementalScanEndTime();
+                    if (endTs <= 0) {
+                        endTs = queryGlobals.getTimestampMs();
+                    }
                     addTableEndTimestamp(tableEndTimestampMs, olapScanNode.getOlapTable(), endTs);
                 }
             }
