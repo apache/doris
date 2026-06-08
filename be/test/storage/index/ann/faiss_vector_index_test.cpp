@@ -1539,4 +1539,101 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
     EXPECT_GT(total_misses, 0) << "Expected cache misses from first-thread disk reads";
 }
 
+// VEC-08: nprobe > nlist must be clamped rather than forwarded raw to FAISS
+// (raw nprobe > nlist causes a FAISS assertion failure / wrong results)
+TEST_F(VectorSearchTest, NprobeClampedToNlist) {
+    const int dim = 32;
+    const int nlist = 4;
+    const int num_vectors = 200;
+
+    auto index = std::make_unique<FaissVectorIndex>();
+    FaissBuildParameter params;
+    params.dim = dim;
+    params.ivf_nlist = nlist;
+    params.index_type = FaissBuildParameter::IndexType::IVF;
+    params.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    index->build(params);
+
+    std::vector<float> vecs;
+    vecs.reserve(num_vectors * dim);
+    for (int i = 0; i < num_vectors; i++) {
+        auto v = vector_search_utils::generate_random_vector(dim);
+        vecs.insert(vecs.end(), v.begin(), v.end());
+    }
+    ASSERT_TRUE(index->train(num_vectors, vecs.data()).ok());
+    ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
+
+    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    auto loaded = std::make_unique<FaissVectorIndex>();
+    loaded->set_type(AnnIndexType::IVF);
+    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+
+    auto roaring = std::make_unique<roaring::Roaring>();
+    for (int i = 0; i < num_vectors; ++i) roaring->add(i);
+
+    auto query = vector_search_utils::generate_random_vector(dim);
+    IndexSearchResult result;
+
+    // nprobe way above nlist — must be clamped, not crash
+    IVFSearchParameters search_params;
+    search_params.roaring = roaring.get();
+    search_params.rows_of_segment = num_vectors;
+    search_params.nprobe = 9999;
+    EXPECT_TRUE(loaded->ann_topn_search(query.data(), 5, search_params, result).ok())
+            << "nprobe > nlist should succeed after clamping";
+
+    // nprobe = 0 — must be clamped to 1, not crash
+    IndexSearchResult result2;
+    search_params.nprobe = 0;
+    EXPECT_TRUE(loaded->ann_topn_search(query.data(), 5, search_params, result2).ok())
+            << "nprobe = 0 should succeed after clamping to 1";
+}
+
+// VEC-09: efSearch < k silently returns fewer results; after fix efSearch is
+// boosted to max(ef_search, k) so we always get k valid results.
+TEST_F(VectorSearchTest, EfSearchLinkedToK) {
+    const int dim = 16;
+    const int num_vectors = 200;
+    const int k = 50;
+
+    auto index = std::make_unique<FaissVectorIndex>();
+    FaissBuildParameter params;
+    params.dim = dim;
+    params.max_degree = 16;
+    params.ef_construction = 64;
+    params.index_type = FaissBuildParameter::IndexType::HNSW;
+    index->build(params);
+
+    std::vector<float> vecs;
+    vecs.reserve(num_vectors * dim);
+    for (int i = 0; i < num_vectors; i++) {
+        auto v = vector_search_utils::generate_random_vector(dim);
+        vecs.insert(vecs.end(), v.begin(), v.end());
+    }
+    // HNSW does not need explicit train
+    ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
+
+    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    auto loaded = std::make_unique<FaissVectorIndex>();
+    loaded->set_type(AnnIndexType::HNSW);
+    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+
+    auto roaring = std::make_unique<roaring::Roaring>();
+    for (int i = 0; i < num_vectors; ++i) roaring->add(i);
+
+    auto query = vector_search_utils::generate_random_vector(dim);
+    IndexSearchResult result;
+
+    HNSWSearchParameters search_params;
+    search_params.roaring = roaring.get();
+    search_params.rows_of_segment = num_vectors;
+    // ef_search deliberately set below k; after fix should be raised to k
+    search_params.ef_search = 1;
+
+    ASSERT_TRUE(loaded->ann_topn_search(query.data(), k, search_params, result).ok());
+    // With the fix, efSearch = max(1, k) = k, so all k results must be valid (no -1 labels)
+    EXPECT_EQ(static_cast<int>(result.roaring->cardinality()), k)
+            << "efSearch boosted to max(ef_search, k): should return exactly k results";
+}
+
 } // namespace doris

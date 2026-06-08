@@ -3565,6 +3565,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableAddIndexForNewData = false;
 
     @VarAttrDef.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+            checker = "checkHnswEfSearch",
             description = {"HNSW 索引的 EF 搜索参数，控制搜索的精度和速度",
                     "HNSW index EF search parameter, controls the precision and speed of the search"})
     public int hnswEFSearch = 32;
@@ -3580,6 +3581,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean hnswBoundedQueue = true;
 
     @VarAttrDef.VarAttr(name = IVF_NPROBE, needForward = true,
+            checker = "checkIvfNprobe",
             description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
                     "IVF index nprobe parameter, controls the number of clusters to search"})
     public int ivfNprobe = 32;
@@ -6458,6 +6460,22 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkHnswEfSearch(String efSearch) {
+        int value = Integer.valueOf(efSearch);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "hnsw_ef_search must be >= 1, got: " + efSearch);
+        }
+    }
+
+    public void checkIvfNprobe(String nprobe) {
+        int value = Integer.valueOf(nprobe);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "ivf_nprobe must be >= 1, got: " + nprobe);
         }
     }
 

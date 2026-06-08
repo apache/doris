@@ -692,7 +692,8 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                     "HNSW search parameters should not be null for HNSW index");
         }
         faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
-        param->efSearch = hnsw_params->ef_search;
+        // efSearch must be >= k to guarantee k results are returned
+        param->efSearch = std::max(hnsw_params->ef_search, k);
         param->check_relative_distance = hnsw_params->check_relative_distance;
         param->bounded_queue = hnsw_params->bounded_queue;
         param->sel = id_sel.get();
@@ -704,7 +705,8 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                     "IVF search parameters should not be null for IVF index");
         }
         faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
-        param->nprobe = ivf_params->nprobe;
+        // nprobe must be in [1, nlist]; exceeding nlist causes FAISS errors
+        param->nprobe = std::clamp(ivf_params->nprobe, 1, _params.ivf_nlist);
         param->sel = id_sel.get();
         search_param.reset(param);
     } else {
@@ -793,7 +795,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         {
             // Engine prepare: set search parameters and bind selector
             SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-            param->nprobe = ivf_params->nprobe;
+            // nprobe must be in [1, nlist]; exceeding nlist causes FAISS errors
+            param->nprobe = std::clamp(ivf_params->nprobe, 1, _params.ivf_nlist);
         }
         search_param.reset(param);
     } else {
