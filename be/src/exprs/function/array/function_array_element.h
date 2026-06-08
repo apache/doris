@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -50,6 +51,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
@@ -77,6 +79,31 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    // A struct field access (element_at(struct, const) / the struct_element alias) resolves to a
+    // different return type depending on which field the constant index selects, so we need the
+    // index column here. Array/map return types depend only on the argument types and fall through
+    // to the DataTypes-based overload below.
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DataTypePtr arg_0 = remove_nullable(arguments[0].type);
+        if (arg_0->get_primitive_type() == TYPE_STRUCT) {
+            const auto* struct_type = check_and_get_data_type<DataTypeStruct>(arg_0.get());
+            size_t index = 0;
+            // Throw the concrete error (field not found / out of bound) instead of returning
+            // nullptr, which the framework would report as an opaque "return type check failed".
+            Status st = get_struct_element_index(*struct_type, arguments[1].column,
+                                                 arguments[1].type, &index);
+            if (!st.ok()) {
+                throw doris::Exception(st);
+            }
+            return make_nullable(struct_type->get_elements()[index]);
+        }
+        DataTypes data_types(arguments.size());
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
+        return get_return_type_impl(data_types);
+    }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr arg_0 = remove_nullable(arguments[0]);
         DCHECK(arg_0->get_primitive_type() == TYPE_ARRAY || arg_0->get_primitive_type() == TYPE_MAP)
@@ -101,6 +128,10 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        if (remove_nullable(block.get_by_position(arguments[0]).type)->get_primitive_type() ==
+            TYPE_STRUCT) {
+            return _execute_struct(block, arguments, result, input_rows_count);
+        }
         auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;
@@ -153,6 +184,93 @@ public:
     }
 
 private:
+    //=========================== struct element===========================//
+    // Resolve the 0-based field offset selected by a constant int/string index. Mirrors the logic
+    // of the former struct_element function, which element_at now subsumes.
+    Status get_struct_element_index(const DataTypeStruct& struct_type,
+                                    const ColumnPtr& index_column, const DataTypePtr& index_type,
+                                    size_t* result) const {
+        if (!index_column) {
+            return Status::RuntimeError("Function {}: second argument column is nullptr.",
+                                        get_name());
+        }
+        size_t index = 0;
+        if (is_int_or_bool(index_type->get_primitive_type())) {
+            int64_t offset = index_column->get_int(0);
+            size_t limit = struct_type.get_elements().size() + 1;
+            if (offset < 1 || offset >= static_cast<int64_t>(limit)) {
+                return Status::RuntimeError(
+                        "Index out of bound for function {}: index {} should base from 1 and less "
+                        "than {}.",
+                        get_name(), offset, limit);
+            }
+            index = offset - 1; // the index starts from 1
+        } else if (is_string_type(index_type->get_primitive_type())) {
+            std::string field_name = index_column->get_data_at(0).to_string();
+            std::optional<size_t> pos = struct_type.try_get_position_by_name(field_name);
+            if (!pos.has_value()) {
+                return Status::RuntimeError(
+                        "Element not found for function {}: name {} not found in {}.", get_name(),
+                        field_name, struct_type.get_name());
+            }
+            index = pos.value();
+        } else {
+            return Status::RuntimeError(
+                    "Argument not supported for function {}: second arg type {} should be int or "
+                    "string.",
+                    get_name(), index_type->get_name());
+        }
+        *result = index;
+        return Status::OK();
+    }
+
+    Status _execute_struct(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                           size_t input_rows_count) const {
+        const auto& struct_arg = block.get_by_position(arguments[0]);
+        ColumnPtr struct_col_ptr = struct_arg.column->convert_to_full_column_if_const();
+        // element_at manages nulls itself (use_default_implementation_for_nulls() == false), so a
+        // null struct row must be merged into the result null map manually.
+        const ColumnUInt8* outer_null_map = nullptr;
+        if (struct_col_ptr->is_nullable()) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(struct_col_ptr.get());
+            outer_null_map = &nullable->get_null_map_column();
+            struct_col_ptr = nullable->get_nested_column_ptr();
+        }
+        const auto* struct_type =
+                check_and_get_data_type<DataTypeStruct>(remove_nullable(struct_arg.type).get());
+        const auto* struct_col = check_and_get_column<ColumnStruct>(struct_col_ptr.get());
+        if (!struct_col || !struct_type) {
+            return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
+                                        struct_arg.type->get_name(),
+                                        block.get_by_position(arguments[1]).type->get_name());
+        }
+        const auto& index_arg = block.get_by_position(arguments[1]);
+        size_t index = 0;
+        RETURN_IF_ERROR(
+                get_struct_element_index(*struct_type, index_arg.column, index_arg.type, &index));
+
+        ColumnPtr field_col = struct_col->get_column_ptr(index);
+        auto res_null_column = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_null_map = res_null_column->get_data();
+        ColumnPtr res_nested = field_col;
+        if (field_col->is_nullable()) {
+            const auto* field_nullable = assert_cast<const ColumnNullable*>(field_col.get());
+            const auto& field_null_map = field_nullable->get_null_map_column().get_data();
+            memcpy(res_null_map.data(), field_null_map.data(), input_rows_count);
+            res_nested = field_nullable->get_nested_column_ptr();
+        }
+        if (outer_null_map) {
+            const auto& outer = outer_null_map->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                res_null_map[i] |= outer[i];
+            }
+        }
+        block.replace_by_position(
+                result, ColumnNullable::create(res_nested->clone_resized(input_rows_count),
+                                               std::move(res_null_column)));
+        return Status::OK();
+    }
+
     //=========================== map element===========================//
     ColumnPtr _get_mapped_idx(const ColumnArray& column,
                               const ColumnWithTypeAndName& argument) const {
