@@ -38,7 +38,11 @@ class Cast final : public VExpr {
     ENABLE_FACTORY_CREATOR(Cast);
 
 public:
-    Cast(const DataTypePtr& type) { _data_type = type; }
+    Cast(const DataTypePtr& type) {
+        _node_type = TExprNodeType::CAST_EXPR;
+        _opcode = TExprOpcode::CAST;
+        _data_type = type;
+    }
     ~Cast() override = default;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,

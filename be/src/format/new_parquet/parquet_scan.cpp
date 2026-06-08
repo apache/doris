@@ -348,20 +348,19 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         auto position_it = request.local_positions.find(reader::LocalColumnId(fid));
         DORIS_CHECK(position_it != request.local_positions.end());
         const auto block_position = position_it->second.value();
-        auto column = file_block->get_by_position(block_position).column->assert_mutable();
-        DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
-                  column_reader->type()->get_primitive_type())
-                << type_to_string(
-                           file_block->get_by_position(block_position).type->get_primitive_type())
-                << " " << type_to_string(column_reader->type()->get_primitive_type()) << " "
-                << column_reader->name() << " " << fid << " " << block_position;
+        DCHECK(column_reader->type()->equals(*file_block->get_by_position(block_position).type))
+                << column_reader->type()->get_name() << " "
+                << file_block->get_by_position(block_position).type->get_name() << " "
+                << column_reader->name() << " " << file_block->get_by_position(block_position).name;
+        auto column = column_reader->type()->create_column();
         int64_t column_rows = 0;
         RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
         if (column_rows != batch_rows) {
             return Status::Corruption("Parquet filter column {} returned {} rows, expected {} rows",
                                       column_reader->name(), column_rows, batch_rows);
         }
-        file_block->replace_by_position(block_position, std::move(column));
+        file_block->get_by_position(block_position) = {std::move(column), column_reader->type(),
+                                                       column_reader->name()};
     }
     return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows);
 }
@@ -396,14 +395,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
         auto position_it = request.local_positions.find(reader::LocalColumnId(fid));
         DORIS_CHECK(position_it != request.local_positions.end());
         const auto block_position = position_it->second.value();
-        auto column_guard = file_block->mutate_column_scoped(block_position);
-        auto& col = column_guard.mutable_column();
-        DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
-                  column_reader->type()->get_primitive_type())
-                << type_to_string(
-                           file_block->get_by_position(block_position).type->get_primitive_type())
-                << " " << type_to_string(column_reader->type()->get_primitive_type()) << " "
-                << column_reader->name() << " " << fid << " " << block_position;
+        auto col = column_reader->type()->create_column();
         if (need_filter_output) {
             [[maybe_unused]] auto old_size = col->size();
             RETURN_IF_ERROR(column_reader->select(selection, selected_rows, batch_rows, col));
@@ -421,6 +413,8 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
                         column_reader->name(), column_rows, batch_rows);
             }
         }
+        file_block->get_by_position(block_position) = {std::move(col), column_reader->type(),
+                                                       column_reader->name()};
     }
     *rows = static_cast<size_t>(selected_rows);
     return Status::OK();

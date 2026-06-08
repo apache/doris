@@ -129,18 +129,6 @@ public:
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
 
-    // table-level 动态过滤入口。
-    // 该方法用于根据 split、partition value 或文件级统计判断是否可以跳过后续 reader。
-    // can_filter_all=true 表示当前 table reader 范围内的数据都可以被裁剪。
-    virtual Status filter(const VExprContextSPtr& expr, bool* can_filter_all) {
-        // 真实实现会基于 split/partition/file stats 判断动态分区裁剪结果。
-        (void)expr;
-        if (can_filter_all != nullptr) {
-            *can_filter_all = false;
-        }
-        return Status::OK();
-    }
-
     // 对外读取 table block 的统一入口。
     // 基类负责 current reader 的打开、EOF 后切换和关闭；子类只实现 protected hook。
     // table_block 的列必须已经是 table/global schema 语义。
@@ -227,6 +215,7 @@ protected:
         // 1. Get file schema and create column mapping.
         std::vector<ColumnDefinition> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        // For Paimon/Hudi, field ID is set by `history_schema_info` from FE. So we need to annotate file schema with Field ID before creating column mapping when mapping by field ID.
         RETURN_IF_ERROR(annotate_file_schema(&file_schema));
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = mapping_mode();
@@ -300,8 +289,8 @@ protected:
             _data_reader.block_template.insert(
                     {column.type->create_column(), column.type, column.name});
         }
-        RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_open_mapping_exprs());
+        RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         return Status::OK();
     }
 

@@ -526,20 +526,15 @@ Status build_nested_children_from_access_paths(reader::ColumnDefinition* column,
 
 Status rewrite_slot_refs_to_global_index(
         VExprSPtr* expr,
-        const std::unordered_map<int32_t, reader::GlobalIndex>& column_unique_id_to_global_index) {
+        const std::unordered_map<int32_t, reader::GlobalIndex>& slot_id_to_global_index) {
     DORIS_CHECK(expr != nullptr);
     if (*expr == nullptr) {
         return Status::OK();
     }
     if ((*expr)->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr->get());
-        const auto global_index_it =
-                column_unique_id_to_global_index.find(slot_ref->column_uniq_id());
-        if (global_index_it == column_unique_id_to_global_index.end()) {
-            if (slot_ref->column_uniq_id() >= 0) {
-                return Status::InternalError("Unknown projected column unique id {} in conjunct",
-                                             slot_ref->column_uniq_id());
-            }
+        const auto global_index_it = slot_id_to_global_index.find(slot_ref->slot_id());
+        if (global_index_it == slot_id_to_global_index.end()) {
             DORIS_CHECK(slot_ref->slot_id() >= 0);
             const auto global_index = reader::GlobalIndex(cast_set<size_t>(slot_ref->slot_id()));
             *expr = TableSlotRef::create_shared(cast_set<int>(global_index.value()),
@@ -560,8 +555,7 @@ Status rewrite_slot_refs_to_global_index(
         if (child == nullptr) {
             continue;
         }
-        RETURN_IF_ERROR(
-                rewrite_slot_refs_to_global_index(&child, column_unique_id_to_global_index));
+        RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&child, slot_id_to_global_index));
     }
     (*expr)->set_children(std::move(children));
     return Status::OK();
@@ -787,7 +781,6 @@ Status FileScannerV2::_parse_partition_value(const SlotDescriptor* slot_desc,
 Status FileScannerV2::_init_expr_ctxes() {
     _slot_id_to_desc.clear();
     _slot_id_to_global_index.clear();
-    _column_unique_id_to_global_index.clear();
     _partition_slot_descs.clear();
     for (const auto* slot_desc : _output_tuple_desc->slots()) {
         _slot_id_to_desc.emplace(slot_desc->id(), slot_desc);
@@ -813,9 +806,12 @@ Status FileScannerV2::_build_projected_columns() {
         if (const auto* schema_field = find_external_root_field(_params, column);
             schema_field != nullptr) {
             // If the column has a matching root field in the schema, use the schema field to build the column's nested children.
+            // NOTICE: The nested `schema_column` is completed without projection.
             schema_column = build_schema_column_from_external_field(*schema_field, column.type);
             column.identifier = schema_column->identifier;
         }
+        // Build the column's nested children based on the column's access paths and the schema column (if exists).
+        // The access paths are generated from the slot's access path expressions which means a projected column can have a subset of the schema column's nested children.
         RETURN_IF_ERROR(build_nested_children_from_access_paths(
                 &column, it->second, schema_column.has_value() ? &*schema_column : nullptr));
         if (is_partition_slot(slot_info)) {
@@ -824,7 +820,6 @@ Status FileScannerV2::_build_projected_columns() {
         }
         const auto global_index = reader::GlobalIndex(slot_idx);
         _slot_id_to_global_index.emplace(slot_info.slot_id, global_index);
-        _column_unique_id_to_global_index.emplace(it->second->col_unique_id(), global_index);
         _projected_columns.push_back(std::move(column));
     }
     return Status::OK();
@@ -849,6 +844,7 @@ Status FileScannerV2::_build_default_expr(const TFileScanSlotInfo& slot_info,
 reader::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor* slot_desc) {
     DORIS_CHECK(slot_desc != nullptr);
     reader::ColumnDefinition column;
+    // TODO(gabriel): why always BY_NAME here?
     column.identifier = Field::create_field<TYPE_STRING>(slot_desc->col_name());
     column.name = slot_desc->col_name();
     column.type = slot_desc->get_data_type_ptr();
@@ -881,8 +877,7 @@ Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const
     for (const auto& conjunct : _conjuncts) {
         VExprSPtr root;
         RETURN_IF_ERROR(reader::clone_table_expr_tree(conjunct->root(), &root));
-        RETURN_IF_ERROR(
-                rewrite_slot_refs_to_global_index(&root, _column_unique_id_to_global_index));
+        RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&root, _slot_id_to_global_index));
         conjuncts->push_back(VExprContext::create_shared(std::move(root)));
     }
     return Status::OK();
