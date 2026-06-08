@@ -10,8 +10,8 @@
 
 ## ▶ RESUME（fresh session 从这里接）
 
-- **当前**：**✅ P3-10 FIX-ISKEY-METADATA DONE**（commit `1b44cd4f065`；连接器局部 isKey=true 恢复 legacy parity、无 SPI 变更；设计验证 0 mustFix + impl review 0 mustFix；DESCRIBE-only 作用域更正）。**下一步 = P3-11 FIX-BATCH-MODE-SPLIT**（连接器 SPI，主定 DV，与 P1-4 耦合；见 HANDOFF §P3 / 报告 §NG-7）；P3 余下 POSTCOMMIT-REFRESH（无码改 DV+javadoc）。建议 `/clear` 开新 session。
-  - 已完成：P0-1 FIX-OVERWRITE-GATE（2 轮，`59699a62f33`）、P0-2 FIX-WRITE-DISTRIBUTION（1 轮，`f0adedba20c`）、P0-3 FIX-BIND-STATIC-PARTITION（3 轮，`7cc86c66440`）、P1-4 FIX-PRUNE-PUSHDOWN（1 轮，`072cd545c54`）、P2-5 FIX-DROP-DB-FORCE（1 轮，`99d5c9d527c`）、P2-6 FIX-CREATE-DB-PRECHECK（1 轮，`ff52f8fd478`）、P2-7 FIX-CTAS-IF-NOT-EXISTS（1 轮，`7051b75c197`）、P2-8 FIX-AUTOINC-REJECT（1 轮，`4aa680f3e3b`）、P3-9 FIX-LIMIT-SPLIT-DEFAULT（设计验证+impl review 收敛，`952b08e0cc8`）、**P3-10 FIX-ISKEY-METADATA（设计验证+impl review 0 mustFix，`1b44cd4f065`）**。
+- **当前**：**✅ P3-12 FIX-POSTCOMMIT-REFRESH DONE**（commit `1f2e00d3696`；无产线逻辑改动——仅 Javadoc 泛化 swallow 理由覆盖 MC connector-transaction 路径 + D-034/DV-018 登记；对抗性安全核查 inline=`handleRefreshTable` 只刷缓存/写 refresh editlog、丢失自愈，无正确性损失；checkstyle 0、import-gate 净）。**下一步 = P3-11 FIX-BATCH-MODE-SPLIT**（用户改定「**实现 batch SPI 路径**」、非 DV；design-first：设计文档 `P4-T06e-FIX-BATCH-MODE-SPLIT-design.md` 供用户评审中，过目后再进实现；与 P1-4 耦合；见 HANDOFF §P3 / 报告 §NG-7）。**P3-11 是 P3 最后一项。**
+  - 已完成：P0-1 FIX-OVERWRITE-GATE（2 轮，`59699a62f33`）、P0-2 FIX-WRITE-DISTRIBUTION（1 轮，`f0adedba20c`）、P0-3 FIX-BIND-STATIC-PARTITION（3 轮，`7cc86c66440`）、P1-4 FIX-PRUNE-PUSHDOWN（1 轮，`072cd545c54`）、P2-5 FIX-DROP-DB-FORCE（1 轮，`99d5c9d527c`）、P2-6 FIX-CREATE-DB-PRECHECK（1 轮，`ff52f8fd478`）、P2-7 FIX-CTAS-IF-NOT-EXISTS（1 轮，`7051b75c197`）、P2-8 FIX-AUTOINC-REJECT（1 轮，`4aa680f3e3b`）、P3-9 FIX-LIMIT-SPLIT-DEFAULT（设计验证+impl review 收敛，`952b08e0cc8`）、P3-10 FIX-ISKEY-METADATA（设计验证+impl review 0 mustFix，`1b44cd4f065`）、**P3-12 FIX-POSTCOMMIT-REFRESH（无逻辑改动 DV+Javadoc，`1f2e00d3696`）**。
   - ✅ **doc-sync（P1-4 随本 commit 落）**：`decisions-log` D-031、`deviations-log` DV-015（+补 DV-014 详细段、计数 14→15）、`FIX-PART-GATES` design/review-rounds「pruning 不变式 clean」⚠️ 更正、D-028 ⚠️ 补注。**前序遗留**（P0-3 doc-sync 大体已落：D-030/DV-014 索引在；本次补齐 DV-014 详细段）。
 - 动手前按指针核码（Rule 8）。triage 顺序 = 3 写 blocker → DG-1 裁剪透传 → DB-DDL/CTAS → 写并行+limit 默认 → minors（报告 §E.7）。
 - **operational**（来自 HANDOFF / auto-memory）：maven 必绝对 `-f` + `-pl`（改 fe-core 带 `:fe-core -am`，改连接器带 `:fe-connector-maxcompute`）；带 `-Dmaven.build.cache.enabled=false`；读真实 `Tests run:`/`BUILD`/`MVN_EXIT`，**勿信**后台 task 通知 exit code；checkstyle `-pl :fe-core checkstyle:check`；import-gate `bash tools/check-connector-imports.sh`。分支 `catalog-spi-05`，本地不 push，每 issue 独立 commit（msg 用 `[P4-T06e] ...`）。
@@ -31,8 +31,8 @@
 | P2-8 | FIX-AUTOINC-REJECT      | minor | SPI(ConnectorColumn)+connector+fe-core | 加 isAutoInc SPI 字段（用户定） | ✅ | ✅ | ✅ | 1 轮→收敛(0 mustFix) | ✅ DONE (`4aa680f3e3b`) |
 | P3-9 | FIX-LIMIT-SPLIT-DEFAULT | major | connector | 明确修复（用户定「Fix 恢复三重闸」，连接器局部无 SPI） | ✅ | ✅ | ✅ | 设计验证 0mF + impl 1 轮(1 mustFix→补测)收敛 | ✅ DONE (`952b08e0cc8`) |
 | P3-10 | FIX-ISKEY-METADATA     | minor | connector | 明确修复（用户定「Fix isKey=true」，连接器局部无 SPI） | ✅ | ✅ | ✅ | 设计验证 0mF + impl 0mF | ✅ DONE (`1b44cd4f065`) |
-| P3-11 | FIX-BATCH-MODE-SPLIT   | minor | connector(SPI) | DV（与 P1-4 耦合） | ⬜ | ⬜ | ⬜ | — | ⬜ |
-| P3-12 | FIX-POSTCOMMIT-REFRESH | minor | fe-core | 无码改，DV+javadoc | ⬜ | ⬜ | ⬜ | — | ⬜ |
+| P3-11 | FIX-BATCH-MODE-SPLIT   | minor | connector(SPI) | **用户改定「实现 batch SPI 路径」**（design-first，与 P1-4 耦合） | 🔵进行中 | ⬜ | ⬜ | 设计文档供评审中 | ⬜ |
+| P3-12 | FIX-POSTCOMMIT-REFRESH | minor | fe-core | 无产线逻辑改动，DV-018+Javadoc 泛化（用户定） | ✅ | ✅ | ✅ | 对抗性安全核查 inline（handleRefreshTable=缓存/editlog 自愈）0 mustFix | ✅ DONE (`1f2e00d3696`) |
 
 图例：⬜ 未开始 / 🔄 进行中 / ✅ 完成
 

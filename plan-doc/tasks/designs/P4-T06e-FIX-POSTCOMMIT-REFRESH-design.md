@@ -3,6 +3,7 @@
 > 严重度：🟡 minor（regression=no）。处置：**无产线逻辑改动**——仅 Javadoc 泛化 + DV-018/D-034 登记。
 > 用户拍板（2026-06-08）：**DV-018 + Javadoc 泛化**（不回退到 legacy 传播失败）。
 > 来源：`plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md` §A NG-8。
+> 实现 commit：`1f2e00d3696`（Javadoc + 本设计）；账本回填 commit 见下一 doc-sync commit。
 
 ## Problem
 
