@@ -162,17 +162,29 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
     }
 
     /**
-     * Post-commit refresh is best-effort for connector writes.
+     * Post-commit refresh is best-effort for ALL connector write paths — both the
+     * JDBC / auto-commit handle model and the SPI connector-transaction model
+     * (e.g. maxcompute).
      *
-     * <p>For JDBC_WRITE, the remote write is committed directly by BE via
-     * PreparedStatement — FE cannot roll it back. If the post-commit cache
-     * refresh fails (e.g., catalog dropped concurrently, edit log I/O error),
-     * reporting the INSERT as failed would mislead the user into retrying,
-     * causing duplicate data. The old JdbcInsertExecutor avoided this by
-     * not performing any post-commit work at all.</p>
+     * <p>By the time this runs, the remote write is already durably committed and
+     * FE cannot roll it back: for JDBC_WRITE the BE commits directly via
+     * PreparedStatement; for the connector-transaction path (maxcompute) the ODPS
+     * write session is committed by the transaction manager in onComplete, before
+     * this step. {@code super.doAfterCommit()} only refreshes FE-side metadata
+     * cache and writes an external-table refresh edit log (a cache-invalidation
+     * hint to followers); it never touches the already-committed remote data.</p>
      *
-     * <p>We preserve that safety guarantee while still attempting the refresh
-     * so that cache stays fresh in the common case.</p>
+     * <p>If that refresh fails (e.g., catalog dropped concurrently, edit log I/O
+     * error), reporting the INSERT as failed would mislead the user into retrying
+     * and writing duplicate data. The worst case of swallowing is transient cache
+     * staleness, which self-heals on the next refresh / TTL.</p>
+     *
+     * <p>This intentionally diverges from legacy MCInsertExecutor, which does not
+     * override doAfterCommit so a refresh failure propagates and the INSERT is
+     * reported FAILED (see deviations-log DV-018). We preserve the safer
+     * swallow-and-warn behavior — matching the old JdbcInsertExecutor, which did
+     * no post-commit work at all — while still attempting the refresh so the cache
+     * stays fresh in the common case.</p>
      */
     @Override
     protected void doAfterCommit() throws DdlException {
