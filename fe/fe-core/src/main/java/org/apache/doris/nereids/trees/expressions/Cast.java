@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * cast function.
@@ -47,23 +48,37 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     protected final boolean isExplicitType; //FIXME: now not useful
 
     protected final DataType targetType;
+    protected final String explicitTypeSql;
 
     public Cast(Expression child, DataType targetType) {
         this(child, targetType, false);
     }
 
     public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        this(ImmutableList.of(child), targetType, isExplicitType);
+        this(child, targetType, isExplicitType, null);
+    }
+
+    public Cast(Expression child, DataType targetType, boolean isExplicitType, String explicitTypeSql) {
+        this(ImmutableList.of(child), targetType, isExplicitType, explicitTypeSql);
     }
 
     protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
+        this(child, targetType, isExplicitType, null);
+    }
+
+    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType, String explicitTypeSql) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
+        this.explicitTypeSql = explicitTypeSql;
     }
 
     public boolean isExplicitType() {
         return isExplicitType;
+    }
+
+    public Optional<String> getExplicitTypeSql() {
+        return Optional.ofNullable(explicitTypeSql);
     }
 
     @Override
@@ -213,7 +228,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cast(children, targetType, isExplicitType);
+        return new Cast(children, targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override
@@ -243,12 +258,14 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         Cast cast = (Cast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return Objects.equals(targetType, cast.targetType)
+                && isExplicitType == cast.isExplicitType
+                && Objects.equals(explicitTypeSql, cast.explicitTypeSql);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), targetType);
+        return Objects.hash(super.computeHashCode(), targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override
@@ -263,7 +280,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new Cast(literal, targetType, isExplicitType);
+        return new Cast(literal, targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override

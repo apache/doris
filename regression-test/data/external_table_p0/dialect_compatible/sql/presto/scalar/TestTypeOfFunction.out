@@ -9,5 +9,148 @@
 0
 
 -- !TestTypeOfFunction_4 --
+bigint
+
+-- !TestTypeOfFunction_5 --
+integer
+
+-- !TestTypeOfFunction_6 --
+varchar
+
+-- !TestTypeOfFunction_7 --
+double
+
+-- !TestTypeOfFunction_8 --
+integer
+
+-- !TestTypeOfFunction_9 --
+varchar(3)
+
+-- !TestTypeOfFunction_10 --
+unknown
+
+-- !TestTypeOfFunction_11 --
+varchar(10)
+
+-- !TestTypeOfFunction_12 --
+varchar(10)
+
+-- !TestTypeOfFunction_13 --
+decimal(5,1)
+
+-- !TestTypeOfFunction_14 --
+decimal(1,0)
+
+-- !TestTypeOfFunction_15 --
+decimal(38,0)
+
+-- !TestTypeOfFunction_16 --
+decimal(38,0)
+
+-- !TestTypeOfFunction_17 --
+array(integer)
+
+-- !TestTypeOfFunction_18 --
+array(decimal(5,1))
+
+-- !TestTypeOfFunction_19 --
+array(array(array(integer)))
+
+-- !TestTypeOfFunction_20 --
+array(array(array(decimal(5,1))))
+
+-- !TestTypeOfFunction_21 --
+varchar
+
+-- !TestTypeOfFunction_22 --
+varchar
+
+-- !TestTypeOfFunction_23 --
+array(integer)
+
+-- !TestTypeOfFunction_24 --
+map(integer, integer)
+
+-- !TestTypeOfFunction_25 --
+row(s_id integer)
+
+-- !TestTypeOfFunction_26 --
+double
+
+-- !TestTypeOfFunction_27 --
+double
+
+-- !TestTypeOfFunction_28 --
 0
 
+-- !TestTypeOfFunction_29 --
+bigint
+
+-- !TestTypeOfFunction_30 --
+integer
+
+-- !TestTypeOfFunction_31 --
+varchar
+
+-- !TestTypeOfFunction_32 --
+double
+
+-- !TestTypeOfFunction_33 --
+integer
+
+-- !TestTypeOfFunction_34 --
+varchar(3)
+
+-- !TestTypeOfFunction_35 --
+unknown
+
+-- !TestTypeOfFunction_36 --
+varchar(10)
+
+-- !TestTypeOfFunction_37 --
+varchar(10)
+
+-- !TestTypeOfFunction_38 --
+decimal(5,1)
+
+-- !TestTypeOfFunction_39 --
+decimal(1,0)
+
+-- !TestTypeOfFunction_40 --
+decimal(38,0)
+
+-- !TestTypeOfFunction_41 --
+decimal(38,0)
+
+-- !TestTypeOfFunction_42 --
+array(integer)
+
+-- !TestTypeOfFunction_43 --
+array(decimal(5,1))
+
+-- !TestTypeOfFunction_44 --
+array(array(array(integer)))
+
+-- !TestTypeOfFunction_45 --
+array(array(array(decimal(5,1))))
+
+-- !TestTypeOfFunction_46 --
+varchar
+
+-- !TestTypeOfFunction_47 --
+varchar
+
+-- !TestTypeOfFunction_48 --
+array(integer)
+
+-- !TestTypeOfFunction_49 --
+map(integer, integer)
+
+-- !TestTypeOfFunction_50 --
+row(s_id integer)
+
+-- !TestTypeOfFunction_51 --
+double
+
+-- !TestTypeOfFunction_52 --
+double

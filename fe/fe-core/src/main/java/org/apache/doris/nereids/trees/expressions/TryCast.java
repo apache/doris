@@ -40,11 +40,21 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
     }
 
     public TryCast(Expression child, DataType targetType, boolean isExplicitType) {
-        this(ImmutableList.of(child), targetType, isExplicitType);
+        this(child, targetType, isExplicitType, null);
+    }
+
+    public TryCast(Expression child, DataType targetType,
+            boolean isExplicitType, String explicitTypeSql) {
+        this(ImmutableList.of(child), targetType, isExplicitType, explicitTypeSql);
     }
 
     private TryCast(List<Expression> child, DataType targetType, boolean isExplicitType) {
-        super(child, targetType, isExplicitType);
+        this(child, targetType, isExplicitType, null);
+    }
+
+    private TryCast(List<Expression> child, DataType targetType,
+            boolean isExplicitType, String explicitTypeSql) {
+        super(child, targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override
@@ -64,7 +74,7 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
     @Override
     public TryCast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new TryCast(children, targetType, isExplicitType);
+        return new TryCast(children, targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override
@@ -79,21 +89,17 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
 
     @Override
     public boolean equals(Object o) {
-        if (!super.equals(o)) {
-            return false;
-        }
-        TryCast cast = (TryCast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return super.equals(o);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode() + 1, targetType);
+        return Objects.hash(super.computeHashCode() + 1, targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new TryCast(literal, targetType, isExplicitType);
+        return new TryCast(literal, targetType, isExplicitType, explicitTypeSql);
     }
 
 }
