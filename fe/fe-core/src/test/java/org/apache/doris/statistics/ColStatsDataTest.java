@@ -260,4 +260,37 @@ public class ColStatsDataTest {
         data = new ColStatsData();
         Assertions.assertTrue(data.isValid());
     }
+
+    @Test
+    public void testIsValidSample() {
+        List<String> values = Lists.newArrayList();
+        values.add("id");
+        values.add("10000");
+        values.add("20000");
+        values.add("30000");
+        values.add("0");
+        values.add("col");
+        values.add(null);
+        values.add("200"); // count
+        values.add("0"); // ndv
+        values.add("199"); // nullCount
+        values.add("min");
+        values.add("max");
+        values.add("400");
+        values.add("500");
+        values.add(null);
+
+        // Case 1: isSample = false (FULL analyze). ndv = 0, min/max not null, nullCount != count.
+        // It should remain 0 and isValid() should be false.
+        ResultRow row = new ResultRow(values);
+        ColStatsData dataFull = new ColStatsData(row, false);
+        Assertions.assertEquals(0, dataFull.ndv);
+        Assertions.assertFalse(dataFull.isValid());
+
+        // Case 2: isSample = true (SAMPLE analyze). ndv = 0, min/max not null, nullCount != count.
+        // It should clamp ndv to 1, and isValid() should be true.
+        ColStatsData dataSample = new ColStatsData(row, true);
+        Assertions.assertEquals(1, dataSample.ndv);
+        Assertions.assertTrue(dataSample.isValid());
+    }
 }
