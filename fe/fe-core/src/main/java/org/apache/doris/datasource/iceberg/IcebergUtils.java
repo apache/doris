@@ -169,8 +169,6 @@ public class IcebergUtils {
     // nickname in flink and spark
     public static final String WRITE_FORMAT = "write-format";
     public static final String COMPRESSION_CODEC = "compression-codec";
-    // For migrated Iceberg tables, the format may be stored as "iceberg/parquet" or "iceberg/orc"
-    public static final String FORMAT = "format";
 
     // nickname in spark
     public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
@@ -1164,12 +1162,7 @@ public class IcebergUtils {
         if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
             return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
         }
-        // 3. Check "format" property (e.g., "iceberg/parquet", "iceberg/orc")
-        //    This is commonly set on migrated Iceberg tables.
-        if (properties.containsKey(FORMAT)) {
-            return properties.get(FORMAT);
-        }
-        // 4. Last resort: infer from the actual data files in the current snapshot.
+        // 3. Last resort: infer from the actual data files in the current snapshot.
         //    This handles migrated tables where none of the above properties are set.
         return inferFileFormatFromDataFiles(icebergTable);
     }
