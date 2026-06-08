@@ -189,7 +189,7 @@ public class JdbcClickHouseClient extends JdbcClient {
             case "Int8":
                 return Type.TINYINT;
             case "Nothing":
-                return Type.TINYINT;
+                return Type.STRING;
             case "Int16":
             case "UInt8":
                 return Type.SMALLINT;
