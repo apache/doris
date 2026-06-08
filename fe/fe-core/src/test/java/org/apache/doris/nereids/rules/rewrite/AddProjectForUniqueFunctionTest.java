@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -43,6 +45,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -129,15 +132,151 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
                 .getPlan();
         Assertions.assertInstanceOf(LogicalJoin.class, root);
         LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
+        Assertions.assertEquals(studentOlapScan, newJoin.left());
+        Assertions.assertInstanceOf(LogicalProject.class, newJoin.right());
+        LogicalProject<?> rightProject = (LogicalProject<?>) newJoin.right();
+        Assertions.assertEquals(scoreOlapScan, rightProject.child());
+        Alias alias = (Alias) rightProject.getProjects().get(rightProject.getProjects().size() - 1);
+        Assertions.assertEquals(alias.child(), random);
+        Assertions.assertEquals(ImmutableList.of(), newJoin.getHashJoinConjuncts());
+        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), sid)), newJoin.getOtherJoinConjuncts());
+        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), new DoubleLiteral(1.0))), newJoin.getMarkJoinConjuncts());
+        Assertions.assertEquals(JoinType.CROSS_JOIN, newJoin.getJoinType());
+    }
+
+    @Test
+    void testRewriteJoinProjectRepeatedVolatileToRightSide() {
+        LogicalOlapScan scoreOlapScan
+                = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+        SlotReference score = (SlotReference) scoreOlapScan.getOutput().get(2);
+        Random random = new Random();
+        Add repeated = new Add(score, random);
+        LogicalJoin<?, ?> join = new LogicalJoin<Plan, Plan>(JoinType.INNER_JOIN,
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new GreaterThanEqual(repeated, new DoubleLiteral(0.1)),
+                        new LessThanEqual(repeated, new DoubleLiteral(0.5))),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                studentOlapScan,
+                scoreOlapScan,
+                null);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new AddProjectForVolatileExpression())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalJoin.class, root);
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
+        Assertions.assertEquals(studentOlapScan, newJoin.left());
+        Assertions.assertInstanceOf(LogicalProject.class, newJoin.right());
+        LogicalProject<?> rightProject = (LogicalProject<?>) newJoin.right();
+        Assertions.assertEquals(scoreOlapScan, rightProject.child());
+        Alias alias = (Alias) rightProject.getProjects().get(rightProject.getProjects().size() - 1);
+        Assertions.assertEquals(random, alias.child());
+        Assertions.assertTrue(newJoin.getOtherJoinConjuncts().stream()
+                .allMatch(conjunct -> conjunct.anyMatch(alias.toSlot()::equals)));
+    }
+
+    @Test
+    void testRewriteJoinProjectRepeatedVolatileToLeftSideByDefault() {
+        LogicalOlapScan scoreOlapScan
+                = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+        Random random = new Random();
+        LogicalJoin<?, ?> join = new LogicalJoin<Plan, Plan>(JoinType.INNER_JOIN,
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new GreaterThanEqual(random, new DoubleLiteral(0.1)),
+                        new LessThanEqual(random, new DoubleLiteral(0.5))),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                studentOlapScan,
+                scoreOlapScan,
+                null);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new AddProjectForVolatileExpression())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalJoin.class, root);
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
         Assertions.assertInstanceOf(LogicalProject.class, newJoin.left());
+        Assertions.assertEquals(scoreOlapScan, newJoin.right());
         LogicalProject<?> leftProject = (LogicalProject<?>) newJoin.left();
         Assertions.assertEquals(studentOlapScan, leftProject.child());
-        Assertions.assertEquals(scoreOlapScan, newJoin.right());
         Alias alias = (Alias) leftProject.getProjects().get(leftProject.getProjects().size() - 1);
-        Assertions.assertEquals(alias.child(), random);
-        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), sid)), newJoin.getHashJoinConjuncts());
-        Assertions.assertEquals(ImmutableList.of(), newJoin.getOtherJoinConjuncts());
-        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), new DoubleLiteral(1.0))), newJoin.getMarkJoinConjuncts());
-        Assertions.assertEquals(JoinType.INNER_JOIN, newJoin.getJoinType());
+        Assertions.assertEquals(random, alias.child());
+        Assertions.assertTrue(newJoin.getOtherJoinConjuncts().stream()
+                .allMatch(conjunct -> conjunct.anyMatch(alias.toSlot()::equals)));
+    }
+
+    @Test
+    void testRewriteJoinProjectRepeatedVolatileFunctionWithRightInputToRightSide() {
+        LogicalOlapScan scoreOlapScan
+                = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+        SlotReference studentId = (SlotReference) studentOlapScan.getOutput().get(0);
+        SlotReference scoreId = (SlotReference) scoreOlapScan.getOutput().get(0);
+        JavaUdf volatileUdf = javaUdf(FunctionVolatility.VOLATILE,
+                VolatileIdentity.newVolatileIdentity(), scoreId);
+        Add repeated = new Add(studentId, volatileUdf);
+        LogicalJoin<?, ?> join = new LogicalJoin<Plan, Plan>(JoinType.INNER_JOIN,
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new GreaterThanEqual(repeated, new DoubleLiteral(0.1)),
+                        new LessThanEqual(repeated, new DoubleLiteral(0.5))),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                studentOlapScan,
+                scoreOlapScan,
+                null);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new AddProjectForVolatileExpression())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalJoin.class, root);
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
+        Assertions.assertEquals(studentOlapScan, newJoin.left());
+        Assertions.assertInstanceOf(LogicalProject.class, newJoin.right());
+        LogicalProject<?> rightProject = (LogicalProject<?>) newJoin.right();
+        Assertions.assertEquals(scoreOlapScan, rightProject.child());
+        Alias alias = (Alias) rightProject.getProjects().get(rightProject.getProjects().size() - 1);
+        Assertions.assertEquals(volatileUdf, alias.child());
+        Assertions.assertTrue(newJoin.getOtherJoinConjuncts().stream()
+                .allMatch(conjunct -> conjunct.anyMatch(alias.toSlot()::equals)));
+    }
+
+    @Test
+    void testRewriteJoinSkipRepeatedVolatileFunctionWithBothSideInputs() {
+        LogicalOlapScan scoreOlapScan
+                = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+        SlotReference studentId = (SlotReference) studentOlapScan.getOutput().get(0);
+        SlotReference scoreId = (SlotReference) scoreOlapScan.getOutput().get(0);
+        JavaUdf volatileUdf = javaUdf(FunctionVolatility.VOLATILE,
+                VolatileIdentity.newVolatileIdentity(), studentId, scoreId);
+        LogicalJoin<?, ?> join = new LogicalJoin<Plan, Plan>(JoinType.INNER_JOIN,
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new GreaterThanEqual(volatileUdf, new DoubleLiteral(0.1)),
+                        new LessThanEqual(volatileUdf, new DoubleLiteral(0.5))),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                studentOlapScan,
+                scoreOlapScan,
+                null);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new AddProjectForVolatileExpression())
+                .getPlan();
+        Assertions.assertEquals(join, root);
+    }
+    private JavaUdf javaUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
+        return javaUdf(volatility, volatileIdentity, new IntegerLiteral(1));
+    }
+
+    private JavaUdf javaUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity,
+            Expression... arguments) {
+        return new JavaUdf("java_fn", 1, "db1", org.apache.doris.catalog.Function.BinaryType.JAVA_UDF,
+                FunctionSignature.ret(IntegerType.INSTANCE).args(
+                        Collections.nCopies(arguments.length, IntegerType.INSTANCE).toArray(new IntegerType[0])),
+                NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
+                null, "evaluate", null, null, "", false, 360, arguments);
     }
 }

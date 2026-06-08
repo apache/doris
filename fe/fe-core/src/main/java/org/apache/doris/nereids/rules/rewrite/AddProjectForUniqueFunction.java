@@ -46,12 +46,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Set;
 
 /** extract unique function expression which exist multiple times, and add them to a new project child.
  * for example:
@@ -207,20 +209,20 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 allConjuncts.addAll(join.getHashJoinConjuncts());
                 allConjuncts.addAll(join.getOtherJoinConjuncts());
                 allConjuncts.addAll(join.getMarkJoinConjuncts());
-                Optional<Pair<List<Expression>, LogicalProject<Plan>>> rewrittenOpt
-                        = rewriteExpressions(join, allConjuncts);
+                Optional<JoinRewriteResult> rewrittenOpt = rewriteJoinExpressions(join, allConjuncts);
                 if (!rewrittenOpt.isPresent()) {
                     return join;
                 }
 
-                LogicalProject<Plan> newLeftChild = rewrittenOpt.get().second;
-                List<Expression> newAllConjuncts = rewrittenOpt.get().first;
+                Plan newLeftChild = rewrittenOpt.get().left;
+                Plan newRightChild = rewrittenOpt.get().right;
+                List<Expression> newAllConjuncts = rewrittenOpt.get().newConjuncts;
                 List<Expression> newHashOtherConjuncts = newAllConjuncts.subList(0, hashOtherConjunctsSize);
                 List<Expression> newMarkJoinConjuncts = ImmutableList.copyOf(
                         newAllConjuncts.subList(hashOtherConjunctsSize, totalConjunctsSize));
                 // TODO: code from FindHashConditionForJoin
                 Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
-                        newLeftChild.getOutput(), join.right().getOutput(), newHashOtherConjuncts);
+                        newLeftChild.getOutput(), newRightChild.getOutput(), newHashOtherConjuncts);
                 List<Expression> newHashJoinConjuncts = pair.first;
                 List<Expression> newOtherJoinConjuncts = pair.second;
                 JoinType joinType = join.getJoinType();
@@ -233,7 +235,7 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                         newMarkJoinConjuncts,
                         join.getDistributeHint(),
                         join.getMarkJoinSlotReference(),
-                        ImmutableList.of(newLeftChild, join.right()),
+                        ImmutableList.of(newLeftChild, newRightChild),
                         join.getJoinReorderContext());
             }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
         }
@@ -269,6 +271,85 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
         return Optional.of(Pair.of(newTargetsBuilder.build(), new LogicalProject<>(projects, plan.child(0))));
     }
 
+    private Optional<JoinRewriteResult> rewriteJoinExpressions(LogicalJoin<Plan, Plan> join,
+            Collection<Expression> targets) {
+        Map<Expression, Integer> volatileExpressionCounter = Maps.newLinkedHashMap();
+        Map<Expression, Set<Slot>> volatileExpressionSlots = Maps.newLinkedHashMap();
+        for (Expression target : targets) {
+            target.foreach(e -> {
+                Expression expr = (Expression) e;
+                if (expr.isVolatile()) {
+                    volatileExpressionCounter.merge(expr, 1, Integer::sum);
+                    Set<Slot> volatileInputSlots = expr.getInputSlots();
+                    volatileExpressionSlots
+                            .computeIfAbsent(expr, ignored -> Sets.newLinkedHashSet())
+                            .addAll(volatileInputSlots.isEmpty() ? target.getInputSlots() : volatileInputSlots);
+                }
+            });
+        }
+
+        ImmutableList.Builder<NamedExpression> leftAliases = ImmutableList.builder();
+        ImmutableList.Builder<NamedExpression> rightAliases = ImmutableList.builder();
+        Map<Expression, Slot> replaceMap = Maps.newHashMap();
+        Set<Slot> leftOutputSet = join.left().getOutputSet();
+        Set<Slot> rightOutputSet = join.right().getOutputSet();
+        for (Entry<Expression, Integer> entry : volatileExpressionCounter.entrySet()) {
+            if (entry.getValue() <= 1) {
+                continue;
+            }
+            Set<Slot> inputSlots = volatileExpressionSlots.get(entry.getKey());
+            Set<Slot> volatileInputSlots = entry.getKey().getInputSlots();
+            if (!volatileInputSlots.isEmpty()
+                    && !leftOutputSet.containsAll(inputSlots)
+                    && !rightOutputSet.containsAll(inputSlots)) {
+                continue;
+            }
+            ExprId exprId = StatementScopeIdGenerator.newExprId();
+            String functionName = entry.getKey() instanceof Function
+                    ? ((Function) entry.getKey()).getName() : "volatile";
+            Alias alias = new Alias(exprId, entry.getKey(), "$_" + functionName + "_" + exprId.asInt() + "_$");
+            replaceMap.put(alias.child(0), alias.toSlot());
+            // Join can not add a project at join-pair scope, but repeated volatile expressions
+            // still need one materialized value. Slot-free volatile functions use the containing
+            // conjunct's slots to choose a side, so t2.k + rand() can project rand() on the right.
+            // Volatile functions with input slots use their own slots to avoid projecting
+            // volatile_udf(t2.k) on the left only because its containing conjunct also uses t1.
+            // Volatile functions whose own slots span both join children cannot be projected into
+            // either child, so they are not rewritten here.
+            // Put right-only expressions on the right child; otherwise keep the previous
+            // left-child behavior as the conservative default.
+            if (!inputSlots.isEmpty() && rightOutputSet.containsAll(inputSlots)) {
+                rightAliases.add(alias);
+            } else {
+                leftAliases.add(alias);
+            }
+        }
+        if (replaceMap.isEmpty()) {
+            return Optional.empty();
+        }
+
+        List<NamedExpression> leftAliasList = leftAliases.build();
+        List<NamedExpression> rightAliasList = rightAliases.build();
+        Plan left = appendProjectIfNeeded(join.left(), leftAliasList);
+        Plan right = appendProjectIfNeeded(join.right(), rightAliasList);
+        ImmutableList.Builder<Expression> newTargetsBuilder = ImmutableList.builderWithExpectedSize(targets.size());
+        for (Expression target : targets) {
+            newTargetsBuilder.add(ExpressionUtils.replace(target, replaceMap));
+        }
+        return Optional.of(new JoinRewriteResult(newTargetsBuilder.build(), left, right));
+    }
+
+    private Plan appendProjectIfNeeded(Plan child, List<NamedExpression> aliases) {
+        if (aliases.isEmpty()) {
+            return child;
+        }
+        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
+                .addAll(child.getOutput())
+                .addAll(aliases)
+                .build();
+        return new LogicalProject<>(projects, child);
+    }
+
     /**
      * if a unique function exists multiple times in the targets, then add a project to alias it.
      */
@@ -295,5 +376,17 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
         }
 
         return builder.build();
+    }
+
+    private static class JoinRewriteResult {
+        private final List<Expression> newConjuncts;
+        private final Plan left;
+        private final Plan right;
+
+        private JoinRewriteResult(List<Expression> newConjuncts, Plan left, Plan right) {
+            this.newConjuncts = newConjuncts;
+            this.left = left;
+            this.right = right;
+        }
     }
 }
