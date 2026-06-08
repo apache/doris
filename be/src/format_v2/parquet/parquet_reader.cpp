@@ -105,6 +105,11 @@ ParquetReader::~ParquetReader() = default;
 
 Status ParquetReader::init(RuntimeState* state) {
     RETURN_IF_ERROR(format::FileReader::init(state));
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_parquet_profile.file_reader_create_time,
+                       _reader_statistics.file_reader_create_time);
+        COUNTER_UPDATE(_parquet_profile.open_file_num, _reader_statistics.open_file_num);
+    }
     _state = std::make_unique<ParquetReaderScanState>();
     _state->enable_bloom_filter =
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
@@ -217,6 +222,16 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _state->scheduler.set_page_skip_profile(
             {.skipped_pages = _parquet_profile.pages_skipped_by_filter,
              .skipped_bytes = _parquet_profile.page_skip_bytes});
+    _state->scheduler.set_scan_profile({
+            .raw_rows_read = _parquet_profile.raw_rows_read,
+            .selected_rows = _parquet_profile.selected_rows,
+            .rows_filtered_by_conjunct = _parquet_profile.rows_filtered_by_conjunct,
+            .total_batches = _parquet_profile.total_batches,
+            .empty_selection_batches = _parquet_profile.empty_selection_batches,
+            .range_gap_skipped_rows = _parquet_profile.range_gap_skipped_rows,
+            .column_read_time = _parquet_profile.column_read_time,
+            .predicate_filter_time = _parquet_profile.predicate_filter_time,
+    });
     _state->scheduler.set_plan(std::move(row_group_plan));
     _eof = _state->scheduler.empty();
     return Status::OK();
@@ -349,6 +364,16 @@ void ParquetReader::_init_profile() {
                 _profile, "PagesSkippedByFilter", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.page_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "PageSkipBytes", TUnit::BYTES, parquet_profile, 1);
+        _parquet_profile.selected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "SelectedRows", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "RowsFilteredByConjunct", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.total_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "TotalBatches", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.empty_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "EmptySelectionBatches", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.range_gap_skipped_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "RangeGapSkippedRows", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredRowsByLazyRead", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(

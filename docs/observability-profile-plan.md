@@ -23,6 +23,15 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 | Bloom filter | `BloomFilterReadTime` | `parquet_statistics.cpp` | 读取 row group bloom filter 的耗时 |
 | Runtime page skip | `PagesSkippedByFilter` | `PageReader::set_data_page_filter()` callback | Arrow data page filter callback 实际返回 skip 的 page 数 |
 | Runtime page skip | `PageSkipBytes` | `PageReader::set_data_page_filter()` callback | 实际 skip page 的 compressed bytes，来自 OffsetIndex `compressed_page_size` |
+| File lifecycle | `FileReaderCreateTime`、`FileNum` | `ParquetReader::init()` | publish `FileReader::init()` 维护的 `_reader_statistics` |
+| Row read | `RawRowsRead` | `ParquetScanScheduler::read_current_row_group_batch()` | scheduler batch 输入行数，表示 row-level conjunct/delete filter 前的候选行数 |
+| Batch/filter | `TotalBatches` | `ParquetScanScheduler::read_current_row_group_batch()` | scheduler 处理的 batch 总数 |
+| Batch/filter | `SelectedRows` | `ParquetScanScheduler::read_current_row_group_batch()` | row-level conjunct/delete filter 后保留的行数 |
+| Batch/filter | `RowsFilteredByConjunct` | `ParquetScanScheduler::read_current_row_group_batch()` | row-level conjunct/delete filter 过滤掉的行数 |
+| Batch/filter | `EmptySelectionBatches` | `ParquetScanScheduler::read_current_row_group_batch()` | filter 后 selected rows 为 0 的 batch 数 |
+| Row range/page-index runtime | `RangeGapSkippedRows` | `ParquetScanScheduler::skip_current_row_group_rows()` | selected row ranges 之间实际调用 column reader `skip()` 推进的 gap 行数 |
+| Column read | `ColumnReadTime` | `ParquetScanScheduler::read_filter_columns()` / output column read path | predicate column `read()` 和 output column `read/select()` 的总耗时 |
+| Predicate execution | `PredicateFilterTime` | `ParquetScanScheduler::read_filter_columns()` | `execute_batch_filters()` 执行 row-level conjunct/delete filter 的耗时 |
 
 `FilteredRowsByPage` 和 `PagesSkippedByFilter` 的含义不同：
 
@@ -36,11 +45,7 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 
 | 类别 | 指标 | 当前缺口 |
 |---|---|---|
-| File lifecycle | `FileReaderCreateTime`、`FileNum` | `FileReader::init()` 会维护 `_reader_statistics`，但 new parquet 没有把它 publish 到 profile counter |
 | Metadata/footer | `ParseMetaTime`、`ParseFooterTime`、`FileFooterReadCalls`、`FileFooterHitCache` | new parquet 直接使用 Arrow `ParquetFileReader`，尚未在 metadata/footer 路径接入这些 timer/counter |
-| Row read | `RawRowsRead` | `ParquetScanScheduler::get_block()` / `read_next_batch()` 没有累计实际输出或读取行数 |
-| Column read | `ColumnReadTime` | `ParquetColumnReader::read/select/skip` 和 Arrow `RecordReader::ReadRecords()` 没有接入 timer |
-| Predicate execution | `PredicateFilterTime` | `execute_batch_filters()` 没有单独计时 |
 | Lazy materialization | `FilteredRowsByLazyRead`、`FilteredBytes` | new parquet 现在没有旧 reader 的 lazy materialization 统计路径 |
 | Dictionary rewrite | `DictFilterRewriteTime` | new parquet 当前 dictionary pruning 发生在 planning，未接入 rewrite timer |
 | Convert/materialization | `ConvertTime` | `arrow_leaf_reader_adapter.cpp` 的 Doris column 写入/转换没有接入 timer |
@@ -54,7 +59,7 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 
 | 指标 | 说明 | 用途 |
 |---|---|---|
-| `RawRowsRead` | `get_block()` 最终返回的行数累计 | 和旧 parquet profile 对齐，作为 scan 输出基准 |
+| `RawRowsRead` | scheduler batch 输入行数累计，即 row-level conjunct/delete filter 前的候选行数 | 和旧 parquet profile 的 candidate rows 口径对齐，作为 scan 输入基准 |
 | `TotalBatches` | scheduler 处理的 batch 总数 | 评估 batch 粒度 |
 | `SelectedRows` | expression/delete filter 后 selected rows 累计 | 了解 filter 选择性 |
 | `RowsFilteredByConjunct` | batch filter 过滤掉的行数 | 区分 predicate 过滤和 page index pruning |

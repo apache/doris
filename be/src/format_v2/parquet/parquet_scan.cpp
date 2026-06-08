@@ -326,6 +326,9 @@ Status ParquetScanScheduler::skip_current_row_group_rows(int64_t rows) {
     if (rows == 0) {
         return Status::OK();
     }
+    if (_scan_profile.range_gap_skipped_rows != nullptr) {
+        COUNTER_UPDATE(_scan_profile.range_gap_skipped_rows, rows);
+    }
     for (const auto& column_reader : _current_predicate_columns | std::views::values) {
         RETURN_IF_ERROR(column_reader->skip(rows));
     }
@@ -354,21 +357,37 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 << column_reader->name() << " " << file_block->get_by_position(block_position).name;
         auto column = file_block->get_by_position(block_position).column->assert_mutable();
         int64_t column_rows = 0;
-        RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
+        {
+            SCOPED_TIMER(_scan_profile.column_read_time);
+            RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
+        }
         if (column_rows != batch_rows) {
             return Status::Corruption("Parquet filter column {} returned {} rows, expected {} rows",
                                       column_reader->name(), column_rows, batch_rows);
         }
         file_block->replace_by_position(block_position, std::move(column));
     }
+    if (_scan_profile.predicate_filter_time == nullptr) {
+        return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows);
+    }
+    SCOPED_TIMER(_scan_profile.predicate_filter_time);
     return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows);
 }
 
 Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
                                                           const format::FileScanRequest& request,
                                                           Block* file_block, size_t* rows) {
+    if (_scan_profile.total_batches != nullptr) {
+        COUNTER_UPDATE(_scan_profile.total_batches, 1);
+    }
+    if (_scan_profile.raw_rows_read != nullptr) {
+        COUNTER_UPDATE(_scan_profile.raw_rows_read, batch_rows);
+    }
     if (_current_predicate_columns.empty() && _current_non_predicate_columns.empty()) {
         *rows = static_cast<size_t>(batch_rows);
+        if (_scan_profile.selected_rows != nullptr) {
+            COUNTER_UPDATE(_scan_profile.selected_rows, batch_rows);
+        }
         return Status::OK();
     }
     SelectionVector selection;
@@ -378,6 +397,15 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
             read_filter_columns(batch_rows, request, file_block, &selection, &selected_rows));
 
     const bool need_filter_output = selected_rows != batch_rows;
+    if (_scan_profile.selected_rows != nullptr) {
+        COUNTER_UPDATE(_scan_profile.selected_rows, selected_rows);
+    }
+    if (_scan_profile.rows_filtered_by_conjunct != nullptr) {
+        COUNTER_UPDATE(_scan_profile.rows_filtered_by_conjunct, batch_rows - selected_rows);
+    }
+    if (selected_rows == 0 && _scan_profile.empty_selection_batches != nullptr) {
+        COUNTER_UPDATE(_scan_profile.empty_selection_batches, 1);
+    }
     if (need_filter_output) {
         IColumn::Filter output_filter = selection_to_filter(selection, selected_rows, batch_rows);
         for (const auto& col : request.predicate_columns) {
@@ -390,35 +418,39 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
         }
     }
 
-    for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
-        auto position_it = request.local_positions.find(format::LocalColumnId(fid));
-        DORIS_CHECK(position_it != request.local_positions.end());
-        const auto block_position = position_it->second.value();
-        auto column = file_block->get_by_position(block_position).column->assert_mutable();
-        DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
-                  column_reader->type()->get_primitive_type())
-                << type_to_string(
-                           file_block->get_by_position(block_position).type->get_primitive_type())
-                << " " << type_to_string(column_reader->type()->get_primitive_type()) << " "
-                << column_reader->name() << " " << fid << " " << block_position;
-        if (need_filter_output) {
-            [[maybe_unused]] auto old_size = column->size();
-            RETURN_IF_ERROR(column_reader->select(selection, selected_rows, batch_rows, column));
-            if (column->size() != old_size + selected_rows) {
-                return Status::Corruption(
-                        "Parquet selected output column {} returned {} rows, expected {} rows",
-                        column_reader->name(), column->size(), old_size + selected_rows);
+    {
+        SCOPED_TIMER(_scan_profile.column_read_time);
+        for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
+            auto position_it = request.local_positions.find(format::LocalColumnId(fid));
+            DORIS_CHECK(position_it != request.local_positions.end());
+            const auto block_position = position_it->second.value();
+            auto column = file_block->get_by_position(block_position).column->assert_mutable();
+            DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
+                      column_reader->type()->get_primitive_type())
+                    << type_to_string(file_block->get_by_position(block_position)
+                                              .type->get_primitive_type())
+                    << " " << type_to_string(column_reader->type()->get_primitive_type()) << " "
+                    << column_reader->name() << " " << fid << " " << block_position;
+            if (need_filter_output) {
+                [[maybe_unused]] auto old_size = column->size();
+                RETURN_IF_ERROR(
+                        column_reader->select(selection, selected_rows, batch_rows, column));
+                if (column->size() != old_size + selected_rows) {
+                    return Status::Corruption(
+                            "Parquet selected output column {} returned {} rows, expected {} rows",
+                            column_reader->name(), column->size(), old_size + selected_rows);
+                }
+            } else {
+                int64_t column_rows = 0;
+                RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
+                if (column_rows != batch_rows) {
+                    return Status::Corruption(
+                            "Parquet output column {} returned {} rows, expected {} rows",
+                            column_reader->name(), column_rows, batch_rows);
+                }
             }
-        } else {
-            int64_t column_rows = 0;
-            RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
-            if (column_rows != batch_rows) {
-                return Status::Corruption(
-                        "Parquet output column {} returned {} rows, expected {} rows",
-                        column_reader->name(), column_rows, batch_rows);
-            }
+            file_block->replace_by_position(block_position, std::move(column));
         }
-        file_block->replace_by_position(block_position, std::move(column));
     }
     *rows = static_cast<size_t>(selected_rows);
     return Status::OK();

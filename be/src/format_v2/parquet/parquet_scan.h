@@ -29,6 +29,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 #include "format_v2/file_reader.h"
+#include "runtime/runtime_profile.h"
 
 namespace parquet {
 class FileMetaData;
@@ -68,6 +69,17 @@ struct RowGroupScanPlan {
     ParquetPruningStats pruning_stats;
 };
 
+struct ParquetScanProfile {
+    RuntimeProfile::Counter* raw_rows_read = nullptr;
+    RuntimeProfile::Counter* selected_rows = nullptr;
+    RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
+    RuntimeProfile::Counter* total_batches = nullptr;
+    RuntimeProfile::Counter* empty_selection_batches = nullptr;
+    RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
+    RuntimeProfile::Counter* column_read_time = nullptr;
+    RuntimeProfile::Counter* predicate_filter_time = nullptr;
+};
+
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                ::parquet::ParquetFileReader* file_reader,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -88,6 +100,7 @@ public:
     void set_page_skip_profile(ParquetPageSkipProfile page_skip_profile) {
         _page_skip_profile = page_skip_profile;
     }
+    void set_scan_profile(ParquetScanProfile scan_profile) { _scan_profile = scan_profile; }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
 
@@ -124,6 +137,7 @@ private:
     size_t _current_range_idx = 0;
     int64_t _current_range_rows_read = 0;
     ParquetPageSkipProfile _page_skip_profile;
+    ParquetScanProfile _scan_profile;
 };
 
 } // namespace doris::parquet
