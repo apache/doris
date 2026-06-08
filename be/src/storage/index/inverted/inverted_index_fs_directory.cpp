@@ -209,10 +209,10 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
 
-    int64_t inverted_index_io_timer = 0;
     {
-        SCOPED_RAW_TIMER(&inverted_index_io_timer);
-
+        // File-cache statistics are collected inside FileReader::read_at(). Do not
+        // touch the caller-owned file_cache_stats pointer after the read returns:
+        // searcher/query caches can outlive the scanner that owns those stats.
         std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
 
         int64_t position = getFilePointer();
@@ -243,10 +243,6 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
         }
         _pos += bufferLength;
         _handle->_fpos = _pos;
-    }
-
-    if (_io_ctx.file_cache_stats != nullptr) {
-        _io_ctx.file_cache_stats->inverted_index_io_timer += inverted_index_io_timer;
     }
 }
 

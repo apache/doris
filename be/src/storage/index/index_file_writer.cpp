@@ -145,12 +145,14 @@ Status IndexFileWriter::add_into_searcher_cache() {
         auto dir = DORIS_TRY(index_file_reader->_open(index_meta.first, index_meta.second));
         std::vector<std::string> file_names;
         dir->list(&file_names);
-        // Skip ANN indexes – they use FAISS files (ann.faiss, ann.ivfdata) instead of
+        // Skip ANN indexes – they use custom binary files instead of
         // CLucene segments, so building an inverted-index searcher would fail.
         // HNSW/IVF produces 1 file (ann.faiss); IVF_ON_DISK produces 2 (ann.faiss + ann.ivfdata).
+        // PQ_ON_DISK produces 2 files (ann.pqmeta + ann.pqdata).
         bool is_ann_index =
                 std::any_of(file_names.begin(), file_names.end(), [](const std::string& f) {
-                    return f == faiss_index_fila_name || f == faiss_ivfdata_file_name;
+                    return f == faiss_index_fila_name || f == faiss_ivfdata_file_name ||
+                           f == pq_meta_file_name || f == pq_data_file_name;
                 });
         if (is_ann_index) {
             continue;

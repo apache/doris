@@ -124,6 +124,7 @@ class TabletColumnObjectPool;
 class UserFunctionCache;
 class StoragePageCache;
 class AnnIndexIVFListCache;
+class AnnIndexPqChunkCache;
 class SegmentLoader;
 class LookupConnectionCache;
 class RowCache;
@@ -344,6 +345,9 @@ public:
     void set_ann_index_ivf_list_cache(AnnIndexIVFListCache* c) {
         this->_ann_index_ivf_list_cache = c;
     }
+    void set_ann_index_pq_chunk_cache(AnnIndexPqChunkCache* c) {
+        this->_ann_index_pq_chunk_cache = c;
+    }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
@@ -390,6 +394,7 @@ public:
     TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     AnnIndexIVFListCache* get_ann_index_ivf_list_cache() { return _ann_index_ivf_list_cache; }
+    AnnIndexPqChunkCache* get_ann_index_pq_chunk_cache() { return _ann_index_pq_chunk_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
@@ -549,6 +554,7 @@ private:
     std::unique_ptr<BaseStorageEngine> _storage_engine;
     StoragePageCache* _storage_page_cache = nullptr;
     AnnIndexIVFListCache* _ann_index_ivf_list_cache = nullptr;
+    AnnIndexPqChunkCache* _ann_index_pq_chunk_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;

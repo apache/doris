@@ -1741,6 +1741,12 @@ DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
 // Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
 DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
 
+// Cache for ANN index PQ on-disk chunk data.
+// "60%" means 60% of the process available memory.
+DEFINE_mString(ann_index_pq_chunk_cache_limit, "60%");
+// Stale sweep time for ANN index PQ chunk cache in seconds. 1800s is 30 minutes.
+DEFINE_mInt32(ann_index_pq_chunk_cache_stale_sweep_time_sec, "1800");
+
 // Chunk size for ANN/vector index building per training/adding batch
 // 1M By default.
 DEFINE_mInt64(ann_index_build_chunk_size, "1000000");

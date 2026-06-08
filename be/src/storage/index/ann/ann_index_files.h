@@ -24,5 +24,7 @@ namespace doris::segment_v2 {
 
 inline constexpr char faiss_index_fila_name[] = "ann.faiss";
 inline constexpr char faiss_ivfdata_file_name[] = "ann.ivfdata";
+inline constexpr char pq_meta_file_name[] = "ann.pqmeta";
+inline constexpr char pq_data_file_name[] = "ann.pqdata";
 
 } // namespace doris::segment_v2

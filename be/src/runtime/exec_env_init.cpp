@@ -100,6 +100,7 @@
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
 #include "storage/cache/ann_index_ivf_list_cache.h"
+#include "storage/cache/ann_index_pq_chunk_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
@@ -606,6 +607,20 @@ Status ExecEnv::init_mem_env() {
                   << ", origin config value: " << config::ann_index_ivf_list_cache_limit;
     }
 
+    // Init ANN index PQ chunk cache (dedicated cache for PQ_ON_DISK chunk data)
+    {
+        int64_t pq_cache_limit = ParseUtil::parse_mem_spec(config::ann_index_pq_chunk_cache_limit,
+                                                           MemInfo::mem_limit(),
+                                                           MemInfo::physical_mem(), &is_percent);
+        while (!is_percent && pq_cache_limit > MemInfo::mem_limit() / 2) {
+            pq_cache_limit = pq_cache_limit / 2;
+        }
+        _ann_index_pq_chunk_cache = AnnIndexPqChunkCache::create_global_cache(pq_cache_limit);
+        LOG(INFO) << "ANN index PQ chunk cache memory limit: "
+                  << PrettyPrinter::print(pq_cache_limit, TUnit::BYTES)
+                  << ", origin config value: " << config::ann_index_pq_chunk_cache_limit;
+    }
+
     // Init row cache
     int64_t row_cache_mem_limit =
             ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
@@ -917,6 +932,7 @@ void ExecEnv::destroy() {
 
     // _storage_page_cache must be destoried before _cache_manager
     SAFE_DELETE(_ann_index_ivf_list_cache);
+    SAFE_DELETE(_ann_index_pq_chunk_cache);
     SAFE_DELETE(_storage_page_cache);
 
     SAFE_DELETE(_small_file_mgr);

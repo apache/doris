@@ -23,6 +23,7 @@
 
 #include "common/cast_set.h"
 #include "storage/index/ann/faiss_ann_index.h"
+#include "storage/index/ann/pq_on_disk_vector_index.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 
 namespace doris::segment_v2 {
@@ -54,30 +55,46 @@ Status AnnIndexColumnWriter::init() {
     const auto& properties = _index_meta->properties();
     const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
     const std::string metric_type = get_or_default(properties, METRIC_TYPE, "l2_distance");
-    const std::string quantizer = get_or_default(properties, QUANTIZER, "flat");
-    FaissBuildParameter build_parameter;
-    std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();
-    build_parameter.index_type = FaissBuildParameter::string_to_index_type(index_type);
-    build_parameter.dim = std::stoi(get_or_default(properties, DIM, "512"));
-    build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
-    build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
-    build_parameter.ef_construction = std::stoi(get_or_default(properties, EF_CONSTRUCTION, "40"));
-    build_parameter.ivf_nlist = std::stoi(get_or_default(properties, NLIST, "1024"));
-    build_parameter.quantizer = FaissBuildParameter::string_to_quantizer(quantizer);
-    build_parameter.pq_m = std::stoi(get_or_default(properties, PQ_M, "8"));
-    build_parameter.pq_nbits = std::stoi(get_or_default(properties, PQ_NBITS, "8"));
 
-    faiss_index->build(build_parameter);
+    if (index_type == "pq_on_disk") {
+        PqOnDiskBuildParameter pq_params;
+        pq_params.dim = std::stoi(get_or_default(properties, DIM, "512"));
+        pq_params.pq_m = std::stoi(get_or_default(properties, PQ_M, "8"));
+        pq_params.pq_nbits = std::stoi(get_or_default(properties, PQ_NBITS, "8"));
+        pq_params.metric = string_to_metric(metric_type);
 
-    _vector_index = faiss_index;
+        auto pq_index = std::make_shared<PqOnDiskVectorIndex>();
+        pq_index->build(pq_params);
+        _vector_index = pq_index;
 
-    LOG_INFO(
-            "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
-            "ef_construction {}, quantizer {}",
-            index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
-            build_parameter.ef_construction, quantizer);
+        LOG_INFO("Create a new PQ_ON_DISK index, dim {} metric_type {} pq_m {} pq_nbits {}",
+                 pq_params.dim, metric_type, pq_params.pq_m, pq_params.pq_nbits);
+    } else {
+        const std::string quantizer = get_or_default(properties, QUANTIZER, "flat");
+        FaissBuildParameter build_parameter;
+        std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();
+        build_parameter.index_type = FaissBuildParameter::string_to_index_type(index_type);
+        build_parameter.dim = std::stoi(get_or_default(properties, DIM, "512"));
+        build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
+        build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
+        build_parameter.ef_construction =
+                std::stoi(get_or_default(properties, EF_CONSTRUCTION, "40"));
+        build_parameter.ivf_nlist = std::stoi(get_or_default(properties, NLIST, "1024"));
+        build_parameter.quantizer = FaissBuildParameter::string_to_quantizer(quantizer);
+        build_parameter.pq_m = std::stoi(get_or_default(properties, PQ_M, "8"));
+        build_parameter.pq_nbits = std::stoi(get_or_default(properties, PQ_NBITS, "8"));
 
-    size_t block_size = AnnIndexColumnWriter::chunk_size() * build_parameter.dim;
+        faiss_index->build(build_parameter);
+        _vector_index = faiss_index;
+
+        LOG_INFO(
+                "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
+                "ef_construction {}, quantizer {}",
+                index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
+                build_parameter.ef_construction, quantizer);
+    }
+
+    size_t block_size = AnnIndexColumnWriter::chunk_size() * _vector_index->get_dimension();
     _float_array.reserve(block_size);
 
     return Status::OK();

@@ -806,15 +806,15 @@ TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalTimer) {
 
     uint8_t buffer1[10];
     input1->readBytes(buffer1, 10);
-    EXPECT_GT(stats.inverted_index_io_timer, 0);
-    int64_t old_time = stats.inverted_index_io_timer;
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // inverted_index_io_timer is no longer accumulated in readInternal to avoid
+    // use-after-free when cached searchers outlive the scanner owning file_cache_stats.
+    // File-cache-level timers are collected inside FileReader::read_at() instead.
+    EXPECT_EQ(stats.inverted_index_io_timer, 0);
 
     input2->seek(0);
     uint8_t buffer2[10];
     input2->readBytes(buffer2, 10);
-    EXPECT_GT(stats.inverted_index_io_timer, old_time);
+    EXPECT_EQ(stats.inverted_index_io_timer, 0);
 
     _CLDELETE(input2);
     _CLDELETE(input1);

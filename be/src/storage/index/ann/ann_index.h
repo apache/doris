@@ -54,7 +54,7 @@ std::string metric_to_string(AnnIndexMetric metric);
 
 AnnIndexMetric string_to_metric(const std::string& metric);
 
-enum class AnnIndexType { UNKNOWN, HNSW, IVF, IVF_ON_DISK };
+enum class AnnIndexType { UNKNOWN, HNSW, IVF, IVF_ON_DISK, PQ_ON_DISK };
 
 std::string ann_index_type_to_string(AnnIndexType type);
 

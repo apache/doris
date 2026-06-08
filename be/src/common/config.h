@@ -1799,6 +1799,11 @@ DECLARE_mInt32(max_segment_partial_column_cache_size);
 DECLARE_String(ann_index_ivf_list_cache_limit);
 // Stale sweep time for ANN index IVF list cache in seconds.
 DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
+// Cache for ANN index PQ on-disk chunk data (PQ codes in fixed-size chunks).
+// Default "60%" means 60% of process available memory.
+DECLARE_mString(ann_index_pq_chunk_cache_limit);
+// Stale sweep time for ANN index PQ chunk cache in seconds.
+DECLARE_mInt32(ann_index_pq_chunk_cache_stale_sweep_time_sec);
 // Chunk size for ANN/vector index building per training/adding batch
 DECLARE_mInt64(ann_index_build_chunk_size);
 

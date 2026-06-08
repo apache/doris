@@ -93,6 +93,8 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
 
     if (_io_ctx) {
         base->setIoContext(_io_ctx);
+    } else {
+        base->setIoContext(nullptr);
     }
 
     DBUG_EXECUTE_IF("CSIndexInput.readInternal", {

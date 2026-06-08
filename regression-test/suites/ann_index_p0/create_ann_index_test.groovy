@@ -215,7 +215,7 @@ suite("create_ann_index_test") {
                 "replication_num" = "1"
             );
         """
-        exception "only support ann index with type hnsw, ivf or ivf_on_disk"
+        exception "only support ann index with type hnsw, ivf, ivf_on_disk or pq_on_disk"
     }
 
     // metric_type is incorrect
