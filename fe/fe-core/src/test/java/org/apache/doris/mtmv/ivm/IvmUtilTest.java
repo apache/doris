@@ -21,7 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.types.IntegerType;
@@ -45,6 +45,11 @@ class IvmUtilTest {
         return new SlotReference(name, VarcharType.SYSTEM_DEFAULT, nullable);
     }
 
+    private MurmurHash3128 rowIdHash(Expression result) {
+        Assertions.assertInstanceOf(MurmurHash3128.class, result);
+        return (MurmurHash3128) result;
+    }
+
     @Test
     void testBuildRowIdHashEmptyReturnsZero() {
         Expression result = IvmUtil.buildRowIdHash(Collections.emptyList());
@@ -55,13 +60,8 @@ class IvmUtilTest {
     @Test
     void testBuildRowIdHashSingleKeyStructure() {
         Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(intSlot("k1", false)));
-        // Outer: Cast(MurmurHash364(...), LARGEINT)
-        Assertions.assertInstanceOf(Cast.class, result);
-        Cast outerCast = (Cast) result;
-        Assertions.assertEquals(LargeIntType.INSTANCE, outerCast.getDataType());
-        // Inner: MurmurHash364 with 2 args (ifnull'd value + isnull flag)
-        Assertions.assertInstanceOf(MurmurHash364.class, outerCast.child());
-        MurmurHash364 hash = (MurmurHash364) outerCast.child();
+        Assertions.assertEquals(LargeIntType.INSTANCE, result.getDataType());
+        MurmurHash3128 hash = rowIdHash(result);
         Assertions.assertEquals(2, hash.arity());
     }
 
@@ -69,8 +69,7 @@ class IvmUtilTest {
     void testBuildRowIdHashMultipleKeysStructure() {
         List<Expression> keys = ImmutableList.of(intSlot("k1", false), intSlot("k2", true));
         Expression result = IvmUtil.buildRowIdHash(keys);
-        Cast outerCast = (Cast) result;
-        MurmurHash364 hash = (MurmurHash364) outerCast.child();
+        MurmurHash3128 hash = rowIdHash(result);
         // 2 keys * 2 args each = 4 hash arguments
         Assertions.assertEquals(4, hash.arity());
     }
@@ -79,7 +78,7 @@ class IvmUtilTest {
     void testBuildRowIdHashContainsNvlAndIsNull() {
         List<Expression> keys = ImmutableList.of(intSlot("k1", true), intSlot("k2", true));
         Expression result = IvmUtil.buildRowIdHash(keys);
-        MurmurHash364 hash = (MurmurHash364) ((Cast) result).child();
+        MurmurHash3128 hash = rowIdHash(result);
         // Even-indexed args (0, 2) should be Nvl; odd-indexed (1, 3) should be Cast(IsNull)
         Assertions.assertInstanceOf(Nvl.class, hash.child(0));
         Assertions.assertInstanceOf(Cast.class, hash.child(1));
@@ -92,7 +91,7 @@ class IvmUtilTest {
     @Test
     void testBuildRowIdHashVarcharKeySkipsInnerCast() {
         Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(varcharSlot("k1", false)));
-        MurmurHash364 hash = (MurmurHash364) ((Cast) result).child();
+        MurmurHash3128 hash = rowIdHash(result);
         Nvl nvl = (Nvl) hash.child(0);
         // VARCHAR key should not have inner Cast — Nvl wraps the slot directly
         Assertions.assertInstanceOf(SlotReference.class, nvl.child(0));
@@ -101,7 +100,7 @@ class IvmUtilTest {
     @Test
     void testBuildRowIdHashNonVarcharKeyHasInnerCast() {
         Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(intSlot("k1", false)));
-        MurmurHash364 hash = (MurmurHash364) ((Cast) result).child();
+        MurmurHash3128 hash = rowIdHash(result);
         Nvl nvl = (Nvl) hash.child(0);
         // INT key should have Cast(slot, VARCHAR) inside Nvl
         Assertions.assertInstanceOf(Cast.class, nvl.child(0));
