@@ -32,6 +32,14 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 | Row range/page-index runtime | `RangeGapSkippedRows` | `ParquetScanScheduler::skip_current_row_group_rows()` | selected row ranges 之间实际调用 column reader `skip()` 推进的 gap 行数 |
 | Column read | `ColumnReadTime` | `ParquetScanScheduler::read_filter_columns()` / output column read path | predicate column `read()` 和 output column `read/select()` 的总耗时 |
 | Predicate execution | `PredicateFilterTime` | `ParquetScanScheduler::read_filter_columns()` | `execute_batch_filters()` 执行 row-level conjunct/delete filter 的耗时 |
+| Reader API | `ReaderReadRows` | `ParquetColumnReader::read()` / nested scalar leaf read path | column reader tree 成功 read 的行数累计；复杂类型会包含顶层 reader 和 leaf reader 的累计 |
+| Reader API | `ReaderSkipRows` | `ParquetColumnReader::skip()` | column reader tree 成功 skip 的 logical rows 累计 |
+| Reader API | `ReaderSelectRows` | `ParquetColumnReader::select()` | output column selection 读路径选择的 rows 累计 |
+| Arrow adapter | `ArrowReadRecordsTime` | `arrow_leaf_reader_adapter.cpp::read_leaf_records()` | Arrow `RecordReader::ReadRecords()` 耗时 |
+| Arrow adapter | `MaterializationTime` | `arrow_leaf_reader_adapter.cpp::append_leaf_values()` | Arrow decoded values 写入 Doris column 的耗时 |
+| Page index timing | `RowGroupFilterTime` | `ParquetStatisticsUtils::SelectRowGroups()` | row group statistics / dictionary / bloom filter planning 总耗时 |
+| Page index timing | `PageIndexFilterTime` | `select_row_group_ranges_by_page_index()` | page index range select + page skip plan 生成总耗时 |
+| Page index timing | `PageIndexReadTime` | `select_row_group_ranges_by_page_index()` | Arrow `GetPageIndexReader()` / `RowGroup()` 读取耗时 |
 
 `FilteredRowsByPage` 和 `PagesSkippedByFilter` 的含义不同：
 
@@ -49,7 +57,7 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 | Lazy materialization | `FilteredRowsByLazyRead`、`FilteredBytes` | new parquet 现在没有旧 reader 的 lazy materialization 统计路径 |
 | Dictionary rewrite | `DictFilterRewriteTime` | new parquet 当前 dictionary pruning 发生在 planning，未接入 rewrite timer |
 | Convert/materialization | `ConvertTime` | `arrow_leaf_reader_adapter.cpp` 的 Doris column 写入/转换没有接入 timer |
-| Page index timing | `PageIndexFilterTime`、`PageIndexReadTime`、`PageIndexParseTime`、`RowGroupFilterTime` | 当前只统计 `PageIndexReadCalls`；row group pruning/page index select 没有细分耗时 |
+| Page index timing | `PageIndexParseTime` | Arrow API 目前没有单独拆出 page index parse 路径；不要伪造 |
 | Page IO/decode | `PageReadCount`、`DecompressTime`、`DecompressCount`、`PageHeaderDecodeTime`、`PageHeaderReadTime`、`DecodeValueTime`、`DecodeDictTime`、`DecodeLevelTime`、`DecodeNullMapTime`、`SkipPageHeaderNum`、`ParsePageHeaderNum` | new parquet 通过 Arrow internal `RecordReader` 读 page，没有 Doris 自己的 page reader 统计 |
 | Doris page cache | `PageCacheHitCount`、`PageCacheMissingCount`、`PageCacheWriteCount`、`PageCacheCompressedHitCount`、`PageCacheDecompressedHitCount`、`PageCacheCompressedWriteCount`、`PageCacheDecompressedWriteCount` | new parquet 当前没有复用旧 parquet 的 Doris page cache reader，因此这些计数没有有效来源 |
 
@@ -70,6 +78,8 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 
 ### 2. Reader / Column Reader 级指标
 
+已实现：
+
 | 指标 | 说明 | 用途 |
 |---|---|---|
 | `ReaderReadRows` | reader tree `read()` 累计请求行数 | reader 实际物化路径基准 |
@@ -78,22 +88,25 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 | `ArrowReadRecordsTime` | `RecordReader::ReadRecords()` 耗时 | 观察 Arrow page read/decode 总成本 |
 | `MaterializationTime` | `append_leaf_values()` / nested assembler 写 Doris column 的耗时 | 区分 Arrow 解码和 Doris 列写入 |
 
-实现位置：
-
-- `ParquetColumnReader::skip()` / `select()` 和各子类 `read()`。
-- `arrow_leaf_reader_adapter.cpp::read_leaf_records()`。
-- `arrow_leaf_reader_adapter.cpp::append_leaf_values()`。
+实现位置：`ParquetColumnReader::skip()` / `select()`、各子类 `read()`、`arrow_leaf_reader_adapter.cpp::read_leaf_records()`、`arrow_leaf_reader_adapter.cpp::append_leaf_values()`。
 
 ### 3. Page Index / Row Group Planning 计时
+
+已实现：
 
 | 指标 | 说明 | 用途 |
 |---|---|---|
 | `RowGroupFilterTime` | row group statistics / dictionary / bloom filter planning 总耗时 | 评估 pruning planning 开销 |
 | `PageIndexFilterTime` | page index range select + page skip plan 生成耗时 | 评估 page-index pruning 开销 |
 | `PageIndexReadTime` | Arrow `GetPageIndexReader()` / `RowGroup()` 读取耗时 | 区分 page index I/O 和过滤计算 |
-| `PageIndexParseTime` | 如果 Arrow API 可拆分，统计 page index 解析耗时 | 对齐旧 profile；拆不开时不要伪造 |
 
-实现位置：`plan_parquet_row_groups()`、`select_row_groups_by_statistics()`、`select_row_group_ranges_by_page_index()`。
+未实现：
+
+| 指标 | 说明 |
+|---|---|
+| `PageIndexParseTime` | Arrow API 当前无法和 page index read 单独拆分；保留未接线，避免伪造 |
+
+实现位置：`select_row_groups_by_statistics()`、`select_row_group_ranges_by_page_index()`。
 
 ### 4. Nested Assembler 级指标
 
@@ -125,8 +138,8 @@ new parquet reader 在 `ParquetReader::_init_profile()` 下创建 `ParquetReader
 ## 实施优先级
 
 1. 先补 scheduler/read path：`RawRowsRead`、batch、selected rows、range gap skipped rows。这些指标不依赖 Arrow 内部实现，风险最低。
-2. 再补 column reader / adapter timer：`ArrowReadRecordsTime`、`MaterializationTime`、`ReaderReadRows/SkipRows/SelectRows`。这能回答 page skip 是否减少了 Arrow read/decode 成本。
-3. 补 planning timer：`RowGroupFilterTime`、`PageIndexFilterTime`、`PageIndexReadTime`。这能判断 page index pruning 自身是否过重。
+2. 已补 column reader / adapter timer：`ArrowReadRecordsTime`、`MaterializationTime`、`ReaderReadRows/SkipRows/SelectRows`。这能回答 page skip 是否减少了 Arrow read/decode 成本。
+3. 已补 planning timer：`RowGroupFilterTime`、`PageIndexFilterTime`、`PageIndexReadTime`。这能判断 page index pruning 自身是否过重。
 4. nested assembler 指标跟 LIST/MAP/repeated leaf pruning 一起补，避免为了 profile 单独改复杂类型路径。
 5. `Decompress*`、`Decode*`、`PageHeader*`、`PageCache*` 这些旧 parquet page-reader 级指标，不建议先伪造。除非 Arrow 能暴露等价 stats，或者 new parquet 后续接入 Doris 自己的 page reader，否则应保持为未接线状态或从 profile 中移出。
 

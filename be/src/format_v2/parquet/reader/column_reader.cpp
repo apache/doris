@@ -79,6 +79,18 @@ Status ParquetColumnReader::skip(int64_t rows) {
     return Status::NotSupported("Parquet column skip is not implemented, rows={}", rows);
 }
 
+void ParquetColumnReader::update_reader_read_rows(int64_t rows) const {
+    if (_profile.reader_read_rows != nullptr) {
+        COUNTER_UPDATE(_profile.reader_read_rows, rows);
+    }
+}
+
+void ParquetColumnReader::update_reader_skip_rows(int64_t rows) const {
+    if (_profile.reader_skip_rows != nullptr) {
+        COUNTER_UPDATE(_profile.reader_skip_rows, rows);
+    }
+}
+
 Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected_rows,
                                    int64_t batch_rows, MutableColumnPtr& column) {
     if (column.get() == nullptr) {
@@ -106,17 +118,21 @@ Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected
         cursor = range.start + range.length;
     }
     RETURN_IF_ERROR(skip(batch_rows - cursor));
+    if (_profile.reader_select_rows != nullptr) {
+        COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
+    }
     return Status::OK();
 }
 
 ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns,
         const std::map<int, ParquetPageSkipPlan>* page_skip_plans,
-        ParquetPageSkipProfile page_skip_profile)
+        ParquetPageSkipProfile page_skip_profile, ParquetColumnReaderProfile column_reader_profile)
         : _row_group(std::move(row_group)),
           _record_readers(static_cast<size_t>(num_leaf_columns)),
           _page_skip_plans(page_skip_plans),
-          _page_skip_profile(page_skip_profile) {}
+          _page_skip_profile(page_skip_profile),
+          _column_reader_profile(column_reader_profile) {}
 
 format::ColumnDefinition ParquetColumnReaderFactory::row_position_column_definition() {
     format::ColumnDefinition field;
@@ -130,7 +146,7 @@ format::ColumnDefinition ParquetColumnReaderFactory::row_position_column_definit
 
 std::unique_ptr<ParquetColumnReader> ParquetColumnReaderFactory::create_row_position_column_reader(
         int64_t row_group_first_row) const {
-    return std::make_unique<RowPositionColumnReader>(row_group_first_row);
+    return std::make_unique<RowPositionColumnReader>(row_group_first_row, _column_reader_profile);
 }
 
 Status ParquetColumnReaderFactory::create_scalar_reader(
@@ -148,7 +164,7 @@ Status ParquetColumnReaderFactory::create_scalar_reader(
         }
     }
     *reader = std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader),
-                                                   page_skip_plan);
+                                                   page_skip_plan, _column_reader_profile);
     return Status::OK();
 }
 
@@ -321,9 +337,9 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
             type = make_nullable(type);
         }
     }
-    *reader = std::make_unique<StructColumnReader>(column_schema, std::move(type),
-                                                   std::move(child_readers),
-                                                   std::move(child_output_indices));
+    *reader = std::make_unique<StructColumnReader>(
+            column_schema, std::move(type), std::move(child_readers),
+            std::move(child_output_indices), _column_reader_profile);
     return Status::OK();
 }
 
@@ -371,7 +387,7 @@ Status ParquetColumnReaderFactory::create_list_column_reader(
         }
     }
     *reader = std::make_unique<ListColumnReader>(column_schema, std::move(type),
-                                                 std::move(element_reader));
+                                                 std::move(element_reader), _column_reader_profile);
     return Status::OK();
 }
 
@@ -421,8 +437,9 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
             type = make_nullable(type);
         }
     }
-    *reader = std::make_unique<MapColumnReader>(column_schema, std::move(type),
-                                                std::move(key_reader), std::move(value_reader));
+    *reader =
+            std::make_unique<MapColumnReader>(column_schema, std::move(type), std::move(key_reader),
+                                              std::move(value_reader), _column_reader_profile);
     return Status::OK();
 }
 
@@ -446,8 +463,10 @@ Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_sche
                                 column_schema.name);
 }
 
-ParquetColumnReader::ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type)
-        : _field_id(schema.local_id),
+ParquetColumnReader::ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type,
+                                         ParquetColumnReaderProfile profile)
+        : _profile(profile),
+          _field_id(schema.local_id),
           _leaf_column_id(schema.leaf_column_id),
           _nullable_definition_level(schema.nullable_definition_level),
           _repeated_repetition_level(schema.repeated_repetition_level),

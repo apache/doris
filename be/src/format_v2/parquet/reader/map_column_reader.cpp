@@ -623,12 +623,14 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
     if (readers.scalar_value != nullptr) {
         const int16_t value_max_definition_level =
                 readers.scalar_value->descriptor()->max_definition_level();
-        return read_aligned_map_entries<NestedScalarBatch>(
+        RETURN_IF_ERROR(read_aligned_map_entries<NestedScalarBatch>(
                 _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
                 key_max_definition_level, *readers.scalar_value, &_value_overflow, &_key_overflow,
                 NestedScalarValueAppender {readers.scalar_value, "MAP", "value",
                                            value_max_definition_level},
-                rows, &context, rows_read);
+                rows, &context, rows_read));
+        update_reader_read_rows(*rows_read);
+        return Status::OK();
     }
 
     if (readers.list_value != nullptr) {
@@ -641,17 +643,21 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                     _name);
         }
 
-        return read_map_list_value_entries(
+        RETURN_IF_ERROR(read_map_list_value_entries(
                 _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
                 key_max_definition_level, *readers.list_value, *scalar_list_value_reader,
-                &_key_overflow, &_value_overflow, rows, &context, rows_read);
+                &_key_overflow, &_value_overflow, rows, &context, rows_read));
+        update_reader_read_rows(*rows_read);
+        return Status::OK();
     }
 
-    return read_aligned_map_entries<NestedStructBatch>(
+    RETURN_IF_ERROR(read_aligned_map_entries<NestedStructBatch>(
             _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
             key_max_definition_level, *readers.struct_value, &_struct_value_overflow,
             &_key_overflow, NestedStructValueAppender {readers.struct_value}, rows, &context,
-            rows_read);
+            rows_read));
+    update_reader_read_rows(*rows_read);
+    return Status::OK();
 }
 
 Status MapColumnReader::skip(int64_t rows) {
@@ -691,6 +697,7 @@ Status MapColumnReader::skip(int64_t rows) {
         return Status::Corruption("Failed to skip parquet MAP column {}: skipped {} of {} rows",
                                   _name, rows_read, rows);
     }
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

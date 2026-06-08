@@ -38,6 +38,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     if (_children.empty()) {
         column->resize(static_cast<size_t>(rows));
         *rows_read = rows;
+        update_reader_read_rows(*rows_read);
         return Status::OK();
     }
 
@@ -152,6 +153,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
             append_parent_nulls(parent_null_map, parent_nulls);
         }
         *rows_read = expected_rows;
+        update_reader_read_rows(*rows_read);
         return Status::OK();
     }
 
@@ -267,6 +269,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
             append_parent_nulls(parent_null_map, parent_nulls);
         }
         *rows_read = expected_rows;
+        update_reader_read_rows(*rows_read);
         return Status::OK();
     }
 
@@ -302,6 +305,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     }
 
     *rows_read = std::max<int64_t>(expected_rows, 0);
+    update_reader_read_rows(*rows_read);
     return Status::OK();
 }
 
@@ -312,6 +316,7 @@ Status StructColumnReader::skip(int64_t rows) {
     for (auto& child_reader : _children) {
         RETURN_IF_ERROR(child_reader->skip(rows));
     }
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

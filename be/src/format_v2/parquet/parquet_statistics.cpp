@@ -702,6 +702,9 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
         bool enable_bloom_filter, ParquetPruningStats* pruning_stats) {
+    int64_t row_group_filter_time_sink = 0;
+    SCOPED_RAW_TIMER(pruning_stats == nullptr ? &row_group_filter_time_sink
+                                              : &pruning_stats->row_group_filter_time);
     if (selected_row_groups == nullptr) {
         return Status::InvalidArgument("selected_row_groups is null");
     }
@@ -1180,6 +1183,9 @@ Status select_row_group_ranges_by_page_index(
         const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
         std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
         ParquetPruningStats* pruning_stats) {
+    int64_t page_index_filter_time_sink = 0;
+    SCOPED_RAW_TIMER(pruning_stats == nullptr ? &page_index_filter_time_sink
+                                              : &pruning_stats->page_index_filter_time);
     DORIS_CHECK(selected_ranges != nullptr);
     selected_ranges->clear();
     if (page_skip_plans != nullptr) {
@@ -1200,11 +1206,16 @@ Status select_row_group_ranges_by_page_index(
         if (pruning_stats != nullptr) {
             ++pruning_stats->page_index_read_calls;
         }
-        page_index_reader = file_reader->GetPageIndexReader();
-        if (page_index_reader == nullptr) {
-            return Status::OK();
+        {
+            int64_t read_page_index_time_sink = 0;
+            SCOPED_RAW_TIMER(pruning_stats == nullptr ? &read_page_index_time_sink
+                                                      : &pruning_stats->read_page_index_time);
+            page_index_reader = file_reader->GetPageIndexReader();
+            if (page_index_reader == nullptr) {
+                return Status::OK();
+            }
+            row_group_index_reader = page_index_reader->RowGroup(row_group_idx);
         }
-        row_group_index_reader = page_index_reader->RowGroup(row_group_idx);
     } catch (const ::parquet::ParquetException&) {
         return Status::OK();
     } catch (const std::exception&) {

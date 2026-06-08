@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
@@ -78,6 +79,7 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
     RuntimeProfile::Counter* column_read_time = nullptr;
     RuntimeProfile::Counter* predicate_filter_time = nullptr;
+    ParquetColumnReaderProfile column_reader_profile;
 };
 
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,

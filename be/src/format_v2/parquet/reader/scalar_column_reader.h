@@ -38,14 +38,16 @@ class ScalarColumnReader final : public ParquetColumnReader {
 public:
     ScalarColumnReader(const ParquetColumnSchema& column_schema,
                        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
-                       const ParquetPageSkipPlan* page_skip_plan = nullptr);
+                       const ParquetPageSkipPlan* page_skip_plan = nullptr,
+                       ParquetColumnReaderProfile profile = {});
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
     ArrowLeafReaderContext leaf_context() const {
-        return ArrowLeafReaderContext {_descriptor, _type_descriptor, _type, _name, _record_reader};
+        return ArrowLeafReaderContext {_descriptor, _type_descriptor, _type, _name, _record_reader,
+                                       _profile};
     }
     void advance_rows_read(int64_t rows);
 

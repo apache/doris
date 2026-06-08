@@ -26,11 +26,12 @@
 
 namespace doris::parquet {
 
-RowPositionColumnReader::RowPositionColumnReader(int64_t row_group_first_row)
+RowPositionColumnReader::RowPositionColumnReader(int64_t row_group_first_row,
+                                                 ParquetColumnReaderProfile profile)
         : ParquetColumnReader(
                   ParquetColumnSchema {
                           .name = ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME},
-                  std::make_shared<DataTypeInt64>()),
+                  std::make_shared<DataTypeInt64>(), profile),
           _row_group_first_row(row_group_first_row) {}
 
 int RowPositionColumnReader::file_column_id() const {
@@ -65,6 +66,7 @@ Status RowPositionColumnReader::read(int64_t rows, MutableColumnPtr& column, int
     }
     _next_row_position += rows;
     *rows_read = rows;
+    update_reader_read_rows(rows);
     return Status::OK();
 }
 
@@ -73,6 +75,7 @@ Status RowPositionColumnReader::skip(int64_t rows) {
         return Status::OK();
     }
     _next_row_position += rows;
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

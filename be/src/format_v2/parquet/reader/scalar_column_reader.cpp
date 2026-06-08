@@ -32,8 +32,8 @@ namespace doris::parquet {
 ScalarColumnReader::ScalarColumnReader(
         const ParquetColumnSchema& column_schema,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
-        const ParquetPageSkipPlan* page_skip_plan)
-        : ParquetColumnReader(column_schema, column_schema.type),
+        const ParquetPageSkipPlan* page_skip_plan, ParquetColumnReaderProfile profile)
+        : ParquetColumnReader(column_schema, column_schema.type, profile),
           _descriptor(column_schema.descriptor),
           _type_descriptor(column_schema.type_descriptor),
           _record_reader(std::move(record_reader)),
@@ -73,6 +73,7 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
 
     RETURN_IF_ERROR(append_leaf_values(context, *record_reader, *rows_read, &null_map, column));
     advance_rows_read(*rows_read);
+    update_reader_read_rows(*rows_read);
     return Status::OK();
 }
 
@@ -142,6 +143,7 @@ Status ScalarColumnReader::skip(int64_t rows) {
     DORIS_CHECK(page_filtered_rows <= rows);
     RETURN_IF_ERROR(skip_records(rows - page_filtered_rows));
     advance_rows_read(rows);
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

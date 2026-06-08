@@ -85,6 +85,11 @@ private:
         RuntimeProfile::Counter* total_batches = nullptr;
         RuntimeProfile::Counter* empty_selection_batches = nullptr;
         RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
+        RuntimeProfile::Counter* reader_read_rows = nullptr;
+        RuntimeProfile::Counter* reader_skip_rows = nullptr;
+        RuntimeProfile::Counter* reader_select_rows = nullptr;
+        RuntimeProfile::Counter* arrow_read_records_time = nullptr;
+        RuntimeProfile::Counter* materialization_time = nullptr;
         RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* filtered_bytes = nullptr;
         RuntimeProfile::Counter* raw_rows_read = nullptr;

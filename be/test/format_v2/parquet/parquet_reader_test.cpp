@@ -1532,6 +1532,11 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     ASSERT_NE(profile.get_counter("RowsFilteredByConjunct"), nullptr);
     ASSERT_NE(profile.get_counter("TotalBatches"), nullptr);
     ASSERT_NE(profile.get_counter("EmptySelectionBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderReadRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderSelectRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
+    ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     ASSERT_GT(profile.get_counter("FileReaderCreateTime")->value(), 0);
     EXPECT_EQ(profile.get_counter("FileNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), ROW_COUNT);
@@ -1539,6 +1544,11 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 2);
     EXPECT_EQ(profile.get_counter("TotalBatches")->value(), 1);
     EXPECT_EQ(profile.get_counter("EmptySelectionBatches")->value(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderReadRows")->value(), ROW_COUNT + 3);
+    EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 2);
+    EXPECT_EQ(profile.get_counter("ReaderSelectRows")->value(), 3);
+    EXPECT_GT(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
+    EXPECT_GT(profile.get_counter("MaterializationTime")->value(), 0);
 
     rows = 0;
     eof = false;
@@ -1596,6 +1606,7 @@ TEST_F(NewParquetReaderTest, EmptySelectionUpdatesProfileCounters) {
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 10));
+    use_schema_order_positions(request.get(), schema);
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t rows = 0;
@@ -2084,11 +2095,17 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
     ASSERT_NE(profile.get_counter("RawRowsRead"), nullptr);
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupFilterTime"), nullptr);
+    ASSERT_NE(profile.get_counter("PageIndexFilterTime"), nullptr);
+    ASSERT_NE(profile.get_counter("PageIndexReadTime"), nullptr);
     EXPECT_GT(profile.get_counter("PagesSkippedByFilter")->value(), 0);
     EXPECT_GT(profile.get_counter("PageSkipBytes")->value(), 0);
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), 64);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
+    EXPECT_GT(profile.get_counter("RowGroupFilterTime")->value(), 0);
+    EXPECT_GT(profile.get_counter("PageIndexFilterTime")->value(), 0);
+    EXPECT_GT(profile.get_counter("PageIndexReadTime")->value(), 0);
 
     ASSERT_EQ(ids.size(), 64);
     ASSERT_EQ(payloads.size(), ids.size());

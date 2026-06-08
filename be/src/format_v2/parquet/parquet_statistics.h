@@ -62,6 +62,9 @@ struct ParquetPruningStats {
     int64_t selected_row_ranges = 0;
     int64_t page_index_read_calls = 0;
     int64_t bloom_filter_read_time = 0;
+    int64_t row_group_filter_time = 0;
+    int64_t page_index_filter_time = 0;
+    int64_t read_page_index_time = 0;
 };
 
 // Parquet row group column statistics 转换后的 Doris 统计视图。

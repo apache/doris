@@ -32,8 +32,9 @@ class StructColumnReader final : public ParquetColumnReader {
 public:
     StructColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
                        std::vector<std::unique_ptr<ParquetColumnReader>> children,
-                       std::vector<int> child_output_indices)
-            : ParquetColumnReader(schema, type),
+                       std::vector<int> child_output_indices,
+                       ParquetColumnReaderProfile profile = {})
+            : ParquetColumnReader(schema, type, profile),
               _children(std::move(children)),
               _child_output_indices(std::move(child_output_indices)) {
         DCHECK_EQ(_children.size(), _child_output_indices.size());

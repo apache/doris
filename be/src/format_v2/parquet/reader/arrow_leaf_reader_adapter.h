@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_type.h"
 
 namespace parquet {
@@ -45,6 +46,7 @@ struct ArrowLeafReaderContext {
     DataTypePtr type;
     std::string name;
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
+    ParquetColumnReaderProfile profile;
 
     const std::string& column_name() const { return name; }
     const DataTypePtr& data_type() const { return type; }
