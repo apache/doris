@@ -12,6 +12,12 @@
 - **G0 = design-verify Skip + 死代码 Keep/defer Batch-D**（已 DONE `0d983a1c056`）。
 - **下一新 session = 批量修复 G6 + G5 + G7**（三者独立、可并行设计；各仍独立 design doc + 独立 commit + 各自守门）。
 
+## 🆕 任务 0 — 翻闸完整性审计（2026-06-08 完成，无新 gap）
+
+> 用户 2026-06-08 新增：确认所有 maxcompute 操作走新 SPI、零 legacy 回退。= 🅱 Batch-D 删 legacy 的**静态前置门**。
+> **方法**：4 路 clean-room 并行 subagent（read/write/DDL/metadata）逐 op trace「FE 入口→SPI 实现」+「legacy 零可达」+ 主线对抗交叉核查（CatalogFactory/PluginDrivenExternalCatalog 全文、GSON 三注册、batch SPI default）。报告：[`reviews/P4-cutover-completeness-audit-2026-06-08.md`](reviews/P4-cutover-completeness-audit-2026-06-08.md)。
+> **结论：24/24 op 全 ROUTE✅，0 FALLBACK / 0 GAP / 0 新 gap**。max_compute 的 catalog/db/table 运行时恒 `PluginDrivenExternal*`，每处 legacy 分支为 `instanceof MaxCompute*` 守卫、结构性 FALSE；`GsonUtils:411/463/484` 三注册闭 replay。**静态分发面门 = PASS**，Batch-D 静态轴解锁、仍 gated on 🅰 live e2e。本结论**再确认（非信任）** 2026-06-07 domain-6「dispatch 基本干净 / legacy 死而存」裁决（Rule 8/12 不信「已修」标签、4 路独立 clean-room 重建）。审计另**扩充 legacy 删除候选**（新增 MCInsertExecutor/UnboundMaxComputeTableSink/LogicalMaxComputeTableSink+impl 规则/MaxComputeExternalDatabase/MetaCache/SchemaCacheValue/Split），均运行时死、须连同已死分支原子删除。
+
 ## 进度
 
 | # | issue (gap) | sev | 决策 | 设计 | 实现 | 守门 | review | 状态 |

@@ -176,6 +176,32 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
     }
 
+    /**
+     * Partition counts to surface on this scan node — {@code {selectedPartitionNum, totalPartitionNum}}
+     * — or {@code null} to leave the fields at their default (nothing to show). Drives the EXPLAIN
+     * {@code partition=N/M} line and SQL-block-rule enforcement (via {@code getSelectedPartitionNum()}).
+     *
+     * <p>Mirrors legacy {@code MaxComputeScanNode}'s display gate: any <em>real</em> partition selection
+     * reports {@code size/total}, whereas the {@link SelectedPartitions#NOT_PRUNED} sentinel
+     * (non-partitioned table, or one not supporting internal pruning) reports nothing.</p>
+     *
+     * <p>The gate is {@code != NOT_PRUNED}, deliberately <b>not</b> {@code isPruned}: a partitioned table
+     * queried without a partition predicate keeps the initial all-partitions selection from
+     * {@link ExternalTable#initSelectedPartitions} ({@code isPruned=false} but a full, non-{@code
+     * NOT_PRUNED} map; {@code PruneFileScanPartition} only runs under a {@code LogicalFilter}), and must
+     * still report {@code partition=total/total} (e.g. {@code SELECT *} over a 2-partition table &rarr;
+     * {@code 2/2}). An {@code isPruned} gate wrongly shows {@code 0/0}. This differs from the connector
+     * pushdown gate ({@link #resolveRequiredPartitions}, which stays {@code isPruned}): an unpruned scan
+     * must read ALL partitions, so it pushes no partition restriction.</p>
+     */
+    static long[] displayPartitionCounts(SelectedPartitions selectedPartitions) {
+        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
+            return null;
+        }
+        return new long[] {
+                selectedPartitions.selectedPartitions.size(), selectedPartitions.totalPartitionNum};
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -197,6 +223,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
                         .append("\n");
             }
+            // Partition-pruning summary (selected/total), mirroring the parent
+            // FileScanNode.getNodeExplainString()'s `partition=N/M` line. This override replaces the
+            // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
+            // line itself; the counts are populated from the Nereids pruning result in
+            // getSplits()/startSplit() (see setSelectedPartitions).
+            output.append(prefix).append("partition=").append(selectedPartitionNum)
+                    .append("/").append(totalPartitionNum).append("\n");
             // Delegate connector-specific EXPLAIN info to the SPI
             ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
             if (scanProvider != null) {
@@ -407,6 +440,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,
         // mirroring legacy MaxComputeScanNode.getSplits()'s empty-selection short-circuit.
         List<String> requiredPartitions = resolveRequiredPartitions(selectedPartitions);
+        // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
+        // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
+        // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
+        // part=<absent value>). Batch mode populates these in startSplit() instead. See
+        // displayPartitionCounts for why the gate covers the no-predicate all-partitions case.
+        long[] partitionCounts = displayPartitionCounts(selectedPartitions);
+        if (partitionCounts != null) {
+            this.selectedPartitionNum = partitionCounts[0];
+            this.totalPartitionNum = partitionCounts[1];
+        }
         if (requiredPartitions != null && requiredPartitions.isEmpty()) {
             return Collections.emptyList();
         }
@@ -523,8 +566,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     public void startSplit(int numBackends) {
-        this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-        this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+        long[] partitionCounts = displayPartitionCounts(selectedPartitions);
+        if (partitionCounts != null) {
+            this.selectedPartitionNum = partitionCounts[0];
+            this.totalPartitionNum = partitionCounts[1];
+        }
         if (selectedPartitions.selectedPartitions.isEmpty()) {
             // Unreachable under the isBatchMode gate (size >= num_partitions_in_batch_mode >= 1);
             // kept for fidelity with legacy MaxComputeScanNode.startSplit's empty short-circuit.
