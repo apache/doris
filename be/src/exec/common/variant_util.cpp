@@ -2031,10 +2031,15 @@ Status _parse_and_materialize_variant_columns(Block& block,
     for (size_t i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
-        MutableColumnPtr var_column = column_ref->assume_mutable();
+        MutableColumnPtr owner_column = std::move(*column_ref).mutate();
+        ColumnPtr nullable_null_map;
+        MutableColumnPtr var_column;
         if (is_nullable) {
-            const auto& nullable = assert_cast<const ColumnNullable&>(*column_ref);
-            var_column = nullable.get_nested_column_ptr()->assume_mutable();
+            const auto& nullable = assert_cast<const ColumnNullable&>(*owner_column);
+            nullable_null_map = nullable.get_null_map_column_ptr();
+            var_column = std::move(*nullable.get_nested_column_ptr()).mutate();
+        } else {
+            var_column = std::move(owner_column);
         }
         auto& var = assert_cast<ColumnVariant&>(*var_column);
         var_column->finalize();
@@ -2084,9 +2089,7 @@ Status _parse_and_materialize_variant_columns(Block& block,
         // Wrap variant with nullmap if it is nullable
         ColumnPtr result = variant_column->get_ptr();
         if (is_nullable) {
-            const auto& null_map =
-                    assert_cast<const ColumnNullable&>(*column_ref).get_null_map_column_ptr();
-            result = ColumnNullable::create(result, null_map);
+            result = ColumnNullable::create(result, nullable_null_map);
         }
         block.get_by_position(variant_pos[i]).column = result;
     }

@@ -85,38 +85,6 @@ static void construct_tablet_index(TabletIndexPB* tablet_index, int64_t index_id
     tablet_index->add_col_unique_id(col_unique_id);
 }
 
-static void fill_nullable_variant_block(Block* block,
-                                        std::unordered_map<int, std::string>* inserted_jsonstr,
-                                        variant_util::PathToNoneNullValues* path_with_size) {
-    MutableColumnPtr column = IColumn::mutate(block->get_by_position(0).column);
-    auto* nullable_object = assert_cast<ColumnNullable*>(column.get());
-    for (int idx = 0; idx < 10; idx++) {
-        nullable_object->insert_default(); // insert null
-        {
-            auto column_object = nullable_object->get_nested_column_ptr();
-            auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
-                                                                      inserted_jsonstr);
-            path_with_size->insert(res.begin(), res.end());
-        }
-        for (int j = 0; j < 80; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column().insert(f);
-        }
-        nullable_object->insert_many_defaults(17);
-        {
-            auto column_object = nullable_object->get_nested_column_ptr();
-            auto res = VariantUtil::fill_object_column_with_test_data(column_object, 2,
-                                                                      inserted_jsonstr);
-            path_with_size->insert(res.begin(), res.end());
-        }
-        for (int j = 0; j < 2; ++j) {
-            Field f = Field::create_field<TYPE_BOOLEAN>(UInt8(0));
-            nullable_object->get_null_map_column().insert(f);
-        }
-    }
-    block->replace_by_position(0, std::move(column));
-}
-
 struct VariantStorageParseWriteResult {
     size_t num_rows = 0;
     size_t parsed_subcolumns = 0;
@@ -267,11 +235,8 @@ protected:
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     }
 
-    void init_tablet_from_current_schema(int64_t tablet_id,
-                                         TabletStorageFormatPB storage_format =
-                                                 TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2) {
+    void init_tablet_from_current_schema(int64_t tablet_id) {
         TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-        _tablet_schema->set_storage_format(storage_format);
         tablet_meta->_tablet_id = tablet_id;
         _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
         ASSERT_TRUE(_tablet->init().ok());
@@ -516,8 +481,7 @@ protected:
             index_file_writer = std::make_unique<segment_v2::IndexFileWriter>(
                     io::global_local_filesystem(), index_path_prefix, std::string(rowset_id),
                     0 /* seg_id */, _tablet_schema->get_inverted_index_storage_format(),
-                    std::move(index_v2_file_writer), true /* can_use_ram_dir */,
-                    _tablet->tablet_id());
+                    std::move(index_v2_file_writer), true /* can_use_ram_dir */);
         }
 
         footer->Clear();
@@ -535,8 +499,7 @@ protected:
         opts.file_writer = file_writer.get();
         opts.footer = footer;
         opts.rowset_ctx = &rowset_ctx;
-        opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
-        _init_column_meta(opts.meta, 0, parent_column, opts);
+        _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
 
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer));
@@ -2369,7 +2332,6 @@ TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_write_materialized_a
     _tablet_schema->init_from_pb(schema_pb);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 33003;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     ASSERT_TRUE(_tablet->init().ok());
@@ -2393,8 +2355,7 @@ TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_write_materialized_a
     opts.file_writer = file_writer.get();
     opts.footer = &footer;
     opts.rowset_ctx = &rowset_ctx;
-    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
-    _init_column_meta(opts.meta, 0, parent_column, opts);
+    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
 
     std::unique_ptr<ColumnWriter> writer;
     ASSERT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
@@ -2899,7 +2860,6 @@ TEST_F(VariantColumnWriterReaderTest,
     _tablet_schema->append_column(extracted);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-    _tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
     tablet_meta->_tablet_id = 33006;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     ASSERT_TRUE(_tablet->init().ok());
@@ -2922,8 +2882,7 @@ TEST_F(VariantColumnWriterReaderTest,
     opts.file_writer = file_writer.get();
     opts.footer = &footer;
     opts.rowset_ctx = &rowset_ctx;
-    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
-    _init_column_meta(opts.meta, 0, parent_column, opts);
+    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
 
     std::unique_ptr<ColumnWriter> writer;
     ASSERT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
