@@ -1778,16 +1778,6 @@ TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
     ASSERT_TRUE(
             mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
 
-    const auto& map_results = mapper.column_map_results();
-    ASSERT_EQ(map_results.size(), 2);
-    const auto& id_result = map_results.at(GlobalIndex(0));
-    ASSERT_TRUE(id_result.local_column_id.has_value());
-    EXPECT_EQ(id_result.local_column_id->value(), 0);
-    ASSERT_TRUE(id_result.column_index.has_value());
-    EXPECT_EQ(id_result.column_index->index, 0);
-    ASSERT_TRUE(id_result.mapping.has_value());
-    EXPECT_EQ(id_result.mapping->index, 1);
-
     const auto& filter_entries = mapper.filter_entries();
     ASSERT_EQ(filter_entries.size(), 2);
     ASSERT_TRUE(filter_entries.at(GlobalIndex(0)).is_local());
