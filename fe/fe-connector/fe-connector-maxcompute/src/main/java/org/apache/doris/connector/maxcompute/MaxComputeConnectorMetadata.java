@@ -65,6 +65,10 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
 
     private static final long MAX_LIFECYCLE_DAYS = 37231;
     private static final int MAX_BUCKET_NUM = 1024;
+    // Must stay byte-identical to the key ConnectorSessionBuilder.extractSessionProperties injects
+    // (GC1 / FIX-BLOCKID-CAP-CONFIG); = the legacy fe-core Config field name, surfaced via session
+    // properties because the connector cannot import fe-core Config.
+    private static final String MAX_COMPUTE_WRITE_MAX_BLOCK_COUNT = "max_compute_write_max_block_count";
 
     private final Odps odps;
     private final McStructureHelper structureHelper;
@@ -355,7 +359,28 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {
-        return new MaxComputeConnectorTransaction(session.allocateTransactionId());
+        long maxBlockCount = resolveMaxBlockCount(session.getSessionProperties());
+        return new MaxComputeConnectorTransaction(session.allocateTransactionId(), maxBlockCount);
+    }
+
+    /**
+     * Resolves the write block-id cap from the session properties, into which fe-core's
+     * {@code ConnectorSessionBuilder} surfaces the (tunable)
+     * {@code Config.max_compute_write_max_block_count} (the connector cannot import fe-core
+     * {@code Config}). Falls back to the legacy default when the value is absent or unparseable,
+     * so any path without the injected value keeps the current behavior. Package-private +
+     * map-typed for direct unit testing without a live session.
+     */
+    static long resolveMaxBlockCount(Map<String, String> sessionProperties) {
+        String value = sessionProperties.get(MAX_COMPUTE_WRITE_MAX_BLOCK_COUNT);
+        if (value == null) {
+            return MaxComputeConnectorTransaction.DEFAULT_MAX_BLOCK_COUNT;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return MaxComputeConnectorTransaction.DEFAULT_MAX_BLOCK_COUNT;
+        }
     }
 
     // ==================== DDL: Create/Drop Table ====================

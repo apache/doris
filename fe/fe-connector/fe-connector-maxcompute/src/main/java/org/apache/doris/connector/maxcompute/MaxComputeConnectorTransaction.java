@@ -64,14 +64,18 @@ public class MaxComputeConnectorTransaction implements ConnectorTransaction {
             MaxComputeConnectorTransaction.class);
 
     /**
-     * Upper bound on allocatable block ids. Mirrors the legacy
-     * {@code Config.max_compute_write_max_block_count} default (20000); the
-     * connector cannot import fe-core {@code Config}, so the cap is a constant
-     * here (see P4-T03 design / deviations-log).
+     * Legacy default of {@code Config.max_compute_write_max_block_count} (20000); used as the
+     * fallback when the session does not carry the (tunable) value. The connector cannot import
+     * fe-core {@code Config}, so the live value is threaded in through the constructor — resolved
+     * from {@link org.apache.doris.connector.api.ConnectorSession#getSessionProperties()} by
+     * {@code MaxComputeConnectorMetadata.resolveMaxBlockCount} (GC1 / FIX-BLOCKID-CAP-CONFIG,
+     * restoring legacy fe.conf tunability and superseding the hardcoded cap in DV-011).
      */
-    private static final long MAX_BLOCK_COUNT = 20000L;
+    static final long DEFAULT_MAX_BLOCK_COUNT = 20000L;
 
     private final long transactionId;
+    /** Upper bound on allocatable block ids; = Config.max_compute_write_max_block_count (per session). */
+    private final long maxBlockCount;
     private final List<TMCCommitData> commitDataList = new ArrayList<>();
     private final AtomicLong nextBlockId = new AtomicLong(0);
 
@@ -80,8 +84,9 @@ public class MaxComputeConnectorTransaction implements ConnectorTransaction {
     private volatile TableIdentifier tableIdentifier;
     private volatile EnvironmentSettings settings;
 
-    public MaxComputeConnectorTransaction(long transactionId) {
+    public MaxComputeConnectorTransaction(long transactionId, long maxBlockCount) {
         this.transactionId = transactionId;
+        this.maxBlockCount = maxBlockCount;
     }
 
     /**
@@ -143,9 +148,9 @@ public class MaxComputeConnectorTransaction implements ConnectorTransaction {
         do {
             start = nextBlockId.get();
             endExclusive = start + count;
-            if (endExclusive > MAX_BLOCK_COUNT) {
+            if (endExclusive > maxBlockCount) {
                 throw new DorisConnectorException("MaxCompute block_id exceeds limit, start="
-                        + start + ", length=" + count + ", maxBlockCount=" + MAX_BLOCK_COUNT);
+                        + start + ", length=" + count + ", maxBlockCount=" + maxBlockCount);
             }
         } while (!nextBlockId.compareAndSet(start, endExclusive));
 
