@@ -85,6 +85,9 @@ Status execute_batch_filters(const format::FileScanRequest& request, int64_t bat
 class ParquetScanScheduler {
 public:
     void set_plan(RowGroupScanPlan plan);
+    void set_page_skip_profile(ParquetPageSkipProfile page_skip_profile) {
+        _page_skip_profile = page_skip_profile;
+    }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
 
@@ -120,6 +123,7 @@ private:
     std::vector<RowRange> _current_selected_ranges;
     size_t _current_range_idx = 0;
     int64_t _current_range_rows_read = 0;
+    ParquetPageSkipProfile _page_skip_profile;
 };
 
 } // namespace doris::parquet

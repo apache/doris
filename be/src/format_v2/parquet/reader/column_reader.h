@@ -28,6 +28,7 @@
 #include "format_v2/parquet/parquet_type.h"
 #include "format_v2/parquet/selection_vector.h"
 #include "format_v2/column_data.h"
+#include "runtime/runtime_profile.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -43,6 +44,11 @@ class IColumn;
 
 namespace parquet {
 struct ParquetColumnSchema;
+
+struct ParquetPageSkipProfile {
+    RuntimeProfile::Counter* skipped_pages = nullptr;
+    RuntimeProfile::Counter* skipped_bytes = nullptr;
+};
 
 // Doris 的 Parquet column reader 抽象。
 // 该类包装 Arrow Parquet RecordReader，负责将 file-local Parquet leaf column 读取成
@@ -97,7 +103,8 @@ class ParquetColumnReaderFactory {
 public:
     ParquetColumnReaderFactory(std::shared_ptr<::parquet::RowGroupReader> row_group,
                                int num_leaf_columns,
-                               const std::map<int, ParquetPageSkipPlan>* page_skip_plans = nullptr);
+                               const std::map<int, ParquetPageSkipPlan>* page_skip_plans = nullptr,
+                               ParquetPageSkipProfile page_skip_profile = {});
 
     static constexpr int ROW_POSITION_COLUMN_ID = -10001;
     static constexpr const char* ROW_POSITION_COLUMN_NAME = "__parquet_row_position";
@@ -148,6 +155,7 @@ private:
     std::shared_ptr<::parquet::RowGroupReader> _row_group;
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>> _record_readers;
     const std::map<int, ParquetPageSkipPlan>* _page_skip_plans = nullptr;
+    ParquetPageSkipProfile _page_skip_profile;
 };
 
 } // namespace parquet

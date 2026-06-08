@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "common/check.h"
 #include "common/status.h"
 
 namespace doris::parquet {
@@ -33,12 +34,18 @@ struct RowRange {
 struct ParquetPageSkipPlan {
     int leaf_column_id = -1;
     std::vector<uint8_t> skipped_pages;
+    std::vector<int64_t> skipped_page_compressed_sizes;
     std::vector<RowRange> skipped_ranges;
 
     bool empty() const { return skipped_ranges.empty(); }
 
     bool should_skip_page(size_t page_idx) const {
         return page_idx < skipped_pages.size() && skipped_pages[page_idx] != 0;
+    }
+
+    int64_t skipped_page_compressed_size(size_t page_idx) const {
+        DCHECK_LT(page_idx, skipped_page_compressed_sizes.size());
+        return skipped_page_compressed_sizes[page_idx];
     }
 };
 

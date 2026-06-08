@@ -576,6 +576,15 @@ Block build_file_block_with_row_position(const std::vector<format::ColumnDefinit
     return block;
 }
 
+void use_schema_order_positions(format::FileScanRequest* request,
+                                const std::vector<format::ColumnDefinition>& schema) {
+    DORIS_CHECK(request != nullptr);
+    for (size_t idx = 0; idx < schema.size(); ++idx) {
+        request->local_positions.emplace(format::LocalColumnId(schema[idx].local_id),
+                                         format::LocalIndex(idx));
+    }
+}
+
 int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
     return column_metadata.has_dictionary_page()
                    ? static_cast<int64_t>(column_metadata.dictionary_page_offset())
@@ -1372,7 +1381,8 @@ protected:
     void TearDown() override { std::filesystem::remove_all(_test_dir); }
 
     std::unique_ptr<parquet::ParquetReader> create_reader(int64_t range_start_offset = 0,
-                                                          int64_t range_size = -1) const {
+                                                          int64_t range_size = -1,
+                                                          RuntimeProfile* profile = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1381,7 +1391,7 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         return std::make_unique<parquet::ParquetReader>(system_properties, file_description,
-                                                        nullptr, nullptr);
+                                                        nullptr, profile);
     }
 
     std::filesystem::path _test_dir;
@@ -1750,6 +1760,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"lm"}));
+    use_schema_order_positions(request.get(), schema);
     format::FileColumnPredicateFilter column_filter;
     column_filter.file_column_id = format::LocalColumnId(1);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
@@ -1901,6 +1912,15 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
     EXPECT_EQ(skip_plan_it->second.leaf_column_id, 0);
     EXPECT_GT(skip_plan_it->second.skipped_ranges.size(), 0);
     EXPECT_GT(skip_plan_it->second.skipped_pages.size(), 1);
+    ASSERT_EQ(skip_plan_it->second.skipped_pages.size(),
+              skip_plan_it->second.skipped_page_compressed_sizes.size());
+    int64_t skipped_compressed_bytes = 0;
+    for (size_t page_idx = 0; page_idx < skip_plan_it->second.skipped_pages.size(); ++page_idx) {
+        if (skip_plan_it->second.should_skip_page(page_idx)) {
+            skipped_compressed_bytes += skip_plan_it->second.skipped_page_compressed_size(page_idx);
+        }
+    }
+    EXPECT_GT(skipped_compressed_bytes, 0);
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
@@ -1952,6 +1972,15 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
     EXPECT_EQ(skip_plan_it->second.leaf_column_id, 0);
     EXPECT_GT(skip_plan_it->second.skipped_ranges.size(), 0);
     EXPECT_GT(skip_plan_it->second.skipped_pages.size(), 1);
+    ASSERT_EQ(skip_plan_it->second.skipped_pages.size(),
+              skip_plan_it->second.skipped_page_compressed_sizes.size());
+    int64_t skipped_compressed_bytes = 0;
+    for (size_t page_idx = 0; page_idx < skip_plan_it->second.skipped_pages.size(); ++page_idx) {
+        if (skip_plan_it->second.should_skip_page(page_idx)) {
+            skipped_compressed_bytes += skip_plan_it->second.skipped_page_compressed_size(page_idx);
+        }
+    }
+    EXPECT_GT(skipped_compressed_bytes, 0);
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
@@ -1961,21 +1990,22 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
 
 TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns) {
     write_page_index_filter_pair_parquet_file(_file_path);
-    auto reader = create_reader();
+    RuntimeProfile profile("new_parquet_reader_page_skip");
+    auto reader = create_reader(0, -1, &profile);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<reader::ColumnDefinition> schema;
+    std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 2);
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_unique<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 63));
-    reader::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = reader::LocalColumnId(0);
+    format::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = format::LocalColumnId(0);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", schema[0].type, Field::create_field<TYPE_INT>(63), false));
     request->column_predicate_filters.push_back(std::move(column_filter));
@@ -1999,6 +2029,11 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
         }
     }
 
+    ASSERT_NE(profile.get_counter("PagesSkippedByFilter"), nullptr);
+    ASSERT_NE(profile.get_counter("PageSkipBytes"), nullptr);
+    EXPECT_GT(profile.get_counter("PagesSkippedByFilter")->value(), 0);
+    EXPECT_GT(profile.get_counter("PageSkipBytes")->value(), 0);
+
     ASSERT_EQ(ids.size(), 64);
     ASSERT_EQ(payloads.size(), ids.size());
     for (size_t row = 0; row < ids.size(); ++row) {
@@ -2019,6 +2054,7 @@ TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"az", "za"}));
+    use_schema_order_positions(request.get(), schema);
     auto set = build_set<TYPE_STRING>();
     set->insert(const_cast<char*>("az"), 2);
     set->insert(const_cast<char*>("za"), 2);
@@ -2072,6 +2108,7 @@ TEST_F(NewParquetReaderTest, DictionaryPageV2StringEdgesSurviveSelection) {
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"", "same"}));
+    use_schema_order_positions(request.get(), schema);
     auto set = build_set<TYPE_STRING>();
     set->insert(const_cast<char*>(""), 0);
     set->insert(const_cast<char*>("same"), 4);

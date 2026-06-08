@@ -1134,12 +1134,16 @@ bool build_page_skip_plan_for_leaf(
     const auto page_count = offset_index->page_locations().size();
     page_skip_plan->leaf_column_id = column_schema.leaf_column_id;
     page_skip_plan->skipped_pages.resize(page_count);
+    page_skip_plan->skipped_page_compressed_sizes.resize(page_count);
+    const auto& page_locations = offset_index->page_locations();
     for (size_t page_idx = 0; page_idx < page_count; ++page_idx) {
         const RowRange row_range = page_row_range(*offset_index, page_idx, row_group_rows);
         if (row_range.length == 0 || ranges_intersect(selected_ranges, row_range)) {
             continue;
         }
         page_skip_plan->skipped_pages[page_idx] = 1;
+        page_skip_plan->skipped_page_compressed_sizes[page_idx] =
+                page_locations[page_idx].compressed_page_size;
         append_row_range(row_range, &page_skip_plan->skipped_ranges);
     }
     if (page_skip_plan->empty()) {

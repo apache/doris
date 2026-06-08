@@ -8,7 +8,7 @@
 |---|---|
 | Row group | `RowGroupsTotalNum`、`RowGroupsReadNum`、`RowGroupsFiltered`、`RowGroupsFilteredByMinMax`、`RowGroupsFilteredByDictionary`、`RowGroupsFilteredByBloomFilter` |
 | Row/page | `FilteredRowsByGroup`、`FilteredRowsByPage`、`FilteredRowsByLazyRead`、`SelectedRowRanges` |
-| I/O | `PageIndexReadCalls`、`PageIndexReadTime`、`PageIndexParseTime`、`FileFooterReadCalls`、`FileFooterHitCache` |
+| I/O | `PageIndexReadCalls`、`PageIndexReadTime`、`PageIndexParseTime`、`FileFooterReadCalls`、`FileFooterHitCache`、`PagesSkippedByFilter`、`PageSkipBytes` |
 | Decode | `ColumnReadTime`、`DecompressTime`、`DecompressCount`、`DecodeValueTime`、`DecodeDictTime`、`DecodeLevelTime`、`DecodeNullMapTime`、`PageHeaderDecodeTime`、`PageHeaderReadTime` |
 | Cache | `PageReadCount`、`PageCacheHitCount`、`PageCacheMissingCount`、`PageCacheWriteCount`、`PageCacheCompressedHitCount`、`PageCacheDecompressedHitCount`、`PageCacheCompressedWriteCount`、`PageCacheDecompressedWriteCount` |
 | Filter | `PredicateFilterTime`、`DictFilterRewriteTime`、`BloomFilterReadTime` |
@@ -64,12 +64,16 @@ COUNTER_UPDATE(_profile.total_batches, 1);
 
 当前 `ColumnReadTime` 是一个聚合指标，无法区分 ReadRecords 内部开销。需要在 `read_leaf_records()` 和 `append_leaf_values()` 前后加 SCOPED_TIMER。
 
-### 5. Page-level Skip（P4 完成后）
+### 5. Page-level Skip
 
 | 指标 | 说明 | 用途 |
 |---|---|---|
 | `PagesSkippedByFilter` | data_page_filter 跳过的 page 数 | 验证 page-level skip 实际命中率 |
-| `PageSkipBytes` | 跳过的 compressed bytes 累计 | page-level skip 节省的 I/O 量 |
+| `PageSkipBytes` | 跳过的 compressed bytes 累计，来自 OffsetIndex 的 `compressed_page_size` | page-level skip 节省的 I/O/解压量 |
+
+实现位置：`reader/column_reader.cpp` 的 `PageReader::set_data_page_filter()` callback。
+`PagesSkippedByFilter` 只在 callback 实际返回 skip 时更新；`PageSkipBytes` 按同一个 page
+ordinal 从 `ParquetPageSkipPlan` 读取 OffsetIndex 记录的 compressed size。
 
 ## 实施步骤
 

@@ -42,6 +42,7 @@
 #include "format_v2/parquet/reader/scalar_column_reader.h"
 #include "format_v2/parquet/reader/struct_column_reader.h"
 #include "format_v2/file_reader.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::parquet {
 namespace {
@@ -110,10 +111,12 @@ Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected
 
 ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns,
-        const std::map<int, ParquetPageSkipPlan>* page_skip_plans)
+        const std::map<int, ParquetPageSkipPlan>* page_skip_plans,
+        ParquetPageSkipProfile page_skip_profile)
         : _row_group(std::move(row_group)),
           _record_readers(static_cast<size_t>(num_leaf_columns)),
-          _page_skip_plans(page_skip_plans) {}
+          _page_skip_plans(page_skip_plans),
+          _page_skip_profile(page_skip_profile) {}
 
 format::ColumnDefinition ParquetColumnReaderFactory::row_position_column_definition() {
     format::ColumnDefinition field;
@@ -232,9 +235,19 @@ Status ParquetColumnReaderFactory::get_record_reader(
                 if (plan_it != _page_skip_plans->end()) {
                     const ParquetPageSkipPlan* page_skip_plan = &plan_it->second;
                     page_reader->set_data_page_filter(
-                            [page_skip_plan,
+                            [page_skip_plan, page_skip_profile = _page_skip_profile,
                              page_idx = size_t {0}](const ::parquet::DataPageStats&) mutable {
                                 const bool skip = page_skip_plan->should_skip_page(page_idx);
+                                if (skip) {
+                                    if (page_skip_profile.skipped_pages != nullptr) {
+                                        COUNTER_UPDATE(page_skip_profile.skipped_pages, 1);
+                                    }
+                                    if (page_skip_profile.skipped_bytes != nullptr) {
+                                        COUNTER_UPDATE(page_skip_profile.skipped_bytes,
+                                                       page_skip_plan->skipped_page_compressed_size(
+                                                               page_idx));
+                                    }
+                                }
                                 ++page_idx;
                                 return skip;
                             });

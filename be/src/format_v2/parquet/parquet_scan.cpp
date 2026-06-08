@@ -283,9 +283,9 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
 
-    ParquetColumnReaderFactory column_reader_factory(_current_row_group,
-                                                     file_context.schema->num_columns(),
-                                                     &row_group_plan.page_skip_plans);
+    ParquetColumnReaderFactory column_reader_factory(
+            _current_row_group, file_context.schema->num_columns(), &row_group_plan.page_skip_plans,
+            _page_skip_profile);
     for (const auto& col : request.predicate_columns) {
         const auto local_id = col.field_id();
         if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {

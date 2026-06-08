@@ -214,6 +214,9 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
                        pruning_stats.bloom_filter_read_time);
     }
     _state->scan_plan = row_group_plan;
+    _state->scheduler.set_page_skip_profile(
+            {.skipped_pages = _parquet_profile.pages_skipped_by_filter,
+             .skipped_bytes = _parquet_profile.page_skip_bytes});
     _state->scheduler.set_plan(std::move(row_group_plan));
     _eof = _state->scheduler.empty();
     return Status::OK();
@@ -342,6 +345,10 @@ void ParquetReader::_init_profile() {
                 _profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredRowsByPage", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.pages_skipped_by_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PagesSkippedByFilter", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageSkipBytes", TUnit::BYTES, parquet_profile, 1);
         _parquet_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredRowsByLazyRead", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(

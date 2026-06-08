@@ -78,6 +78,8 @@ private:
         RuntimeProfile::Counter* selected_row_ranges = nullptr;
         RuntimeProfile::Counter* filtered_group_rows = nullptr;
         RuntimeProfile::Counter* filtered_page_rows = nullptr;
+        RuntimeProfile::Counter* pages_skipped_by_filter = nullptr;
+        RuntimeProfile::Counter* page_skip_bytes = nullptr;
         RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* filtered_bytes = nullptr;
         RuntimeProfile::Counter* raw_rows_read = nullptr;
