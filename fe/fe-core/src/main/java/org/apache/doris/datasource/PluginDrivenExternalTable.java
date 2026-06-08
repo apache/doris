@@ -228,12 +228,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     @Override
     public boolean supportInternalPartitionPruned() {
-        // Gated on partition columns rather than an unconditional `true` (as MaxComputeExternalTable
-        // does): this override is SHARED by jdbc/es/trino/max_compute, so returning true for a
-        // non-partitioned connector would flip its behavior away from the inherited default. For a
-        // partitioned table this restores internal pruning; for a non-partitioned one it is
-        // observably equivalent to true (initSelectedPartitions returns NOT_PRUNED either way).
-        return !getPartitionColumns().isEmpty();
+        // Unconditional true, mirroring legacy MaxComputeExternalTable (and IcebergExternalTable).
+        // This override is shared by every SPI-driven connector (jdbc/es/trino/max_compute via
+        // CatalogFactory.SPI_READY_TYPES) and true is correct for all of them, partitioned or not:
+        //   - partitioned     -> PruneFileScanPartition prunes to the surviving partitions;
+        //   - non-partitioned -> PruneFileScanPartition takes its IF branch and pruneExternalPartitions
+        //                        returns NOT_PRUNED for empty partition columns, so the scan reads all.
+        // It must NOT be gated on `!getPartitionColumns().isEmpty()`: returning false for a
+        // non-partitioned table sends PruneFileScanPartition down its ELSE branch, which overwrites the
+        // selection with SelectedPartitions(0, {}, isPruned=true). PluginDrivenScanNode.getSplits() then
+        // reads that as "pruned to zero partitions" and short-circuits to no splits, so a filtered query
+        // over a non-partitioned table silently returns zero rows (data loss). See FIX-NONPART-PRUNE-DATALOSS.
+        return true;
     }
 
     @Override

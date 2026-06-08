@@ -92,6 +92,13 @@ public class PluginDrivenScanNodePartitionPruningTest {
     public void testPrunedToZeroReturnsEmptyNonNullForShortCircuit() {
         // Pruned to zero partitions -> non-null empty list, distinct from the null "scan all"
         // case, so getSplits() can short-circuit and read nothing.
+        // NOTE (FIX-NONPART-PRUNE-DATALOSS): this isPruned=true+empty state is correct ONLY when it
+        // comes from a genuinely PARTITIONED table whose predicates pruned away every partition
+        // (e.g. WHERE pt='nonexistent'). A NON-partitioned table must never reach this state, or the
+        // short-circuit silently drops all rows; PluginDrivenExternalTable.supportInternalPartitionPruned()
+        // returns unconditional true precisely so PruneFileScanPartition leaves non-partitioned tables
+        // NOT_PRUNED (see PluginDrivenExternalTablePartitionTest
+        // #testNonPartitionedTableReportsNoPartitionsButStillOptsIntoPruning).
         SelectedPartitions emptyPruned = new SelectedPartitions(5, Collections.emptyMap(), true);
 
         List<String> result = PluginDrivenScanNode.resolveRequiredPartitions(emptyPruned);

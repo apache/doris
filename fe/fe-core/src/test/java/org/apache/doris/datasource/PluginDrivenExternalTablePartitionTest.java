@@ -57,8 +57,10 @@ import java.util.Optional;
  * full scan. The tests lock: (1) partition columns sourced from the cached
  * {@code partition_columns} property; (2) {@code getNameToPartitionItems} addressing the
  * connector's raw-keyed partition values by the RAW remote column names (not the mapped
- * local names); (3) {@code supportInternalPartitionPruned} gated on partition columns so the
- * shared jdbc/es/trino path is not affected.</p>
+ * local names); (3) {@code supportInternalPartitionPruned} returning unconditional true (mirroring
+ * legacy MaxComputeExternalTable) for BOTH partitioned and non-partitioned tables — gating it on
+ * partition columns silently dropped all rows of filtered non-partitioned scans
+ * (FIX-NONPART-PRUNE-DATALOSS).</p>
  */
 public class PluginDrivenExternalTablePartitionTest {
 
@@ -84,7 +86,7 @@ public class PluginDrivenExternalTablePartitionTest {
     }
 
     @Test
-    public void testNonPartitionedTableReportsNoPartitionsAndNoPruning() {
+    public void testNonPartitionedTableReportsNoPartitionsButStillOptsIntoPruning() {
         List<Column> schema = Collections.singletonList(new Column("val", PrimitiveType.INT));
         PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
                 schema, Collections.emptyList(), Collections.emptyList());
@@ -92,11 +94,17 @@ public class PluginDrivenExternalTablePartitionTest {
 
         Assertions.assertFalse(table.isPartitionedTable());
         Assertions.assertTrue(table.getPartitionColumns().isEmpty());
-        // WHY: supportInternalPartitionPruned is gated on partition columns (NOT unconditional true
-        // like MaxComputeExternalTable), so the shared jdbc/es/trino non-partitioned path keeps the
-        // inherited false. A mutation returning unconditional true makes this assertion red.
-        Assertions.assertFalse(table.supportInternalPartitionPruned(),
-                "a non-partitioned table must NOT opt into internal partition pruning");
+        // WHY (FIX-NONPART-PRUNE-DATALOSS): supportInternalPartitionPruned MUST be unconditional true,
+        // even for a NON-partitioned table (mirrors legacy MaxComputeExternalTable). A previous version
+        // gated it on partition columns -> returned false here, which sent PruneFileScanPartition down
+        // its ELSE branch (selection := SelectedPartitions(0, {}, isPruned=true)); PluginDrivenScanNode
+        // then read that as "pruned to zero" and short-circuited to no splits, so a filtered query over
+        // a non-partitioned table silently returned ZERO ROWS. With true, the rule's IF branch /
+        // pruneExternalPartitions returns NOT_PRUNED for empty partition columns -> scan all. A mutation
+        // reverting to `!getPartitionColumns().isEmpty()` (false here) makes this assertion red.
+        Assertions.assertTrue(table.supportInternalPartitionPruned(),
+                "a non-partitioned table must STILL opt into internal partition pruning, or filtered "
+                        + "queries silently return zero rows (FIX-NONPART-PRUNE-DATALOSS)");
     }
 
     // ==================== getNameToPartitionItems (raw remote-name addressing) ====================
