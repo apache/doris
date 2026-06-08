@@ -973,6 +973,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
     public static final String IVF_NPROBE = "ivf_nprobe";
+    public static final String ANN_INDEX_TOPN_CANDIDATE_ROWS_THRESHOLD =
+            "ann_index_topn_candidate_rows_threshold";
+    public static final String ANN_INDEX_TOPN_CANDIDATE_ROWS_PERCENT_THRESHOLD =
+            "ann_index_topn_candidate_rows_percent_threshold";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
@@ -3584,6 +3588,38 @@ public class SessionVariable implements Serializable, Writable {
                     "IVF index nprobe parameter, controls the number of clusters to search"})
     public int ivfNprobe = 32;
 
+    @VarAttrDef.VarAttr(name = ANN_INDEX_TOPN_CANDIDATE_ROWS_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexTopNCandidateRowsThreshold",
+            description = {"Skip ANN index for TopN when candidate rows before ANN search are less "
+                    + "than this threshold. 0 disables the absolute row threshold",
+                    "Skip ANN index for TopN when candidate rows before ANN search are less "
+                            + "than this threshold. 0 disables the absolute row threshold"})
+    public long annIndexTopNCandidateRowsThreshold = 0;
+
+    @VarAttrDef.VarAttr(name = ANN_INDEX_TOPN_CANDIDATE_ROWS_PERCENT_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexTopNCandidateRowsPercentThreshold",
+            description = {"Skip ANN index for TopN when candidate row ratio before ANN search is less "
+                    + "than this threshold",
+                    "Skip ANN index for TopN when candidate row ratio before ANN search is less "
+                            + "than this threshold"})
+    public double annIndexTopNCandidateRowsPercentThreshold = 0.3;
+
+    public void checkAnnIndexTopNCandidateRowsThreshold(String value) {
+        long threshold = Long.parseLong(value);
+        if (threshold < 0) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_TOPN_CANDIDATE_ROWS_THRESHOLD + " should be greater than or equal to 0");
+        }
+    }
+
+    public void checkAnnIndexTopNCandidateRowsPercentThreshold(String value) {
+        double threshold = Double.parseDouble(value);
+        if (threshold < 0 || threshold > 1) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_TOPN_CANDIDATE_ROWS_PERCENT_THRESHOLD + " should be between 0 and 1");
+        }
+    }
+
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -5623,6 +5659,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setIvfNprobe(ivfNprobe);
+        tResult.setAnnIndexTopnCandidateRowsThreshold(annIndexTopNCandidateRowsThreshold);
+        tResult.setAnnIndexTopnCandidateRowsPercentThreshold(annIndexTopNCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {

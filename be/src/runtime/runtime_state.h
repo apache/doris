@@ -843,6 +843,14 @@ public:
         params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
         params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
         params.ivf_nprobe = _query_options.ivf_nprobe;
+        params.ann_index_topn_candidate_rows_threshold =
+                _query_options.__isset.ann_index_topn_candidate_rows_threshold
+                        ? _query_options.ann_index_topn_candidate_rows_threshold
+                        : 0;
+        params.ann_index_topn_candidate_rows_percent_threshold =
+                _query_options.__isset.ann_index_topn_candidate_rows_percent_threshold
+                        ? _query_options.ann_index_topn_candidate_rows_percent_threshold
+                        : 0.3;
         return params;
     }
 

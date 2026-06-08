@@ -268,6 +268,8 @@ private:
     RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
 
     RuntimeProfile::Counter* _ann_fallback_brute_force_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_topn_fallback_by_small_candidate_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_topn_fallback_small_candidate_rows = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

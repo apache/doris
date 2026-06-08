@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_index_writer.h"
@@ -119,6 +120,9 @@ TEST_F(VectorSearchTest, TestVectorSearchUserParamsDefaultValues) {
     EXPECT_EQ(params.hnsw_ef_search, 32);
     EXPECT_EQ(params.hnsw_check_relative_distance, true);
     EXPECT_EQ(params.hnsw_bounded_queue, true);
+    EXPECT_EQ(params.ivf_nprobe, 32);
+    EXPECT_EQ(params.ann_index_topn_candidate_rows_threshold, 0);
+    EXPECT_EQ(params.ann_index_topn_candidate_rows_percent_threshold, 0.3);
 }
 
 TEST_F(VectorSearchTest, TestVectorSearchUserParamsEquality) {
@@ -137,6 +141,33 @@ TEST_F(VectorSearchTest, TestVectorSearchUserParamsEquality) {
     // Test inequality
     params2.hnsw_ef_search = 50;
     EXPECT_NE(params1, params2);
+
+    params2.hnsw_ef_search = 100;
+    params2.ann_index_topn_candidate_rows_threshold = 10;
+    EXPECT_NE(params1, params2);
+
+    params2.ann_index_topn_candidate_rows_threshold = 0;
+    params2.ann_index_topn_candidate_rows_percent_threshold = 0.1;
+    EXPECT_NE(params1, params2);
+}
+
+TEST_F(VectorSearchTest, TestRuntimeStateVectorSearchUserParams) {
+    TQueryOptions query_options;
+    query_options.__set_hnsw_ef_search(64);
+    query_options.__set_hnsw_check_relative_distance(false);
+    query_options.__set_hnsw_bounded_queue(false);
+    query_options.__set_ivf_nprobe(8);
+    query_options.__set_ann_index_topn_candidate_rows_threshold(100);
+    query_options.__set_ann_index_topn_candidate_rows_percent_threshold(0.2);
+
+    RuntimeState state(query_options, TQueryGlobals());
+    auto params = state.get_vector_search_params();
+    EXPECT_EQ(params.hnsw_ef_search, 64);
+    EXPECT_EQ(params.hnsw_check_relative_distance, false);
+    EXPECT_EQ(params.hnsw_bounded_queue, false);
+    EXPECT_EQ(params.ivf_nprobe, 8);
+    EXPECT_EQ(params.ann_index_topn_candidate_rows_threshold, 100);
+    EXPECT_EQ(params.ann_index_topn_candidate_rows_percent_threshold, 0.2);
 }
 
 TEST_F(VectorSearchTest, TestIndexSearchResultInitialization) {

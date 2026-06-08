@@ -991,6 +991,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.ann_index_topn_result_process_ns);
 
     COUNTER_UPDATE(local_state->_ann_fallback_brute_force_cnt, stats.ann_fall_back_brute_force_cnt);
+    COUNTER_UPDATE(local_state->_ann_topn_fallback_by_small_candidate_cnt,
+                   stats.ann_topn_fallback_by_small_candidate_cnt);
+    COUNTER_UPDATE(local_state->_ann_topn_fallback_small_candidate_rows,
+                   stats.ann_topn_fallback_small_candidate_rows);
 
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }

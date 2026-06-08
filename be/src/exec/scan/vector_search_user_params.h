@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace doris {
@@ -26,6 +27,8 @@ struct VectorSearchUserParams {
     bool hnsw_check_relative_distance = true;
     bool hnsw_bounded_queue = true;
     int ivf_nprobe = 32;
+    int64_t ann_index_topn_candidate_rows_threshold = 0;
+    double ann_index_topn_candidate_rows_percent_threshold = 0.3;
 
     bool operator==(const VectorSearchUserParams& other) const;
 

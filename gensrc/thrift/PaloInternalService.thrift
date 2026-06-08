@@ -493,6 +493,11 @@ struct TQueryOptions {
   219: optional bool enable_segment_limit_pushdown = true
 
   220: optional bool enable_ann_index_result_cache = true
+  // ANN TopN falls back to exact vector distance evaluation when candidate rows
+  // before ANN search are less than this value. 0 disables the absolute threshold.
+  221: optional i64 ann_index_topn_candidate_rows_threshold = 0
+  // Candidate row ratio threshold against segment rows. Existing default is 0.3.
+  222: optional double ann_index_topn_candidate_rows_percent_threshold = 0.3
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

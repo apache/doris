@@ -1056,15 +1056,28 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 
     size_t pre_size = _row_bitmap.cardinality();
     size_t rows_of_segment = _segment->num_rows();
-    if (static_cast<double>(pre_size) < static_cast<double>(rows_of_segment) * 0.3) {
+    DORIS_CHECK(_opts.runtime_state != nullptr);
+    const auto user_params = _opts.runtime_state->get_vector_search_params();
+    bool reach_absolute_threshold =
+            user_params.ann_index_topn_candidate_rows_threshold > 0 &&
+            pre_size < static_cast<size_t>(user_params.ann_index_topn_candidate_rows_threshold);
+    bool reach_percent_threshold =
+            user_params.ann_index_topn_candidate_rows_percent_threshold > 0 &&
+            static_cast<double>(pre_size) <
+                    static_cast<double>(rows_of_segment) *
+                            user_params.ann_index_topn_candidate_rows_percent_threshold;
+    if (reach_absolute_threshold || reach_percent_threshold) {
         VLOG_DEBUG << fmt::format(
-                "Ann topn predicate input rows {} < 30% of segment rows {}, will not use ann index "
-                "to "
-                "filter",
-                pre_size, rows_of_segment);
+                "Ann topn predicate input rows {} reach small candidate threshold, "
+                "rows_of_segment: {}, absolute_threshold: {}, percent_threshold: {}, "
+                "will not use ann index to filter",
+                pre_size, rows_of_segment, user_params.ann_index_topn_candidate_rows_threshold,
+                user_params.ann_index_topn_candidate_rows_percent_threshold);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
         _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        _opts.stats->ann_topn_fallback_by_small_candidate_cnt += 1;
+        _opts.stats->ann_topn_fallback_small_candidate_rows += pre_size;
         return Status::OK();
     }
     IColumn::MutablePtr result_column;
