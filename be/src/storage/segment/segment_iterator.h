@@ -275,10 +275,8 @@ private:
     bool _can_evaluated_by_vectorized(std::shared_ptr<ColumnPredicate> predicate);
 
     void _init_schema_block_id_map();
-    [[nodiscard]] Status _init_project_schema();
-    [[nodiscard]] Status _build_project_block(Block* block, Block* project_block,
-                                              Block** project_block_or_origin);
-    void _sync_project_block_column(Block* project_block, ColumnId cid, const ColumnPtr& column);
+    void _init_project_schema();
+    Block* _build_project_block(Block* block, Block* project_block);
     [[nodiscard]] Status _extract_common_expr_columns(const VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               Block* block);

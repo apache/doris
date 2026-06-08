@@ -412,7 +412,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _vir_cid_to_idx_in_block = _opts.vir_cid_to_idx_in_block;
     _score_runtime = _opts.score_runtime;
     _ann_topn_runtime = _opts.ann_topn_runtime;
-    RETURN_IF_ERROR(_init_project_schema());
+    _init_project_schema();
 
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
@@ -478,7 +478,7 @@ void SegmentIterator::_init_schema_block_id_map() {
     }
 }
 
-Status SegmentIterator::_init_project_schema() {
+void SegmentIterator::_init_project_schema() {
     _init_schema_block_id_map();
     if (_opts.project_columns == nullptr || *_opts.project_columns == _schema->column_ids()) {
         _project_schema = _schema;
@@ -486,16 +486,12 @@ Status SegmentIterator::_init_project_schema() {
         _project_schema =
                 std::make_shared<Schema>(_opts.tablet_schema->columns(), *_opts.project_columns);
     }
-    return Status::OK();
 }
 
-Status SegmentIterator::_build_project_block(Block* block, Block* project_block,
-                                             Block** project_block_or_origin) {
-    DORIS_CHECK(project_block_or_origin != nullptr);
+Block* SegmentIterator::_build_project_block(Block* block, Block* project_block) {
     DORIS_CHECK(_project_schema != nullptr);
     if (_project_schema == _schema) {
-        *project_block_or_origin = block;
-        return Status::OK();
+        return block;
     }
 
     project_block->clear();
@@ -512,20 +508,7 @@ Status SegmentIterator::_build_project_block(Block* block, Block* project_block,
         }
         project_block->insert({std::move(column), type, _schema->column(cid)->name()});
     }
-    *project_block_or_origin = project_block;
-    return Status::OK();
-}
-
-void SegmentIterator::_sync_project_block_column(Block* project_block, ColumnId cid,
-                                                 const ColumnPtr& column) {
-    if (_project_schema == _schema) {
-        return;
-    }
-    const auto& project_column_ids = _project_schema->column_ids();
-    auto it = std::find(project_column_ids.begin(), project_column_ids.end(), cid);
-    DORIS_CHECK(it != project_column_ids.end());
-    project_block->replace_by_position(
-            static_cast<size_t>(std::distance(project_column_ids.begin(), it)), column);
+    return project_block;
 }
 
 void SegmentIterator::_initialize_predicate_results() {
@@ -3124,8 +3107,7 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_common_expr_ctxs_push_down.empty());
     Block project_block;
-    Block* project_block_or_origin = nullptr;
-    RETURN_IF_ERROR(_build_project_block(block, &project_block, &project_block_or_origin));
+    Block* expr_block = _build_project_block(block, &project_block);
     std::vector<VExprContext*> common_ctxs;
     common_ctxs.reserve(_common_expr_ctxs_push_down.size());
     for (auto& ctx : _common_expr_ctxs_push_down) {
@@ -3139,8 +3121,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     IColumn::Filter filter(selected_size, 1);
     bool can_filter_all = false;
     for (const auto& ctx : _common_expr_ctxs_push_down) {
-        RETURN_IF_ERROR(ctx->execute_filter(project_block_or_origin, filter.data(), selected_size,
-                                            false, &can_filter_all));
+        RETURN_IF_ERROR(ctx->execute_filter(expr_block, filter.data(), selected_size, false,
+                                            &can_filter_all));
         if (can_filter_all) {
             break;
         }
@@ -3507,35 +3489,44 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
         }
         return Status::OK();
     }
+    if (_virtual_column_exprs.empty()) {
+        return Status::OK();
+    }
 
     Block project_block;
-    Block* project_block_or_origin = nullptr;
-    bool project_block_ready = false;
+    Block* materialize_block = _build_project_block(block, &project_block);
     for (const auto& cid_and_expr : _virtual_column_exprs) {
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;
+        auto vir_it = _vir_cid_to_idx_in_block.find(cid);
+        DORIS_CHECK(vir_it != _vir_cid_to_idx_in_block.end());
         auto idx_in_block = _schema_block_id_map[cid];
-        auto& column = block->get_by_position(idx_in_block).column;
+        auto materialized_pos = _project_schema == _schema ? idx_in_block : vir_it->second;
+        auto& column = materialize_block->get_by_position(materialized_pos).column;
         if (check_and_get_column<const ColumnNothing>(column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
                                       cid, idx_in_block);
-            if (!project_block_ready) {
-                RETURN_IF_ERROR(
-                        _build_project_block(block, &project_block, &project_block_or_origin));
-                project_block_ready = true;
-            }
             ColumnPtr result_column;
             Status st;
             RETURN_IF_CATCH_EXCEPTION({
-                st = column_expr->root()->execute_column(column_expr.get(), project_block_or_origin,
+                st = column_expr->root()->execute_column(column_expr.get(), materialize_block,
                                                          nullptr, _selected_size, result_column);
             });
             RETURN_IF_ERROR(st);
 
-            auto project_column = result_column;
-            block->replace_by_position(idx_in_block, std::move(result_column));
-            _sync_project_block_column(&project_block, cid, project_column);
+            materialize_block->replace_by_position(materialized_pos, std::move(result_column));
         }
+    }
+    if (materialize_block == block) {
+        return Status::OK();
+    }
+    for (const auto& cid_and_expr : _virtual_column_exprs) {
+        auto cid = cid_and_expr.first;
+        auto idx_in_block = _schema_block_id_map[cid];
+        auto materialized_pos = _vir_cid_to_idx_in_block.at(cid);
+        const auto& column = project_block.get_by_position(materialized_pos).column;
+        DORIS_CHECK(!check_and_get_column<const ColumnNothing>(column.get()));
+        block->replace_by_position(idx_in_block, column);
     }
     return Status::OK();
 }
