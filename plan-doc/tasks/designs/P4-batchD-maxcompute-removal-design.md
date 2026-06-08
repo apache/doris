@@ -39,6 +39,13 @@ In practice the reverse-ref removal and the file deletion must land as **one com
 
 ## 1. Deletion set — 21 fe-core files (all verified dead-after-flip, zero survivor risks)
 
+> **⚠️ 红线限定（P3-11 补，2026-06-08）— `source/MaxComputeScanNode`：** 「zero survivor / dead-after-flip」
+> 仅就**实例化链**成立；该类还承载两段**行为逻辑副本**，删除前各须有 PluginDriven 侧 live 等价物：
+> ① **读裁剪**（`MaxComputeScanNode:718-731`）—— 已由 FIX-PRUNE-PUSHDOWN（`072cd545c54` / [D-031]）清除；
+> ② **batch-mode 异步分批 split**（`MaxComputeScanNode:214-298`）—— 已由 FIX-BATCH-MODE-SPLIT（`ac8f0fc15eb` /
+> [D-035]）在 `PluginDrivenScanNode` 落通用等价。两者**均已落**，故本类现可纳入删除单元；但删前仍须 live e2e
+> 终验（[D-027] Batch-D 执行门）。交叉引用 HANDOFF §横切「Batch-D 红线扩充」+ 各 per-fix 红线。
+
 **`datasource/maxcompute/` (10):** `MaxComputeExternalCatalog`, `MaxComputeExternalDatabase`,
 `MaxComputeExternalTable`, `MaxComputeMetadataOps`, `MaxComputeExternalMetaCache`,
 `MaxComputeSchemaCacheValue`, `McStructureHelper` (+inner `ProjectSchemaTableHelper`/`ProjectTableHelper`),

@@ -3,7 +3,7 @@
 > 严重度：🟡 minor（性能/内存，行正确）。**用户拍板（2026-06-08）：实现 batch SPI 路径（非 DV）、design-first（本文档供评审、过目后再进实现）。**
 > 来源：`plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md` §A NG-7。
 > recon：workflow `wiczf63pp`（5 agent，A legacy 机器 / B 消费侧契约 / C SPI 面 / D 通用节点闸门 / E Batch-D 红线）。
-> **状态：⬜ 待评审 — 未动任何代码。**
+> **状态：✅ DONE @`ac8f0fc15eb`**（设计验证 `wcpg9lblj` + impl-review `wve7y1jst` 各 GO-WITH-EDITS 折入；[D-035]/[DV-019]）。账本回填见下一 doc-sync commit。
 
 ---
 
