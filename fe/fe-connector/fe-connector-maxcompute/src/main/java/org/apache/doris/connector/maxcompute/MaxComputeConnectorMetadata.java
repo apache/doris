@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
@@ -135,24 +136,22 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
                 new ArrayList<>(dataColumns.size() + partColumns.size());
 
         for (Column col : dataColumns) {
-            columns.add(new ConnectorColumn(
+            columns.add(buildColumn(
                     col.getName(),
                     MCTypeMapping.toConnectorType(col.getTypeInfo()),
                     col.getComment(),
-                    col.isNullable(),
-                    null));
+                    col.isNullable()));
         }
 
         List<String> partitionColumnNames =
                 new ArrayList<>(partColumns.size());
         for (Column partCol : partColumns) {
             partitionColumnNames.add(partCol.getName());
-            columns.add(new ConnectorColumn(
+            columns.add(buildColumn(
                     partCol.getName(),
                     MCTypeMapping.toConnectorType(partCol.getTypeInfo()),
                     partCol.getComment(),
-                    true,
-                    null));
+                    true));
         }
 
         java.util.Map<String, String> props = new java.util.HashMap<>();
@@ -162,6 +161,19 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
         }
         return new ConnectorTableSchema(
                 mcHandle.getTableName(), columns, "MAX_COMPUTE", props);
+    }
+
+    /**
+     * Builds a {@link ConnectorColumn} for a MaxCompute external-table column with
+     * {@code isKey=true}, mirroring legacy {@code MaxComputeExternalTable.initSchema} (every column
+     * was a Doris key column). For external (non-OLAP) tables there is no key-based storage; the
+     * flag drives DESCRIBE's {@code Key} display and the few non-OLAP-guarded planning/BE paths that
+     * read {@code Column.isKey()} (e.g. predicate inference, slot descriptors) — all of which legacy
+     * already fed {@code true}, so this restores exact legacy parity. {@code isAutoInc} stays false.
+     */
+    static ConnectorColumn buildColumn(String name, ConnectorType type, String comment,
+            boolean nullable) {
+        return new ConnectorColumn(name, type, comment, nullable, null, true);
     }
 
     @Override
