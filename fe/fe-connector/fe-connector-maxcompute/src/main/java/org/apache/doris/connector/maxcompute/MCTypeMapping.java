@@ -49,7 +49,10 @@ public final class MCTypeMapping {
         OdpsType odpsType = typeInfo.getOdpsType();
         switch (odpsType) {
             case VOID:
-                return ConnectorType.of("NULL");
+                // "NULL_TYPE" is the token ScalarType.createType recognizes (-> Type.NULL),
+                // matching legacy MaxComputeExternalTable.mcTypeToDorisType VOID -> Type.NULL.
+                // "NULL" is NOT recognized (createType throws, swallowed to UNSUPPORTED).
+                return ConnectorType.of("NULL_TYPE");
             case BOOLEAN:
                 return ConnectorType.of("BOOLEAN");
             case TINYINT:
@@ -97,7 +100,12 @@ public final class MCTypeMapping {
             case INTERVAL_YEAR_MONTH:
                 return ConnectorType.of("UNSUPPORTED");
             default:
-                return ConnectorType.of("UNSUPPORTED");
+                // Mirror legacy MaxComputeExternalTable.mcTypeToDorisType: fail-fast on a genuinely
+                // unknown OdpsType rather than silently degrading it to UNSUPPORTED. Known
+                // unsupported types (BINARY, INTERVAL_*, JSON) have explicit cases above, so this
+                // default is reached only by a future/unrecognized OdpsType.
+                throw new DorisConnectorException(
+                        "Cannot transform unknown MaxCompute type: " + odpsType);
         }
     }
 
