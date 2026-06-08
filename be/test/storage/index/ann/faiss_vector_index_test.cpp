@@ -407,10 +407,14 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss2) {
         IndexSearchResult doris_results;
         std::ignore = doris_index->ann_topn_search(query_vec, top_k, search_params, doris_results);
 
-        // Search in native Faiss index
+        // Search in native Faiss index using the same efSearch that Doris applies:
+        // ann_topn_search clamps to max(ef_search, k), so native must match.
         std::vector<float> native_distances(top_k, -1);
         std::vector<faiss::idx_t> native_indices(top_k, -1);
-        native_index->search(1, query_vec, top_k, native_distances.data(), native_indices.data());
+        faiss::SearchParametersHNSW native_params;
+        native_params.efSearch = std::max(search_params.ef_search, top_k);
+        native_index->search(1, query_vec, top_k, native_distances.data(), native_indices.data(),
+                             &native_params);
         size_t cnt = std::count_if(native_indices.begin(), native_indices.end(),
                                    [](faiss::idx_t idx) { return idx != -1; });
         for (size_t i = 0; i < cnt; ++i) {
