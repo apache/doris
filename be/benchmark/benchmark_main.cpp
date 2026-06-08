@@ -19,6 +19,7 @@
 
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_fastunion.hpp"
+#include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
