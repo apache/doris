@@ -76,8 +76,7 @@ public:
         size_t index;
         auto st = get_element_index(*struct_type, index_column, index_type, &index);
         if (!st.ok()) {
-            // will handle nullptr outside
-            return nullptr;
+            throw doris::Exception(st);
         }
         // The struct_element is marked as AlwaysNullable in fe.
         return make_nullable(struct_type->get_elements()[index]);

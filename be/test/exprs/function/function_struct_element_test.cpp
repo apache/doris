@@ -62,6 +62,25 @@ TEST(FunctionStructElementTest, test_return_type) {
     std::cout << "Return type: " << return_type->get_name() << std::endl;
 }
 
+TEST(FunctionStructElementTest, test_return_type_invalid_field) {
+    auto index_type = std::make_shared<DataTypeString>();
+    auto index_column = ColumnHelper::create_column<DataTypeString>({"key4"});
+
+    DataTypes struct_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
+                              std::make_shared<DataTypeFloat64>()};
+    Strings names = {"key1", "key2", "key3"};
+    auto type_struct = std::make_shared<DataTypeStruct>(struct_types, names);
+
+    auto argument_template = ColumnsWithTypeAndName {{nullptr, type_struct, "struct"},
+                                                     {index_column, index_type, "index"}};
+
+    EXPECT_THROW(SimpleFunctionFactory::instance().get_function(
+                         "struct_element", argument_template,
+                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+                         {true}, BeExecVersionManager::get_newest_version()),
+                 doris::Exception);
+}
+
 TEST(FunctionStructElementTest, test_return_column) {
     auto index_type = std::make_shared<DataTypeString>();
 

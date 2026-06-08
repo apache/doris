@@ -386,8 +386,9 @@ protected:
     }
 
     bool skip_return_type_check() const override { return true; }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return nullptr;
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& /*arguments*/) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_return_type is not implemented for {}", get_name());
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
