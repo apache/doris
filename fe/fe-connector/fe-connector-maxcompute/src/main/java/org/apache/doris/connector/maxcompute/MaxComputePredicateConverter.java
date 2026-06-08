@@ -38,7 +38,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,21 +55,29 @@ public class MaxComputePredicateConverter {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     static final DateTimeFormatter DATETIME_6_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+    private static final ZoneId UTC = ZoneId.of("UTC");
 
     private final Map<String, OdpsType> columnTypeMap;
     private final boolean dateTimePushDown;
-    private final ZoneId sourceTimeZone;
+    private final String sourceTimeZoneId;
 
     /**
      * @param columnTypeMap mapping from column name to ODPS type
      * @param dateTimePushDown whether DATETIME/TIMESTAMP predicate push down is enabled
-     * @param sourceTimeZone the session time zone for datetime conversion
+     * @param sourceTimeZoneId the session time zone id (e.g. "Asia/Shanghai"), kept as the raw
+     *        string and parsed lazily — only when a DATETIME/TIMESTAMP literal is actually
+     *        converted, inside {@link #convert}'s catch. This matters because Doris accepts and
+     *        stores some zone ids verbatim that {@link ZoneId#of(String)} rejects (e.g. "CST",
+     *        which Doris maps to +08:00 via its own alias map); parsing eagerly would throw out of
+     *        query planning, whereas lazy parsing degrades the predicate to
+     *        {@link Predicate#NO_PREDICATE} — mirroring legacy {@code MaxComputeScanNode}'s
+     *        per-conjunct catch (a non-datetime predicate under such a session still pushes down).
      */
     public MaxComputePredicateConverter(Map<String, OdpsType> columnTypeMap,
-            boolean dateTimePushDown, ZoneId sourceTimeZone) {
+            boolean dateTimePushDown, String sourceTimeZoneId) {
         this.columnTypeMap = columnTypeMap;
         this.dateTimePushDown = dateTimePushDown;
-        this.sourceTimeZone = sourceTimeZone;
+        this.sourceTimeZoneId = sourceTimeZoneId;
     }
 
     /**
@@ -226,21 +233,24 @@ public class MaxComputePredicateConverter {
 
             case DATETIME:
                 if (dateTimePushDown) {
-                    return " \"" + convertDateTimezone(
-                            rawValue, DATETIME_3_FORMATTER, ZoneId.of("UTC")) + "\" ";
+                    return " \"" + formatDateTimeLiteral(
+                            literal.getValue(), DATETIME_3_FORMATTER, true) + "\" ";
                 }
                 break;
 
             case TIMESTAMP:
                 if (dateTimePushDown) {
-                    return " \"" + convertDateTimezone(
-                            rawValue, DATETIME_6_FORMATTER, ZoneId.of("UTC")) + "\" ";
+                    return " \"" + formatDateTimeLiteral(
+                            literal.getValue(), DATETIME_6_FORMATTER, true) + "\" ";
                 }
                 break;
 
             case TIMESTAMP_NTZ:
                 if (dateTimePushDown) {
-                    return " \"" + rawValue + "\" ";
+                    // TIMESTAMP_NTZ carries no timezone: mirror legacy
+                    // MaxComputeScanNode:585-592 (getStringValue with NO convertDateTimezone).
+                    return " \"" + formatDateTimeLiteral(
+                            literal.getValue(), DATETIME_6_FORMATTER, false) + "\" ";
                 }
                 break;
 
@@ -251,14 +261,45 @@ public class MaxComputePredicateConverter {
                 "Cannot push down ODPS type: " + odpsType + " for column " + columnName);
     }
 
-    private String convertDateTimezone(String dateTimeStr,
-            DateTimeFormatter formatter, ZoneId toZone) {
-        if (sourceTimeZone.equals(toZone)) {
-            return dateTimeStr;
+    /**
+     * Formats a DATETIME/TIMESTAMP/TIMESTAMP_NTZ literal into the ODPS predicate string.
+     *
+     * <p>The {@code value} is the {@link LocalDateTime} produced by fe-core's
+     * {@code ExprToConnectorExpressionConverter.convertDateLiteral} (already at the bound
+     * predicate's scale, with nanos = microsecond * 1000). It is formatted directly with
+     * {@code formatter} (space-separated, fixed precision: DATETIME {@code .SSS},
+     * TIMESTAMP/TIMESTAMP_NTZ {@code .SSSSSS}), reproducing legacy
+     * {@code MaxComputeScanNode.convertLiteralToOdpsValues}'s
+     * {@code DateLiteral.getStringValue(DatetimeV2Type(3|6))}.</p>
+     *
+     * <p>Formatting the {@code LocalDateTime} directly avoids the previous defect where
+     * {@code String.valueOf(value)} emitted {@link LocalDateTime#toString()}'s 'T'-separated,
+     * variable-precision form (e.g. {@code "2023-02-02T00:00"}) — which the space-separated
+     * formatter could not parse (whole predicate tree dropped to {@code NO_PREDICATE}) or, on
+     * the UTC short-circuit, was pushed malformed to ODPS.</p>
+     *
+     * @param convertTimeZone {@code true} for DATETIME/TIMESTAMP (legacy converts the session
+     *        {@code sourceTimeZone} to UTC, short-circuiting when already UTC); {@code false}
+     *        for TIMESTAMP_NTZ (legacy does not convert)
+     */
+    private String formatDateTimeLiteral(Object value, DateTimeFormatter formatter,
+            boolean convertTimeZone) {
+        if (!(value instanceof LocalDateTime)) {
+            throw new UnsupportedOperationException(
+                    "Expected LocalDateTime for datetime predicate, got: "
+                            + (value == null ? "null" : value.getClass().getSimpleName()));
         }
-        LocalDateTime localDateTime = LocalDateTime.parse(dateTimeStr, formatter);
-        ZonedDateTime sourceZoned = localDateTime.atZone(sourceTimeZone);
-        ZonedDateTime targetZoned = sourceZoned.withZoneSameInstant(toZone);
-        return targetZoned.format(formatter);
+        LocalDateTime localDateTime = (LocalDateTime) value;
+        if (convertTimeZone) {
+            // Parse the session zone here (inside convert()'s catch) rather than eagerly at
+            // construction: a Doris-valid-but-ZoneId-invalid id (e.g. "CST") then degrades this
+            // predicate to NO_PREDICATE instead of throwing out of query planning.
+            ZoneId sourceTimeZone = ZoneId.of(sourceTimeZoneId);
+            if (!sourceTimeZone.equals(UTC)) {
+                localDateTime = localDateTime.atZone(sourceTimeZone)
+                        .withZoneSameInstant(UTC).toLocalDateTime();
+            }
+        }
+        return localDateTime.format(formatter);
     }
 }

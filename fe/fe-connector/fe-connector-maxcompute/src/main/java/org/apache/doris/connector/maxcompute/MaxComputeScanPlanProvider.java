@@ -49,7 +49,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -203,7 +202,7 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         // Convert filter to ODPS predicate
-        Predicate filterPredicate = convertFilter(filter, odpsTable);
+        Predicate filterPredicate = convertFilter(filter, odpsTable, session);
 
         // Partition pruning: restrict the read session to the pruned partitions when present.
         // null/empty => not pruned => scan all (mirrors legacy MaxComputeScanNode's empty
@@ -271,7 +270,8 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
         return specs;
     }
 
-    private Predicate convertFilter(Optional<ConnectorExpression> filter, Table odpsTable) {
+    private Predicate convertFilter(Optional<ConnectorExpression> filter, Table odpsTable,
+            ConnectorSession session) {
         if (!filter.isPresent()) {
             return Predicate.NO_PREDICATE;
         }
@@ -284,14 +284,17 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
             columnTypeMap.put(col.getName(), col.getType());
         }
 
-        ZoneId sourceZone = resolveProjectTimeZone();
+        // Source time zone = the session time zone, mirroring legacy
+        // MaxComputeScanNode.convertDateTimezone's DateUtils.getTimeZone() (= the session var).
+        // ConnectorSession.getTimeZone() is populated from ctx.getSessionVariable().getTimeZone()
+        // by ConnectorSessionBuilder.from(ctx), so this is the same source as legacy. (The earlier
+        // project-region TZ from the endpoint was wrong: Doris interprets datetime literals in the
+        // session TZ, so converting from any other zone shifts the pushed-down UTC literal.) The id
+        // is passed raw and parsed lazily inside the converter, so a Doris-valid-but-ZoneId-invalid
+        // value (e.g. "CST") degrades the datetime predicate instead of failing the query.
         MaxComputePredicateConverter converter = new MaxComputePredicateConverter(
-                columnTypeMap, dateTimePushDown, sourceZone);
+                columnTypeMap, dateTimePushDown, session.getTimeZone());
         return converter.convert(filter.get());
-    }
-
-    private ZoneId resolveProjectTimeZone() {
-        return MCConnectorEndpoint.resolveProjectTimeZone(connector.getEndpoint());
     }
 
     private TableBatchReadSession createReadSession(
