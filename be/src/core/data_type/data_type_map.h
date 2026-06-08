@@ -56,9 +56,6 @@ public:
 
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_MAP; }
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_MAP;
-    }
 
     std::string do_get_name() const override {
         return "Map(" + key_type->get_name() + ", " + value_type->get_name() + ")";
