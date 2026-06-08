@@ -2050,6 +2050,7 @@ public:
 
                 bool replace = false;
                 parents.emplace_back(json_documents[row_idx]->getValue());
+                const auto legs_count = json_path[path_index].get_leg_vector_size();
                 if (find_result.value) {
                     // find target path, replace it with the new value.
                     replace = true;
@@ -2061,7 +2062,8 @@ public:
                 } else {
                     // does not find target path, insert the new value.
                     JsonbPath new_path;
-                    for (size_t j = 0; j < json_path[path_index].get_leg_vector_size() - 1; ++j) {
+                    DCHECK_GT(legs_count, 0);
+                    for (size_t j = 0; j + 1 < legs_count; ++j) {
                         auto* current_leg = json_path[path_index].get_leg_from_leg_vector(j);
                         std::unique_ptr<leg_info> leg = std::make_unique<leg_info>(
                                 current_leg->leg_ptr, current_leg->leg_len,
@@ -2075,7 +2077,6 @@ public:
                     }
                 }
 
-                const auto legs_count = json_path[path_index].get_leg_vector_size();
                 leg_info* last_leg =
                         legs_count > 0
                                 ? json_path[path_index].get_leg_from_leg_vector(legs_count - 1)
