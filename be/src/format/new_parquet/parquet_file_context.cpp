@@ -157,8 +157,6 @@ Status ParquetFileContext::close() {
     }
     file_reader.reset();
     arrow_file.reset();
-    metadata.reset();
-    schema = nullptr;
     return Status::OK();
 }
 

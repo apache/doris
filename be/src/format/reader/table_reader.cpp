@@ -275,10 +275,9 @@ std::string TableReader::debug_string() const {
         << ", has_runtime_state=" << (_runtime_state != nullptr)
         << ", has_scanner_profile=" << (_scanner_profile != nullptr)
         << ", mapper_options=" << _mapper_options.debug_string() << ", projected_columns="
-        << join_table_reader_debug_strings(_projected_columns,
-                                           [](const ColumnDefinition& column) {
-                                               return column.debug_string();
-                                           })
+        << join_table_reader_debug_strings(
+                   _projected_columns,
+                   [](const ColumnDefinition& column) { return column.debug_string(); })
         << ", partition_values=" << partition_values_debug_string(_partition_values)
         << ", table_filters="
         << join_table_reader_debug_strings(
@@ -292,10 +291,9 @@ std::string TableReader::debug_string() const {
                                                return expr_context_debug_string(conjunct);
                                            })
         << ", file_schema="
-        << join_table_reader_debug_strings(_data_reader.file_schema,
-                                           [](const ColumnDefinition& field) {
-                                               return field.debug_string();
-                                           })
+        << join_table_reader_debug_strings(
+                   _data_reader.file_schema,
+                   [](const ColumnDefinition& field) { return field.debug_string(); })
         << ", file_block_layout="
         << join_table_reader_debug_strings(
                    _data_reader.file_block_layout,

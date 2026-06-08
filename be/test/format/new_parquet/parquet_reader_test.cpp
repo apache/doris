@@ -77,6 +77,15 @@ std::vector<int32_t> projection_ids(const std::vector<reader::LocalColumnIndex>&
     return ids;
 }
 
+void set_name_identifiers(reader::ColumnDefinition* column, int32_t local_id) {
+    DORIS_CHECK(column != nullptr);
+    column->identifier = Field::create_field<TYPE_STRING>(column->name);
+    column->local_id = local_id;
+    for (size_t child_idx = 0; child_idx < column->children.size(); ++child_idx) {
+        set_name_identifiers(&column->children[child_idx], static_cast<int32_t>(child_idx));
+    }
+}
+
 class Int32GreaterThanExpr final : public VExpr {
 public:
     Int32GreaterThanExpr(int column_id, int32_t value)
@@ -648,6 +657,8 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     auto request = std::make_shared<reader::FileScanRequest>();
@@ -710,6 +721,8 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     reader::FileScanRequest request;
@@ -835,6 +848,8 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     reader::FileScanRequest request;
@@ -890,6 +905,8 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseCompariso
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     reader::FileScanRequest request;
@@ -959,6 +976,8 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     reader::FileScanRequest request;
@@ -1014,6 +1033,8 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     reader::FileScanRequest request;
@@ -1074,6 +1095,8 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterFromOr) {
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     reader::FileScanRequest request;
@@ -1142,6 +1165,8 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&map_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {map_field}).ok());
 
     auto request = std::make_shared<reader::FileScanRequest>();
@@ -1192,6 +1217,10 @@ TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) 
     reader::TableColumnMapperOptions options;
     options.mode = reader::TableColumnMappingMode::BY_NAME;
     reader::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_id, 0);
+    set_name_identifiers(&table_value, 1);
+    set_name_identifiers(&id_field, 0);
+    set_name_identifiers(&value_field, 1);
     ASSERT_TRUE(mapper.create_mapping({table_id, table_value}, {}, {id_field, value_field}).ok());
 
     reader::TableColumnPredicates column_predicates;
