@@ -161,7 +161,8 @@ public:
             }
 
             bool current_eof = false;
-            _data_reader.block_template.clear_column_data();
+            _data_reader.block_template.clear_column_data(
+                    cast_set<int64_t>(_data_reader.file_block_layout.size()));
             size_t current_rows = 0;
             RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
                                                            &current_rows, &current_eof));
@@ -171,7 +172,8 @@ public:
                 }
                 continue;
             }
-            DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.file_block_layout.size());
+            DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.file_block_layout.size())
+                    << _data_reader.block_template.dump_structure();
             DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
             RETURN_IF_ERROR(finalize_chunk(block, current_rows));
             if (current_eof) {

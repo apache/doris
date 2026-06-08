@@ -275,8 +275,6 @@ private:
         auto [col_left_untype, left_is_const] = unpack_if_const(col_left_ptr);
         auto [col_right_untyped, right_is_const] = unpack_if_const(col_right_ptr);
 
-        LOG(WARNING) << "===========2 " << col_left_untype->get_name() << " "
-                     << col_right_untyped->get_name() << " " << block.dump_structure();
         const auto* col_left = assert_cast<const ColumnVector<PT>*>(col_left_untype.get());
         const auto* col_right = assert_cast<const ColumnVector<PT>*>(col_right_untyped.get());
 

@@ -1755,44 +1755,6 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     EXPECT_EQ(file_request.local_positions.at(LocalColumnId(1)).value(), 0);
 }
 
-TEST(TableReaderTest, CreateScanRequestBuildsResultColumnMapping) {
-    const auto int_type = std::make_shared<DataTypeInt32>();
-    const std::vector<ColumnDefinition> projected_columns = {
-            make_table_column(0, "id", int_type),
-            make_table_column(1, "score", int_type),
-    };
-    const std::vector<ColumnDefinition> file_schema = {
-            make_file_column(0, "id", int_type),
-            make_file_column(1, "score", int_type),
-    };
-
-    TableColumnMapper mapper;
-    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
-
-    TableFilter table_filter {
-            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 1)),
-            .global_indices = {GlobalIndex(0)},
-    };
-
-    FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
-
-    const auto& filter_entries = mapper.filter_entries();
-    ASSERT_EQ(filter_entries.size(), 2);
-    ASSERT_TRUE(filter_entries.at(GlobalIndex(0)).is_local());
-    EXPECT_EQ(filter_entries.at(GlobalIndex(0)).local_index().value(), 1);
-    ASSERT_TRUE(filter_entries.at(GlobalIndex(1)).is_local());
-    EXPECT_EQ(filter_entries.at(GlobalIndex(1)).local_index().value(), 0);
-
-    const auto& result_mapping = mapper.result_mapping();
-    ASSERT_EQ(result_mapping.global_to_local.size(), 2);
-    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).mapping.index, 1);
-    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(1)).mapping.index, 0);
-    EXPECT_EQ(result_mapping.global_to_local.at(GlobalIndex(0)).filter_conversion,
-              FilterConversionType::COPY_DIRECTLY);
-}
-
 TEST(TableReaderTest, CreateScanRequestBuildsConstantFilterEntry) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     auto partition_column = make_table_column(0, "part", int_type);
@@ -1894,32 +1856,6 @@ TEST(TableColumnMapperMatcherTest, NestedFieldIdModeDoesNotFallbackToName) {
 
     const auto status = mapper.create_mapping({table_root}, {}, {file_root});
     EXPECT_FALSE(status.ok());
-}
-
-TEST(TableColumnMapperMatcherTest, NestedIndexMappingUsesTableStructChildIndex) {
-    const auto int_type = std::make_shared<DataTypeInt32>();
-    const auto struct_type =
-            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-
-    auto table_b_child = make_table_column(2, "b", int_type);
-    auto table_root = make_table_column(100, "root", struct_type);
-    table_root.children = {table_b_child};
-
-    auto file_a_child = make_file_column(1, "a", int_type);
-    auto file_b_child = make_file_column(2, "b", int_type);
-    auto file_root = make_file_column(100, "root", struct_type);
-    file_root.children = {file_a_child, file_b_child};
-
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
-    ASSERT_TRUE(mapper.create_mapping({table_root}, {}, {file_root}).ok());
-
-    FileScanRequest file_request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_root}, &file_request).ok());
-
-    const auto& mapping = mapper.result_mapping().global_to_local.at(GlobalIndex(0)).mapping;
-    EXPECT_FALSE(mapping.child_mapping.contains(0));
-    ASSERT_TRUE(mapping.child_mapping.contains(1));
-    EXPECT_EQ(mapping.child_mapping.at(1)->index, 2);
 }
 
 TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {

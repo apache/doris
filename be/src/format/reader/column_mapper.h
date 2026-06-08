@@ -196,11 +196,9 @@ public:
         _mappings.clear();
         _constant_map.clear();
         _filter_entries.clear();
-        _result_mapping = {};
     }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
     const std::map<GlobalIndex, FilterEntry>& filter_entries() const { return _filter_entries; }
-    const ResultColumnMapping& result_mapping() const { return _result_mapping; }
     const ConstantMap& constant_map() const { return _constant_map; }
     std::string debug_string() const;
 
@@ -225,7 +223,6 @@ private:
     // Column mapping for each projected column, in the same order as projected_columns. Each entry describes how to get one table/global column from file-local sources, and carries metadata for filter localization and result finalize.
     std::vector<ColumnMapping> _mappings;
     std::map<GlobalIndex, FilterEntry> _filter_entries;
-    ResultColumnMapping _result_mapping;
     ConstantMap _constant_map;
 };
 
