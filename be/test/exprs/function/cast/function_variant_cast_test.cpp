@@ -288,6 +288,63 @@ TEST(FunctionVariantCast, CastFromVariant) {
     }
 }
 
+TEST(FunctionVariantCast, CastFromVariantDoesNotFinalizeSourceColumn) {
+    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto int32_type = std::make_shared<DataTypeInt32>();
+    auto string_type = std::make_shared<DataTypeString>();
+    auto variant_col = construct_basic_varint_column();
+
+    ASSERT_FALSE(variant_col->is_finalized());
+
+    {
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, int32_type, "int32_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, int32_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, int32_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(
+                function->execute(ctx.get(), block, {0}, result_column, variant_col->size()).ok());
+
+        EXPECT_FALSE(variant_col->is_finalized());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), variant_col->size());
+    }
+
+    {
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, string_type, "string_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, string_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, string_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(
+                function->execute(ctx.get(), block, {0}, result_column, variant_col->size()).ok());
+
+        EXPECT_FALSE(variant_col->is_finalized());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        ASSERT_EQ(result_col->size(), variant_col->size());
+    }
+}
+
 TEST(FunctionVariantCast, CastVariantWithNull) {
     auto variant_type = std::make_shared<DataTypeVariant>();
     auto int32_type = std::make_shared<DataTypeInt32>();
