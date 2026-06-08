@@ -23,13 +23,12 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
@@ -55,7 +54,7 @@ public class IvmUtil {
      * <ul>
      *   <li>Empty list (scalar agg): returns {@code LargeIntLiteral(0)}</li>
      *   <li>Non-empty (grouped agg): returns
-     *       {@code CAST(murmur_hash3_64(ifnull(k1,''), isnull(k1), ifnull(k2,''), isnull(k2), ...) AS LARGEINT)}</li>
+     *       {@code murmur_hash3_128(ifnull(k1,''), isnull(k1), ifnull(k2,''), isnull(k2), ...)}</li>
      * </ul>
      *
      * <p>Each key produces two hash arguments: {@code ifnull(cast(key AS VARCHAR), '')} to prevent
@@ -80,7 +79,7 @@ public class IvmUtil {
             hashArgs.add(new Nvl(asVarchar, new VarcharLiteral("")));
             hashArgs.add(new Cast(new IsNull(key), VarcharType.SYSTEM_DEFAULT));
         }
-        return new Cast(new MurmurHash364(hashArgs.build()), LargeIntType.INSTANCE);
+        return new MurmurHash3128(hashArgs.build());
     }
 
     /**
