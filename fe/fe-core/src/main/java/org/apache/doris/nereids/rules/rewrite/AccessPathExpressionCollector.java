@@ -48,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKe
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -74,7 +73,7 @@ import java.util.Objects;
 import java.util.Stack;
 
 /**
- * collect the access path, for example: `select struct_element(s, 'data')` has access path: ['s', 'data']
+ * collect the access path, for example: `select element_at(s, 'data')` has access path: ['s', 'data']
  */
 public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void, CollectorContext> {
     private StatementContext statementContext;
@@ -197,37 +196,27 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
+        } else if (first.getDataType().isStructType()) {
+            // struct field access (formerly struct_element): collect the selected field as the path
+            Expression fieldName = arguments.get(1);
+            DataType fieldType = fieldName.getDataType();
+            if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
+                if (fieldType.isIntegerLikeType()) {
+                    int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
+                    List<StructField> fields = ((StructType) first.getDataType()).getFields();
+                    if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
+                        String realFieldName = fields.get(fieldIndex - 1).getName();
+                        context.accessPathBuilder.addPrefix(realFieldName);
+                        return continueCollectAccessPath(first, context);
+                    }
+                }
+                context.accessPathBuilder.addPrefix(((Literal) fieldName).getStringValue().toLowerCase());
+                return continueCollectAccessPath(first, context);
+            }
+            return visit(elementAt, context);
         } else {
             return visit(elementAt, context);
         }
-    }
-
-    // struct element_at
-    @Override
-    public Void visitStructElement(StructElement structElement, CollectorContext context) {
-        List<Expression> arguments = structElement.getArguments();
-        Expression struct = arguments.get(0);
-        Expression fieldName = arguments.get(1);
-        DataType fieldType = fieldName.getDataType();
-
-        if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
-            if (fieldType.isIntegerLikeType()) {
-                int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
-                List<StructField> fields = ((StructType) struct.getDataType()).getFields();
-                if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
-                    String realFieldName = fields.get(fieldIndex - 1).getName();
-                    context.accessPathBuilder.addPrefix(realFieldName);
-                    return continueCollectAccessPath(struct, context);
-                }
-            }
-            context.accessPathBuilder.addPrefix(((Literal) fieldName).getStringValue().toLowerCase());
-            return continueCollectAccessPath(struct, context);
-        }
-
-        for (Expression argument : arguments) {
-            visit(argument, context);
-        }
-        return null;
     }
 
     @Override

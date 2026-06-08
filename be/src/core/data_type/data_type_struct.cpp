@@ -44,6 +44,7 @@
 #include "core/column/column_struct.h"
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -149,7 +150,7 @@ bool DataTypeStruct::equals(const IDataType& rhs) const {
 size_t DataTypeStruct::get_position_by_name(const String& name) const {
     size_t size = elems.size();
     for (size_t i = 0; i < size; ++i) {
-        if (names[i] == name) {
+        if (iequal(names[i], name)) {
             return i;
         }
     }
@@ -159,9 +160,12 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
 }
 
 std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& name) const {
+    // Struct field names are canonically lower-cased by the FE, but a query may reference a field
+    // with different casing (e.g. migrated Iceberg tables store sName as sname). Match the field
+    // name case-insensitively so projection resolves the field instead of failing on the BE.
     size_t size = elems.size();
     for (size_t i = 0; i < size; ++i) {
-        if (names[i] == name) {
+        if (iequal(names[i], name)) {
             return std::optional<size_t>(i);
         }
     }
