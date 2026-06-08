@@ -214,6 +214,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             String query = props.get("query");
             output.append(prefix).append("TABLE: ")
                     .append(desc.getTable().getNameWithFullQualifiers()).append("\n");
+            // Surface the backing connector/catalog type (e.g. es, jdbc, max_compute) so the
+            // generic node name does not hide which connector this scan delegates to. Reuses the
+            // same getDatabase().getCatalog() chain getNameWithFullQualifiers() already walks here.
+            output.append(prefix).append("CONNECTOR: ")
+                    .append(desc.getTable().getDatabase().getCatalog().getType()).append("\n");
             if (query != null) {
                 output.append(prefix).append("QUERY: ").append(query).append("\n");
             }

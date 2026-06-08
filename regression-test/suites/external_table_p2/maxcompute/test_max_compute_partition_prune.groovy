@@ -144,6 +144,8 @@ suite("test_max_compute_partition_prune", "p2,external") {
                     explain {
                         sql("${one_partition_1_1}")
                         contains "partition=1/2"
+                        // VPluginDrivenScanNode surfaces the backing connector/catalog type
+                        contains "CONNECTOR: max_compute"
                     }
 
                     qt_one_partition_2_1 one_partition_2_1
