@@ -5,6 +5,56 @@
 
 ---
 
+# 🔥 第 12 次 handoff（2026-06-08，覆盖）— Batch-D 红线扩充查出新 gap 修复 campaign
+
+> **本 session 主题**：执行横切「**Batch-D 红线扩充**」——跑 clean-room 对抗 workflow `wbw4xszrg`（117 agent，13 carrier-unit × inventory→adversarial-verify + 3 critic）复查 Batch-D 设计「zero survivor」声明的**行为逻辑副本**层面（非仅实例化链）。**查出 11 gap + 2 critic-only finding。Critic-2 独立复核：13 条 per-fix 等价物全 present+wired（前修无回退）。** 这些是 per-fix review 漏掉的**新**发现。
+> **⚠️ 重大发现**：其中 **GAP8 是 live 静默丢行回归**（已修，见下）；G5 证伪 P2-8「聚合列已覆盖」；G6 暴 CREATE CATALOG 校验缺失。
+
+## ✅ 本 session 已完成
+- **G8 FIX-NONPART-PRUNE-DATALOSS（blocker/correctness）DONE @`e1760d38d86`（+回填 `265cd3fa70f`）**：非分区 plugin 表 `SELECT...WHERE` 静默返 **0 行**。根因=`PluginDrivenExternalTable.supportInternalPartitionPruned()` 返 `!partCols.isEmpty()`(非分区=false) → `PruneFileScanPartition` else 支覆写 `SelectedPartitions(0,{},isPruned=true)` → `PluginDrivenScanNode.getSplits` 短路 0 split。**通用插件层**（CatalogFactory SPI_READY_TYPES={jdbc,es,trino,max_compute} 全经 PluginDrivenExternalTable→LogicalFileScan→PluginDrivenScanNode；当前仅 MC 翻闸暴露）。坏 override=`35cfa50f988`(FIX-PART-GATES,dormant)+`072cd545c54`(P1-4 加短路激活)。修=Option A：`supportInternalPartitionPruned()` 返**无条件 true**（镜像 legacy MaxComputeExternalTable/Iceberg；非分区 pruneExternalPartitions 返 NOT_PRUNED 扫全表）。设计验证 `wijd3qgk0`(4 lens design-sound,1mF+3sF 折入) + impl-review `wza2khdb2`(2 lens approve,0mF)。repro=翻转 `PluginDrivenExternalTablePartitionTest` 钉错不变式断言（mutation 还原即红）。auto-memory [[catalog-spi-nonpartitioned-prune-dataloss]]。
+  - 守门：UT 6/6+5/5、mutation 向红、checkstyle 0、import-gate 净。
+
+## 👤 用户定夺（2026-06-08，campaign 范围）
+- **G8 = Fix now（repro 先行）** → 已完成。
+- **其余 = Fix Tier 1+2，Tier 3 接受+登记 deviation**。
+
+## 🎯 下一 session = 续做 gap 修复 campaign（live tracker = `plan-doc/task-list-batchD-redline-gaps.md`）
+
+> **每 issue 走既有方法论**：独立设计文档 `tasks/designs/P4-T06e-<FIX>-design.md` → 设计验证 workflow（clean-room 对抗）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ impl-review workflow 收敛 → 独立 commit（`[P4-T06e]`）+ hash 回填 + 更 tracker。
+> **⚠️ Ultracode 现已关**：跑 workflow 需用户显式 opt-in（或用户说「use a workflow」）。若关态，design-verify/impl-review 可改用单/双 Agent 对抗替代，或先问用户是否要 workflow。
+> 全量 gap 证据：workflow 返回 JSON 在 `/tmp/claude-1000/-mnt-disk1-yy-git-wt-catalog-spi/.../tasks/wbw4xszrg.output`（若 /tmp 清，speca 全在 tracker；摘录曾在 `/tmp/wf_gaps.txt`/`/tmp/wf_critics.txt`）。每 gap 带 file:line + parity + evidence。
+
+**按优先序待办（Tier 1+2 fix + Tier 3 DV + 原 doc 交付）：**
+
+1. **G0 FIX-DATETIME-PUSHDOWN-FORMAT（Tier 1，major correctness/perf）— 下一个，本 session 已开始 design 调研**：
+   - 症状：DATETIME/TIMESTAMP/TIMESTAMP_NTZ 谓词下推坏。**两 delta**：
+     - **delta-1（format）**：`MaxComputePredicateConverter.formatLiteralValue:201` 用 `String.valueOf(literal.getValue())`，而 literal value 是 `java.time.LocalDateTime`，其 `toString()` 是 **'T' 分隔 + 变精度**（`"2023-02-02T00:00"`）；喂 `DATETIME_3/6_FORMATTER`（`"yyyy-MM-dd HH:mm:ss.SSS"` 空格分隔）→ `convertDateTimezone:259` 的 `LocalDateTime.parse` **抛 DateTimeParseException**（非 UTC）被 `convert():86` catch→**整 conjunct 树降 NO_PREDICATE**（谓词永不下推=perf 回归）；UTC 路（`convertDateTimezone:256` sourceTZ==UTC 短路）推 **malformed 字面量** `col=="2023-02-02T00:00"` 到 ODPS（结果未定，可能错/可能 ODPS 报错）。legacy `MaxComputeScanNode:558-593` 用 `dateLiteral.getStringValue(DatetimeV2Type(3|6))`（空格分隔定长）正确。
+     - **delta-2（TZ source）**：连接器 `sourceTimeZone` = `MaxComputeScanPlanProvider:287-295` 经 `MCConnectorEndpoint.resolveProjectTimeZone(endpoint)`（**project-region TZ**）；legacy `convertDateTimezone` 用 `DateUtils.getTimeZone()`（**session TZ**）。format 修后若 TZ 仍错→**丢行**。
+   - 修法方向（待设计）：① format=直接对 `LocalDateTime` 用目标 formatter（不走 toString()→reparse），即在 DATETIME/TIMESTAMP 分支把 value 当 LocalDateTime 格式化 + TZ 转换；② TZ source=改用 session TZ——**需查连接器如何拿 session TZ**（ConnectorSession 是否带 timezone？现 resolveProjectTimeZone 在 `MaxComputeScanPlanProvider`；legacy 用 ConnectContext session var，连接器不可直达 fe-core）。**关键调研点**：ConnectorSession.getSessionProperties() 是否含 time_zone（参 P3-9 limit-opt 经 session prop 读 var 的约定）。
+   - 已读文件：`MaxComputePredicateConverter.java`（formatLiteralValue:195-252 / convertDateTimezone:254-263 / ctor:69-74 / formatters:55-58 / convert catch:84-89）。**待读**：`MaxComputeScanPlanProvider.java:131-133`(dateTimePushDown)`:274-295`(convertFilter+sourceTZ)、`MCConnectorEndpoint.resolveProjectTimeZone:111-125`、`ExprToConnectorExpressionConverter.convertDateLiteral:309-321`(fe-core 存 LocalDateTime)、ConnectorSession 接口（找 timezone）、legacy `MaxComputeScanNode:529-613`(对照)、`DateUtils.getTimeZone:403-408`。**无连接器测覆盖 datetime 格式**——补 `MaxComputePredicateConverter` UT 钉确切下推串 + mutation。真值闸 live ODPS=DV（datetime 谓词正确下推 + 不丢行，跨 UTC/非-UTC project TZ）。
+2. **G6 FIX-CREATE-CATALOG-VALIDATION（Tier 2，major）**：CREATE CATALOG 属性校验缺失。`MaxComputeConnectorProvider`(fe-connector-maxcompute) **未 override `validateProperties`**（继承 SPI no-op `ConnectorProvider:74-76`，cf. jdbc/es/trino 都 override）→ required PROJECT/ENDPOINT、split_byte_size≥10485760 floor、split_strategy、account_format∈{name,id}、connect/read timeout>0、retry_count>0、`MCUtils.checkAuthProperties`（`MCConnectorClientFactory.checkAuthProperties:42-78` **定义但零调用**）全不在 CREATE 时校验 → 退化 use-time 晚失败 / 静默接受非法（account_format='foo'→默认 DISPLAYNAME；负 timeout）。legacy `MaxComputeExternalCatalog.checkProperties:387-457`。修=实现 `MaxComputeConnectorProvider.validateProperties`（或 preCreateValidation）镜像 legacy 六校验 + wire checkAuthProperties。
+3. **G5 FIX-AGG-COLUMN-REJECT（Tier 2，minor）**：`CREATE TABLE (c INT SUM)` 聚合列拒绝丢失（**证伪 P2-8「非-OLAP 路径已覆盖」**）。链：`ConnectorColumn` 无 aggType 载体 → `CreateTableInfoToConnectorRequestConverter:90-92` 丢 aggType → `MaxComputeConnectorMetadata.validateColumns:476-498` 不查 → nereids `ColumnDefinition.validate(isOlap=false):358-411` 不拒 bare non-key aggType（`validateKeyColumns:1083` 拒但 gated 在 ENGINE_OLAP-only 块、非-OLAP 不可达）。legacy `MaxComputeMetadataOps:426-429` 拒。修=FE-core guard（convert/createTable 路径对 maxcompute engine 拒非空 aggType，因 ConnectorColumn 无 aggType 连接器看不到）。
+4. **G7 FIX-VOID-TYPE-MAPPING（Tier 2，minor）**：ODPS `VOID` → 新路映 `UNSUPPORTED`（legacy=`Type.NULL`）。链：`MCTypeMapping:51-52` emit `of("NULL")` → `ConnectorColumnConverter.convertScalarType` 无 "NULL" case → `ScalarType.createType("NULL")` 抛（只认 "NULL_TYPE"）被 catch→UNSUPPORTED。次生：未知 OdpsType legacy 硬抛、新路静默 UNSUPPORTED。修=加 "NULL" case 返 Type.NULL，或 MCTypeMapping emit `of("NULL_TYPE")`。
+5. **G2 FIX-PREDICATE-COLGUARD（Tier 2，minor，多半不可达）**：列不存在守卫反转。legacy `MaxComputeScanNode:415-421/478-484` 谓词引用未知列→抛→丢谓词；新路 `MaxComputePredicateConverter.formatLiteralValue:204-206` odpsType==null 静默引号化→下推非法谓词。实务 bound 谓词只引真列、columnTypeMap key 集与 legacy 一致→**多半不可达**；修=加 containsKey 守卫（throw/skip）对齐 legacy。低优，可与 G0 合并（同文件）。
+6. **GC1 FIX-BLOCKID-CAP-CONFIG（Tier 2，minor）**：写 block-id 上限硬编 `20000`（`MaxComputeConnectorTransaction.java:72,146` `MAX_BLOCK_COUNT=20000L`），无视 legacy `Config.max_compute_write_max_block_count`（`MCTransaction:165`，可调）→ 调优部署静默回归。修=读 Config（连接器如何拿 fe Config？可能经 connector context/property 透传，需查）。
+7. **T3 Tier-3 接受项 → 登记 deviation（不修，用户定）**：
+   - GAP3 CREATE DB 非-IFNE：`ERR_DB_CREATE_EXISTS`(1007/HY000 本地预抛)→透传 ODPS DdlException（P2-6 已注 pre-existing）。
+   - GAP4 DROP TABLE 非-IF-EXISTS+远端缺：`ERR_UNKNOWN_TABLE`(1109/42S02)→通用 DdlException（本地名）。
+   - GAP9 SHOW PARTITIONS `LIMIT`：legacy paginate-then-sort → 新路 sort-then-paginate（新路更合 ORDER-BY-LIMIT）。
+   - GAP10 partitions() TVF：schema-分区但零实例表 legacy 抛→新路返 0 行（已有 in-code 注释声明 intentional）。
+   - 动作：在 `plan-doc/deviations-log.md`（或既有 deviations 文档）登记这 4 条 + 各 file:line + 接受理由。
+8. **DOC：Batch-D redline 扩充（原任务交付，仍欠）**：把上述全部行为逻辑副本作为 **must-land-before-delete 红线** 补入 `plan-doc/tasks/designs/P4-batchD-maxcompute-removal-design.md` §1/§2（镜像现有 MaxComputeScanNode 红线注格式）；并**更正 scan-node 红线注**——critic-3 证其漏列 **LIMIT-split 优化（第 3 行为副本）**（等价物在 P3-9，注应 cite）。另 critic-2 提醒：`MetadataGenerator`/`PartitionsTableValuedFunction` 仍有 live-but-dead legacy refs，Batch-D 删 legacy 类前须连这些 reverse-ref 一并删否则不编译（已在 §2，复核）。
+
+## ⚙️ 操作须知（本 session 新增/复用）
+- **磁盘 `/mnt/disk1` 98%**（56G free，bulk 非本 repo）——`/dev/shm` 备份做 mutation（勿用 disk，曾 truncate 产线文件）。**需用户排查磁盘**。
+- maven 必绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml` + `-pl :fe-core -am`（改连接器 `:fe-connector-maxcompute`）+ `-Dmaven.build.cache.enabled=false`；读真实 `Tests run:`/`BUILD`/`MVN_EXIT`，勿信后台 task exit code。checkstyle `-pl :fe-core checkstyle:check`；import-gate `bash tools/check-connector-imports.sh`。
+- 分支 `catalog-spi-05`，本地未 push。本 session 2 commit（G8 fix + 回填）。
+- auto-memory 新增 [[catalog-spi-nonpartitioned-prune-dataloss]]。clean-room 对抗偏好见 [[clean-room-adversarial-review-pref]]；测基建坑见 [[catalog-spi-fe-core-test-infra]]。
+
+---
+
+<details><summary>📅 历史：第 11 次 handoff（P3-11/P3-12 完成 → P4-rereview triage 全 code-complete）</summary>
+
 ## 📅 最后一次 handoff
 
 - **日期**：2026-06-08（第 11 次 handoff）
@@ -81,3 +131,5 @@
 - **live e2e(真实 ODPS)仍是翻闸真正完成门**——本复审是静态代码层面的高置信判定,**不替代 e2e**;写路径 blocker(动态/静态分区 / INSERT OVERWRITE)最终须 live 验。runbook 见 `git show` 历史 HANDOFF 或 decisions-log。
 - 复审脚本可复用:`plan-doc/reviews/maxcompute-full-rereview.workflow.js`(clean-room 编排,Phase A/B 只读码、Phase C 解禁先验;args 可调 `verifyVotes/lensesPerDomain/includeBe`)。clean-room 偏好见 auto-memory `clean-room-adversarial-review-pref`。
 - 先验/历史交叉核对账(P4-T06d designs/reviews、cutover-fix-design、decisions/deviations-log、task-list)即将随上述修复更新——改前先读对应条目(Rule 8)。
+
+</details>
