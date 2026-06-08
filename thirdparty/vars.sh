@@ -174,6 +174,13 @@ if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
     HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.11
     HYPERSCAN_MD5SUM="e67b70403cba6c1654a9fef4fd15a2f2"
 fi
+if [[ "${MACHINE_TYPE}" == 'riscv64' ]]; then
+    echo "use vectorscan instead of hyperscan on riscv64"
+    HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.12.tar.gz"
+    HYPERSCAN_NAME=vectorscan-5.4.12.tar.gz
+    HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.12
+    HYPERSCAN_MD5SUM=""
+fi
 
 # ragel (dependency for hyperscan)
 RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"

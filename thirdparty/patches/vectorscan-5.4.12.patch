@@ -1,0 +1,126 @@
+diff -Nur vectorscan-vectorscan-5.4.12/CMakeLists.txt vectorscan-vectorscan-5.4.12-riscv/CMakeLists.txt
+--- vectorscan-vectorscan-5.4.12/CMakeLists.txt	2024-10-01 00:00:00.000000000 +0800
++++ vectorscan-vectorscan-5.4.12-riscv/CMakeLists.txt	2026-06-07 00:00:00.000000000 +0800
+@@ -130,6 +130,10 @@
+ include (${CMAKE_MODULE_PATH}/osdetection.cmake)
+ 
+ if(ARCH_X86_64 AND BUILD_SSE2_SIMDE AND NOT FAT_RUNTIME)
++    set(SIMDE_BACKEND True)
++endif()
++
++if(ARCH_RISCV64)
+     set(SIMDE_BACKEND True)
+ endif()
+ 
+@@ -139,6 +143,8 @@
+     include (${CMAKE_MODULE_PATH}/cflags-arm.cmake)
+ elseif (ARCH_PPC64EL)
+     include (${CMAKE_MODULE_PATH}/cflags-ppc64le.cmake)
++elseif (ARCH_RISCV64)
++    include (${CMAKE_MODULE_PATH}/cflags-riscv.cmake)
+ else ()
+     message(FATAL_ERROR "Unsupported platform")
+ endif ()
+diff -Nur vectorscan-vectorscan-5.4.12/cmake/archdetect.cmake vectorscan-vectorscan-5.4.12-riscv/cmake/archdetect.cmake
+--- vectorscan-vectorscan-5.4.12/cmake/archdetect.cmake	2024-10-01 00:00:00.000000000 +0800
++++ vectorscan-vectorscan-5.4.12-riscv/cmake/archdetect.cmake	2026-06-07 00:00:00.000000000 +0800
+@@ -80,6 +80,18 @@
+         elseif(ARCH_PPC64EL)
+             set(GNUCC_ARCH power8)
+             set(TUNE_FLAG power8)
++	elseif(ARCH_RISCV64)
++            set(GNUCC_ARCH rv64gc)
++            include (${CMAKE_MODULE_PATH}/cflags-riscv.cmake)
++            if(HAVE_RVV OR HAVE_RVV_1_0)
++                message(STATUS "Enabling RISC-V Vector extension (RVV)")
++                set(GNUCC_ARCH "${GNUCC_ARCH}v")
++
++                if(HAVE_RVV_1_0)
++                    message(STATUS "RVV 1.0 support confirmed")
++                endif()
++            endif()
++            set(TUNE_FLAG sifive-u54)
+         else()
+             set(GNUCC_ARCH x86-64-v2)
+             set(TUNE_FLAG generic)
+@@ -115,6 +127,18 @@
+     elseif(ARCH_PPC64EL)
+        set(GNUCC_ARCH power8)
+        set(TUNE_FLAG power8)
++    elseif(ARCH_RISCV64)
++       set(GNUCC_ARCH rv64gc)
++       include (${CMAKE_MODULE_PATH}/cflags-riscv.cmake)
++       if(HAVE_RVV OR HAVE_RVV_1_0)
++           message(STATUS "Enabling RISC-V Vector extension (RVV)")
++           set(GNUCC_ARCH "${GNUCC_ARCH}v")
++
++           if(HAVE_RVV_1_0)
++               message(STATUS "RVV 1.0 support confirmed")
++           endif()
++       endif()
++       set(TUNE_FLAG sifive-u54)
+     else()
+        set(GNUCC_ARCH native)
+        set(TUNE_FLAG native)
+diff -Nur vectorscan-vectorscan-5.4.12/cmake/cflags-riscv.cmake vectorscan-vectorscan-5.4.12-riscv/cmake/cflags-riscv.cmake
+--- vectorscan-vectorscan-5.4.12/cmake/cflags-riscv.cmake	1970-01-01 08:00:00.000000000 +0800
++++ vectorscan-vectorscan-5.4.12-riscv/cmake/cflags-riscv.cmake	2026-06-07 00:00:00.000000000 +0800
+@@ -0,0 +1,44 @@
++CHECK_INCLUDE_FILE_CXX("riscv_vector.h" HAVE_RISCV_VECTOR_H)
++
++if(HAVE_RISCV_VECTOR_H)
++    set(RVV_INTRIN_INC_H "riscv_vector.h")
++    message(STATUS "Found riscv_vector.h")
++else()
++    message(WARNING "riscv_vector.h not found - RISC-V Vector extension may be unavailable")
++    set(HAVE_RVV FALSE)
++    set(HAVE_RVV_1_0 FALSE)
++endif()
++
++if(HAVE_RISCV_VECTOR_H)
++    CHECK_C_SOURCE_COMPILES("
++    #include <${RVV_INTRIN_INC_H}>
++
++    int main() {
++        size_t vl = vsetvl_e32m1(4);
++        vfloat32m1_t a = vfmv_v_f_f32m1(1.0f, vl);
++        vfloat32m1_t b = vfadd_vv_f32m1(a, a, vl);
++        (void)b;
++        return 0;
++    }" HAVE_RVV)
++
++    if(HAVE_RVV)
++        message(STATUS "RISC-V Vector (RVV) extension support detected")
++    else()
++        message(WARNING "RISC-V Vector (RVV) extension not supported by compiler")
++    endif()
++
++    CHECK_C_SOURCE_COMPILES("
++    #include <${RVV_INTRIN_INC_H}>
++
++    #if __riscv_v != 10000
++    #error \"RVV version mismatch\"
++    #endif
++
++    int main() { return 0; }" HAVE_RVV_1_0)
++
++    if(NOT HAVE_RVV_1_0)
++        message(WARNING "RVV version is not 1.0 (or version check failed)")
++    else()
++        message(STATUS "RVV version 1.0 confirmed")
++    endif()
++endif()
+diff -Nur vectorscan-vectorscan-5.4.12/cmake/platform.cmake vectorscan-vectorscan-5.4.12-riscv/cmake/platform.cmake
+--- vectorscan-vectorscan-5.4.12/cmake/platform.cmake	2024-10-01 00:00:00.000000000 +0800
++++ vectorscan-vectorscan-5.4.12-riscv/cmake/platform.cmake	2026-06-07 00:00:00.000000000 +0800
+@@ -5,7 +5,9 @@
+ CHECK_C_SOURCE_COMPILES("#if !defined(__ARM_ARCH_ISA_A64)\n#error not 64bit\n#endif\nint main(void) { return 0; }" ARCH_AARCH64)
+ CHECK_C_SOURCE_COMPILES("#if !defined(__ARM_ARCH_ISA_ARM)\n#error not 32bit\n#endif\nint main(void) { return 0; }" ARCH_ARM32)
+ CHECK_C_SOURCE_COMPILES("#if !defined(__PPC64__) && !(defined(__LITTLE_ENDIAN__) && defined(__VSX__))\n#error not ppc64el\n#endif\nint main(void) { return 0; }" ARCH_PPC64EL)
+-if (ARCH_X86_64 OR ARCH_AARCH64 OR ARCH_PPC64EL)
++CHECK_C_SOURCE_COMPILES("#if !(defined(__riscv) && __riscv_xlen == 64)\n#error Not RISC-V 64-bit\n#endif\nint main(void) { return 0; }" ARCH_RISCV64)
++CHECK_C_SOURCE_COMPILES("#if !(defined(__riscv) && __riscv_xlen == 32)\n#error Not RISC-V 32-bit\n#endif\nint main(void) { return 0; }" ARCH_RISCV32)
++if (ARCH_X86_64 OR ARCH_AARCH64 OR ARCH_PPC64EL OR ARCH_RISCV64)
+   set(ARCH_64_BIT TRUE)
+ else()
+   set(ARCH_32_BIT TRUE)
