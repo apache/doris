@@ -38,7 +38,7 @@ suite("test_complex_types", "p0,external") {
         
         sql """ use multi_catalog """
 
-        qt_null_struct_element """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
+        qt_null_element_at """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
 
         qt_map_key_select """select id, singles["p0X72J-mkMe40O-vOa-opfI"] as map_key from byd where singles["p0X72J-mkMe40O-vOa-opfI"] is not null"""
 
@@ -54,7 +54,7 @@ suite("test_complex_types", "p0,external") {
 
         // qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
-        qt_null_struct_element_orc """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
+        qt_null_element_at_orc """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
 
         qt_map_key_select_orc """select id, singles["p0X72J-mkMe40O-vOa-opfI"] as map_key from byd where singles["p0X72J-mkMe40O-vOa-opfI"] is not null"""
 

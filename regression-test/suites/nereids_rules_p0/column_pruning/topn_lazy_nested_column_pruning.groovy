@@ -67,7 +67,7 @@ suite("topn_lazy_nested_column_pruning") {
     // =============================================
     explain {
         sql """
-            select id, substring(struct_element(struct_col, 'city'), 1) as city
+            select id, substring(element_at(struct_col, 'city'), 1) as city
             from tlncp_tbl
             order by id
             limit 3
@@ -86,7 +86,7 @@ suite("topn_lazy_nested_column_pruning") {
     // =============================================
     explain {
         sql """
-            select *, substring(struct_element(struct_col, 'city'), 1) as city
+            select *, substring(element_at(struct_col, 'city'), 1) as city
             from tlncp_tbl
             order by id
             limit 3
@@ -118,7 +118,7 @@ suite("topn_lazy_nested_column_pruning") {
     // Test 4: STRUCT - verify actual query results
     // =============================================
     qt_struct_result """
-        select id, substring(struct_element(struct_col, 'city'), 1) as city
+        select id, substring(element_at(struct_col, 'city'), 1) as city
         from tlncp_tbl
         order by id
         limit 3
@@ -285,7 +285,7 @@ suite("topn_lazy_nested_column_pruning") {
     // =============================================
     explain {
         sql """
-            select substring(struct_element(struct_col, 'city'), 1) as city, id
+            select substring(element_at(struct_col, 'city'), 1) as city, id
             from tlncp_tbl
             order by id
             limit 3
@@ -294,7 +294,7 @@ suite("topn_lazy_nested_column_pruning") {
         contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_struct_col_order_result """
-        select substring(struct_element(struct_col, 'city'), 1) as city, id
+        select substring(element_at(struct_col, 'city'), 1) as city, id
         from tlncp_tbl
         order by id
         limit 3
@@ -346,17 +346,17 @@ suite("topn_lazy_nested_column_pruning") {
     sql """ set enable_topn_expr_pullup = false; """
     explain {
         sql """
-            select *, substring(struct_element(struct_col, 'city'), 1) as city
+            select *, substring(element_at(struct_col, 'city'), 1) as city
             from tlncp_tbl
             order by id
             limit 3
         """
         contains("VMaterializeNode")
-        contains("final projections: id[#0], struct_col[#2], substring(struct_element(struct_col[#2]")
+        contains("final projections: id[#0], struct_col[#2], substring(element_at(struct_col[#2]")
         contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_project_under_topn_consumed_slot """
-        select *, substring(struct_element(struct_col, 'city'), 1) as city
+        select *, substring(element_at(struct_col, 'city'), 1) as city
         from tlncp_tbl
         order by id
         limit 3

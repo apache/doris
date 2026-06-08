@@ -41,18 +41,18 @@ suite("topn_expr_pullup") {
     // Test 1: STRUCT PPD — expression pulled above TopN + lazy mat
     // =============================================
     explain {
-        sql """ select id, struct_element(struct_col, 'city') as city
+        sql """ select id, element_at(struct_col, 'city') as city
             from tep_tbl order by id limit 3 """
         contains("VMaterializeNode")
         contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tep_tbl]")
     }
-    qt_struct_ppd """ select id, struct_element(struct_col, 'city') as city
+    qt_struct_ppd """ select id, element_at(struct_col, 'city') as city
         from tep_tbl order by id limit 3 """
 
     // =============================================
     // Test 2: STRUCT PPD — column order preserved (expr before id)
     // =============================================
-    qt_struct_col_order """ select struct_element(struct_col, 'city') as city, id
+    qt_struct_col_order """ select element_at(struct_col, 'city') as city, id
         from tep_tbl order by id limit 3 """
 
     // =============================================
@@ -98,38 +98,38 @@ suite("topn_expr_pullup") {
     // =============================================
     // Test 8: Simple alias NOT pulled up (child is Slot)
     // =============================================
-    qt_simple_alias """ select id as a, struct_element(struct_col, 'city') as city
+    qt_simple_alias """ select id as a, element_at(struct_col, 'city') as city
         from tep_tbl order by a limit 3 """
 
     // =============================================
     // Test 9: Negative — order by depends on expression, stays below TopN
     // =============================================
-    qt_order_by_expr """ select id, struct_element(struct_col, 'city') as city
+    qt_order_by_expr """ select id, element_at(struct_col, 'city') as city
         from tep_tbl order by city limit 3 """
 
     // =============================================
     // Test 10: select * with expression pulled up
     // =============================================
     explain {
-        sql """ select *, struct_element(struct_col, 'city') as city
+        sql """ select *, element_at(struct_col, 'city') as city
             from tep_tbl order by id limit 3 """
         contains("VMaterializeNode")
     }
-    qt_select_star """ select *, struct_element(struct_col, 'city') as city
+    qt_select_star """ select *, element_at(struct_col, 'city') as city
         from tep_tbl order by id limit 3 """
 
     // =============================================
     // Test 11: Switch disabled — same results
     // =============================================
     sql """ set enable_topn_expr_pullup = false; """
-    qt_switch_off """ select id, struct_element(struct_col, 'city') as city
+    qt_switch_off """ select id, element_at(struct_col, 'city') as city
         from tep_tbl order by id limit 3 """
     sql """ set enable_topn_expr_pullup = true; """
 
     // =============================================
     // Test 12: Join — PPD on left table
     // =============================================
-    qt_join_ppd """ select t1.id, struct_element(t1.struct_col, 'city') as city, t2.int_col
+    qt_join_ppd """ select t1.id, element_at(t1.struct_col, 'city') as city, t2.int_col
         from tep_tbl t1 join tep_tbl t2 on t1.id = t2.id
         order by t1.id limit 3 """
 
@@ -143,14 +143,14 @@ suite("topn_expr_pullup") {
     // =============================================
     // Test 14: Join — both sides have pull-up expressions
     // =============================================
-    qt_join_both """ select t1.id, struct_element(t1.struct_col, 'city') as c1, upper(t2.str_col) as c2
+    qt_join_both """ select t1.id, element_at(t1.struct_col, 'city') as c1, upper(t2.str_col) as c2
         from tep_tbl t1 join tep_tbl t2 on t1.id = t2.id
         order by t1.id limit 3 """
 
     // =============================================
     // Test 15: Join — condition references baseSlot (should still pull up)
     // =============================================
-    qt_join_base_slot """ select t1.id, struct_element(t1.struct_col, 'city') as c1
+    qt_join_base_slot """ select t1.id, element_at(t1.struct_col, 'city') as c1
         from tep_tbl t1 join tep_tbl t2 on t1.id = t2.id and t1.str_col = t2.str_col
         order by t1.id limit 3 """
 
