@@ -7,29 +7,30 @@
 
 ## 📅 最后一次 handoff
 
-- **日期**：2026-06-08（第 10 次 handoff）
-- **本 session 主题**：**P3-9 + P3-10 两回归修复完成**（limit-split 默认反转 major + isKey 元数据 minor），均连接器局部、**无 SPI 变更**，各走 设计验证 workflow → 实现 → 守门 → impl-review workflow → 独立 commit + hash 回填。live tracker = `plan-doc/task-list-P4-rereview.md`。
-  - **P3-9 FIX-LIMIT-SPLIT-DEFAULT** ✅ `952b08e0cc8`（NG-5/F11 major）：恢复 limit-split 默认 OFF 三重闸——经 `ConnectorSession.getSessionProperties()` 读 `enable_mc_limit_split_optimization` + 实现真 `checkOnlyPartitionEquality` 遍历 `ConnectorExpression`。**并闭 minors F2/F12**。设计验证 0 mustFix + impl review 1 mustFix（IN-value 守卫缺测→补 test+mutation G）。[D-032]/[DV-016]。
-  - **P3-10 FIX-ISKEY-METADATA** ✅ `1b44cd4f065`（NG-6/F3/F10 minor）：isKey=true 恢复 legacy parity（抽 `buildColumn` 助手）。**作用域更正**=仅影响 `DESCRIBE`（`information_schema.columns.COLUMN_KEY` 受 `FrontendServiceImpl:962-965` OlapTable 门控不受影响）。设计验证 0 mustFix + impl review 0 mustFix。[D-033]/[DV-017]。
-- **方法论**：每 issue = 设计文档 → 设计验证 workflow（多 lens clean-room 对抗）→ 实现 → 编译+UT+checkstyle+import-gate+mutation → impl-review workflow 收敛 → 独立 commit（fix）+ commit（hash 回填）。详见 2 份 review-rounds（P3-9/P3-10）。
-- **分支**：`catalog-spi-05`（本地，未 push）。本 session 4 commit（P3-9/P3-10 各 fix + hash 回填）。
-- **operational 坑（auto-memory `doris-build-verify-gotchas` 已更新两条）**：① 连接器单测须 `-pl :fe-connector-maxcompute -am test … -DfailIfNoTests=false`——`-am` 会在上游 `fe-thrift` 跑 surefire，无匹配测试时报 "No tests were executed!" 致 BUILD FAILURE（且 `${revision}` 父 pom 使连接器无法独立 `-pl` 解析，故必带 `-am`）；② mutation 避免 `if(false)` 造 for-each unused var——checkstyle 绑 validate 会在跑测前先红、产生 empty `Tests run:` 捕获歧义，改用翻条件 / 换守卫 / 替子句为 true|false。
-- **复审已验层（legacy parity 达成）**：返回行结果正确、descriptor/JNI/BE 线、事务生命周期、schema cache、editlog/replay、读裁剪下推（DG-1）、limit-split 三重闸（P3-9）、isKey 元数据（P3-10）——均独立验为与 legacy 等价。**剩余 = P3-11/P3-12 两 minor（DV 为主）+ 若干待用户定的开放项（见下）。**
+- **日期**：2026-06-08（第 11 次 handoff）
+- **本 session 主题**：**P3-11 + P3-12 完成 → 🎉 P3 全清 + 整个 P4-rereview triage（P0-1..3 / P1-4 / P2-5..8 / P3-9..12）全部完成**。各走 设计文档 →（P3-11）设计验证 workflow → 实现 → 守门 → impl-review workflow → 独立 commit + hash 回填。live tracker = `plan-doc/task-list-P4-rereview.md`。
+  - **P3-12 FIX-POSTCOMMIT-REFRESH** ✅ `1f2e00d3696`(+`2c4015ac7de` 回填)（NG-8/F15=F21 minor）：**无产线逻辑改动**——仅 `PluginDrivenInsertExecutor.doAfterCommit` Javadoc(`:164-176`) 从「只讲 JDBC_WRITE」泛化到覆盖 MC connector-transaction 路径。对抗性安全核查 inline（`handleRefreshTable` 只刷缓存/写 refresh editlog、丢失自愈）。[D-034]/[DV-018]。
+  - **P3-11 FIX-BATCH-MODE-SPLIT** ✅ `ac8f0fc15eb`(+`2a43abc6d76` 回填)（NG-7/F6=F13 minor）：**用户定「实现 batch SPI 路径」**（Shape A 薄 SPI + fe-core 编排、逐字镜像 legacy）。SPI +2 additive default（`supportsBatchScan`/`planScanForPartitionBatch`，零破坏其余 6 连接器）+ 连接器 `supportsBatchScan`=`fileNum>0` + fe-core `PluginDrivenScanNode` 三 override（`isBatchMode`含 SF-1 null-guard / `numApproximateSplits` / `startSplit` 异步分批）+ 纯静态 `shouldUseBatchMode`。设计验证 `wcpg9lblj` + impl-review `wve7y1jst` 各 GO-WITH-EDITS 折入。守门 mutation 5/5。[D-035]/[DV-019]。
+- **方法论**：每 issue = 设计文档 → 设计验证 workflow（多 lens clean-room 对抗）→ 实现 → 编译+UT+checkstyle+import-gate+mutation → impl-review workflow 收敛 → 独立 commit（fix）+ commit（hash 回填）。
+- **分支**：`catalog-spi-05`（本地，未 push）。本 session 4 commit（P3-11/P3-12 各 fix + hash 回填）。**累计本轮 triage 共 12 issue 全 DONE。**
+- **operational 坑（auto-memory `doris-build-verify-gotchas` 已更新）**：mutation 跑中 `/mnt/disk1` **系统级 100% 满**（1.9T/2T，非本 repo 数据——repo target 仅 ~3.65G）致 `cp` 还原失败一度 **truncate 产线文件**；已从 `/dev/shm`(RAM) 备份还原、重跑确认。教训=mutation 还原备份须放 RAM/异盘 + mutation 跑带 `-Dcheckstyle.skip=true`。**⚠️ 磁盘当前 97%，bulk 占用非本 repo，需用户排查。**
+- **复审已验层（legacy parity 达成，静态层面）**：返回行结果正确、descriptor/JNI/BE 线、事务生命周期、schema cache、editlog/replay、读裁剪下推（DG-1）、limit-split 三重闸（P3-9）、isKey 元数据（P3-10）、batch-mode 异步 split（P3-11）、post-commit swallow（P3-12）、写分发/静态分区 bind/INSERT OVERWRITE（P0）——均独立验为与 legacy 等价。**triage 已 code-complete；剩余 = ① live e2e 终验（真值闸，真实 ODPS）② Batch-D 删 legacy ③ 若干横切开放项（见下）。**
 
 ---
 
-# 🎯 下一 session = P3 起（P0 三写 blocker + P1 读裁剪下推 + P2 DB-DDL/CTAS 4 issue 已全清，按优先级续）
+# 🎯 下一 session = triage 已 code-complete，进入「终验 + 收尾」阶段
 
-> **P3 进度**：limit-split 默认反转(F11) ✅ DONE @`952b08e0cc8`（P3-9，恢复三重闸+闭 F2/F12）、isKey=false 元数据(F3/F10) ✅ DONE @`1b44cd4f065`（P3-10，isKey=true 恢复 parity，DESCRIBE-only）。**剩余**（见下 🟡 P3 段）：丢 batch-mode split(F6/F13)、post-commit refresh 吞异常(F15)。多为「修或 DV」。另有 P2-7 暴出的 **KNOWN PRE-EXISTING GAP**（非-IFNE+本地-only CREATE TABLE 不 fail-loud，见 FIX-CTAS review-rounds）待用户定。
-> 👉 **下一 session 第一步（建议执行顺序，做完 P3 全清）**：
-> 1. **P3-11 FIX-BATCH-MODE-SPLIT**（minor, F6/F13）— **建议 DV（非 fix）**：通用插件层缺口，`PluginDrivenScanNode` 无 `isBatchMode/numApproximateSplits/startSplit` override，继承 `SplitGenerator` 非-batch 默认（单 session 跨全分区、一次性同步枚举所有 split → 大分区表规划慢 + session/split 内存大、潜在 OOM）；legacy `MaxComputeScanNode:214-298` 分批异步建 read session 流式喂 split。**与 P1-4 耦合**（裁剪已落，batch-by-spec 才有意义）。给 SPI 加 batch 路径是较大工程——建议**登记 DV（+大分区压测/OOM 风险说明）、暂不改码**；设计文档可极简。
-> 2. **P3-12 FIX-POSTCOMMIT-REFRESH**（minor, regression=no, F15）— **无码改**：cutover 吞 post-commit refresh 异常行为反而更安全；**登记 DV + 在 `PluginDrivenInsertExecutor:164-176` 加 Javadoc** 注明 swallow 理由覆盖 connector-transaction(MC) 路径（不只 JDBC_WRITE）。
+> **本轮 P4-rereview triage 全部完成**：P0-1..3（写 blocker）/ P1-4（读裁剪）/ P2-5..8（DB-DDL/CTAS）/ P3-9..12（写并行/读默认/minors）共 **12 issue 全 DONE**，逐条见下面 🔴/🟠/🟡 段。剩余工作不再是「修 issue」，而是三条收尾线：
+> 👉 **下一 session 第一步（按价值/依赖排序）**：
+> 1. **🅰 live e2e 终验（真实 ODPS）= 翻闸真正完成门**（最高价值，CI 跳）。所有静态修复的真值闸须 live 验：写 blocker（动态/静态分区、INSERT OVERWRITE，DV-013/014）+ 读裁剪（DV-015）+ limit-split（DV-016）+ DESCRIBE isKey（DV-017）+ post-commit swallow（DV-018）+ batch-mode 大分区（DV-019）。**需真实 ODPS 环境/凭证**——多半要用户提供或在带 ODPS 的环境跑。runbook 见历史 HANDOFF / decisions-log。
+> 2. **🅱 Batch-D = 删 legacy MaxCompute（21 文件）**。**所有 per-fix 红线门现已全清**（P0 写分发/overwrite/bind + P1 读裁剪 + P3-11 batch-mode），故 Batch-D 已**解锁**；但执行仍**gated on 🅰 live e2e**（[D-027]）。设计 = `plan-doc/tasks/designs/P4-batchD-maxcompute-removal-design.md`（其 §1「zero survivor」声明已就 MaxComputeScanNode 加红线限定，仍须复查 PhysicalMaxComputeTableSink/allowInsertOverwrite/bindMaxComputeTableSink 三处，见 §横切）。
+> 3. **🅲 横切开放项**（静态、不需 ODPS，可随时清，见下）。
 >
-> 📋 **待用户拍板 / 待清的开放项**（下一 session 一并处理）：
+> 📋 **待用户拍板 / 待清的开放项**：
 > - **(决策) P2-7 KNOWN PRE-EXISTING GAP**：非-IFNE + FE-cache 命中但远端缺 → legacy 抛 `ERR_TABLE_EXISTS_ERROR`、cutover 静默建表。全 parity 可在 `PluginDrivenExternalCatalog.createTable` 的 `exists && !isIfNotExists()` 加 FE 侧 throw。**待定 fix vs 接受+DV**（见 FIX-CTAS review-rounds）。
 > - **(doc-sync 欠账 — P2 session 遗留，已核实仍未落)**：decisions-log 登记 P2 三处 SPI 改动（4 参 `dropDatabase` / `supportsCreateDatabase` / `ConnectorColumn.isAutoInc`）；deviations-log 登记（P2-7 非-IFNE 文案差、CTAS KNOWN GAP、P2-8 auto-inc 接受项）；更正 `P4-maxcompute-migration.md` 的「nereids 上游已拒 auto-inc」假声明（P2-8 已证伪：nereids 仅拒 generated 列、不拒 bare auto-inc）；T06c §5「记 OQ/可接受」措辞。**注：P3-9/P3-10 的 doc-sync（D-032/D-033/DV-016/DV-017）本 session 已落。**
 > - **(复查) F9 CAST 谓词剥壳下推**（`ExprToConnectorExpressionConverter:108-109`, confirms 3/3, correctness/丢行风险）：虽归「已登记降级」，建议二次确认真安全 / 真已登记。
-> - **(终验) live e2e（真实 ODPS）是翻闸真正完成门**：写 blocker（动态/静态分区、INSERT OVERWRITE）+ 读裁剪 + limit-split + DESCRIBE 的 DV 真值闸（DV-013..017）须 live 验，CI 跳。
+> - **(终验) live e2e（真实 ODPS）是翻闸真正完成门**（= 上面 🅰）：写 blocker（动态/静态分区、INSERT OVERWRITE）+ 读裁剪 + limit-split + DESCRIBE + post-commit swallow + batch-mode 大分区 的 DV 真值闸（**DV-013..019**）须 live 验，CI 跳。
 
 > 来源全部出自 `plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md`（每条带 `file:line` + cutover↔legacy diff + 处置建议 + 历史交叉核对证据）。下面是浓缩可执行清单——**动手前按指针核码（Rule 8）**。
 > **⚠️ 把 newGaps∪disagreements 当一个"必须 triage"集**：同一根因被两个审阅者按各自查到的历史 artifact 分别归 new-gap / disagreement（静态分区 bind F19=F48；CREATE DB 预检 F23=F26），别被 status 标签的细分误导。
