@@ -148,7 +148,7 @@ wiring is e2e-only because `getTableSchema` needs a live ODPS `Table` — same p
   wiring e2e-only (live truth-gate), same posture as DV-016.
 - review-rounds: `plan-doc/reviews/P4-T06e-FIX-ISKEY-METADATA-review-rounds.md`.
 
-## Outcome ✅ DONE (commit `<hash>`)
+## Outcome ✅ DONE (commit `1b44cd4f065`)
 
 Implemented as designed (`buildColumn` helper + 2 call-site swaps in `MaxComputeConnectorMetadata`;
 no SPI/fe-core change). Design-validation `wa9t0emta` 0 mustFix (folded in: DESCRIBE-only scope,
