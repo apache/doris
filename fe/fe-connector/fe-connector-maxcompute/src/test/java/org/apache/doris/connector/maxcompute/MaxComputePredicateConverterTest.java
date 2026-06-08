@@ -227,4 +227,41 @@ public class MaxComputePredicateConverterTest {
                 .convert(eq("dt", ConnectorLiteral.ofDatetime(LocalDateTime.of(2023, 2, 2, 0, 0, 0))));
         Assertions.assertSame(Predicate.NO_PREDICATE, p);
     }
+
+    // ---- G2 (FIX-PREDICATE-COLGUARD): a predicate on a column absent from the table schema must
+    //      degrade to NO_PREDICATE (legacy MaxComputeScanNode containsKey-guard parity), NOT push a
+    //      malformed predicate to ODPS. "ghost" is not in typeMap(). ----
+
+    @Test
+    public void testUnknownColumnComparisonDropsPredicate() {
+        // Before the fix, formatLiteralValue quoted the value and pushed `ghost == "5"`; now it
+        // throws -> convert()'s catch -> NO_PREDICATE (BE re-filters), so no malformed pushdown.
+        ConnectorComparison cmp = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("ghost", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5));
+        Predicate p = converter(true, UTC).convert(cmp);
+        Assertions.assertSame(Predicate.NO_PREDICATE, p,
+                "a predicate on an unknown column must be dropped, not pushed malformed");
+    }
+
+    @Test
+    public void testUnknownColumnInListDropsPredicate() {
+        ConnectorIn in = new ConnectorIn(
+                new ConnectorColumnRef("ghost", ConnectorType.of("INT")),
+                Arrays.<ConnectorExpression>asList(ConnectorLiteral.ofLong(1), ConnectorLiteral.ofLong(2)),
+                false);
+        Predicate p = converter(true, UTC).convert(in);
+        Assertions.assertSame(Predicate.NO_PREDICATE, p,
+                "an IN predicate on an unknown column must be dropped, not pushed malformed");
+    }
+
+    @Test
+    public void testKnownColumnComparisonStillPushed() {
+        // Regression guard: the get()!=null path is unaffected — a known column still pushes down.
+        ConnectorComparison cmp = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5));
+        Predicate p = converter(true, UTC).convert(cmp);
+        Assertions.assertNotSame(Predicate.NO_PREDICATE, p);
+        Assertions.assertTrue(p.toString().contains("id"),
+                "a known-column predicate must still push down; got: " + p);
+    }
 }

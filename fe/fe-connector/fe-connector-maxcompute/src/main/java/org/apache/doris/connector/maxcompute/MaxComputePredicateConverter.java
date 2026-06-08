@@ -209,7 +209,12 @@ public class MaxComputePredicateConverter {
 
         OdpsType odpsType = columnTypeMap.get(columnName);
         if (odpsType == null) {
-            return " \"" + rawValue + "\" ";
+            // Column not in the table schema: mirror legacy MaxComputeScanNode's
+            // containsKey guard (throw AnalysisException -> caller drops the predicate).
+            // Throwing here degrades the filter to NO_PREDICATE via convert()'s catch,
+            // so we never push down a malformed predicate on an unknown column.
+            throw new UnsupportedOperationException(
+                    "Cannot push down predicate on unknown column: " + columnName);
         }
 
         switch (odpsType) {
