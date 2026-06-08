@@ -18,9 +18,32 @@
 - **GC1 = Option A（全局 Config 透传，经 session-property）**——非原 DV-011 拟的 MCConnectorProperties（per-catalog，错 scope，非 legacy parity）。理由（采纳）：legacy 读的是 fe 全局 Config，须读同一全局值方 true parity；session-property 通道有 `lower_case_table_names` 直接先例、无 SPI 变更。见 [[catalog-spi-connector-session-tz-gotcha]]（连接器禁 import fe-core、经 session prop 读约定）。
 - **G2/GC1 = 沿用前批 skip 设计验证 workflow + 单 Agent 对抗 impl-review**（Ultracode off，同 G0/G5/G6/G7）。
 
-## 🎯 下一 session = T3 Tier-3 DV batch → DOC（用户定，2026-06-08）
+## 🎯 下一 session = 🆕 翻闸完整性审计（零 legacy 回退）+ T3 + DOC（用户定，2026-06-08）
 
-> **🎉 Batch-D 红线扩充 gap campaign 的 Tier 1+2 fix 已全清**（G8/G0/G6/G5/G7/G2/GC1）。剩余 = Tier-3 接受项登记 + 原 DOC 交付（均无产线代码）。
+> **🎉 Batch-D 红线扩充 gap campaign 的 Tier 1+2 fix 已全清**（G8/G0/G6/G5/G7/G2/GC1）。剩余 = ① 🆕 翻闸完整性审计（用户 2026-06-08 新增，下「任务 0」，无产线代码、可能查出新 gap）② T3 接受项登记 ③ 原 DOC 交付。
+
+### 🆕 任务 0（用户新增 2026-06-08，优先）— 确认所有 MaxCompute 操作走新 SPI、零 legacy 回退
+
+> **用户原话**：确认所有 maxcompute 的操作，都走到新的 SPI 框架上，不允许回退到老的代码上。
+
+**目标**：对 `max_compute` catalog 的**每一类操作**，证 FE 分发可达新 SPI/PluginDriven 实现，且 legacy `MaxCompute*` 对应路径在运行时**零可达**（无静默回退）。= 🅱 Batch-D 删 legacy 的**静态前置确认**（零可达调用方 → 删除才安全）。
+
+**审计范围（逐类核「FE 入口 → SPI 路由」+「legacy 路径零可达」）**：
+- 读：scan / 分区裁剪(P1-4) / 谓词下推(G0/G2) / limit-split(P3-9) / batch-mode(P3-11) / CAST 剥壳(F9)。
+- 写：INSERT / INSERT OVERWRITE(P0 gate) / 事务 begin·commit·block-alloc(GC1) / sink 分发(P0-2) / bind 投影(P0-3) / post-commit(P3-12)。
+- DDL：CREATE TABLE·CTAS(P2-7) / DROP TABLE / CREATE DB(P2-6) / DROP DB FORCE(P2-5) / CREATE CATALOG 校验(G6)。
+- 元数据：list db/table / get schema / DESCRIBE isKey(P3-10) / SHOW PARTITIONS / partitions() TVF。
+
+**已知风险区（必查、勿信先验「已修」标签 — Rule 8/12）**：
+- ⚠️ **FE 分发缺口** [[catalog-spi-cutover-fe-dispatch-gap]]：`PluginDrivenExternalCatalog` 仅 override `createTable`、`metadataOps` 曾永 null → DROP TABLE / CREATE DB / DROP DB / SHOW PARTITIONS / partitions TVF 的 FE 分发是否真接 SPI。**该 memory 的「已修完」状态 2026-06-07 对抗 review 两度被证伪**（见 `plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md`）→ 必须逐路径重核，不得信任何「已修」标签。
+- legacy 删除候选逐个确认对 `max_compute` **零运行时可达调用方**：`MaxComputeExternalCatalog` / `MaxComputeScanNode` / `MaxComputeMetadataOps` / `MCTransaction` / `PhysicalMaxComputeTableSink` / `bindMaxComputeTableSink` / `allowInsertOverwrite` 的 MC 分支 / `MaxComputeExternalTable`。
+- 「分发只接一半」反模式（已多次踩：P0 overwrite 顶层网关挡死下层；FE 仅 override createTable）：每个 op 须核**完整**分发链，非仅「连接器实现存在」。
+
+**成功标准（Rule 4，强标准供独立 loop）**：产出审计报告（建议 `plan-doc/reviews/P4-cutover-completeness-audit-<date>.md`）——每 op 一行：路由✅(FE 入口→SPI 实现 file:line) / 回退⚠️(file:line + 判据)；任何回退/缺口登记为新 gap 进 `plan-doc/task-list-batchD-redline-gaps.md` 修复。**法**：grep + 调用链 trace（SPI_READY catalog 经 `PluginDrivenExternalCatalog`/`PluginDrivenExternalTable`→`PluginDrivenScanNode`）；可选 clean-room 对抗 workflow（需用户 opt-in，复用 `plan-doc/reviews/maxcompute-full-rereview.workflow.js`）。
+
+**关系**：本任务 ⊇ 既有「Batch-D redline 扩充」DOC 的 zero-survivor 复核（DOC 是其产物/子集）；与 🅰 live e2e 并列为 🅱 Batch-D 删 legacy 的两大解锁门（本任务 = 静态分发面、🅰 = 运行时真值面）。
+
+### 任务 1–2（原计划，T3 + DOC）
 
 1. **T3 Tier-3 DV batch（GAP3/4/9/10，登记 deviation，无代码）**：在 `plan-doc/deviations-log.md` 登记 4 条接受项 + 各 file:line + 接受理由：
    - GAP3 CREATE DB 非-IFNE：`ERR_DB_CREATE_EXISTS`(1007/HY000 本地预抛)→透传 ODPS DdlException（P2-6 已注 pre-existing）。
