@@ -211,6 +211,12 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
             return values.isEmpty() ? 0L : values.max()
         }
 
+        def assertProfileCounterExists = { String profileString, String counterName,
+                String label ->
+            assert profileString.contains(counterName) :
+                    "${label}: expected profile counter ${counterName}, profile=${profileString}"
+        }
+
         def runProfileQuery = { String name, String query, Closure checker ->
             profile(name) {
                 run {
@@ -335,6 +341,8 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
             def remoteOnlyTriggered = maxProfileCounter(profileString, "RemoteOnlyOnMissTriggered")
             def skipCacheIo = sumProfileCounter(profileString, "NumSkipCacheIOTotal")
             def writeCacheBytes = sumProfileCounter(profileString, "BytesWriteIntoCache")
+            def invertedWriteCacheBytes =
+                    sumProfileCounter(profileString, "InvertedIndexBytesWriteIntoCache")
             def invertedRemoteBytes =
                     sumProfileCounter(profileString, "InvertedIndexBytesScannedFromRemote")
             def queryCacheMiss = sumProfileCounter(profileString, "InvertedIndexQueryCacheMiss")
@@ -343,6 +351,7 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
             logger.info("${label} inverted cold write-through counters: " +
                     "remoteOnlyTriggered=${remoteOnlyTriggered}, skipCacheIo=${skipCacheIo}, " +
                     "writeCacheBytes=${writeCacheBytes}, invertedRemoteBytes=${invertedRemoteBytes}, " +
+                    "invertedWriteCacheBytes=${invertedWriteCacheBytes}, " +
                     "queryCacheMiss=${queryCacheMiss}, searcherCacheMiss=${searcherCacheMiss}, " +
                     "minReaderMisses=${minReaderMisses}, " +
                     "minInvertedRemoteBytes=${minInvertedRemoteBytes}")
@@ -353,6 +362,16 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
                     "${label}: cold inverted-index read should not skip cache writes, profile=${profileString}"
             assert writeCacheBytes > 0L :
                     "${label}: expected inverted-index read to write file cache, profile=${profileString}"
+            assertProfileCounterExists(profileString, "InvertedIndexWriteCacheIOUseTimer",
+                    label)
+            assertProfileCounterExists(profileString, "InvertedIndexBytesWriteIntoCache",
+                    label)
+            assert invertedWriteCacheBytes > 0L :
+                    "${label}: expected inverted-index read to write file cache, " +
+                    "profile=${profileString}"
+            assert writeCacheBytes >= invertedWriteCacheBytes :
+                    "${label}: aggregate file-cache writes should cover inverted-index writes, " +
+                    "profile=${profileString}"
             assert invertedRemoteBytes >= minInvertedRemoteBytes :
                     "${label}: query should trigger enough inverted-index remote reads, " +
                     "minInvertedRemoteBytes=${minInvertedRemoteBytes}, profile=${profileString}"

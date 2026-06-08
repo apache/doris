@@ -84,6 +84,8 @@ struct FileCacheStatistics {
     int64_t inverted_index_remote_io_timer = 0;
     int64_t inverted_index_peer_io_timer = 0;
     int64_t inverted_index_io_timer = 0;
+    int64_t inverted_index_write_cache_io_timer = 0;
+    int64_t inverted_index_bytes_write_into_cache = 0;
 
     int64_t segment_footer_index_num_local_io_total = 0;
     int64_t segment_footer_index_num_remote_io_total = 0;
@@ -94,6 +96,8 @@ struct FileCacheStatistics {
     int64_t segment_footer_index_local_io_timer = 0;
     int64_t segment_footer_index_remote_io_timer = 0;
     int64_t segment_footer_index_peer_io_timer = 0;
+    int64_t segment_footer_index_write_cache_io_timer = 0;
+    int64_t segment_footer_index_bytes_write_into_cache = 0;
     int64_t remote_only_on_miss_triggered = 0;
     int64_t remote_only_on_miss_threshold_bytes = 0;
 
@@ -141,6 +145,8 @@ struct FileCacheStatistics {
         inverted_index_remote_io_timer += other.inverted_index_remote_io_timer;
         inverted_index_peer_io_timer += other.inverted_index_peer_io_timer;
         inverted_index_io_timer += other.inverted_index_io_timer;
+        inverted_index_write_cache_io_timer += other.inverted_index_write_cache_io_timer;
+        inverted_index_bytes_write_into_cache += other.inverted_index_bytes_write_into_cache;
 
         segment_footer_index_num_local_io_total += other.segment_footer_index_num_local_io_total;
         segment_footer_index_num_remote_io_total += other.segment_footer_index_num_remote_io_total;
@@ -154,6 +160,10 @@ struct FileCacheStatistics {
         segment_footer_index_local_io_timer += other.segment_footer_index_local_io_timer;
         segment_footer_index_remote_io_timer += other.segment_footer_index_remote_io_timer;
         segment_footer_index_peer_io_timer += other.segment_footer_index_peer_io_timer;
+        segment_footer_index_write_cache_io_timer +=
+                other.segment_footer_index_write_cache_io_timer;
+        segment_footer_index_bytes_write_into_cache +=
+                other.segment_footer_index_bytes_write_into_cache;
         remote_only_on_miss_triggered =
                 remote_only_on_miss_triggered || other.remote_only_on_miss_triggered;
         if (other.remote_only_on_miss_threshold_bytes > remote_only_on_miss_threshold_bytes) {

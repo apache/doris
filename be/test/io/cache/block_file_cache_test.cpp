@@ -432,6 +432,32 @@ TEST_F(BlockFileCacheTest, file_cache_profile_remote_only_on_miss_state_counters
     EXPECT_EQ(threshold_bytes->value(), 256);
 }
 
+TEST_F(BlockFileCacheTest, file_cache_profile_specialized_write_cache_counters) {
+    RuntimeProfile profile("file_cache_profile_specialized_write_test");
+    FileCacheProfileReporter reporter(&profile);
+
+    FileCacheStatistics stats;
+    stats.inverted_index_write_cache_io_timer = 11;
+    stats.inverted_index_bytes_write_into_cache = 17;
+    stats.segment_footer_index_write_cache_io_timer = 23;
+    stats.segment_footer_index_bytes_write_into_cache = 29;
+    reporter.update(&stats);
+
+    auto* inverted_index_write_timer = profile.get_counter("InvertedIndexWriteCacheIOUseTimer");
+    auto* inverted_index_write_bytes = profile.get_counter("InvertedIndexBytesWriteIntoCache");
+    auto* segment_footer_write_timer =
+            profile.get_counter("SegmentFooterIndexWriteCacheIOUseTimer");
+    auto* segment_footer_write_bytes = profile.get_counter("SegmentFooterIndexBytesWriteIntoCache");
+    ASSERT_NE(inverted_index_write_timer, nullptr);
+    ASSERT_NE(inverted_index_write_bytes, nullptr);
+    ASSERT_NE(segment_footer_write_timer, nullptr);
+    ASSERT_NE(segment_footer_write_bytes, nullptr);
+    EXPECT_EQ(inverted_index_write_timer->value(), 11);
+    EXPECT_EQ(inverted_index_write_bytes->value(), 17);
+    EXPECT_EQ(segment_footer_write_timer->value(), 23);
+    EXPECT_EQ(segment_footer_write_bytes->value(), 29);
+}
+
 TEST_F(BlockFileCacheTest, get_downloaded_blocks_if_fully_covered_is_read_only) {
     const std::string local_cache_path =
             (caches_dir / "remote_only_on_miss_helper_cache" / "").string();
@@ -724,6 +750,65 @@ TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_is_query_w
     EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 0);
     EXPECT_TRUE(state.remote_only_on_miss());
     EXPECT_EQ(state.admitted_data_bytes(), 1_mb);
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_specialized_write_cache_stats) {
+    const fs::path cache_path = caches_dir / "specialized_write_cache_stats_cache";
+    clear_cached_remote_reader_factory();
+    Defer cleanup_cache {[&]() {
+        std::error_code ignore;
+        fs::remove_all(cache_path, ignore);
+        clear_cached_remote_reader_factory();
+    }};
+
+    create_cached_remote_reader_test_cache(cache_path, kCachedRemoteReaderTinyBlockSize);
+
+    auto read_and_check = [&](const std::string& name, bool is_inverted_index, int64_t mtime) {
+        const auto remote_file = create_cached_remote_reader_test_file(name, "abcdefghijklmnop");
+        Defer cleanup_file {[&]() {
+            std::error_code ec;
+            fs::remove(remote_file, ec);
+        }};
+
+        FileReaderSPtr local_reader;
+        ASSERT_TRUE(global_local_filesystem()->open_file(remote_file.string(), &local_reader).ok());
+        io::FileReaderOptions opts;
+        opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.is_doris_table = false;
+        opts.cache_base_path = cache_path.string();
+        opts.mtime = mtime;
+        auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+        std::string buffer(4, '#');
+        size_t bytes_read = 0;
+        io::IOContext io_ctx;
+        io::FileCacheStatistics stats;
+        io_ctx.file_cache_stats = &stats;
+        io_ctx.is_index_data = true;
+        io_ctx.is_inverted_index = is_inverted_index;
+
+        ASSERT_TRUE(
+                reader->read_at(2, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+        EXPECT_EQ(bytes_read, buffer.size());
+        EXPECT_EQ(buffer, "cdef");
+        EXPECT_GT(stats.bytes_write_into_cache, 0);
+
+        if (is_inverted_index) {
+            EXPECT_EQ(stats.inverted_index_bytes_write_into_cache, stats.bytes_write_into_cache);
+            EXPECT_EQ(stats.inverted_index_write_cache_io_timer, stats.write_cache_io_timer);
+            EXPECT_EQ(stats.segment_footer_index_bytes_write_into_cache, 0);
+            EXPECT_EQ(stats.segment_footer_index_write_cache_io_timer, 0);
+        } else {
+            EXPECT_EQ(stats.segment_footer_index_bytes_write_into_cache,
+                      stats.bytes_write_into_cache);
+            EXPECT_EQ(stats.segment_footer_index_write_cache_io_timer, stats.write_cache_io_timer);
+            EXPECT_EQ(stats.inverted_index_bytes_write_into_cache, 0);
+            EXPECT_EQ(stats.inverted_index_write_cache_io_timer, 0);
+        }
+    };
+
+    read_and_check("specialized_write_cache_stats_inverted_index", true, 1);
+    read_and_check("specialized_write_cache_stats_segment_footer_index", false, 2);
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_policy_remote_only_with_scan_limiter) {
