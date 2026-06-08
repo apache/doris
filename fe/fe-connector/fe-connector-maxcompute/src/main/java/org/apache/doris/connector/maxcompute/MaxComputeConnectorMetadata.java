@@ -488,6 +488,15 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
                         "Auto-increment columns are not supported for MaxCompute tables: "
                                 + col.getName());
             }
+            // MaxCompute has no aggregate-key model; reject aggregate columns (e.g. SUM/REPLACE),
+            // mirroring legacy MaxComputeMetadataOps.validateColumns:426-429. The nereids non-OLAP
+            // path does not reject these (validateKeyColumns is ENGINE_OLAP-gated), so without this
+            // the user's aggregate intent is silently dropped to a plain column.
+            if (col.isAggregated()) {
+                throw new DorisConnectorException(
+                        "Aggregation columns are not supported for MaxCompute tables: "
+                                + col.getName());
+            }
             if (!seen.add(col.getName().toLowerCase())) {
                 throw new DorisConnectorException(
                         "Duplicate column name: " + col.getName());

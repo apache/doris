@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.ddl;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
@@ -138,6 +139,51 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         // (catches an inverted or constant-true mistake).
         Assertions.assertFalse(req.getColumns().get(0).isAutoInc(),
                 "autoIncInitValue == -1 (a normal column) must map to isAutoInc=false");
+    }
+
+    @Test
+    public void aggTypePropagatedAsIsAggregated() {
+        // ColumnDefinition is mocked; the converter computes isAggregated from getAggType()
+        // (mirroring Column.isAggregated()): non-null and non-NONE.
+        ColumnDefinition aggCol = Mockito.mock(ColumnDefinition.class);
+        Mockito.when(aggCol.getName()).thenReturn("c");
+        Mockito.when(aggCol.getType()).thenReturn(IntegerType.INSTANCE);
+        Mockito.when(aggCol.getComment()).thenReturn("");
+        Mockito.when(aggCol.isNullable()).thenReturn(false);
+        Mockito.when(aggCol.isKey()).thenReturn(false);
+        Mockito.when(aggCol.getAutoIncInitValue()).thenReturn(-1L);
+        Mockito.when(aggCol.getAggType()).thenReturn(AggregateType.SUM);
+
+        CreateTableInfo info = stubInfo("t", Collections.singletonList(aggCol),
+                null, null, "", Collections.emptyMap(), false, false);
+        ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+
+        // WHY (Rule 9): the connector can only reject what the converter carries. This proves the
+        // aggregate flag survives the ColumnDefinition -> ConnectorColumn boundary (without it the
+        // connector's aggregate rejection would be dead code). MUTATION: dropping the 8th ctor arg
+        // (or forcing the boolean false) in the converter makes this red.
+        Assertions.assertTrue(req.getColumns().get(0).isAggregated(),
+                "non-NONE aggType must propagate to ConnectorColumn.isAggregated");
+    }
+
+    @Test
+    public void plainColumnIsNotAggregated() {
+        ColumnDefinition plainCol = Mockito.mock(ColumnDefinition.class);
+        Mockito.when(plainCol.getName()).thenReturn("c");
+        Mockito.when(plainCol.getType()).thenReturn(IntegerType.INSTANCE);
+        Mockito.when(plainCol.getComment()).thenReturn("");
+        Mockito.when(plainCol.isNullable()).thenReturn(true);
+        Mockito.when(plainCol.isKey()).thenReturn(false);
+        Mockito.when(plainCol.getAutoIncInitValue()).thenReturn(-1L);
+        Mockito.when(plainCol.getAggType()).thenReturn(null); // no aggregate type
+
+        CreateTableInfo info = stubInfo("t", Collections.singletonList(plainCol),
+                null, null, "", Collections.emptyMap(), false, false);
+        ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+
+        // WHY: guards the boundary -- a normal column (null/NONE aggType) must map to false.
+        Assertions.assertFalse(req.getColumns().get(0).isAggregated(),
+                "null aggType (a normal column) must map to isAggregated=false");
     }
 
     @Test

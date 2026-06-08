@@ -21,10 +21,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * P2-8 FIX-AUTOINC-REJECT (clean-room re-review DG-5 / F24) — covers the additive
- * {@code isAutoInc} field added to {@link ConnectorColumn}.
+ * Covers the additive {@code isAutoInc} (P2-8 FIX-AUTOINC-REJECT) and {@code isAggregated}
+ * (G5 FIX-AGG-COLUMN-REJECT) fields added to {@link ConnectorColumn}.
  *
- * <p><b>WHY this matters:</b> the auto-inc flag is now a semantic discriminator that the
+ * <p><b>WHY this matters:</b> each such flag is now a semantic discriminator that the
  * connector validation rejects on. equals/hashCode must include it (else a set/map deduping
  * {@code ConnectorColumn}s could collapse an auto-inc column onto a plain one, silently dropping
  * the flag), and the legacy arities (5/6-arg) must keep {@code isAutoInc=false} so the other six
@@ -61,5 +61,39 @@ public class ConnectorColumnTest {
         Assertions.assertFalse(fiveArg.isAutoInc(), "5-arg ctor must default isAutoInc=false");
         Assertions.assertFalse(sixArg.isAutoInc(), "6-arg ctor must default isAutoInc=false");
         Assertions.assertTrue(sixArg.isKey(), "6-arg ctor must still honor isKey=true");
+    }
+
+    @Test
+    public void equalsAndHashCodeDistinguishAggregated() {
+        ConnectorColumn plain = new ConnectorColumn(
+                "c", ConnectorType.of("INT"), "", false, null, false, false, false);
+        ConnectorColumn aggregated = new ConnectorColumn(
+                "c", ConnectorType.of("INT"), "", false, null, false, false, true);
+
+        // WHY (Rule 9): two columns differing ONLY by isAggregated are genuinely different; if
+        // equals/hashCode ignored the field, dedup could re-drop the aggregate flag downstream.
+        // MUTATION: removing `&& isAggregated == that.isAggregated` from equals makes this red.
+        Assertions.assertNotEquals(plain, aggregated,
+                "columns differing only by isAggregated must not be equal");
+        Assertions.assertNotEquals(plain.hashCode(), aggregated.hashCode(),
+                "hashCode must reflect isAggregated");
+    }
+
+    @Test
+    public void defaultCtorsLeaveAggregatedFalse() {
+        // WHY: locks the additive-default contract -- the 5/6/7-arg ctors (used by the other six
+        // connectors and read-path producers) must keep isAggregated=false, i.e. zero behavior
+        // change. MUTATION: changing the 7-arg delegation default to true makes this red.
+        ConnectorColumn fiveArg = new ConnectorColumn(
+                "c", ConnectorType.of("INT"), "", true, null);
+        ConnectorColumn sixArg = new ConnectorColumn(
+                "c", ConnectorType.of("INT"), "", true, null, true);
+        ConnectorColumn sevenArg = new ConnectorColumn(
+                "c", ConnectorType.of("INT"), "", true, null, false, true);
+
+        Assertions.assertFalse(fiveArg.isAggregated(), "5-arg ctor must default isAggregated=false");
+        Assertions.assertFalse(sixArg.isAggregated(), "6-arg ctor must default isAggregated=false");
+        Assertions.assertFalse(sevenArg.isAggregated(), "7-arg ctor must default isAggregated=false");
+        Assertions.assertTrue(sevenArg.isAutoInc(), "7-arg ctor must still honor isAutoInc=true");
     }
 }
