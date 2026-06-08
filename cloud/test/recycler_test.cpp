@@ -327,6 +327,26 @@ static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
     return 0;
 }
 
+static size_t count_recycle_rowsets(TxnKv* txn_kv) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin_key = recycle_key_prefix(instance_id);
+    auto end_key = recycle_key_prefix(instance_id + '\xff');
+    EXPECT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    return it->size();
+}
+
+static size_t count_recycle_rowsets(TxnKv* txn_kv, int64_t tablet_id) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin_key = recycle_rowset_key({instance_id, tablet_id, ""});
+    auto end_key = recycle_rowset_key({instance_id, tablet_id, "\xff"});
+    EXPECT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    return it->size();
+}
+
 static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                              const doris::RowsetMetaCloudPB& rowset, bool write_schema_kv,
                              bool is_inverted_idx_v2 = false,
@@ -1353,12 +1373,16 @@ TEST(RecyclerTest, recycle_rowsets) {
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 1000);
     check_delete_bitmap_file_size(accessor, tablet_id, 1000);
 
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    for (size_t i = 0; i < 10; i++) {
+        ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    }
 
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        LOG(INFO) << "file: " << file->path;
+    }
     EXPECT_FALSE(list_iter->has_next());
     // check all recycle rowset kv have been deleted
     std::unique_ptr<Transaction> txn;
@@ -1374,6 +1398,89 @@ TEST(RecyclerTest, recycle_rowsets) {
     // check all versioned delete bitmap kv have been deleted
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
     check_delete_bitmap_file_size(accessor, tablet_id, 0);
+}
+
+TEST(RecyclerTest, next_recycle_rowset_tablet_key_overwrites_existing_buffer) {
+    std::string next_key = recycle_rowset_key({instance_id, 10002, "rowset"});
+    ASSERT_EQ(InstanceRecycler::next_recycle_rowset_tablet_key(instance_id, 10002, &next_key), 0);
+
+    std::string_view k1 = next_key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    ASSERT_EQ(decode_key(&k1, &out), 0);
+    EXPECT_EQ(std::get<int64_t>(std::get<0>(out[3])), 10003);
+    EXPECT_TRUE(std::get<std::string>(std::get<0>(out[4])).empty());
+}
+
+TEST(RecyclerTest, recycle_rowsets_tablet_batch_limit_recycles_remaining_in_next_round) {
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_batch_limit");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_batch_limit");
+
+    auto old_worker_pool_size = config::instance_recycler_worker_pool_size;
+    auto old_max_rowsets_per_tablet = config::recycle_rowsets_per_tablet_batch_size;
+    auto old_enable_mark = config::enable_mark_delete_rowset_before_recycle;
+    config::instance_recycler_worker_pool_size = 1;
+    config::recycle_rowsets_per_tablet_batch_size = 3;
+    config::enable_mark_delete_rowset_before_recycle = false;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = old_worker_pool_size;
+        config::recycle_rowsets_per_tablet_batch_size = old_max_rowsets_per_tablet;
+        config::enable_mark_delete_rowset_before_recycle = old_enable_mark;
+    };
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t first_tablet_id = 10002;
+    constexpr int64_t second_tablet_id = 10020;
+    std::vector<std::string> first_tablet_rowset_ids;
+    for (int i = 0; i < 5; ++i) {
+        auto rowset =
+                create_rowset("recycle_rowsets_batch_limit", first_tablet_id, index_id, 1, schema);
+        first_tablet_rowset_ids.push_back(rowset.rowset_id_v2());
+        ASSERT_EQ(create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                        RecycleRowsetPB::COMPACT, true),
+                  0);
+    }
+    for (int i = 0; i < 2; ++i) {
+        auto rowset =
+                create_rowset("recycle_rowsets_batch_limit", second_tablet_id, index_id, 1, schema);
+        ASSERT_EQ(create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                        RecycleRowsetPB::COMPACT, true),
+                  0);
+    }
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_EQ(accessor->exists(segment_path(first_tablet_id, first_tablet_rowset_ids[i], 0)),
+                  1);
+    }
+    for (int i = 3; i < 5; ++i) {
+        EXPECT_EQ(accessor->exists(segment_path(first_tablet_id, first_tablet_rowset_ids[i], 0)),
+                  0);
+    }
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    for (const auto& rowset_id : first_tablet_rowset_ids) {
+        EXPECT_EQ(accessor->exists(segment_path(first_tablet_id, rowset_id, 0)), 1);
+    }
 }
 
 TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
@@ -1467,6 +1574,322 @@ TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
     check_delete_bitmap_file_size(accessor, tablet_id, 3);
 }
 
+TEST(RecyclerTest, recycle_rowsets_limit_per_tablet_batch) {
+    config::retention_seconds = 0;
+    auto origin_worker_pool_size = config::instance_recycler_worker_pool_size;
+    auto origin_batch_size = config::recycle_rowsets_per_tablet_batch_size;
+    config::instance_recycler_worker_pool_size = 4;
+    config::recycle_rowsets_per_tablet_batch_size = 2;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = origin_worker_pool_size;
+        config::recycle_rowsets_per_tablet_batch_size = origin_batch_size;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_limit_per_tablet_batch");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_limit_per_tablet_batch");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    constexpr int index_id = 10001;
+    constexpr int64_t tablet_id0 = 100020;
+    constexpr int64_t tablet_id1 = 100021;
+    for (int64_t tablet_id : {tablet_id0, tablet_id1}) {
+        for (int i = 0; i < 5; ++i) {
+            auto rowset = create_rowset("recycle_rowsets_limit_per_tablet_batch", tablet_id,
+                                        index_id, 1, schema);
+            ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                               RecycleRowsetPB::COMPACT, true));
+        }
+    }
+
+    auto count_recycle_rowsets = [&](int64_t tablet_id) {
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+        auto begin_key = recycle_rowset_key({instance_id, tablet_id, ""});
+        auto end_key = recycle_rowset_key({instance_id, tablet_id, "\xff"});
+        EXPECT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        return it->size();
+    };
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id0), 3);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id1), 3);
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id0), 1);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id1), 1);
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id0), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id1), 0);
+}
+
+TEST(RecyclerTest, recycle_rowsets_delete_remaining_rowsets_by_tablet) {
+    config::retention_seconds = 0;
+    auto origin_worker_pool_size = config::instance_recycler_worker_pool_size;
+    auto origin_per_tablet_batch_size = config::recycle_rowsets_per_tablet_batch_size;
+    auto origin_delete_batch_size = config::recycle_rowsets_delete_batch_size;
+    config::instance_recycler_worker_pool_size = 4;
+    config::recycle_rowsets_per_tablet_batch_size = 10;
+    config::recycle_rowsets_delete_batch_size = 10;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = origin_worker_pool_size;
+        config::recycle_rowsets_per_tablet_batch_size = origin_per_tablet_batch_size;
+        config::recycle_rowsets_delete_batch_size = origin_delete_batch_size;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_below_batch_threshold");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_below_batch_threshold");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t tablet_id0 = 100030;
+    constexpr int64_t tablet_id1 = 100031;
+    for (int64_t tablet_id : {tablet_id0, tablet_id1}) {
+        for (int i = 0; i < 2; ++i) {
+            auto rowset = create_rowset("recycle_rowsets_below_batch_threshold", tablet_id,
+                                        index_id, 1, schema);
+            ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                               RecycleRowsetPB::COMPACT, true));
+        }
+        auto prefix_rowset =
+                create_rowset("recycle_rowsets_below_batch_threshold", tablet_id, index_id, 1,
+                              schema, RowsetStatePB::BEGIN_PARTIAL_UPDATE);
+        ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), prefix_rowset,
+                                           RecycleRowsetPB::COMPACT, true));
+    }
+
+    for (size_t i = 0; i < 10; i++) {
+        ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    }
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id0), &list_iter));
+    EXPECT_FALSE(list_iter->has_next());
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id1), &list_iter));
+    EXPECT_FALSE(list_iter->has_next());
+    EXPECT_EQ(count_recycle_rowsets(txn_kv.get(), tablet_id0), 0);
+    EXPECT_EQ(count_recycle_rowsets(txn_kv.get(), tablet_id1), 0);
+    EXPECT_EQ(count_recycle_rowsets(txn_kv.get()), 0);
+}
+
+TEST(RecyclerTest, recycle_rowsets_delete_full_batches_and_leftover_kvs) {
+    config::retention_seconds = 0;
+    auto origin_worker_pool_size = config::instance_recycler_worker_pool_size;
+    auto origin_per_tablet_batch_size = config::recycle_rowsets_per_tablet_batch_size;
+    auto origin_delete_batch_size = config::recycle_rowsets_delete_batch_size;
+    config::instance_recycler_worker_pool_size = 1;
+    config::recycle_rowsets_per_tablet_batch_size = 3;
+    config::recycle_rowsets_delete_batch_size = 7;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = origin_worker_pool_size;
+        config::recycle_rowsets_per_tablet_batch_size = origin_per_tablet_batch_size;
+        config::recycle_rowsets_delete_batch_size = origin_delete_batch_size;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_batched_delete");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_batched_delete");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    constexpr int64_t index_id = 10001;
+    for (int64_t tablet_id : {100040, 100041, 100042}) {
+        for (int i = 0; i < 2; ++i) {
+            auto rowset =
+                    create_rowset("recycle_rowsets_batched_delete", tablet_id, index_id, 1, schema);
+            ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                               RecycleRowsetPB::COMPACT, true));
+        }
+        auto empty_rowset =
+                create_rowset("recycle_rowsets_batched_delete", tablet_id, index_id, 0, schema);
+        ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), empty_rowset,
+                                           RecycleRowsetPB::COMPACT, true));
+    }
+
+    for (size_t i = 0; i < 3; i++) {
+        ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    }
+    std::unique_ptr<ListIterator> list_iter;
+    for (int64_t tablet_id : {100040, 100041, 100042}) {
+        ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+        EXPECT_FALSE(list_iter->has_next());
+    }
+    EXPECT_EQ(count_recycle_rowsets(txn_kv.get()), 0);
+}
+
+TEST(RecyclerTest, recycle_rowsets_delete_prefix_rowset_kvs_without_remaining_rowsets) {
+    config::retention_seconds = 0;
+    auto origin_worker_pool_size = config::instance_recycler_worker_pool_size;
+    auto origin_per_tablet_batch_size = config::recycle_rowsets_per_tablet_batch_size;
+    auto origin_delete_batch_size = config::recycle_rowsets_delete_batch_size;
+    config::instance_recycler_worker_pool_size = 1;
+    config::recycle_rowsets_per_tablet_batch_size = 10;
+    config::recycle_rowsets_delete_batch_size = 10;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = origin_worker_pool_size;
+        config::recycle_rowsets_per_tablet_batch_size = origin_per_tablet_batch_size;
+        config::recycle_rowsets_delete_batch_size = origin_delete_batch_size;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_prefix_only");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_prefix_only");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t tablet_id = 100050;
+    for (int i = 0; i < 3; ++i) {
+        auto rowset = create_rowset("recycle_rowsets_prefix_only", tablet_id, index_id, 1, schema,
+                                    RowsetStatePB::BEGIN_PARTIAL_UPDATE);
+        ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                           RecycleRowsetPB::COMPACT, true));
+    }
+
+    for (size_t i = 0; i < 3; i++) {
+        ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    }
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+    EXPECT_FALSE(list_iter->has_next());
+    EXPECT_EQ(count_recycle_rowsets(txn_kv.get()), 0);
+}
+
+TEST(RecyclerTest, recycle_rowsets_delete_old_empty_resource_id_kvs_with_normal_rowsets) {
+    config::retention_seconds = 0;
+    auto origin_worker_pool_size = config::instance_recycler_worker_pool_size;
+    auto origin_per_tablet_batch_size = config::recycle_rowsets_per_tablet_batch_size;
+    auto origin_delete_batch_size = config::recycle_rowsets_delete_batch_size;
+    config::instance_recycler_worker_pool_size = 4;
+    config::recycle_rowsets_per_tablet_batch_size = 10;
+    config::recycle_rowsets_delete_batch_size = 10;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = origin_worker_pool_size;
+        config::recycle_rowsets_per_tablet_batch_size = origin_per_tablet_batch_size;
+        config::recycle_rowsets_delete_batch_size = origin_delete_batch_size;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_old_empty_resource_id");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_old_empty_resource_id");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t tablet_id = 100060;
+    for (int i = 0; i < 3; ++i) {
+        auto rowset = create_rowset("recycle_rowsets_old_empty_resource_id", tablet_id, index_id, 1,
+                                    schema);
+        ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                           RecycleRowsetPB::COMPACT, true));
+    }
+    for (int i = 0; i < 2; ++i) {
+        auto old_rowset = create_rowset("", tablet_id, index_id, 0, schema);
+        ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), old_rowset,
+                                           RecycleRowsetPB::UNKNOWN, false));
+    }
+
+    for (size_t i = 0; i < 3; i++) {
+        ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    }
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+    EXPECT_FALSE(list_iter->has_next());
+    EXPECT_EQ(count_recycle_rowsets(txn_kv.get()), 0);
+}
+
 TEST(RecyclerTest, bench_recycle_rowsets) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -1530,8 +1953,9 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 1000);
     check_delete_bitmap_file_size(accessor, tablet_id, 1000);
 
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    for (size_t i = 0; i < 10; i++) {
+        ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    }
     ASSERT_EQ(recycler.check_recycle_tasks(), false);
 
     // check rowset does not exist on obj store
@@ -5700,6 +6124,9 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
     EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &updated_val));
 
     EXPECT_EQ(1, accessor->exists(packed_file_path));
+    for (int i = 0; i < rowset.num_segments(); ++i) {
+        EXPECT_EQ(0, accessor->exists(segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i)));
+    }
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_respects_recycled_tablet) {
@@ -5863,6 +6290,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_batch_rowsets) {
     EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &updated_val));
 
     EXPECT_EQ(1, accessor->exists(packed_file_path));
+    EXPECT_EQ(0, accessor->exists(small_path));
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
@@ -5981,7 +6409,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
     }
 
     for (const auto& path : segment_paths) {
-        EXPECT_EQ(1, accessor->exists(path));
+        EXPECT_EQ(0, accessor->exists(path));
     }
     for (const auto& path : index_paths) {
         EXPECT_EQ(1, accessor->exists(path));
