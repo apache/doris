@@ -169,8 +169,6 @@ public class IcebergUtils {
     // nickname in flink and spark
     public static final String WRITE_FORMAT = "write-format";
     public static final String COMPRESSION_CODEC = "compression-codec";
-    // For migrated Iceberg tables, the format may be stored as "iceberg/parquet" or "iceberg/orc"
-    public static final String FORMAT = "format";
 
     // nickname in spark
     public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
