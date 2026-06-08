@@ -14,7 +14,7 @@
 
 | # | issue (gap) | sev | 决策 | 设计 | 实现 | 守门 | review | 状态 |
 |---|---|---|---|---|---|---|---|---|
-| G8 | **FIX-NONPART-PRUNE-DATALOSS** (GAP8) | **blocker/correctness** | Fix（repro 先行） | ✅ | ✅ | ✅ | ✅ 设计验证`wijd3qgk0`4lens design-sound + impl-review`wza2khdb2`2lens approve | ✅ DONE (`<hash-TBD>`) |
+| G8 | **FIX-NONPART-PRUNE-DATALOSS** (GAP8) | **blocker/correctness** | Fix（repro 先行） | ✅ | ✅ | ✅ | ✅ 设计验证`wijd3qgk0`4lens design-sound + impl-review`wza2khdb2`2lens approve | ✅ DONE (`e1760d38d86`) |
 | G0 | **FIX-DATETIME-PUSHDOWN-FORMAT** (GAP0/1) | major(correctness/perf) | Fix | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | G6 | **FIX-CREATE-CATALOG-VALIDATION** (GAP6) | major | Fix | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | G5 | **FIX-AGG-COLUMN-REJECT** (GAP5) | minor | Fix | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
