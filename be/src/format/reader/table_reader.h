@@ -234,7 +234,7 @@ protected:
         // reader with the request. File scan request carries row-level expression filters and
         // file-level pruning hints. Only expression filters decide returned rows; column predicates
         // are pruning hints.
-        auto file_request = std::make_unique<FileScanRequest>();
+        auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get(),
                 _runtime_state));

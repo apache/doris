@@ -53,7 +53,7 @@ public:
     // 这里不做 Iceberg schema evolution，也不把字段转换成 table/global schema。
     Status get_schema(std::vector<reader::ColumnDefinition>* file_schema) const override;
 
-    Status open(std::unique_ptr<reader::FileScanRequest>& request) override;
+    Status open(std::shared_ptr<reader::FileScanRequest> request) override;
     // 读取下一批 Parquet file-local block。
     // 该方法只能在 init() 成功后调用。
     // 返回列必须保持 file-local 语义，不能在这里补 default/generated/partition 列。
