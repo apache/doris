@@ -5,6 +5,44 @@
 
 ---
 
+# 🔥 第 14 次 handoff（2026-06-08，覆盖）— G6 + G5 + G7 批量完成
+
+> **本 session 主题**：批量修复 Batch-D 红线扩充 gap campaign 的 **G6 + G5 + G7**（三者逻辑独立、触不同区）。各走 recon 核码 → 独立 design doc →（Ultracode off，用户定 skip 设计验证 workflow）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ 单 Agent 对抗 impl-review → 独立 `[P4-T06e]` commit + hash 回填。**三 issue 全 DONE，6 commit。**
+
+## ✅ 本 session 已完成
+
+- **G6 FIX-CREATE-CATALOG-VALIDATION（Tier 2，major）DONE @`1fc00178484`（+回填 `8bc2c5cade2`）**：`MaxComputeConnectorProvider` 未 override `validateProperties`（继承 SPI no-op）→ CREATE CATALOG 跳过全部属性校验（required PROJECT/ENDPOINT、split floor、account_format、timeout>0、auth）。**修**=override `validateProperties` 逐字镜像 legacy `MaxComputeExternalCatalog.checkProperties:388-457` 六校验、抛 `IllegalArgumentException`（经 `PluginDrivenExternalCatalog.checkProperties:159` catch→DdlException，= legacy 形态）；wire 既有 dead `MCConnectorClientFactory.checkAuthProperties`（4 处 RuntimeException→IllegalArgumentException，零调用方安全）。required ENDPOINT 取**字面 key**（= legacy CREATE parity；region/odps_endpoint 为 replay backward-compat、不在新 CREATE 接受；impl-review 证 `CatalogMgr` `!isReplay`-gated、老 catalog 不受影响）。UT `MaxComputeConnectorProviderTest` 19/19 + mutation 3 组向红。impl-review 单 Agent **APPROVE-WITH-NITS**（0 must-fix；nit=纠正 legacy 错误 message 文案，故意改）。
+- **G5 FIX-AGG-COLUMN-REJECT（Tier 2，minor）DONE @`c5e8ba6d9e2`（+回填 `aa28c97f8ef`）**：`CREATE TABLE (c INT SUM)` 对 mc 表静默建普通列（**证伪 P2-8「非-OLAP 路径已覆盖聚合列」**）。nereids 唯一拒 bare 非-key aggType 的 `validateKeyColumns` 仅在 `ENGINE_OLAP` 块内被调、非-OLAP 不可达。**用户定 Option B（加 SPI 字段，非 HANDOFF 原倾向的 fe-core guard）**——逐字镜像 P2-8 isAutoInc：`ConnectorColumn` 加 additive 第 8 字段 `isAggregated`（8-arg ctor、7-arg 委托 default false、getter/equals/hashCode；全 25 call site 仅 converter 改 8-arg）+ `CreateTableInfoToConnectorRequestConverter` 算 `isAggregated = getAggType()!=null && !=AggregateType.NONE`（= `Column.isAggregated()`）+ `MaxComputeConnectorMetadata.validateColumns` 在 isAutoInc 检查后加 `if(col.isAggregated())throw`（逐字镜像 legacy `MaxComputeMetadataOps.validateColumns:426-429`，**相邻** auto-inc 分支）。over-rejection 已核（隐式 aggType 赋值块 isOlap-gated、validate(isOlap=false)）。UT 4/4/11 + mutation 3 组向红。impl-review **APPROVE**（0 must-fix）。
+- **G7 FIX-VOID-TYPE-MAPPING（Tier 2，minor）DONE @`49113dc7860`（+回填 `74822486792`）**：ODPS VOID 列映 UNSUPPORTED（legacy=Type.NULL）。`MCTypeMapping` VOID emit token `"NULL"`，但 `ScalarType.createType` 只认 `"NULL_TYPE"`（"NULL" 抛→`ConnectorColumnConverter` catch→UNSUPPORTED）。**修**=连接器局部：① VOID token `"NULL"`→`"NULL_TYPE"`（fe-core convertScalarType default 即产 Type.NULL，无需改 fe-core）；② switch default `return UNSUPPORTED`→`throw DorisConnectorException`（fail-fast，镜像 legacy `mcTypeToDorisType:294`）。**fix-2 安全性**：BINARY/INTERVAL_*/JSON 显式 UNSUPPORTED case 不受影响；impl-review 经 24-值 OdpsType 枚举 set-diff 证**仅 `OdpsType.UNKNOWN`（SDK sentinel、非真实列类型）落 default**、legacy 对 UNKNOWN 同 throw→parity、真实表零回归。UT `MCTypeMappingTest` 5/5 + mutation 2 组向红。impl-review **APPROVE**（0 must-fix）。**out-of-scope（留待 ES 翻闸）**：ES `EsTypeMapping:191` 同款 emit "NULL" latent token bug（其 test 还钉了 buggy token），未修。
+
+## 👤 用户定夺（2026-06-08）
+- **G5 = Option B（加 SPI 字段 `isAggregated`）**——非 HANDOFF 原倾向的 fe-core guard。理由（采纳）：聚合拒绝是 legacy `validateColumns` 中 auto-inc 拒绝的**相邻行**，连接器 `validateColumns` 已含 `isAutoInc` 检查，Option B 完成同方法的 legacy 镜像；且与 P2-8 一致（full parity 非 deviation）。见 [[catalog-spi-p2-ddl-decisions]]。
+- **G6/G7 = 直接 implement（无单独设计验证 workflow，Ultracode off）**，走守门 + 单 Agent impl-review。
+- **G7 secondary defect（未知 OdpsType fail-fast）= 纳入修复**（parity + Rule 12 fail-loud；零现表风险；经 `TypeInfoFactory.UNKNOWN` 可 UT）。
+- **下一 session = G2 + GC1**（本次定）。
+
+## 🎯 下一 session = G2 + GC1（用户定，2026-06-08）
+
+> **方法论（每 issue）**：recon 核码（**Rule 8，下列 anchor 已核但仍可漂移**）→ 独立设计 `tasks/designs/P4-T06e-<FIX>-design.md` → 设计验证（**⚠️ Ultracode 仍关**：workflow 需用户 opt-in，否则单/双 Agent 对抗或用户定 skip）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ impl-review → 独立 `[P4-T06e]` commit + hash 回填 + tracker。live tracker `plan-doc/task-list-batchD-redline-gaps.md`。
+
+1. **G2 FIX-PREDICATE-COLGUARD（Tier 2，minor，多半不可达）— 连接器**：列不存在守卫反转。legacy `MaxComputeScanNode:415-421/478-484` 谓词引用未知列→抛→丢谓词；新路 `MaxComputePredicateConverter.formatLiteralValue` 取 `columnTypeMap.get(columnName)` 为 null 时静默引号化→下推非法谓词。**已核当前 anchor（G0 已移位）**：`MaxComputePredicateConverter.java:202`(formatLiteralValue) / **`:210-211`** `OdpsType odpsType = columnTypeMap.get(columnName); if (odpsType == null) {...}`——此 null 块即守卫点。实务 bound 谓词只引真列、columnTypeMap key 集与 legacy 一致→**多半不可达**；修=该 null 分支改 throw/skip（对齐 legacy 丢谓词、不下推非法）。低优。
+2. **GC1 FIX-BLOCKID-CAP-CONFIG（Tier 2，minor）— 连接器写路径**：写 block-id 上限硬编 `MAX_BLOCK_COUNT = 20000L`（**已核** `MaxComputeConnectorTransaction.java:72`，用于 `:146`；`:68` 注释已自承硬编 = `Config.max_compute_write_max_block_count` 默认），无视 legacy `MCTransaction.java:165` 读的可调 `Config.max_compute_write_max_block_count`（`Config.java:2156`，`=20000L`）→ 调优部署静默回归。修=连接器读该 Config 值。**⚠️ 关键调研点（未解）**：连接器**禁 import fe-core**（含 `org.apache.doris.common.Config`，import-gate 禁）→ 须查连接器如何拿 fe Config 值：候选 = ConnectorContext / catalog property 透传 / `ConnectorSession.getSessionProperties()`（参 P3-9 limit-opt 经 session prop 读 var、G0 经 `ConnectorSession.getTimeZone()` 的约定）。若无现成透传通道，需**设计定夺**（加 property/context 透传 vs 接受+登记 deviation）——可能需问用户。
+
+> 其后（本批之后，**非本 session**）：**T3 Tier-3 DV batch（GAP3/4/9/10 登记 deviation，无代码）→ DOC（Batch-D redline 扩充 design §1/§2 must-land-before-delete + scan-node 注补 LIMIT-split 第 3 副本 + 登记 ES `EsTypeMapping:191` 同款 token bug）**。详见下方折叠「第 12 次 handoff」§下一 session 待办 7-8 项。
+
+## ⚙️ 操作须知（复用）
+- maven 必绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml` + `-pl :<artifact> -am` + `-Dmaven.build.cache.enabled=false`；改连接器 `:fe-connector-maxcompute`、改 SPI `:fe-connector-api`（**须 -am、连带 rebuild maxcompute + fe-core**）、改 fe-core `:fe-core`。读真实 `Tests run:`/`BUILD`/`MVN_EXIT`，勿信后台 task exit code。checkstyle 走 `test` 的 validate 阶段自动跑（或 `checkstyle:check`）；import-gate `bash tools/check-connector-imports.sh`（repo 根）。
+- mutation：Edit 改产线一处→跑相关 UT→确认对应 test 变红→Edit 还原；备份产线文件到 `/dev/shm`（RAM，避 `/mnt/disk1` 满时 cp 截断，auto-memory [[doris-build-verify-gotchas]]）。改产线令 import 变 unused 时改用「翻转谓词」式 mutation（保 import 用、免 checkstyle 拦——本 session G5-M2 踩过）。
+- 分支 `catalog-spi-05`，本地未 push。本 session 6 commit。未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak`/`.claude/scheduled_tasks.lock`（勿提交）。
+
+## 🧠 给下一个 agent 的 meta
+- **live e2e（真实 ODPS）仍是翻闸真正完成门**——本批为静态/UT 层判定；G6 非法属性 CREATE 拒绝须 live 验（登记 DV）。
+- auto-memory：连接器禁 import fe-core（[[catalog-spi-connector-session-tz-gotcha]]）；测基建无 fe-core/无 mockito、child-first loader（[[catalog-spi-fe-core-test-infra]]）；P2 DDL 定夺（[[catalog-spi-p2-ddl-decisions]]，G5 续其 isAutoInc→isAggregated SPI-字段模式）；clean-room 对抗偏好（[[clean-room-adversarial-review-pref]]）。
+
+---
+
+<details><summary>📅 历史：第 13 次 handoff（2026-06-08）— G0 FIX-DATETIME-PUSHDOWN-FORMAT 完成</summary>
+
 # 🔥 第 13 次 handoff（2026-06-08，覆盖）— G0 FIX-DATETIME-PUSHDOWN-FORMAT 完成
 
 > **本 session 主题**：续做 Batch-D 红线扩充 gap 修复 campaign 的 **G0**（Tier 1，major correctness/perf）。设计 → （用户定 **skip** 设计验证 workflow）→ 实现 → 守门 → 单 Agent impl-review → 独立 commit。
@@ -35,6 +73,8 @@
 3. **G7 FIX-VOID-TYPE-MAPPING（Tier 2，minor）— 连接器/fe-core 边界**：ODPS `VOID` → 新路映 `UNSUPPORTED`（legacy=`Type.NULL`）。链：`MCTypeMapping:51-52` emit `of("NULL")` → `ConnectorColumnConverter.convertScalarType` 无 "NULL" case → `ScalarType.createType("NULL")` 抛（只认 "NULL_TYPE"）被 catch→UNSUPPORTED。次生缺陷：未知 OdpsType legacy 硬抛、新路静默 UNSUPPORTED。**修**=加 "NULL" case 返 `Type.NULL`，或 `MCTypeMapping` emit `of("NULL_TYPE")`（设计时定哪侧）。
 
 > G6/G5/G7 完整证据 + 其余待办（G2/GC1/T3/DOC 的 file:line + 修法）见下方折叠「第 12 次 handoff」§下一 session 待办，未变。
+
+</details>
 
 ---
 
