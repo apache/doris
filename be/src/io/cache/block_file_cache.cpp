@@ -173,78 +173,21 @@ bool NeedUpdateLRUBlocks::try_reserve_slot() {
 
 namespace {
 
-struct QueueConsumePlan {
-    int64_t interval_ms = 0;
-    size_t batch_limit = 0;
-};
-
-constexpr size_t kLruLogReplayAdaptiveLowWatermark = 50'000;
-constexpr size_t kLruLogReplayAdaptiveHighWatermark = 300'000;
-constexpr int64_t kLruLogReplayAdaptiveMinIntervalMs = 100;
-constexpr size_t kLruLogReplayAdaptiveMaxBatchPerType = 25'000;
-
-constexpr size_t kBlockLruUpdateAdaptiveLowWatermark = 10'000;
-constexpr size_t kBlockLruUpdateAdaptiveHighWatermark = 50'000;
-constexpr int64_t kBlockLruUpdateAdaptiveMinIntervalMs = 500;
-constexpr size_t kBlockLruUpdateAdaptiveMaxBatch = 10'000;
+constexpr size_t kLruLogReplayBatchPerType = 25'000;
+constexpr size_t kBlockLruUpdateBatch = 10'000;
 constexpr size_t kBlockLruUpdateLockSliceBatch = 500;
 constexpr size_t kNeedUpdateLruBlocksHardCap = 100'000;
-constexpr size_t kLruRecorderLogQueueHardCap = 500'000;
+constexpr size_t kDefaultLruRecorderLogQueueHardCap = 500'000;
 
 int64_t positive_or_default(int64_t value, int64_t default_value) {
     return value > 0 ? value : default_value;
 }
 
-QueueConsumePlan build_queue_consume_plan(size_t backlog, int64_t base_interval_ms,
-                                          size_t base_batch, size_t low_watermark,
-                                          size_t high_watermark, int64_t min_interval_ms,
-                                          size_t max_batch) {
-    QueueConsumePlan plan;
-    plan.interval_ms = positive_or_default(base_interval_ms, 1);
-    plan.batch_limit = base_batch;
-
-    if (backlog < low_watermark) {
-        return plan;
+size_t lru_recorder_log_queue_hard_cap() {
+    if (config::file_cache_lru_recorder_log_queue_hard_cap <= 0) {
+        return kDefaultLruRecorderLogQueueHardCap;
     }
-
-    const int64_t min_interval = positive_or_default(min_interval_ms, 1);
-    const size_t capped_max_batch = std::max<size_t>(max_batch, 1);
-    if (backlog < high_watermark) {
-        plan.interval_ms = std::max<int64_t>(min_interval, plan.interval_ms / 2);
-        plan.batch_limit = std::min(capped_max_batch, std::max<size_t>(base_batch * 2, 1));
-        return plan;
-    }
-
-    plan.interval_ms = min_interval;
-    plan.batch_limit = capped_max_batch;
-    return plan;
-}
-
-QueueConsumePlan build_lru_log_replay_plan(size_t backlog) {
-    const auto base_interval =
-            positive_or_default(config::file_cache_background_lru_log_replay_interval_ms, 1);
-    if (backlog < kLruLogReplayAdaptiveLowWatermark) {
-        return {base_interval, 0};
-    }
-    return build_queue_consume_plan(
-            backlog, base_interval, kLruLogReplayAdaptiveMaxBatchPerType / 4,
-            kLruLogReplayAdaptiveLowWatermark, kLruLogReplayAdaptiveHighWatermark,
-            kLruLogReplayAdaptiveMinIntervalMs, kLruLogReplayAdaptiveMaxBatchPerType);
-}
-
-QueueConsumePlan build_block_lru_update_plan(size_t backlog) {
-    const auto base_interval =
-            positive_or_default(config::file_cache_background_block_lru_update_interval_ms, 1);
-    const size_t base_batch =
-            std::max<int64_t>(config::file_cache_background_block_lru_update_qps_limit, 0) *
-            static_cast<size_t>(base_interval) / 1000;
-    if (base_batch == 0) {
-        return {base_interval, 0};
-    }
-    return build_queue_consume_plan(
-            backlog, base_interval, base_batch, kBlockLruUpdateAdaptiveLowWatermark,
-            kBlockLruUpdateAdaptiveHighWatermark, kBlockLruUpdateAdaptiveMinIntervalMs,
-            kBlockLruUpdateAdaptiveMaxBatch);
+    return static_cast<size_t>(config::file_cache_lru_recorder_log_queue_hard_cap);
 }
 
 } // namespace
@@ -482,7 +425,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _ttl_queue = LRUQueue(cache_settings.ttl_queue_size, cache_settings.ttl_queue_elements,
                           std::numeric_limits<int>::max());
 
-    _lru_recorder = std::make_unique<LRUQueueRecorder>(this, kLruRecorderLogQueueHardCap);
+    _lru_recorder = std::make_unique<LRUQueueRecorder>(this, lru_recorder_log_queue_hard_cap());
     _lru_dumper = std::make_unique<CacheLRUDumper>(this, _lru_recorder.get());
     if (cache_settings.storage == "memory") {
         _storage = std::make_unique<MemFileCacheStorage>();
@@ -2220,18 +2163,20 @@ void BlockFileCache::run_background_block_lru_update() {
     std::vector<FileBlockSPtr> batch;
     while (!_close) {
         size_t backlog = _need_update_lru_blocks.size();
-        QueueConsumePlan plan = build_block_lru_update_plan(backlog);
-        {
+        if (backlog == 0) {
             std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock, std::chrono::milliseconds(plan.interval_ms));
+            _close_cv.wait_for(
+                    close_lock,
+                    std::chrono::milliseconds(positive_or_default(
+                            config::file_cache_background_block_lru_update_interval_ms, 1)));
             if (_close) {
                 break;
             }
         }
 
         batch.clear();
-        batch.reserve(plan.batch_limit);
-        size_t drained = _need_update_lru_blocks.drain(plan.batch_limit, &batch);
+        batch.reserve(kBlockLruUpdateBatch);
+        size_t drained = _need_update_lru_blocks.drain(kBlockLruUpdateBatch, &batch);
         if (drained == 0) {
             _need_update_lru_blocks_length_metrics->set_value(_need_update_lru_blocks.size());
             continue;
@@ -2251,12 +2196,6 @@ void BlockFileCache::run_background_block_lru_update() {
         }
         *_update_lru_blocks_latency_us << (duration_ns / 1000);
         _need_update_lru_blocks_length_metrics->set_value(_need_update_lru_blocks.size());
-        if (backlog >= kBlockLruUpdateAdaptiveHighWatermark) {
-            LOG_EVERY_N(WARNING, 60)
-                    << "need_update_lru_blocks backlog is high, backlog=" << backlog
-                    << " drained=" << drained << " interval_ms=" << plan.interval_ms
-                    << " batch_limit=" << plan.batch_limit;
-        }
     }
 }
 
@@ -2453,27 +2392,23 @@ void BlockFileCache::run_background_lru_log_replay() {
     Thread::set_self_name("run_background_lru_log_replay");
     while (!_close) {
         size_t backlog = _lru_recorder->get_total_lru_log_queue_size();
-        QueueConsumePlan plan = build_lru_log_replay_plan(backlog);
-        {
+        if (backlog == 0) {
             std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock, std::chrono::milliseconds(plan.interval_ms));
+            _close_cv.wait_for(
+                    close_lock,
+                    std::chrono::milliseconds(positive_or_default(
+                            config::file_cache_background_lru_log_replay_interval_ms, 1)));
             if (_close) {
                 break;
             }
         }
 
         record_lru_recorder_log_queue_length();
-        size_t drained = 0;
-        drained += _lru_recorder->replay_queue_event(FileCacheType::TTL, plan.batch_limit);
-        drained += _lru_recorder->replay_queue_event(FileCacheType::INDEX, plan.batch_limit);
-        drained += _lru_recorder->replay_queue_event(FileCacheType::NORMAL, plan.batch_limit);
-        drained += _lru_recorder->replay_queue_event(FileCacheType::DISPOSABLE, plan.batch_limit);
+        _lru_recorder->replay_queue_event(FileCacheType::TTL, kLruLogReplayBatchPerType);
+        _lru_recorder->replay_queue_event(FileCacheType::INDEX, kLruLogReplayBatchPerType);
+        _lru_recorder->replay_queue_event(FileCacheType::NORMAL, kLruLogReplayBatchPerType);
+        _lru_recorder->replay_queue_event(FileCacheType::DISPOSABLE, kLruLogReplayBatchPerType);
         record_lru_recorder_log_queue_length();
-        if (backlog >= kLruLogReplayAdaptiveHighWatermark) {
-            LOG_EVERY_N(WARNING, 60)
-                    << "lru recorder backlog is high, backlog=" << backlog << " drained=" << drained
-                    << " interval_ms=" << plan.interval_ms << " batch_limit=" << plan.batch_limit;
-        }
 
         if (config::enable_evaluate_shadow_queue_diff) {
             SCOPED_CACHE_LOCK(_mutex, this);

@@ -450,6 +450,46 @@ TEST_F(BlockFileCacheTest, test_lru_log_replay_bound_and_disable_record) {
     ASSERT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 0);
 }
 
+TEST_F(BlockFileCacheTest, test_lru_recorder_hard_cap_uses_config) {
+    auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    auto origin_hard_cap = config::file_cache_lru_recorder_log_queue_hard_cap;
+    Defer restore_config {[&]() {
+        config::file_cache_background_lru_dump_tail_record_num = origin_tail_record_num;
+        config::file_cache_lru_recorder_log_queue_hard_cap = origin_hard_cap;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_lru_recorder_log_queue_hard_cap = 2;
+
+    io::FileCacheSettings settings;
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    EXPECT_EQ(cache._lru_recorder->hard_cap(), 2);
+
+    auto hash = io::BlockFileCache::hash("configured-lru-recorder-hard-cap");
+    cache._lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 0,
+                                            100);
+    cache._lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 100,
+                                            100);
+    cache._lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 200,
+                                            100);
+
+    EXPECT_EQ(cache._lru_recorder->get_total_lru_log_queue_size(), 2);
+    EXPECT_EQ(cache._lru_recorder->get_lru_log_queue_size(FileCacheType::NORMAL), 2);
+    EXPECT_EQ(cache._lru_recorder->get_dropped_lru_log_count(), 1);
+}
+
 TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     auto origin_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
     Defer restore_tail_record_num {[&]() {
