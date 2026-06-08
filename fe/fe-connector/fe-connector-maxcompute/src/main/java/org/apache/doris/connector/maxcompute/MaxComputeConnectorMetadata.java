@@ -310,6 +310,26 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Disables pushing predicates that contain implicit CAST expressions down to ODPS (F9 fix).
+     *
+     * <p>The shared {@code ExprToConnectorExpressionConverter} unwraps CAST shells, so without this
+     * a predicate like {@code CAST(str_col AS INT) = 5} would be pushed to the ODPS read session as
+     * the source-side filter {@code str_col = "5"} (quoted by the column's STRING type), which ODPS
+     * evaluates as exact string equality and drops rows like {@code "05"}/{@code " 5"} <b>at the
+     * source</b> — silent data loss, because BE re-evaluation can only filter the returned rows down,
+     * never recover rows ODPS never returned. Returning {@code false} makes
+     * {@code PluginDrivenScanNode.buildRemainingFilter} strip CAST-bearing conjuncts before pushdown
+     * (they stay BE-only), restoring legacy parity: legacy {@code MaxComputeScanNode} likewise never
+     * pushed CAST predicates (its {@code convertSlotRefToColumnName} threw on a CAST operand and the
+     * conjunct was dropped). Mirrors {@code JdbcConnectorMetadata} and the contract documented on
+     * {@link org.apache.doris.connector.api.ConnectorPushdownOps#supportsCastPredicatePushdown}.
+     */
+    @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        return false;
+    }
+
+    /**
      * MaxCompute uses the SPI transaction model: the engine opens a
      * {@link MaxComputeConnectorTransaction} via {@link #beginTransaction} and binds it to
      * the session; the write plan ({@code MaxComputeWritePlanProvider.planWrite}) attaches the

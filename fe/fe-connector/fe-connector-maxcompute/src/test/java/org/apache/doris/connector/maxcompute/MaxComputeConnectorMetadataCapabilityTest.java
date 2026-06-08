@@ -49,4 +49,27 @@ public class MaxComputeConnectorMetadataCapabilityTest {
                 "MaxCompute must declare supportsCreateDatabase()=true so the FE "
                         + "CREATE DATABASE IF NOT EXISTS remote precheck applies to it (DG-4)");
     }
+
+    /**
+     * F9 FIX-CAST-PUSHDOWN — pins that MaxCompute disables CAST-predicate pushdown.
+     *
+     * <p><b>WHY this matters:</b> the shared converter unwraps CAST shells, so if this returned
+     * {@code true} (the SPI default), a predicate like {@code CAST(str_col AS INT)=5} would be pushed
+     * to ODPS as {@code str_col="5"} and silently drop rows like {@code "05"}/{@code " 5"} at the
+     * source (BE re-eval cannot recover source-dropped rows). Returning {@code false} makes
+     * {@code PluginDrivenScanNode.buildRemainingFilter} keep CAST conjuncts BE-only, mirroring legacy
+     * (which never pushed CAST predicates). MUTATION: flipping the override to {@code true} (or
+     * removing it, reverting to the default {@code true}) makes this red. Offline: the getter touches
+     * no instance field, so null odps/helper/session is fine.</p>
+     */
+    @Test
+    public void maxComputeDisablesCastPredicatePushdown() {
+        MaxComputeConnectorMetadata metadata = new MaxComputeConnectorMetadata(
+                null, null, "proj", "ep", "quota", Collections.emptyMap());
+
+        Assertions.assertFalse(metadata.supportsCastPredicatePushdown(null),
+                "MaxCompute must disable CAST-predicate pushdown (F9): the converter unwraps CAST "
+                        + "shells, and pushing the stripped predicate to ODPS under-matches at the "
+                        + "source and silently drops rows BE re-eval cannot recover");
+    }
 }

@@ -415,14 +415,33 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         tryPushDownProjection(columns);
         Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
 
+        // If buildRemainingFilter stripped non-pushable (CAST) conjuncts (filteredToOriginalIndex
+        // != null), suppress source-side LIMIT pushdown: the connector now sees a filter that no
+        // longer reflects those predicates and could apply a LIMIT (e.g. MaxCompute's row-offset
+        // limit-split optimization, which fires on an empty/partition-only filter) over rows the
+        // stripped predicate has NOT filtered. Since BE re-evaluates the stripped predicate only on
+        // the rows the source returns, that would under-return. Legacy disabled limit-split whenever
+        // a non-partition-equality (incl. CAST) predicate was present; this mirrors it.
+        long sourceLimit = effectiveSourceLimit(limit, filteredToOriginalIndex != null);
         List<ConnectorScanRange> ranges = scanProvider.planScan(
-                connectorSession, currentHandle, columns, remainingFilter, limit, requiredPartitions);
+                connectorSession, currentHandle, columns, remainingFilter, sourceLimit, requiredPartitions);
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
             splits.add(new PluginDrivenSplit(range));
         }
         return splits;
+    }
+
+    /**
+     * Source-side LIMIT to pass to {@code planScan}: the real limit normally, but {@code -1}
+     * (no source limit) when non-pushable conjuncts were stripped from the filter. A source LIMIT
+     * applied before a stripped (BE-only) predicate would return too few rows (BE can only filter
+     * the returned rows down, not recover rows the source never returned). Extracted as a pure
+     * static so the correctness-critical decision is unit-testable without a {@link FileQueryScanNode}.
+     */
+    static long effectiveSourceLimit(long limit, boolean nonPushableConjunctsStripped) {
+        return nonPushableConjunctsStripped ? -1L : limit;
     }
 
     /**
