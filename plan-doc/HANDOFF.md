@@ -5,6 +5,46 @@
 
 ---
 
+# 🔥 第 15 次 handoff（2026-06-08，覆盖）— G2 + GC1 完成
+
+> **本 session 主题**：完成 Batch-D 红线扩充 gap campaign 的 **G2 + GC1**（两者逻辑独立、触不同区：G2=读谓词路径连接器局部 / GC1=写事务路径 + fe-core session 透传）。各走 recon 核码（Rule 8）→ 独立 design doc →（Ultracode off，沿用前 4 issue 的 skip 设计验证 workflow 默认）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ 单 Agent 对抗 impl-review → 独立 `[P4-T06e]` commit + hash 回填。**两 issue 全 DONE，4 commit。**
+
+## ✅ 本 session 已完成
+
+- **G2 FIX-PREDICATE-COLGUARD（Tier 2，minor，多半不可达）DONE @`fefbbad391d`（+回填 `1eeea30abcb`）**：列不存在守卫反转。`MaxComputePredicateConverter.formatLiteralValue:211` 在 `columnTypeMap.get(columnName)==null` 时静默引号化、下推非法谓词（如 `ghost == "5"`，整型字面量被错误引号化），而非 legacy 那样丢谓词（legacy `MaxComputeScanNode` containsKey 守卫→throw→caller per-conjunct catch 丢谓词）。**修**=该 null 分支 `return` → `throw UnsupportedOperationException`（与同方法 :198/:204/:260 既有守卫一致；连接器禁 import fe-core 的 AnalysisException），经 `convert()` 既有顶层 catch（:91-96）降级 `NO_PREDICATE` → BE 复算 = legacy「丢谓词」本质不变式。**correctness 已核（impl-review）**：MaxComputeConnectorMetadata 未 override applyFilter → conjuncts 永不在 BE 端 clear → 整树降级仅 perf、永不错结果；limit-opt 不交互（unknown 列不过 partition-equality 闸）。粒度差异（整 filter vs legacy per-conjunct）非本 fix 引入、correctness-safe。UT 16/16（+3）+ mutation 2 红。impl-review 单 Agent **APPROVE**（0 must-fix；nit=IS NULL 路 convertIsNull 无守卫=legacy parity 故意 out-of-scope）。
+- **GC1 FIX-BLOCKID-CAP-CONFIG（Tier 2，minor，写路径）DONE @`95575a4954d`（+回填 `eee07156e77`）**：写 block-id 上限硬编 `MAX_BLOCK_COUNT=20000L`（`MaxComputeConnectorTransaction:72`），无视 legacy 可调 `Config.max_compute_write_max_block_count`（`Config.java:2156`，fe.conf 可调）→ 调优部署静默回归。原硬编=已登记偏差 **DV-011**。**用户定 Option A（全局 Config 透传，true parity，反转 DV-011 的 Rule-2 推迟）**：连接器禁 import Config，故经 **session-property 通道透传**（镜像既有 `lower_case_table_names` 注入）——① fe-core `ConnectorSessionBuilder.extractSessionProperties` +1 行注入 `Config.max_compute_write_max_block_count`；② 连接器 `MaxComputeConnectorTransaction` 常量→实例字段 `maxBlockCount` + ctor 加参 + `DEFAULT_MAX_BLOCK_COUNT` fallback；③ 连接器 `MaxComputeConnectorMetadata` byte-identical key 常量 + map-typed `resolveMaxBlockCount`（absent/unparseable→DEFAULT 20000，零回归）+ `beginTransaction` 透传。**无 SPI 签名变更、import-gate 净**。UT 新 `MaxComputeConnectorTransactionTest` 5 + mutation M1（resolve 忽略 prop）/M2（cap 用 DEFAULT）共 3 红。impl-review 单 Agent **APPROVE-WITH-NITS**（0 must-fix）。**DV-011 已更新**（后续动作勾销：经 session-passthrough 恢复可调、非原拟 MCConnectorProperties[catalog-scoped 错 scope]）。
+
+## 👤 用户定夺（2026-06-08）
+- **GC1 = Option A（全局 Config 透传，经 session-property）**——非原 DV-011 拟的 MCConnectorProperties（per-catalog，错 scope，非 legacy parity）。理由（采纳）：legacy 读的是 fe 全局 Config，须读同一全局值方 true parity；session-property 通道有 `lower_case_table_names` 直接先例、无 SPI 变更。见 [[catalog-spi-connector-session-tz-gotcha]]（连接器禁 import fe-core、经 session prop 读约定）。
+- **G2/GC1 = 沿用前批 skip 设计验证 workflow + 单 Agent 对抗 impl-review**（Ultracode off，同 G0/G5/G6/G7）。
+
+## 🎯 下一 session = T3 Tier-3 DV batch → DOC（用户定，2026-06-08）
+
+> **🎉 Batch-D 红线扩充 gap campaign 的 Tier 1+2 fix 已全清**（G8/G0/G6/G5/G7/G2/GC1）。剩余 = Tier-3 接受项登记 + 原 DOC 交付（均无产线代码）。
+
+1. **T3 Tier-3 DV batch（GAP3/4/9/10，登记 deviation，无代码）**：在 `plan-doc/deviations-log.md` 登记 4 条接受项 + 各 file:line + 接受理由：
+   - GAP3 CREATE DB 非-IFNE：`ERR_DB_CREATE_EXISTS`(1007/HY000 本地预抛)→透传 ODPS DdlException（P2-6 已注 pre-existing）。
+   - GAP4 DROP TABLE 非-IF-EXISTS+远端缺：`ERR_UNKNOWN_TABLE`(1109/42S02)→通用 DdlException（本地名）。
+   - GAP9 SHOW PARTITIONS `LIMIT`：legacy paginate-then-sort → 新路 sort-then-paginate（新路更合 ORDER-BY-LIMIT）。
+   - GAP10 partitions() TVF：schema-分区但零实例表 legacy 抛→新路返 0 行（已有 in-code 注释声明 intentional）。
+2. **DOC：Batch-D redline 扩充**（原任务交付，仍欠）：把全部行为逻辑副本作 must-land-before-delete 红线补入 `plan-doc/tasks/designs/P4-batchD-maxcompute-removal-design.md` §1/§2；更正 scan-node 红线注漏列 **LIMIT-split 第 3 行为副本**（等价物在 P3-9，注应 cite）；登记 ES `EsTypeMapping:191` 同款 emit "NULL" latent token bug（G7 out-of-scope，留待 ES 翻闸）。
+
+> 其后：**🅰 live e2e 终验（真实 ODPS）= 翻闸真正完成门**（所有静态修复 DV 真值闸须 live 验，CI 跳；G2 ~不可达无自然 live 路、GC1 = fe.conf 调 block 上限→大写入越限/放宽）→ **🅱 Batch-D 删 legacy（21 文件，gated on live e2e）**。详见下方折叠历史。
+
+## ⚙️ 操作须知（复用 + 本 session 新坑）
+- maven 必绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml` + `-pl :<artifact>` + `-Dmaven.build.cache.enabled=false`；改连接器 `:fe-connector-maxcompute`、改 fe-core `:fe-core`。读真实 `Tests run:`/`BUILD`，勿信后台 task exit code。
+- **本 session 新坑（重要）**：`.m2` 里 `fe-connector-spi` 安装的 pom 含字面 `${revision}` parent token → 独立 `-pl :fe-connector-maxcompute test`（**无 `-am`**）报 dependency resolution `fe-connector:pom:${revision} (absent)`（负缓存、不自动重试）。**解法 = 一律带 `-am`**（reactor 内解析 ${revision}，绕过 .m2 坏 pom）：`mvn -f fe/pom.xml -pl :fe-connector-maxcompute -am test [-Dtest=X -DfailIfNoTests=false] -Dmaven.build.cache.enabled=false`。⚠️ `-am install -DskipTests` **不修**该负缓存（仍须 -am 跑测）。
+- mutation：cp 备份产线到 `/dev/shm`（RAM）→ Edit 重引入 bug → `-am test` 确认向红 → cp 还原 → grep 验还原。改连接器 ctor/常量时注意单 caller（`new MaxComputeConnectorTransaction` 仅 beginTransaction + 新 test）。
+- 分支 `catalog-spi-05`，本地未 push。本 session 4 commit。未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak`/`.claude/scheduled_tasks.lock`（勿提交）。
+
+## 🧠 给下一个 agent 的 meta
+- **live e2e（真实 ODPS）仍是翻闸真正完成门**——本批为静态/UT 层判定。
+- auto-memory：连接器禁 import fe-core（[[catalog-spi-connector-session-tz-gotcha]]）；测基建无 fe-core/无 mockito、child-first loader（[[catalog-spi-fe-core-test-infra]]）；clean-room 对抗偏好（[[clean-room-adversarial-review-pref]]）；构建/守门坑（[[doris-build-verify-gotchas]]，本 session 已补 maven `-am` 必带 / ${revision} 负缓存坑）。
+
+---
+
+<details><summary>📅 历史：第 14 次 handoff（2026-06-08）— G6 + G5 + G7 批量完成</summary>
+
 # 🔥 第 14 次 handoff（2026-06-08，覆盖）— G6 + G5 + G7 批量完成
 
 > **本 session 主题**：批量修复 Batch-D 红线扩充 gap campaign 的 **G6 + G5 + G7**（三者逻辑独立、触不同区）。各走 recon 核码 → 独立 design doc →（Ultracode off，用户定 skip 设计验证 workflow）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ 单 Agent 对抗 impl-review → 独立 `[P4-T06e]` commit + hash 回填。**三 issue 全 DONE，6 commit。**
@@ -38,6 +78,8 @@
 ## 🧠 给下一个 agent 的 meta
 - **live e2e（真实 ODPS）仍是翻闸真正完成门**——本批为静态/UT 层判定；G6 非法属性 CREATE 拒绝须 live 验（登记 DV）。
 - auto-memory：连接器禁 import fe-core（[[catalog-spi-connector-session-tz-gotcha]]）；测基建无 fe-core/无 mockito、child-first loader（[[catalog-spi-fe-core-test-infra]]）；P2 DDL 定夺（[[catalog-spi-p2-ddl-decisions]]，G5 续其 isAutoInc→isAggregated SPI-字段模式）；clean-room 对抗偏好（[[clean-room-adversarial-review-pref]]）。
+
+</details>
 
 ---
 
