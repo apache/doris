@@ -188,6 +188,7 @@ size_t SpillSortSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool e
 }
 
 Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     auto& parent = Base::_parent->template cast<Parent>();
     state->get_query_ctx()->resource_ctx()->task_controller()->increase_revoking_tasks_count();
     Defer defer {[&]() {
@@ -221,6 +222,7 @@ Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state) {
 }
 
 Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     auto& parent = Base::_parent->template cast<Parent>();
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;
