@@ -26,7 +26,6 @@
 
 #include <cerrno>
 #include <cstdlib>
-#include <filesystem>
 #include <vector>
 
 #include "common/status.h"
@@ -410,23 +409,20 @@ TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
 }
 
 TEST_F(LocalFileSystemTest, TestGlob) {
-    std::string path = "./be/ut_build_ASAN/test/file_path/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->create_directory("./be/ut_build_ASAN/test/file_path/1")
-                        .ok());
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->create_directory("./be/ut_build_ASAN/test/file_path/2")
-                        .ok());
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->create_directory("./be/ut_build_ASAN/test/file_path/3")
-                        .ok());
+    // DORIS_HOME is set to ${CMAKE_BUILD_DIR}/test/ by run-be-ut.sh at runtime,
+    // which adapts to each CMAKE_BUILD_TYPE (e.g. ut_build_ASAN, ut_build_LSAN, etc.).
+    // This aligns with safe_glob's internal path: config::user_files_secure_path + "/" + path.
+    std::string glob_test_dir = std::string(getenv("DORIS_HOME")) + "file_path";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(glob_test_dir).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(glob_test_dir + "/1").ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(glob_test_dir + "/2").ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(glob_test_dir + "/3").ok());
 
-    auto st = save_string_file("./be/ut_build_ASAN/test/file_path/1/f1.txt", "just test");
+    auto st = save_string_file(glob_test_dir + "/1/f1.txt", "just test");
     ASSERT_TRUE(st.ok()) << st;
-    st = save_string_file("./be/ut_build_ASAN/test/file_path/1/f2.txt", "just test");
+    st = save_string_file(glob_test_dir + "/1/f2.txt", "just test");
     ASSERT_TRUE(st.ok()) << st;
-    st = save_string_file("./be/ut_build_ASAN/test/file_path/f3.txt", "just test");
+    st = save_string_file(glob_test_dir + "/f3.txt", "just test");
     ASSERT_TRUE(st.ok()) << st;
 
     std::vector<io::FileInfo> files;
@@ -438,7 +434,7 @@ TEST_F(LocalFileSystemTest, TestGlob) {
     EXPECT_TRUE(io::global_local_filesystem()->safe_glob("./file_path/*/*.txt", &files).ok());
     EXPECT_EQ(2, files.size());
 
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(glob_test_dir).ok());
 }
 
 TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
