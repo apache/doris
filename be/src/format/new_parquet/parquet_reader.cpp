@@ -136,15 +136,17 @@ Status ParquetReader::get_schema(std::vector<reader::ColumnDefinition>* file_sch
     return Status::OK();
 }
 
-Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
+Status ParquetReader::open(std::shared_ptr<reader::FileScanRequest> request) {
     if (_state == nullptr || _state->file_context.metadata == nullptr ||
         _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
-    RETURN_IF_ERROR(reader::FileReader::open(request));
+    auto request_snapshot = request;
+    DORIS_CHECK(request_snapshot != nullptr);
+    RETURN_IF_ERROR(reader::FileReader::open(std::move(request)));
 
     const int num_fields = static_cast<int>(_state->file_schema.size());
-    for (const auto& column_filter : _request->column_predicate_filters) {
+    for (const auto& column_filter : request_snapshot->column_predicate_filters) {
         const auto file_column_id = column_filter.file_column_id;
         if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
             return Status::InvalidArgument("Invalid parquet filter top-level local id {}",
@@ -152,28 +154,28 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
         }
     }
 
-    // `_request->local_positions.empty()` means all columns are needed by table reader
-    if (_request->local_positions.empty()) {
-        for (const auto& col : _request->predicate_columns) {
-            _request->local_positions.emplace(col.column_id(),
-                                              reader::LocalIndex(_request->local_positions.size()));
+    // `local_positions.empty()` means all columns are needed by table reader
+    if (request_snapshot->local_positions.empty()) {
+        for (const auto& col : request_snapshot->predicate_columns) {
+            request_snapshot->local_positions.emplace(
+                    col.column_id(), reader::LocalIndex(request_snapshot->local_positions.size()));
         }
-        for (const auto& col : _request->non_predicate_columns) {
-            _request->local_positions.emplace(col.column_id(),
-                                              reader::LocalIndex(_request->local_positions.size()));
+        for (const auto& col : request_snapshot->non_predicate_columns) {
+            request_snapshot->local_positions.emplace(
+                    col.column_id(), reader::LocalIndex(request_snapshot->local_positions.size()));
         }
     }
 
-    for (const auto& col : _request->predicate_columns) {
-        DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
+    for (const auto& col : request_snapshot->predicate_columns) {
+        DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
         const auto local_id = col.field_id();
         if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
         }
         DORIS_CHECK(local_id >= 0 && local_id < num_fields);
     }
-    for (const auto& col : _request->non_predicate_columns) {
-        DORIS_CHECK(_request->local_positions.count(col.column_id()) > 0);
+    for (const auto& col : request_snapshot->non_predicate_columns) {
+        DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
         const auto local_id = col.field_id();
         if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
             continue;
@@ -189,7 +191,7 @@ Status ParquetReader::open(std::unique_ptr<reader::FileScanRequest>& request) {
     // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
     RETURN_IF_ERROR(plan_parquet_row_groups(*_state->file_context.metadata,
                                             _state->file_context.file_reader.get(),
-                                            _state->file_schema, *_request, scan_range,
+                                            _state->file_schema, *request_snapshot, scan_range,
                                             _state->enable_bloom_filter, &row_group_plan));
     if (_profile != nullptr) {
         const auto& pruning_stats = row_group_plan.pruning_stats;
@@ -226,9 +228,13 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         *eof = true;
         return Status::OK();
     }
+    auto request_snapshot = _request;
+    if (request_snapshot == nullptr) {
+        return Status::Cancelled("ParquetReader is closed");
+    }
 
     RETURN_IF_ERROR(_state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
-                                                      *_request, file_block, rows, eof));
+                                                      *request_snapshot, file_block, rows, eof));
     _eof = *eof;
     return Status::OK();
 }

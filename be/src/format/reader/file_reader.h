@@ -177,7 +177,7 @@ public:
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
 
     // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.
-    virtual Status open(std::unique_ptr<FileScanRequest>& request) {
+    virtual Status open(std::shared_ptr<FileScanRequest> request) {
         _request = std::move(request);
         return Status::OK();
     }
@@ -210,20 +210,20 @@ public:
         _file_reader.reset();
         _tracing_file_reader.reset();
         _io_ctx.reset();
-        _request.reset();
         _eof = true;
         return Status::OK();
     }
 
 protected:
     virtual void _init_profile() {}
+
     io::FileReaderSPtr _file_reader;
     // _tracing_file_reader wraps _file_reader.
     // _file_reader is original file reader.
     // _tracing_file_reader is tracing file reader with io context.
     // If io_ctx is null, _tracing_file_reader will be the same as file_reader.
     io::FileReaderSPtr _tracing_file_reader = nullptr;
-    std::unique_ptr<FileScanRequest> _request;
+    std::shared_ptr<FileScanRequest> _request;
     bool _eof = true;
     ReaderStatistics _reader_statistics;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
