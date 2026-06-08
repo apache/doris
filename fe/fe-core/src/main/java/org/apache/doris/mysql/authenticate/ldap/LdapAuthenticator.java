@@ -109,7 +109,7 @@ public class LdapAuthenticator implements Authenticator {
 
         //not allow to login in case when empty password is specified but such mode is disabled by configuration
         if (Strings.isNullOrEmpty(password) && !LdapConfig.ldap_allow_empty_pass) {
-            LOG.info("user:{} login rejected: empty LDAP password is prohibited (ldap_allow_empty_pass=false)",
+            LOG.info("User:{} login rejected: empty LDAP password is prohibited (ldap_allow_empty_pass=false)",
                     userName);
             ErrorReport.report(ErrorCode.ERR_EMPTY_PASSWORD, qualifiedUser + "@" + remoteIp);
             return AuthenticateResponse.failedResponse;

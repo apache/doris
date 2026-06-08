@@ -239,8 +239,8 @@ public class Auth implements Writable {
         if (getLdapManager().doesUserExist(remoteUser)) {
             //not allow to login in case when empty password is specified but such mode is disabled by configuration
             if (Strings.isNullOrEmpty(remotePasswd) && !LdapConfig.ldap_allow_empty_pass) {
-                LOG.info("empty pass branch was activated: for user {}, pass {}, mode {}",
-                        remoteUser, remotePasswd, LdapConfig.ldap_allow_empty_pass);
+                LOG.info("User {}@{} login rejected: empty LDAP password is prohibited (ldap_allow_empty_pass=false)",
+                        remoteUser, remoteHost);
                 throw new AuthenticationException(ErrorCode.ERR_EMPTY_PASSWORD, remoteUser + "@" + remoteHost);
             }
 
