@@ -82,7 +82,7 @@ suite("ann_topn_small_candidate_fallback", "nonConcurrent") {
     sql "set parallel_pipeline_task_num=1;"
     sql "set enable_sql_cache=false;"
     sql "set enable_condition_cache=false;"
-    sql "set ann_index_topn_candidate_rows_percent_threshold=0;"
+    sql "set ann_index_candidate_rows_percent_threshold=0;"
 
     sql "drop table if exists ann_topn_small_candidate_fallback"
     sql """
@@ -124,7 +124,7 @@ suite("ann_topn_small_candidate_fallback", "nonConcurrent") {
     """
     assertEquals([1, 2], defaultRows.collect { it[0] })
 
-    sql "set ann_index_topn_candidate_rows_threshold=4;"
+    sql "set ann_index_candidate_rows_threshold=4;"
     def fallbackRows = sql """
         select id
         from ann_topn_small_candidate_fallback
@@ -151,10 +151,29 @@ suite("ann_topn_small_candidate_fallback", "nonConcurrent") {
     assertEquals("1", smallCandidateFallbackCnt)
     assertEquals("3", smallCandidateRows)
 
+    sql "set ann_index_candidate_rows_threshold=11;"
+    def tokenRangeFallback = UUID.randomUUID().toString()
+    sql """
+        select id, "${tokenRangeFallback}"
+        from ann_topn_small_candidate_fallback
+        where l2_distance_approximate(embedding, [0.0, 0.0, 0.0]) < 1.0
+        order by id;
+    """
+    def rangeFallbackProfile = getProfileWithToken(tokenRangeFallback)
+    def rangeSmallCandidateFallbackCnt =
+            extractCounterValue(rangeFallbackProfile, "AnnIndexRangeFallbackBySmallCandidateCnt")
+    def rangeSmallCandidateRows =
+            extractCounterValue(rangeFallbackProfile, "AnnIndexRangeFallbackSmallCandidateRows")
+    logger.info("range small candidate fallback count=${rangeSmallCandidateFallbackCnt}, " +
+            "rows=${rangeSmallCandidateRows}")
+    assertEquals("1", rangeSmallCandidateFallbackCnt)
+    assertEquals("10", rangeSmallCandidateRows)
+
     try {
         GetDebugPoint().enableDebugPointForAllBEs(
                 "segment_iterator._read_columns_by_index", [column_name: "embedding"])
 
+        sql "set ann_index_candidate_rows_threshold=4;"
         test {
             sql """
                 select id
@@ -166,7 +185,18 @@ suite("ann_topn_small_candidate_fallback", "nonConcurrent") {
             exception "does not need to read data"
         }
 
-        sql "set ann_index_topn_candidate_rows_threshold=0;"
+        sql "set ann_index_candidate_rows_threshold=11;"
+        test {
+            sql """
+                select id
+                from ann_topn_small_candidate_fallback
+                where l2_distance_approximate(embedding, [0.0, 0.0, 0.0]) < 1.0
+                order by id;
+            """
+            exception "does not need to read data"
+        }
+
+        sql "set ann_index_candidate_rows_threshold=0;"
         sql """
             select id
             from ann_topn_small_candidate_fallback
@@ -174,17 +204,23 @@ suite("ann_topn_small_candidate_fallback", "nonConcurrent") {
             order by l2_distance_approximate(embedding, [0.0, 0.0, 0.0])
             limit 2;
         """
+        sql """
+            select id
+            from ann_topn_small_candidate_fallback
+            where l2_distance_approximate(embedding, [0.0, 0.0, 0.0]) < 1.0
+            order by id;
+        """
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
     }
 
     test {
-        sql "set ann_index_topn_candidate_rows_threshold=-1;"
-        exception "ann_index_topn_candidate_rows_threshold should be greater than or equal to 0"
+        sql "set ann_index_candidate_rows_threshold=-1;"
+        exception "ann_index_candidate_rows_threshold should be greater than or equal to 0"
     }
 
     test {
-        sql "set ann_index_topn_candidate_rows_percent_threshold=1.1;"
-        exception "ann_index_topn_candidate_rows_percent_threshold should be between 0 and 1"
+        sql "set ann_index_candidate_rows_percent_threshold=1.1;"
+        exception "ann_index_candidate_rows_percent_threshold should be between 0 and 1"
     }
 }

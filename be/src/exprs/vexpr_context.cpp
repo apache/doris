@@ -440,8 +440,9 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, bool* ann_range_search_executed) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap,
+        segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+        bool* ann_range_search_executed) {
     if (ann_range_search_executed != nullptr) {
         *ann_range_search_executed = false;
     }
@@ -452,7 +453,7 @@ Status VExprContext::evaluate_ann_range_search(
     AnnRangeSearchEvaluationResult evaluation_result;
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
+            rows_of_segment, row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
 
     if (!evaluation_result.executed) {
         return Status::OK();
