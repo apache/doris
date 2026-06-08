@@ -147,9 +147,10 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
                    : DataDistribution(TLocalPartitionType::NOOP);
 }
 
-bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
-    return exchange_type == ExchangeType::HASH_SHUFFLE ||
-           exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+bool OperatorBase::is_hash_shuffle(TLocalPartitionType::type exchange_type) {
+    return exchange_type == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE ||
+           exchange_type == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE ||
+           exchange_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE;
 }
 
 bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) const {

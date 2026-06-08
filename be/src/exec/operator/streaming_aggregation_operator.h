@@ -224,7 +224,7 @@ public:
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_child && _child->is_hash_join_probe() &&
             state->enable_streaming_agg_hash_join_force_passthrough()) {
-            return {ExchangeType::PASSTHROUGH};
+            return {TLocalPartitionType::PASSTHROUGH};
         }
         if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
             !child_breaks_local_key_distribution(state)) {
@@ -236,7 +236,7 @@ public:
                            : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
                                      state);
         }
-        return {ExchangeType::HASH_SHUFFLE, _partition_exprs};
+        return {TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, _partition_exprs};
     }
 
 private:
