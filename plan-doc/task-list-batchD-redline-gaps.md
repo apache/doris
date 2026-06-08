@@ -20,7 +20,7 @@
 | G0 | **FIX-DATETIME-PUSHDOWN-FORMAT** (GAP0/1) | major(correctness/perf) | Fix | ✅ | ✅ | ✅ | ✅ 设计验证 skip(用户定)+impl-review 单Agent CHANGES-REQUIRED→F1(CST session 炸整查询)折入 | ✅ DONE (`0d983a1c056`) |
 | G6 | **FIX-CREATE-CATALOG-VALIDATION** (GAP6) | major | Fix | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE-WITH-NITS(0 must-fix) | ✅ DONE (`1fc00178484`) |
 | G5 | **FIX-AGG-COLUMN-REJECT** (GAP5) | minor | Fix（用户定 Option B: SPI 字段） | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE(0 must-fix) | ✅ DONE (`c5e8ba6d9e2`) |
-| G7 | **FIX-VOID-TYPE-MAPPING** (GAP7) | minor | Fix | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| G7 | **FIX-VOID-TYPE-MAPPING** (GAP7) | minor | Fix | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE(0 must-fix) | ✅ DONE (`49113dc7860`) |
 | G2 | **FIX-PREDICATE-COLGUARD** (GAP2) | minor | Fix | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | GC1 | **FIX-BLOCKID-CAP-CONFIG** (CRITICGAP1) | minor | Fix | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | T3 | **Tier-3 DV batch** (GAP3/4/9/10) | minor | 接受+DV | ⬜ | n/a | n/a | n/a | ⬜ |
@@ -34,7 +34,7 @@
 - **G0 GAP0/1** ✅ DONE (`0d983a1c056`)：DATETIME/TIMESTAMP/TIMESTAMP_NTZ 谓词下推。新路 `MaxComputePredicateConverter` 用 `LocalDateTime.toString()`（'T' 分隔）喂 `.SSS/.SSSSSS` formatter → 非 UTC 解析抛 → 整 conjunct 树降为 NO_PREDICATE（谓词永不下推=性能回归）；UTC 路推 malformed 字面量；且 source TZ 用 project-region 非 session TZ（format 修后会丢行）。legacy 用 `getStringValue(DatetimeV2Type(3|6))`（空格分隔定长）正确下推。**修**=直接 format `LocalDateTime`（逐字镜像 legacy）+ source TZ 改 `ConnectorSession.getTimeZone()`（TZ id 字符串惰性 `ZoneId.of`，使 Doris 逐字存的 `CST` 等 ZoneId 不认 id 降级 NO_PREDICATE 而非炸查询——impl-review F1 折入）。**Batch-D 死代码清理项**：`MCConnectorEndpoint.resolveProjectTimeZone` + `REGION_ZONE_MAP`（~60 行）翻闸后零调用方。
 - **G6 GAP6** ✅ DONE (`1fc00178484`)：CREATE CATALOG 属性校验缺失——`MaxComputeConnectorProvider` 未 override `validateProperties`（继承 no-op）；required PROJECT/ENDPOINT、split_byte_size floor、account_format、timeout>0、`checkAuthProperties`（定义但零调用）全不在 CREATE 时校验，退化为 use-time 晚失败/静默接受非法值。**修**=override `validateProperties` 逐字镜像 legacy `checkProperties:388-457` 六校验、抛 IllegalArgumentException（→DdlException）、wire dead `checkAuthProperties`（异常类型对齐 IllegalArgumentException）。UT 19/19 + mutation 3 组向红。
 - **G5 GAP5** ✅ DONE (`c5e8ba6d9e2`)：`CREATE TABLE (c INT SUM)` 聚合列拒绝丢失。ConnectorColumn 无 aggType 载体 → converter 丢 → validateColumns 不查 → nereids 非-OLAP 不拒（**证伪 P2-8「非-OLAP 路径已覆盖」**）。静默建普通列。**修**=用户定 Option B：加 SPI additive 字段 `isAggregated`（镜像 P2-8 isAutoInc）+ converter passthrough（=`Column.isAggregated()`）+ `MaxComputeConnectorMetadata.validateColumns` 加 `if(col.isAggregated())throw`（逐字镜像 legacy `:426-429`，紧邻 isAutoInc 检查）。UT 4/4/11 + mutation 3 组向红；over-rejection 已核（isOlap-gated）。
-- **G7 GAP7**：ODPS `VOID` → 新路映 `UNSUPPORTED`（legacy=`Type.NULL`）；`ConnectorColumnConverter` 无 "NULL" case + `createType("NULL")` 抛被吞。次生：未知 OdpsType legacy 硬抛、新路静默 UNSUPPORTED。
+- **G7 GAP7** ✅ DONE (`49113dc7860`)：ODPS `VOID` → 新路映 `UNSUPPORTED`（legacy=`Type.NULL`）；`ConnectorColumnConverter` 无 "NULL" case + `createType("NULL")` 抛被吞。次生：未知 OdpsType legacy 硬抛、新路静默 UNSUPPORTED。**修**=连接器局部：① `MCTypeMapping` VOID token "NULL"→"NULL_TYPE"（fe-core convertScalarType default 即产 Type.NULL）；② switch default `return UNSUPPORTED`→`throw`（仅 OdpsType.UNKNOWN sentinel 落 default，legacy 亦 throw=parity，真实表零回归）。UT 5/5 + mutation 2 组向红。**out-of-scope（留待 ES 翻闸）**：ES `EsTypeMapping:191` 同款 emit "NULL" latent token bug（其 test 还钉了 buggy token），未修。
 - **G2 GAP2**：列不存在守卫反转——legacy 谓词引用未知列时抛→丢谓词；新路 `formatLiteralValue` odpsType==null 静默引号化→**下推非法谓词**。实务多半不可达（bound 谓词只引真列），低。
 - **GC1 CRITICGAP1**：写 block-id 上限硬编 `20000`，无视 `Config.max_compute_write_max_block_count`（legacy 可调）→ 调优部署静默回归。
 
