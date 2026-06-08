@@ -107,7 +107,7 @@ public class UnboundTableSinkCreator {
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -148,7 +148,7 @@ public class UnboundTableSinkCreator {
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog && !isAutoDetectPartition) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
 
         throw new AnalysisException(

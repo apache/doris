@@ -49,6 +49,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.write.ConnectorWriteConfig;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
@@ -664,6 +665,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
+        // W5: connectors with a write-plan provider build their own opaque TDataSink (the
+        // general path for maxcompute / iceberg). Dormant until a connector overrides
+        // Connector.getWritePlanProvider(); the config-bag path below is unchanged (jdbc).
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        if (writePlanProvider != null) {
+            ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
+                    targetTable.getRemoteDbName(), targetTable.getRemoteName())
+                    .orElseThrow(() -> new AnalysisException(
+                            "Table not found: " + targetTable.getRemoteDbName()
+                                    + "." + targetTable.getRemoteName()
+                                    + " in catalog " + catalog.getName()));
+            PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
+                    writePlanProvider, connSession, providerTableHandle, connectorColumns);
+            rootFragment.setSink(providerSink);
+            return rootFragment;
+        }
+
         ConnectorWriteConfig writeConfig;
         if (metadata.supportsInsert()) {
             ConnectorTableHandle tableHandle = metadata.getTableHandle(connSession,
@@ -735,9 +753,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (table instanceof PluginDrivenExternalTable) {
             PluginDrivenExternalCatalog pluginCatalog =
                     (PluginDrivenExternalCatalog) table.getCatalog();
-            scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                    false, sv, context.getScanContext(), pluginCatalog,
+            PluginDrivenScanNode pluginScanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(),
+                    tupleDescriptor, false, sv, context.getScanContext(), pluginCatalog,
                     ((PluginDrivenExternalTable) table));
+            // Forward the pruned partitions so the connector reads only the surviving partitions
+            // (mirrors the legacy MaxCompute / Hive branches below).
+            pluginScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+            scanNode = pluginScanNode;
         } else if (table instanceof HMSExternalTable) {
             if (directoryLister == null) {
                 this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(

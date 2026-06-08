@@ -13,10 +13,23 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **7** 项。
+> 时间倒序；当前共 **20** 项。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-020 | P4-T06e FIX-CAST-PUSHDOWN：getSplits 的 limit-suppress wiring + MC 端到端 CAST-strip 无 fe-core 单测（KNOWN-LIMITATION）+ JDBC applyLimit 同类 under-return（OUT-OF-SCOPE 备查）。**① harness gap**：纯静态 `effectiveSourceLimit(limit,stripped)` 已 UT 2 + mutation 2/2（drop-suppression/always-suppress）向红 pin；连接器 `supportsCastPredicatePushdown=false` 已 UT + mutation(false→true 红) pin；但「`getSplits` 据 `filteredToOriginalIndex!=null` 调 `effectiveSourceLimit`」+「`buildRemainingFilter` 对 MC 真剥 CAST conjunct 并保留 BE-only」的端到端 wiring **无 offline 直测**（构造 `PluginDrivenScanNode` 需 harness、本模块缺，同 [DV-015]）。覆盖经：strip-when-false 是 fe-core 共享逻辑（JDBC false 分支既覆盖）+ 纯 helper UT/mutation + **live e2e 真值闸**（STRING 列存 `"5"/"05"/" 5"`，`WHERE CAST(code AS INT)=5` 返回全部 3 行 / limit-opt ON+CAST+LIMIT 不 under-return；EXPLAIN 证 CAST 谓词不在下推 filter）。**② OUT-OF-SCOPE（Rule 12 surface）**：JDBC 若 session 关 cast-pushdown 且经 `applyLimit` 推 limit，理论同类 under-return；但 MaxCompute 不 override `applyLimit`（no-op）、F9 的 getSplits limit-param 抑制对 MC 完整，JDBC `applyLimit` 路径非本修范围（pre-existing、非 MC），登记备查、待评估。fail-safe：误关下推退化为多读行交 BE（非丢数据） | [FIX-CAST-PUSHDOWN 设计](./tasks/designs/P4-T06e-FIX-CAST-PUSHDOWN-design.md) / [D-036] | 2026-06-08 | 🟢 已登记（helper+capability UT/mutation；wiring 待 live e2e；JDBC applyLimit 备查）|
+| DV-019 | P4-T06e FIX-BATCH-MODE-SPLIT 异步 batch wiring + `computeBatchMode` null-guard 无 fe-core 单测（KNOWN-LIMITATION，NG-7）：纯静态四闸 `shouldUseBatchMode` 已 UT 9 + mutation 5/5 向红 pin；但 ① `computeBatchMode` 的 SF-1 `scanProvider != null` null-guard（provider-less full-adopter 防 NPE，跑 dispatch+explain 两路径）与 ② `startSplit` 的 async 分批循环（`getScheduleExecutor` outer/inner CompletableFuture + `SplitAssignment` `needMoreSplit/addToQueue/finishSchedule/setException/isStop` 契约 + init 30s 首-split）+ ③ `numApproximateSplits` 取值——三处 wiring **无 offline 直测**：构造 `PluginDrivenScanNode`（`FileQueryScanNode` 子类）需绕 ctor + stub connector/session/handle/desc/sessionVariable/splitAssignment，本模块无现成轻量 spy/analyze harness（同 [DV-015]/[DV-014] 因）。覆盖经：逐字镜像 legacy `MaxComputeScanNode:214-298`（已验 parity）+ 纯 helper UT/mutation + **大分区 live e2e 真值闸**（EXPLAIN/profile 证 batched/streamed split、规划耗时/内存 ≪ 同步路；阈值边界 `num_partitions_in_batch_mode`=0/大于选中数→回退非-batch；全空选/单分区）。impl-review `wve7y1jst` TQ-1 已据此把测试 javadoc 的「null-provider 已覆盖」声明诚实降级。fail-safe：去 batch 退化为同步 `getSplits`（非丢数据） | [FIX-BATCH-MODE-SPLIT 设计](./tasks/designs/P4-T06e-FIX-BATCH-MODE-SPLIT-design.md) / [D-035] | 2026-06-08 | 🟢 已登记（helper UT+mutation，wiring 待外表 scan harness / live e2e）|
+| DV-018 | P4-T06e FIX-POSTCOMMIT-REFRESH cutover post-commit 刷新 swallow 有意分歧于 legacy（无产线逻辑改动，NG-8/F15=F21 minor，regression=no）：`PluginDrivenInsertExecutor.doAfterCommit()` 用 try/catch 吞 `super.doAfterCommit()`（=`handleRefreshTable`）刷新失败、INSERT 报 OK；legacy `MCInsertExecutor` 不 override → 异常传播 → 报 FAILED。**cutover 更安全**：按生命周期序数据已落 ODPS/远端、FE 无法回滚，`handleRefreshTable` 只刷 FE 缓存 + 写 external-table refresh editlog（follower 失效提示、非数据真相源）、不碰已提交数据 → 报 FAILED 诱发重试→重复写。**用户定（2026-06-08）接受 + Javadoc 泛化（[D-034]）、不回退**。改 = 仅 Javadoc(`:164-176`) 从「只讲 JDBC_WRITE」泛化到覆盖 MC connector-transaction 路径（两路径数据均已持久；swallow 最坏只瞬时缓存 stale 自愈；显式注明分歧 legacy）。对抗性安全核查：master 先本地刷新(`RefreshManager:152`)后写 editlog(`:155`)，丢 editlog 仅 follower 缓存暂 stale 自愈、无正确性损失/无主从分裂。swallow 路径无新增 UT（注释 only、无可 pin 逻辑变化；异常吞行为 offline 直测受同类 harness 缺位限制，同 [DV-015]）；真值闸=CI-skip live e2e（MC INSERT 后人为令 refresh 失败→断言报 OK + warn）。守门 checkstyle 0、import-gate 净 | [FIX-POSTCOMMIT-REFRESH 设计](./tasks/designs/P4-T06e-FIX-POSTCOMMIT-REFRESH-design.md) / [D-034] | 2026-06-08 | 🟢 已登记（无逻辑改动，行为收敛接受；live 真值闸待跑）|
+| DV-017 | P4-T06e FIX-ISKEY-METADATA `getTableSchema→buildColumn` wiring 无连接器内单测（KNOWN-LIMITATION）：`buildColumn` 助手 isKey=true 不变式已 UT+mutation pin，但两 `getTableSchema` 调用点经 `buildColumn` 的 wiring 无 offline 测——`getTableSchema` deref live `com.aliyun.odps.Table`（唯一 ctor package-private）、模块无 Mockito（同 [DV-014]/[DV-015]/[DV-016] 类）；唯一 offline 变通=`com.aliyun.odps` 包内 fixture 子类 override `getSchema()`，repo 无先例（sibling `getColumnHandles` 同样未测）。绕过 `buildColumn`（回退 5 参 ctor）的回归仅由 CI-skip live e2e `DESCRIBE <mc_table>` 显 Key=YES 捕获（load-bearing gate）。**作用域注**：`information_schema.columns.COLUMN_KEY` 受 `FrontendServiceImpl:962-965` OlapTable 门控、MC 前后皆空、已 parity、out-of-scope（不可断言其变非空）；isKey 非纯展示（亦喂 `UnequalPredicateInfer`/BE descriptor），但 legacy 即喂 true → 本修恢复既有值 | [FIX-ISKEY-METADATA 设计](./tasks/designs/P4-T06e-FIX-ISKEY-METADATA-design.md) / [D-033] | 2026-06-08 | 🟢 已登记（helper UT+mutation，wiring 待 live DESCRIBE）|
+| DV-016 | P4-T06e FIX-LIMIT-SPLIT-DEFAULT 三点（均 opt-in 默认 OFF、非丢行/非回归）：① **CAST-unwrap 致 limit-opt 资格略宽于 legacy**——converter `convert(CastExpr)→convert(child)` 在所有位置剥 CAST（左列/右 literal/IN 元素），故 `CAST(partcol AS T)=lit`、`partcol=CAST(lit AS T)`、`partcol IN (CAST(lit,…))` 经 `checkOnlyPartitionEquality` 判资格，legacy 见原始 `CastExpr` 子节点 instanceof 失败→false；② **嵌套-AND-作单 conjunct 略宽**——converter `flattenAnd` 把单 conjunct `(pt=1 AND region=cn)` 摊平成 flat `ConnectorAnd`→资格，legacy 见 `CompoundPredicate` conjunct→false（与①同安全类，且 conjunct 拆分通常上游已分）；③ **`LIMIT 0` 路径差**——本 fix `limit<=0` 拒 limit-opt 走标准多 split 路，legacy `hasLimit()`(`limit>-1`) 走 limit-opt 路；两者皆 0 行、且 `LIMIT 0` 被 Nereids 折成 EmptySet 不可达。①②均纯分区、correctness-safe（裁剪 Nereids `SelectedPartitions` 同算 + 转换后 `filterPredicate` 仍下推 read session 作 backstop，`:191/:208/:353`；LIMIT 无 ORDER BY 无序）。**另**：planScan 两行 wiring（`isLimitOptEnabled(session.getSessionProperties())` + `shouldUseLimitOptimization(...)` 收 live filter/partitionColumnNames）无连接器内单测——`planScan` 需 live odps `Table`、模块无 fe-core/Mockito（同 [DV-014]/[DV-015] 因）；纯 helper 全 UT(26)+mutation(8 向红) pin，wiring 半由 CI-skip live E2E 守。**附**：本 fix 实 `checkOnlyPartitionEquality` 同闭 F2/F12（旧恒 false stub minors）| [FIX-LIMIT-SPLIT-DEFAULT 设计](./tasks/designs/P4-T06e-FIX-LIMIT-SPLIT-DEFAULT-design.md) / [D-032] | 2026-06-08 | 🟢 已登记（opt-in 非回归 + 逻辑 UT/mutation，wiring 待 live E2E）|
+| DV-015 | P4-T06e FIX-PRUNE-PUSHDOWN 端到端裁剪下推 wiring 无 fe-core 单测（KNOWN-LIMITATION）：`getSplits()` pruned-to-zero 短路 + translator `setSelectedPartitions` 注入 + `getSplits→planScan` 6 参 threading 无 fe-core 端到端 UT（连接器 scan 无轻量 analyze/spy harness，同 [DV-014] 因）。逻辑半（`PluginDrivenScanNode.resolveRequiredPartitions` 三态 + `MaxComputeScanPlanProvider.toPartitionSpecs` 转换）已 UT+mutation pin；wiring 半 + 真实裁剪生效由 p2 live `test_max_compute_partition_prune.groovy` 覆盖（真值=EXPLAIN/profile 仅扫目标分区 + `WHERE pt='不存在'`→0 行不建全分区 session）。与既有约定一致（`HiveScanNodeTest` 亦直构 node 测 setter、不经 translator）| [FIX-PRUNE-PUSHDOWN 设计](./tasks/designs/P4-T06e-FIX-PRUNE-PUSHDOWN-design.md) / [D-031] | 2026-06-08 | 🟢 已登记（逻辑 UT+mutation，wiring 待 live；外表 scan analyze/spy harness 落地后补）|
+| DV-014 | P4-T06e FIX-BIND-STATIC-PARTITION bind 期投影无 fe-core 单测（KNOWN-LIMITATION）：`bindConnectorTableSink` 的 full-schema 投影（NULL 填充 + 分区列在末尾 + 按位置投影）未被 connector-path 单测直接 pin——`bind()` 走 `RelationUtil.getDbAndTable` 真 Env 解析，外表 PluginDriven catalog 需连接器插件,无现成轻量 analyze harness（OLAP analyze 测仅覆盖 `createTable` 内表）。覆盖经：①与 legacy `bindMaxComputeTableSink` 及 Iceberg 路径**共享** helper `getColumnToOutput`/`getOutputProjectByCoercion`（被既有 OLAP/Hive/Iceberg insert 测充分覆盖）；②列选择 helper `selectConnectorSinkBindColumns` 单测 + 分布 full-schema 索引测（要求 child full-schema 序方过）；③p2 live `test_mc_write_insert` Test 3/3b（部分/重排列名）+ `test_mc_write_static_partitions`。capability 声明/reader 按既有约定不单测（既有 readers 亦仅被 mock）| [FIX-BIND-STATIC-PARTITION 设计](./tasks/designs/P4-T06e-FIX-BIND-STATIC-PARTITION-design.md) / [D-030] | 2026-06-07 | 🟢 已登记（无 harness,parity+p2 覆盖；待外表 analyze harness 落地补）|
+| DV-013 | P4-T06e FIX-WRITE-DISTRIBUTION 两处 planner 写分发 parity 微差（均非回归，default `strict` 下与 legacy MC 同果）：① `ShuffleKeyPruner` connector 分支缺 `enableStrictConsistencyDml` 短路 → non-strict 下少剪 shuffle-key（更保守 missed optimization）；② `enable_strict_consistency_dml=false` 下动态分区 local-sort 被丢（legacy MC 亦丢）| [FIX-WRITE-DISTRIBUTION 设计](./tasks/designs/P4-T06e-FIX-WRITE-DISTRIBUTION-design.md) / [D-029] | 2026-06-07 | 🟢 已登记（非回归，接受）|
+| DV-012 | P4-T04 `TMaxComputeTableSink.partition_columns`(field 14) 源：legacy `MaxComputeTableSink` 取 `targetTable.getPartitionColumns()`（fe-core Doris `Column`）；连接器 `MaxComputeWritePlanProvider.planWrite` 取 `odpsTable.getSchema().getPartitionColumns()`（odps-sdk 列）——**源不同、值同**（分区列名）| [tasks/P4 P4-T04](./tasks/P4-maxcompute-migration.md) / [P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md) | 2026-06-06 | 🟢 已落地（P4-T04，值等价）|
+| DV-011 | P4-T03 连接器事务 block 上限源：legacy fe-core `Config.max_compute_write_max_block_count`（fe.conf 可调，默认 20000）→ 连接器常量 `MAX_BLOCK_COUNT=20000L`（import-gate 禁 `common.Config`，丢可调性）；附 legacy `throws UserException`→`DorisConnectorException`（unchecked，SPI 面无 checked throws）| [tasks/P4 P4-T03](./tasks/P4-maxcompute-migration.md) / [P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md) | 2026-06-06 | 🟢 已修正（P4-T03 硬编 → GC1 经 session-property 透传恢复 fe.conf 可调，`95575a4954d`）|
+| DV-010 | P4-T01 修共享 fe-core `ConnectorColumnConverter.toConnectorType` 丢 CHAR/VARCHAR 长度（写 `precision=0`；长度存 `len` 非 `precision`）→ CREATE TABLE 经 SPI 丢长度。特判 CHAR/VARCHAR 把 `getLength()` 写入 precision 字段（与逆 `convertScalarType`+`MCTypeMapping` 约定一致）| [tasks/P4 P4-T01](./tasks/P4-maxcompute-migration.md) / `ConnectorColumnConverter` | 2026-06-06 | 🟢 已修正（P4-T01）|
+| DV-009 | W5 写 sink 收口位置：RFC/handoff「route 3 个 visitPhysicalXxxTableSink + 新建 PluginDrivenTableSink」与代码不符；plugin-driven 写经 `visitPhysicalConnectorTableSink` + 既有 `PluginDrivenTableSink`，W5 改为在其上 layer `planWrite()` | [写 RFC §5.5/§12 W5](./tasks/designs/connector-write-spi-rfc.md) / [HANDOFF W5](./HANDOFF.md) | 2026-06-06 | 🟢 已修正（W5 `9ebe5e27fa4`）|
+| DV-008 | P3-T07 parity 两处 SPI↔legacy 偏差：列名 casing 当场修；Hudi meta-field 推迟批 E | [tasks/P3 §批C/T07](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正 |
 | DV-007 | P3 批 B scope 校正：T05 `listPartitions*` override 推迟批 E（零 live caller、Hive 不 override）；T06 MVCC 保持 default opt-out（非抛异常 override）| [HANDOFF 未完成 #1/#2](./HANDOFF.md) / [tasks/P3 T05/T06](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟢 已修正（T05 裁剪已落地；list*/MVCC 入批 E）|
 | DV-006 | P3-T03 schema_id/history 非批 A 可修（连接器缺 field-id/InternalSchema/type→thrift；裸基线会回归）；推迟批 E | [HANDOFF 1b ①](./HANDOFF.md) / [tasks/P3 T03](./tasks/P3-hudi-migration.md) | 2026-06-05 | 🟡 推迟（批 E）|
 | DV-005 | P3 hudi「HMS-over-SPI 前置依赖」与代码不符；真阻塞=catalog 模型错配 | [connectors/hudi.md](./connectors/hudi.md) / [master plan §3.4](./00-connector-migration-master-plan.md) / D-005 | 2026-06-04 | 🟡 待修正（P3 模型决策）|
@@ -28,6 +41,108 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-015 — P4-T06e FIX-PRUNE-PUSHDOWN：端到端裁剪下推 wiring 无 fe-core 单测（KNOWN-LIMITATION）
+
+- **发现日期**：2026-06-08
+- **发现 session / agent**：FIX-PRUNE-PUSHDOWN clean-room review（workflow `w31i0vfo5`，test-quality lens，4 finding 全 verifier 判 minor/非 must-fix）
+- **当前状态**：🟢 已登记（逻辑半 UT+mutation 守门，wiring 半 + 真实裁剪生效待 live e2e）
+- **原计划位置**：[FIX-PRUNE-PUSHDOWN 设计](./tasks/designs/P4-T06e-FIX-PRUNE-PUSHDOWN-design.md) §Test Plan
+- **偏差描述**：本 fix 三处产线点无 fe-core 端到端 UT：① `PluginDrivenScanNode.getSplits()` 的 pruned-to-zero 短路（`requiredPartitions!=null && isEmpty()→return emptyList()`）；② `PhysicalPlanTranslator` plugin 分支 `setSelectedPartitions(fileScan.getSelectedPartitions())` 注入；③ `getSplits→planScan` 6 参 requiredPartitions threading。原因：`PluginDrivenScanNode` 是 `FileQueryScanNode` 子类，裸构造需绕 ctor 链 + stub `getScanPlanProvider`/`buildColumnHandles`/`buildRemainingFilter`/`applyLimit`（无现成轻量 analyze/spy harness；同 [DV-014] 外表 bind harness 缺位）。
+- **覆盖经**：① 最易错的三态映射逻辑（NOT_PRUNED→null / pruned-非空→names / pruned-空→空 list）由 `PluginDrivenScanNodePartitionPruningTest`（5 测）+ mutation（去 `!isPruned` 守卫双红）pin；② 名→PartitionSpec 转换由 `MaxComputeScanPlanProviderTest`（3 测）+ mutation（恒 emptyList 红）pin；③ wiring 半（短路/注入/threading 单变量直线流）+ **真实裁剪生效** 由 p2 live `test_max_compute_partition_prune.groovy` 覆盖——真值证据 = EXPLAIN/profile 仅扫目标分区（split 数/规划耗时 ≪ 全表）+ `WHERE pt='不存在'`→0 行且不建全分区 session。
+- **为何可接受**：与既有约定一致（`HiveScanNodeTest`/legacy-MC/Hudi 的 translator 注入均无 translator 级测，`HiveScanNodeTest:99-115` 直构 node 调 setter）；fail-safe（默认 `selectedPartitions=NOT_PRUNED`→`resolveRequiredPartitions`→null→scan all，去 wiring 退化为修前全表扫**非丢数据**）。
+- **影响范围**：仅测试覆盖层；产线行为正确。
+- **关联**：[D-031]、[review-rounds](./reviews/P4-T06e-FIX-PRUNE-PUSHDOWN-review-rounds.md)、[复审 §B DG-1](./reviews/P4-maxcompute-full-rereview-2026-06-07.md)、[DV-014]（同类 harness 缺位）
+- **后续动作**：
+  - [ ] 待外表 scan 的 fe-core spy/analyze harness 落地（`MaxComputeScanNodeTest`/`PaimonScanNodeTest` 用 `Mockito.spy`+反射，可借鉴），补 `getSplits()` 短路 + threading 的 CI 级测，把 correctness 不变式从 live-only 提到 CI。
+  - [ ] **live e2e（必经）**：真实 ODPS 跑 `test_max_compute_partition_prune.groovy`，并核 EXPLAIN/profile 证裁剪真正下推（行正确不足以证——修前行已正确）。
+
+### DV-014 — P4-T06e FIX-BIND-STATIC-PARTITION：bind 期 full-schema 投影无 fe-core 单测（KNOWN-LIMITATION）
+
+> 补登：本条索引行（见上）此前已录，详细记录段遗漏，现补齐（doc-sync 横切债）。
+
+- **发现日期**：2026-06-07
+- **发现 session / agent**：FIX-BIND-STATIC-PARTITION clean-room review（workflow `wi3mnjymb`/`wy299gtsh`/`wlwpw0b2s`，test-quality lens）
+- **当前状态**：🟢 已登记（无 harness，parity + p2 覆盖；待外表 analyze harness 落地补）
+- **原计划位置**：[FIX-BIND-STATIC-PARTITION 设计](./tasks/designs/P4-T06e-FIX-BIND-STATIC-PARTITION-design.md) / [D-030]
+- **偏差描述**：`bindConnectorTableSink` 的 full-schema 投影（NULL 填充 + 分区列末尾 + 按位置投影）未被 connector-path 单测直接 pin——`bind()` 经 `RelationUtil.getDbAndTable` 真 Env 解析，外表 PluginDriven catalog 需连接器插件，无现成轻量 analyze harness（OLAP analyze 测仅覆盖 `createTable` 内表）。
+- **覆盖经**：① 与 legacy `bindMaxComputeTableSink` 及 Iceberg 路径**共享** helper `getColumnToOutput`/`getOutputProjectByCoercion`（被既有 OLAP/Hive/Iceberg insert 测覆盖）；② 列选择 helper `selectConnectorSinkBindColumns` 单测 + 分布 full-schema 索引测；③ p2 live `test_mc_write_insert` Test 3/3b + `test_mc_write_static_partitions`。
+- **关联**：[D-030]、[review-rounds](./reviews/P4-T06e-FIX-BIND-STATIC-PARTITION-review-rounds.md)、[DV-015]（同类 harness 缺位）
+- **后续动作**：[ ] 待外表 analyze harness 落地补 bind 投影 CI 级测。
+
+### DV-013 — P4-T06e FIX-WRITE-DISTRIBUTION：两处 planner 写分发 parity 微差（均非回归）
+
+- **发现日期**：2026-06-07
+- **发现 session / agent**：FIX-WRITE-DISTRIBUTION clean-room review（workflow `ww1g95bba`，Phase A parity/delivery lens）
+- **当前状态**：🟢 已登记（非回归，接受；default `enable_strict_consistency_dml=true` 下与 legacy MC 同果）
+- **原计划位置**：[FIX-WRITE-DISTRIBUTION 设计](./tasks/designs/P4-T06e-FIX-WRITE-DISTRIBUTION-design.md)（§"Known minor divergence — ShuffleKeyPruner" + §"Why no change in RequestPropertyDeriver"）
+- **偏差描述**：
+  - **① ShuffleKeyPruner**：`ShuffleKeyPruner.visitPhysicalConnectorTableSink`（通用 connector 分支，`:286-295`）缺 legacy `visitPhysicalMaxComputeTableSink`（`:272-283`）的 `enableStrictConsistencyDml==false → childAllowShuffleKeyPrune=true` 短路；通用分支恒 `required.equals(ANY)?true:false`。
+  - **② local-sort under non-strict**：`enable_strict_consistency_dml=false` 时 `RequestPropertyDeriver` 对 connector sink（required≠GATHER）下推 `ANY` → 动态分区 hash+local-sort 需求被丢。
+- **为何非回归**：default `enable_strict_consistency_dml=`**`true`**（`SessionVariable.java:1566`）下——① 两路均 `required≠ANY → prune=false`（**同果**）；② `RequestPropertyDeriver` 下推 `getRequirePhysicalProperties()` = hash+local-sort（**enforce**，与 legacy MC 同）。仅 non-strict（用户显式关）时分歧：① 通用分支**少剪**（更保守 = missed optimization，无正确性损）；② local-sort 被丢——但 **legacy MC 在 non-strict 下亦丢**（`visitPhysicalMaxComputeTableSink` 同样下推 ANY）→ parity，非本 fix 引入。clean-room review Phase B 把 ① 多数 refute 为 non-regression。
+- **影响范围**：仅 `enable_strict_consistency_dml=false` 的 MaxCompute 动态分区写；default 不触及。① 纯性能（少剪 shuffle-key）；② 与 legacy 同行为。
+- **关联**：[D-029]、[review-rounds](./reviews/P4-T06e-FIX-WRITE-DISTRIBUTION-review-rounds.md)、[复审 §A.NG-2/NG-4](./reviews/P4-maxcompute-full-rereview-2026-06-07.md)
+- **后续动作**：
+  - [ ] 如需 non-strict 下完全 parity：给 `ShuffleKeyPruner` 通用 connector 分支补 `enableStrictConsistencyDml` 短路（影响 jdbc/es 共享分支，超本 fix scope）
+
+### DV-012 — P4-T04：`partition_columns` 取 ODPS 表列（源不同、值同）
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：P4 Batch B session（P4-T04 写计划实现，核读 legacy `MaxComputeTableSink.bindDataSink`）
+- **当前状态**：🟢 已落地（P4-T04，值等价）
+- **原计划位置**：[P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md)（港 legacy `MaxComputeTableSink` 静态字段）
+- **偏差描述**：legacy `MaxComputeTableSink.bindDataSink` 填 `TMaxComputeTableSink.partition_columns`(field 14) 取 `targetTable.getPartitionColumns()`（fe-core Doris `Column` 名）。连接器 import-gate 禁 fe-core `catalog.Column`，且 planWrite 持的是 `MaxComputeTableHandle`（携 odps-sdk `Table`）非 fe-core 表。
+- **新方案**：连接器 `MaxComputeWritePlanProvider.planWrite` 取 `mcHandle.getOdpsTable().getSchema().getPartitionColumns()`（odps-sdk `com.aliyun.odps.Column` 名）。**源不同（ODPS schema vs fe-core Column）、值同（分区列名字符串）**——BE 经 field 14 收到相同分区列名 list。同源亦用于静态分区串的列序（`MCTransaction.beginInsert` 用 fe-core 列序，连接器用 ODPS 列序，序同）。
+- **影响范围**：连接器 `MaxComputeWritePlanProvider`（dormant，gate 关，零 live）。行为等价：BE 收到的 `partition_columns` 内容不变。
+- **关联**：P4-T04、[P4-T04 设计](./tasks/designs/P4-T04-write-plan-design.md)、[D-025]
+
+---
+
+### DV-011 — P4-T03：连接器事务 block 上限 + 异常类型（import-gate 禁 fe-core common）
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：P4 Batch B session（P4-T03 写前核实 import-gate 边界：`org.apache.doris.common.{Config,UserException}` 均在禁列）
+- **当前状态**：🟢 已修正（P4-T03 硬编 → GC1 经 session-property 透传恢复 fe.conf 可调性，`95575a4954d`）
+- **原计划位置**：[P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md)（港 legacy `MCTransaction` block 分配 + commit）
+- **偏差描述**：legacy `MCTransaction.allocateBlockIdRange` 用 fe-core `Config.max_compute_write_max_block_count`（默认 20000，fe.conf 可调）作上限、并 `throws UserException`。连接器 import-gate 禁 `org.apache.doris.common.*`（含 `Config`/`UserException`），二者均不可 import。
+- **新方案**：① 上限改连接器常量 `MaxComputeConnectorTransaction.MAX_BLOCK_COUNT = 20000L`（镜像 legacy 默认值，**丢 fe.conf 可调性**；Rule 2 不投机，如需再经 `MCConnectorProperties` 暴露）。② 校验失败抛 `DorisConnectorException`（unchecked；SPI `ConnectorTransaction.allocateWriteBlockRange` 面无 checked throws，W4 `PluginDrivenTransaction` 适配）。
+- **影响范围**：连接器 `MaxComputeConnectorTransaction`（dormant，gate 关，零 live）。行为：block 上限值不变（20000），仅来源 Config→常量；异常类型 UserException→DorisConnectorException（语义等价的写失败）。
+- **关联**：P4-T03、[P4-T03 设计](./tasks/designs/P4-T03-write-txn-design.md)、[D-024]
+- **后续动作**：
+  - [x] 已恢复 fe.conf 可调（GC1 FIX-BLOCKID-CAP-CONFIG，`95575a4954d`）：经 **session-property 透传**——fe-core `ConnectorSessionBuilder.extractSessionProperties` 注入 `Config.max_compute_write_max_block_count`（镜像既有 `lower_case_table_names`），连接器 `MaxComputeConnectorMetadata.resolveMaxBlockCount` 读 `ConnectorSession.getSessionProperties()` 透传 ctor。**非**原拟 `MCConnectorProperties`（那是 catalog-scoped、错 scope）；本机制读 fe-core 全局 Config = true legacy parity。
+
+### DV-010 — P4-T01：共享 fe-core ConnectorColumnConverter 丢 CHAR/VARCHAR 长度，特判修复（用户签字）
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：P4 Batch A session（P4-T01 启动前 code-grounded 核读 `ConnectorColumnConverter.toConnectorType` + `ScalarType`：CHAR/VARCHAR 长度存 `len`、`getScalarPrecision()` 返 `precision`=0；既有 `ConnectorColumnConverterTest` 无 CHAR/VARCHAR 断言）
+- **当前状态**：🟢 已修正（P4-T01；fe-core `ConnectorColumnConverter` 特判 + 回归测 `testCharVarcharLengthPreserved`，Tests run 9/0F0E）
+- **原计划位置**：P4-T01 原框定「连接器-only、gate 关」；`ConnectorColumnConverter.toConnectorType`（P0-T15 期建）ScalarType 分支统一用 `getScalarPrecision()`/`getScalarScale()`
+- **偏差描述**：连接器 `createTable` 消费的 `ConnectorCreateTableRequest` 列类型经 `ConnectorColumnConverter.toConnectorType(Type)` 产生；其 ScalarType 分支对 CHAR/VARCHAR 用 `getScalarPrecision()`（=`precision` 字段，CHAR/VARCHAR 默认 0），而长度实存 `len`（`getLength()`）→ 请求里 CHAR(n)/VARCHAR(n) **丢长度**（legacy `dorisScalarTypeToMcType` 用 `getLength()` 保留）。这是 P0 转换器的**逆一致性 bug**（其逆向 `convertScalarType` + 连接器 `MCTypeMapping` 约定「CHAR/VARCHAR 长度在 precision 字段」），是 CHAR/VARCHAR DDL 经 SPI 真正达 parity 的唯一路径。
+- **新方案**（用户 AskUserQuestion 签字「修 fe-core 转换器」）：`toConnectorType` 特判 CHAR/VARCHAR，把 `getLength()` 写入 ConnectorType precision 字段（与逆向约定一致）；其余类型不变；加回归测 `ConnectorColumnConverterTest#testCharVarcharLengthPreserved`。
+- **替代方案**：连接器侧对 CHAR/VARCHAR 缺长度 fail-loud + 记 OQ 推迟（保 Batch A 连接器-only 边界，但 CHAR/VARCHAR DDL 暂不可用）——用户否决。
+- **影响范围**：
+  - 代码：fe-core `ConnectorColumnConverter.toConnectorType`（+ import `PrimitiveType`）+ test。**触碰共享 P0 代码**：对 live 的 jdbc/es CREATE TABLE CHAR/VARCHAR 行为变更（「丢长度」→「保留长度」，严格更正确，低风险）。
+  - 文档：本条 + [tasks/P4](./tasks/P4-maxcompute-migration.md) + [PROGRESS](./PROGRESS.md)（§四/§六计数）。
+  - 计划：P4-T01 范围从「连接器-only」微扩至含 1 处 fe-core 转换器修复。
+- **关联**：P4-T01、P0-T15（converter）、[D-023]
+- **后续动作**：
+  - [x] 修 `toConnectorType` + 回归测（P4-T01）
+  - [ ] Batch E：连接器 DDL parity 测覆盖 CHAR/VARCHAR 端到端
+
+### DV-009 — W5 写 sink 收口位置与 RFC/handoff 措辞不符：plugin-driven 写已有专路，改为 layer planWrite
+
+- **发现日期**：2026-06-06
+- **发现 session / agent**：W-phase 实现 session（W5 启动前 2 路 Explore code-grounded recon：sink 入参 + nereids 写 sink 接线；主线 firsthand 核读 `PhysicalPlanTranslator.visitPhysicalConnectorTableSink` / `planner/PluginDrivenTableSink`）
+- **当前状态**：🟢 已修正（W5 commit `9ebe5e27fa4`；用户 AskUserQuestion 签字「Corrected W5 (layer planWrite)」）
+- **原计划位置**：[写 RFC §5.5 / §12 W5](./tasks/designs/connector-write-spi-rfc.md)、[HANDOFF W5 锚点](./HANDOFF.md)——原措辞：「新建 fe-core `PluginDrivenTableSink` + `PhysicalPlanTranslator` 各 `visitPhysicalXxxTableSink`（hive/iceberg/mc）→ `planWrite()`，保 PhysicalXxxSink fallback」。
+- **偏差描述**：RFC/handoff 写于不知既有路径之时。实测（recon + firsthand 核读）：
+  1. `PluginDrivenTableSink` **已存在**（`planner/PluginDrivenTableSink.java`，P0/P1 JDBC 期建），非新建。
+  2. plugin-driven 写 INSERT **不**走 `visitPhysicalHive/Iceberg/MaxComputeTableSink`（那 3 个服务 legacy 非 plugin-driven 表）；走专路 `UnboundConnectorTableSink → LogicalConnectorTableSink → PhysicalConnectorTableSink → visitPhysicalConnectorTableSink`（`PhysicalPlanTranslator:644`），已据 `ConnectorWriteConfig`（config-bag）建 `PluginDrivenTableSink`。mc/hive/iceberg 迁 plugin-driven 后走此专路 → 在那 3 个 concrete 方法加 planWrite 路由是**死代码**。
+  3. 两写-sink 模型并存：既有 **config-bag**（连接器返 `ConnectorWriteConfig` 属性包，fe-core 建 `THiveTableSink`/`TJdbcTableSink`；表达不了 mc/iceberg）⊥ 新 **opaque-sink**（W1 `ConnectorWritePlanProvider.planWrite()` 连接器自建 `TDataSink`，RFC §5.5 E 决策，可泛化）。RFC 未察 config-bag 已存在，故未调和二者。
+- **新方案**（用户签字）：在既有 `visitPhysicalConnectorTableSink` + `PluginDrivenTableSink.bindDataSink` 上 **layer** `planWrite()` 为优先路径（`connector.getWritePlanProvider() != null` 时），config-bag 为 fallback。**不动** 3 个 concrete visit 方法。零行为变更（无连接器 override `getWritePlanProvider`，jdbc 仍走 config-bag）。`ConnectorWriteHandle`/`ConnectorSinkPlan`（W1）形状经使用确认充分，无需改。
+- **缩界（R12 不静默）**：overwrite / 静态分区 / writePath 等 connector-specific write context 的 handle 填充留 P4 adopter（base `InsertCommandContext` 为空 marker，无通用 overwrite；强行 instanceof 子类会再耦合 fe-core）。W5 仅建 seam（空 context）。
+
+---
 
 ### DV-008 — P3-T07 parity 暴露两处 SPI↔legacy 偏差：列名 casing 当场修；Hudi meta-field 纳入推迟批 E
 
