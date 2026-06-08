@@ -22,7 +22,7 @@
 | G5 | **FIX-AGG-COLUMN-REJECT** (GAP5) | minor | Fix（用户定 Option B: SPI 字段） | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE(0 must-fix) | ✅ DONE (`c5e8ba6d9e2`) |
 | G7 | **FIX-VOID-TYPE-MAPPING** (GAP7) | minor | Fix | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE(0 must-fix) | ✅ DONE (`49113dc7860`) |
 | G2 | **FIX-PREDICATE-COLGUARD** (GAP2) | minor | Fix | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE(0 must-fix) | ✅ DONE (`fefbbad391d`) |
-| GC1 | **FIX-BLOCKID-CAP-CONFIG** (CRITICGAP1) | minor | Fix | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| GC1 | **FIX-BLOCKID-CAP-CONFIG** (CRITICGAP1) | minor | Fix（用户定 Option A: 全局 Config 透传） | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE-WITH-NITS(0 must-fix) | ✅ DONE (`95575a4954d`) |
 | T3 | **Tier-3 DV batch** (GAP3/4/9/10) | minor | 接受+DV | ⬜ | n/a | n/a | n/a | ⬜ |
 | DOC | **Batch-D redline 扩充**（design §1/§2 must-land-before-delete + scan-node 注补 LIMIT-split 第 3 副本） | — | — | ⬜ | n/a | n/a | n/a | ⬜ |
 
