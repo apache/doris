@@ -247,10 +247,17 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
             def skipCacheIo = sumProfileCounter(profileString, "NumSkipCacheIOTotal")
             def remoteBytes = sumProfileCounter(profileString, "BytesScannedFromRemote")
             def writeCacheBytes = sumProfileCounter(profileString, "BytesWriteIntoCache")
+            def segmentFooterWriteCacheBytes =
+                    sumProfileCounter(profileString, "SegmentFooterIndexBytesWriteIntoCache")
+            def segmentFooterRemoteIo =
+                    sumProfileCounter(profileString, "SegmentFooterIndexNumRemoteIOTotal")
             def scannerNum = sumProfileCounter(profileString, "NumScanners")
             logger.info("${label} cold write-through counters: remoteOnlyTriggered=${remoteOnlyTriggered}, " +
                     "skipCacheIo=${skipCacheIo}, remoteBytes=${remoteBytes}, " +
-                    "writeCacheBytes=${writeCacheBytes}, scannerNum=${scannerNum}")
+                    "writeCacheBytes=${writeCacheBytes}, " +
+                    "segmentFooterWriteCacheBytes=${segmentFooterWriteCacheBytes}, " +
+                    "segmentFooterRemoteIo=${segmentFooterRemoteIo}, " +
+                    "scannerNum=${scannerNum}")
 
             assert remoteOnlyTriggered == 0L :
                     "${label}: threshold should be disabled, profile=${profileString}"
@@ -258,10 +265,25 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
                     "${label}: cold write-through should not use skip-cache IO, profile=${profileString}"
             assert writeCacheBytes > 0L :
                     "${label}: expected cold read to write file cache, profile=${profileString}"
+            assertProfileCounterExists(profileString, "SegmentFooterIndexWriteCacheIOUseTimer",
+                    label)
+            assertProfileCounterExists(profileString, "SegmentFooterIndexBytesWriteIntoCache",
+                    label)
+            assertProfileCounterExists(profileString, "SegmentFooterIndexNumRemoteIOTotal",
+                    label)
+            if (segmentFooterRemoteIo > 0L) {
+                assert segmentFooterWriteCacheBytes > 0L :
+                        "${label}: expected segment footer index read to write file cache, " +
+                        "profile=${profileString}"
+            }
+            assert writeCacheBytes >= segmentFooterWriteCacheBytes :
+                    "${label}: aggregate file-cache writes should cover segment footer index " +
+                    "writes, profile=${profileString}"
             assertScannerShape(label, scannerNum, expectMultipleScanners, profileString)
             return [
                     remoteBytes: remoteBytes,
                     writeCacheBytes: writeCacheBytes,
+                    segmentFooterWriteCacheBytes: segmentFooterWriteCacheBytes,
                     scannerNum: scannerNum
             ]
         }
@@ -463,7 +485,7 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
             def query = "SELECT SUM(LENGTH(payload) + LENGTH(pad)) FROM ${tableName}"
 
             clearFileCache()
-            sql "set remote_scan_no_write_file_cache_threshold_bytes = -1"
+            sql "set file_cache_query_limit_bytes = -1"
             runProfileQuery("${tableName}_cold_write_through", query) { profileString ->
                 assertColdWriteThrough("${tableName}_cold_write_through", profileString,
                         expectMultipleScanners)
@@ -477,13 +499,13 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
             ]
             thresholdCases.each { thresholdCase ->
                 clearFileCache()
-                sql "set remote_scan_no_write_file_cache_threshold_bytes = ${thresholdCase.bytes}"
+                sql "set file_cache_query_limit_bytes = ${thresholdCase.bytes}"
                 def thresholdVariable = sql """
-                    show variables like 'remote_scan_no_write_file_cache_threshold_bytes'
+                    show variables like 'file_cache_query_limit_bytes'
                 """
                 assert !thresholdVariable.isEmpty() &&
                         thresholdVariable[0][1].toString().toLong() == thresholdCase.bytes.toLong() :
-                        "failed to set remote_scan_no_write_file_cache_threshold_bytes to " +
+                        "failed to set file_cache_query_limit_bytes to " +
                         "${thresholdCase.bytes}, actual=${thresholdVariable}"
                 def profileName = "${tableName}_threshold_${thresholdCase.name}"
                 runProfileQuery(profileName, query) { profileString ->
@@ -547,7 +569,7 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
             def coldQuery = "SELECT COUNT() FROM ${coldTable} WHERE body MATCH 'needle'"
 
             clearFileCache()
-            sql "set remote_scan_no_write_file_cache_threshold_bytes = -1"
+            sql "set file_cache_query_limit_bytes = -1"
             runProfileQuery("${coldTable}_inverted_cold_write_through", coldQuery) { profileString ->
                 assertInvertedIndexColdWriteThrough(
                         "${coldTable}_inverted_cold_write_through", profileString,
@@ -561,7 +583,7 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
 
             clearFileCache()
             def invertedThresholdBytes = cacheBlockSize
-            sql "set remote_scan_no_write_file_cache_threshold_bytes = ${invertedThresholdBytes}"
+            sql "set file_cache_query_limit_bytes = ${invertedThresholdBytes}"
             runProfileQuery("${thresholdTable}_inverted_threshold_one_block",
                     thresholdQuery) { profileString ->
                 assertInvertedIndexThresholdRemoteOnly(
@@ -578,7 +600,7 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
                     "SELECT COUNT() FROM ${cachedSearcherTable} WHERE body MATCH 'group1'"
 
             clearFileCache()
-            sql "set remote_scan_no_write_file_cache_threshold_bytes = -1"
+            sql "set file_cache_query_limit_bytes = -1"
             runProfileQuery("${cachedSearcherTable}_build_searcher_cache",
                     buildSearcherQuery) { profileString ->
                 def searcherCacheMiss =
@@ -590,7 +612,7 @@ suite("test_remote_scan_no_write_file_cache_threshold", "docker") {
 
             clearFileCache()
             def cachedSearcherThresholdBytes = 0L
-            sql "set remote_scan_no_write_file_cache_threshold_bytes = ${cachedSearcherThresholdBytes}"
+            sql "set file_cache_query_limit_bytes = ${cachedSearcherThresholdBytes}"
             runProfileQuery("${cachedSearcherTable}_inverted_searcher_cache_hit_zero_threshold",
                     cachedSearcherQuery) { profileString ->
                 assertInvertedIndexSearcherCacheHitThresholdRemoteOnly(

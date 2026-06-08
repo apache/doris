@@ -358,14 +358,14 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
-    public void testRemoteScanNoWriteFileCacheThresholdToThrift() throws Exception {
+    public void testFileCacheQueryLimitBytesToThrift() throws Exception {
         SessionVariable variable = new SessionVariable();
         VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
-                SessionVariable.REMOTE_SCAN_NO_WRITE_FILE_CACHE_THRESHOLD_BYTES,
+                SessionVariable.FILE_CACHE_QUERY_LIMIT_BYTES,
                 new IntLiteral(262144)));
 
         TQueryOptions queryOptions = variable.toThrift();
-        Assertions.assertTrue(queryOptions.isSetRemoteScanNoWriteFileCacheThresholdBytes());
-        Assertions.assertEquals(262144L, queryOptions.getRemoteScanNoWriteFileCacheThresholdBytes());
+        Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
+        Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
 }

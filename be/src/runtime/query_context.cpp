@@ -127,12 +127,12 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     const bool initialize_remote_scan_cache_write_limiter =
             config::is_cloud_mode() && config::enable_file_cache &&
-            query_options.__isset.remote_scan_no_write_file_cache_threshold_bytes &&
-            query_options.remote_scan_no_write_file_cache_threshold_bytes >= 0 &&
+            query_options.__isset.file_cache_query_limit_bytes &&
+            query_options.file_cache_query_limit_bytes >= 0 &&
             query_options.query_type == TQueryType::SELECT;
     if (initialize_remote_scan_cache_write_limiter) {
         _remote_scan_cache_write_limiter = std::make_unique<io::RemoteScanCacheWriteLimiter>(
-                _query_id, query_options.remote_scan_no_write_file_cache_threshold_bytes);
+                _query_id, query_options.file_cache_query_limit_bytes);
     }
 
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
