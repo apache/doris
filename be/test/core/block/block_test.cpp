@@ -812,6 +812,46 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
     serialize_and_deserialize_test_one();
 }
 
+TEST(BlockTest, split_to_const_blocks) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto string_type = std::make_shared<DataTypeString>();
+    auto nullable_int_type = std::make_shared<DataTypeNullable>(int_type);
+
+    auto int_column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+    auto string_column = ColumnHelper::create_column<DataTypeString>({"a", "b", "c"});
+    auto nullable_int_column =
+            ColumnHelper::create_nullable_column<DataTypeInt32>({10, 20, 30}, {0, 1, 0});
+    auto const_data_column = ColumnHelper::create_column<DataTypeInt32>({100});
+
+    Block block({{int_column, int_type, "int_col"},
+                 {string_column, string_type, "string_col"},
+                 {nullable_int_column, nullable_int_type, "nullable_int_col"},
+                 {ColumnConst::create(const_data_column, 3), int_type, "const_int_col"}});
+
+    auto const_blocks = block.split_to_const_blocks();
+    ASSERT_EQ(const_blocks.size(), block.rows());
+    for (size_t row_idx = 0; row_idx < block.rows(); ++row_idx) {
+        const auto& const_block = const_blocks[row_idx];
+        ASSERT_EQ(const_block.rows(), 1);
+        ASSERT_EQ(const_block.columns(), block.columns());
+        EXPECT_EQ(const_block.dump_types(), block.dump_types());
+
+        for (size_t col_idx = 0; col_idx < block.columns(); ++col_idx) {
+            const auto& source = block.get_by_position(col_idx);
+            const auto& actual = const_block.get_by_position(col_idx);
+            EXPECT_EQ(actual.name, source.name);
+            ASSERT_TRUE(is_column_const(*actual.column));
+            const auto& const_column = assert_cast<const ColumnConst&>(*actual.column);
+            auto expected_column = source.column->cut(row_idx, 1);
+            if (is_column_const(*expected_column)) {
+                expected_column =
+                        assert_cast<const ColumnConst&>(*expected_column).get_data_column_ptr();
+            }
+            EXPECT_EQ(const_column.get_data_column().compare_at(0, 0, *expected_column, 1), 0);
+        }
+    }
+}
+
 TEST(BlockTest, dump_data) {
     auto vec = ColumnInt32::create();
     auto& int32_data = vec->get_data();

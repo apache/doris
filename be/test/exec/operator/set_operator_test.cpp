@@ -146,6 +146,27 @@ struct SetOperatorTest : public ::testing::Test {
 
 struct IntersectOperatorTest : public SetOperatorTest<true> {};
 struct ExceptOperatorTest : public SetOperatorTest<false> {};
+
+TEST_F(IntersectOperatorTest, test_sink_disable_default_materialize_const) {
+    SetSinkOperatorX<true> sink(2);
+    EXPECT_FALSE(sink.use_default_implementation_for_constants());
+}
+
+TEST_F(ExceptOperatorTest, test_sink_disable_default_materialize_const) {
+    SetSinkOperatorX<false> sink(2);
+    EXPECT_FALSE(sink.use_default_implementation_for_constants());
+}
+
+TEST_F(IntersectOperatorTest, test_probe_sink_disable_default_materialize_const) {
+    SetProbeSinkOperatorX<true> probe_sink(1);
+    EXPECT_FALSE(probe_sink.use_default_implementation_for_constants());
+}
+
+TEST_F(ExceptOperatorTest, test_probe_sink_disable_default_materialize_const) {
+    SetProbeSinkOperatorX<false> probe_sink(1);
+    EXPECT_FALSE(probe_sink.use_default_implementation_for_constants());
+}
+
 TEST_F(IntersectOperatorTest, test_all_const_expr) {
     init_op(2, {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>(),
                 std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()});

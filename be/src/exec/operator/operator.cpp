@@ -18,6 +18,7 @@
 #include "exec/operator/operator.h"
 
 #include "common/status.h"
+#include "core/block/materialize_block.h"
 #include "exec/common/util.hpp"
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/local_exchange_source_operator.h"
@@ -105,6 +106,30 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
+
+#ifndef NDEBUG
+namespace {
+
+Status sink_with_const_block_mock(DataSinkOperatorXBase* sink, RuntimeState* state, Block* block,
+                                  bool eos, bool* mocked) {
+    *mocked = false;
+    auto* local_state = state->get_sink_local_state();
+    if (block->rows() == 0 || local_state == nullptr ||
+        local_state->has_mocked_sink_const_block()) {
+        return Status::OK();
+    }
+
+    local_state->set_mocked_sink_const_block();
+    *mocked = true;
+    auto const_blocks = block->split_to_const_blocks();
+    for (size_t i = 0; i < const_blocks.size(); ++i) {
+        RETURN_IF_ERROR(sink->sink(state, &const_blocks[i], eos && i + 1 == const_blocks.size()));
+    }
+    return Status::OK();
+}
+
+} // namespace
+#endif
 
 Status OperatorBase::close(RuntimeState* state) {
     if (_is_closed) {
@@ -464,6 +489,21 @@ Status DataSinkOperatorXBase::terminate(RuntimeState* state) {
         return result.error();
     }
     return result.value()->terminate(state);
+}
+
+Status DataSinkOperatorXBase::sink(RuntimeState* state, Block* block, bool eos) {
+    RETURN_IF_ERROR(block->check_type_and_column());
+#ifndef NDEBUG
+    bool mocked = false;
+    RETURN_IF_ERROR(sink_with_const_block_mock(this, state, block, eos, &mocked));
+    if (mocked) {
+        return Status::OK();
+    }
+#endif
+    if (use_default_implementation_for_constants()) {
+        materialize_block_inplace(*block);
+    }
+    return sink_impl(state, block, eos);
 }
 
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {

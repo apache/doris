@@ -102,6 +102,8 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
+    bool use_default_implementation_for_constants() const override { return false; }
+
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);

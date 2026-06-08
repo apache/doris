@@ -519,6 +519,11 @@ public:
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
+#ifndef NDEBUG
+    [[nodiscard]] bool has_mocked_sink_const_block() const { return _has_mocked_sink_const_block; }
+    void set_mocked_sink_const_block() { _has_mocked_sink_const_block = true; }
+#endif
+
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
@@ -544,6 +549,9 @@ protected:
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
+#ifndef NDEBUG
+    bool _has_mocked_sink_const_block = false;
+#endif
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -620,15 +628,14 @@ public:
         return result.value()->is_finished();
     }
 
-    [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
-        RETURN_IF_ERROR(block->check_type_and_column());
-        return sink_impl(state, block, eos);
-    }
+    [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos);
 
     [[nodiscard]] virtual Status sink_impl(RuntimeState* state, Block* block, bool eos) = 0;
 
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
+
+    [[nodiscard]] virtual bool use_default_implementation_for_constants() const { return true; }
 
     // Returns the memory this sink operator expects to allocate in the next
     // execution round (sink only — pipeline task sums all operators + sink).

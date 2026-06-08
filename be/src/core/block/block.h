@@ -204,6 +204,8 @@ public:
     /** Get the same block, but empty. */
     Block clone_empty() const;
 
+    std::vector<Block> split_to_const_blocks() const;
+
     Columns get_columns() const;
     Columns get_columns_and_convert();
 
