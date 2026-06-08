@@ -1159,7 +1159,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     public LogicalOlapScan withTableScanParams(TableScanParams scanParams) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
-                        groupExpression, Optional.of(getLogicalProperties()),
+                        groupExpression, Optional.empty(),
                         selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
