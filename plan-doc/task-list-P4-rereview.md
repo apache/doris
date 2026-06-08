@@ -10,7 +10,7 @@
 
 ## ▶ RESUME（fresh session 从这里接）
 
-- **当前**：**✅ P3-11 FIX-BATCH-MODE-SPLIT DONE**（commit `ac8f0fc15eb`；Shape A 通用 batch SPI 路径——SPI +2 additive default、连接器 supportsBatchScan、fe-core PluginDrivenScanNode 三 override + 纯静态 shouldUseBatchMode；设计验证+impl-review 各 GO-WITH-EDITS 折入；守门 编译/fe-core UT 9-9/fe-connector-api UT 2-2/checkstyle 0/import-gate/mutation 5-5；真值闸 大分区 live e2e=DV-019）。**🎉 P3 全清（P3-9..P3-12 全 DONE）。** 整个 P4-rereview triage（P0-1..3 / P1-4 / P2-5..8 / P3-9..12）**全部完成**。**剩余 = 横切开放项**（见 HANDOFF：F9 CAST 复查、Batch-D 红线扩充复查、doc-sync 欠账、live e2e 终验）。
+- **当前**：**✅ F9 FIX-CAST-PUSHDOWN DONE**（commit `cc32521ed99`；横切复查升级——原 review 误判 known-degr，复查 `wzoa6dkvw` 0/3 refuted 证为**未登记静默丢行回归**，用户定 Fix：连接器 `supportsCastPredicatePushdown=false` 恢复 legacy parity + fe-core getSplits 剥壳时抑制 source LIMIT[impl-review F9-LIMITOPT-1 折入]；守门 连接器 UT 2-2+mut、fe-core LimitStrip 2-2+BatchMode 9-9+mut 2-2、checkstyle 0、import-gate；真值闸 live ODPS=DV-020）。**P3 全清 + 整个 P4-rereview triage（12 issue）全完成**。**剩余横切**（见 HANDOFF）：Batch-D 红线扩充复查（余 3 文件）、doc-sync 欠账（P2）、**live e2e 终验（DV-013..020，真实 ODPS）**、Batch-D 删 legacy（gated on live）。
   - 已完成：P0-1 FIX-OVERWRITE-GATE（2 轮，`59699a62f33`）、P0-2 FIX-WRITE-DISTRIBUTION（1 轮，`f0adedba20c`）、P0-3 FIX-BIND-STATIC-PARTITION（3 轮，`7cc86c66440`）、P1-4 FIX-PRUNE-PUSHDOWN（1 轮，`072cd545c54`）、P2-5 FIX-DROP-DB-FORCE（1 轮，`99d5c9d527c`）、P2-6 FIX-CREATE-DB-PRECHECK（1 轮，`ff52f8fd478`）、P2-7 FIX-CTAS-IF-NOT-EXISTS（1 轮，`7051b75c197`）、P2-8 FIX-AUTOINC-REJECT（1 轮，`4aa680f3e3b`）、P3-9 FIX-LIMIT-SPLIT-DEFAULT（设计验证+impl review 收敛，`952b08e0cc8`）、P3-10 FIX-ISKEY-METADATA（设计验证+impl review 0 mustFix，`1b44cd4f065`）、P3-12 FIX-POSTCOMMIT-REFRESH（无逻辑改动 DV+Javadoc，`1f2e00d3696`）、**P3-11 FIX-BATCH-MODE-SPLIT（Shape A batch SPI 路径，设计验证+impl-review GO-WITH-EDITS 折入，`ac8f0fc15eb`）**。
   - ✅ **doc-sync（P1-4 随本 commit 落）**：`decisions-log` D-031、`deviations-log` DV-015（+补 DV-014 详细段、计数 14→15）、`FIX-PART-GATES` design/review-rounds「pruning 不变式 clean」⚠️ 更正、D-028 ⚠️ 补注。**前序遗留**（P0-3 doc-sync 大体已落：D-030/DV-014 索引在；本次补齐 DV-014 详细段）。
 - 动手前按指针核码（Rule 8）。triage 顺序 = 3 写 blocker → DG-1 裁剪透传 → DB-DDL/CTAS → 写并行+limit 默认 → minors（报告 §E.7）。
@@ -33,6 +33,7 @@
 | P3-10 | FIX-ISKEY-METADATA     | minor | connector | 明确修复（用户定「Fix isKey=true」，连接器局部无 SPI） | ✅ | ✅ | ✅ | 设计验证 0mF + impl 0mF | ✅ DONE (`1b44cd4f065`) |
 | P3-11 | FIX-BATCH-MODE-SPLIT   | minor | SPI+connector+fe-core | **用户定「实现 batch SPI 路径」**（Shape A 薄 SPI+fe-core 编排，逐字镜像 legacy） | ✅ | ✅ | ✅ | 设计验证 `wcpg9lblj` 0mF+2sF→折入（SF-1 NPE）；impl-review `wve7y1jst` 0mF+1sF+2nit→折入 | ✅ DONE (`ac8f0fc15eb`) |
 | P3-12 | FIX-POSTCOMMIT-REFRESH | minor | fe-core | 无产线逻辑改动，DV-018+Javadoc 泛化（用户定） | ✅ | ✅ | ✅ | 对抗性安全核查 inline（handleRefreshTable=缓存/editlog 自愈）0 mustFix | ✅ DONE (`1f2e00d3696`) |
+| F9 | FIX-CAST-PUSHDOWN | **major(correctness)** | connector+fe-core | **横切复查升级**：原 review 误判 known-degr，复查 `wzoa6dkvw` 0/3 refuted 证为**未登记静默丢行回归**（用户定 Fix） | ✅ | ✅ | ✅ | 复查 0/3 refuted；impl-review `wj2h0120n` 1sF（limit-opt 交互）→折入 | ✅ DONE (`cc32521ed99`) |
 
 图例：⬜ 未开始 / 🔄 进行中 / ✅ 完成
 

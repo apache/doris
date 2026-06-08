@@ -4,6 +4,7 @@
 > 用户拍板（2026-06-08）：**Fix（MaxCompute override `supportsCastPredicatePushdown=false`）+ 顺手深查受影响类型对**。
 > 来源：`plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md` F9（confirms 3/3）/ `P4-cutover-review-findings.md` READ-C6。
 > 对抗核验：workflow `wzoa6dkvw`（establish + 3 skeptic refute，**0/3 refuted、verdict=real-unregistered-regression**）。
+> **状态：✅ DONE @`cc32521ed99`**（impl-review `wj2h0120n` 1 shouldFix→折入；[D-036]/[DV-020]）。账本回填见下一 doc-sync commit。
 
 ## Problem
 

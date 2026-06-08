@@ -22,7 +22,7 @@
 
 > **本轮 P4-rereview triage 全部完成**：P0-1..3（写 blocker）/ P1-4（读裁剪）/ P2-5..8（DB-DDL/CTAS）/ P3-9..12（写并行/读默认/minors）共 **12 issue 全 DONE**，逐条见下面 🔴/🟠/🟡 段。剩余工作不再是「修 issue」，而是三条收尾线：
 > 👉 **下一 session 第一步（按价值/依赖排序）**：
-> 1. **🅰 live e2e 终验（真实 ODPS）= 翻闸真正完成门**（最高价值，CI 跳）。所有静态修复的真值闸须 live 验：写 blocker（动态/静态分区、INSERT OVERWRITE，DV-013/014）+ 读裁剪（DV-015）+ limit-split（DV-016）+ DESCRIBE isKey（DV-017）+ post-commit swallow（DV-018）+ batch-mode 大分区（DV-019）。**需真实 ODPS 环境/凭证**——多半要用户提供或在带 ODPS 的环境跑。runbook 见历史 HANDOFF / decisions-log。
+> 1. **🅰 live e2e 终验（真实 ODPS）= 翻闸真正完成门**（最高价值，CI 跳）。所有静态修复的真值闸须 live 验：写 blocker（动态/静态分区、INSERT OVERWRITE，DV-013/014）+ 读裁剪（DV-015）+ limit-split（DV-016）+ DESCRIBE isKey（DV-017）+ post-commit swallow（DV-018）+ batch-mode 大分区（DV-019）+ CAST 谓词不丢行（DV-020：STRING 列 `"5"/"05"/" 5"` 的 `CAST(code AS INT)=5` 返回全部 3 行）。**需真实 ODPS 环境/凭证**——多半要用户提供或在带 ODPS 的环境跑。runbook 见历史 HANDOFF / decisions-log。
 > 2. **🅱 Batch-D = 删 legacy MaxCompute（21 文件）**。**所有 per-fix 红线门现已全清**（P0 写分发/overwrite/bind + P1 读裁剪 + P3-11 batch-mode），故 Batch-D 已**解锁**；但执行仍**gated on 🅰 live e2e**（[D-027]）。设计 = `plan-doc/tasks/designs/P4-batchD-maxcompute-removal-design.md`（其 §1「zero survivor」声明已就 MaxComputeScanNode 加红线限定，仍须复查 PhysicalMaxComputeTableSink/allowInsertOverwrite/bindMaxComputeTableSink 三处，见 §横切）。
 > 3. **🅲 横切开放项**（静态、不需 ODPS，可随时清，见下）。
 >
@@ -30,7 +30,7 @@
 > - **(决策) P2-7 KNOWN PRE-EXISTING GAP**：非-IFNE + FE-cache 命中但远端缺 → legacy 抛 `ERR_TABLE_EXISTS_ERROR`、cutover 静默建表。全 parity 可在 `PluginDrivenExternalCatalog.createTable` 的 `exists && !isIfNotExists()` 加 FE 侧 throw。**待定 fix vs 接受+DV**（见 FIX-CTAS review-rounds）。
 > - **(doc-sync 欠账 — P2 session 遗留，已核实仍未落)**：decisions-log 登记 P2 三处 SPI 改动（4 参 `dropDatabase` / `supportsCreateDatabase` / `ConnectorColumn.isAutoInc`）；deviations-log 登记（P2-7 非-IFNE 文案差、CTAS KNOWN GAP、P2-8 auto-inc 接受项）；更正 `P4-maxcompute-migration.md` 的「nereids 上游已拒 auto-inc」假声明（P2-8 已证伪：nereids 仅拒 generated 列、不拒 bare auto-inc）；T06c §5「记 OQ/可接受」措辞。**注：P3-9/P3-10 的 doc-sync（D-032/D-033/DV-016/DV-017）本 session 已落。**
 > - **(复查) F9 CAST 谓词剥壳下推**（`ExprToConnectorExpressionConverter:108-109`, confirms 3/3, correctness/丢行风险）：虽归「已登记降级」，建议二次确认真安全 / 真已登记。
-> - **(终验) live e2e（真实 ODPS）是翻闸真正完成门**（= 上面 🅰）：写 blocker（动态/静态分区、INSERT OVERWRITE）+ 读裁剪 + limit-split + DESCRIBE + post-commit swallow + batch-mode 大分区 的 DV 真值闸（**DV-013..019**）须 live 验，CI 跳。
+> - **(终验) live e2e（真实 ODPS）是翻闸真正完成门**（= 上面 🅰）：写 blocker（动态/静态分区、INSERT OVERWRITE）+ 读裁剪 + limit-split + DESCRIBE + post-commit swallow + batch-mode 大分区 + CAST 谓词不丢行 的 DV 真值闸（**DV-013..020**）须 live 验，CI 跳。
 
 > 来源全部出自 `plan-doc/reviews/P4-maxcompute-full-rereview-2026-06-07.md`（每条带 `file:line` + cutover↔legacy diff + 处置建议 + 历史交叉核对证据）。下面是浓缩可执行清单——**动手前按指针核码（Rule 8）**。
 > **⚠️ 把 newGaps∪disagreements 当一个"必须 triage"集**：同一根因被两个审阅者按各自查到的历史 artifact 分别归 new-gap / disagreement（静态分区 bind F19=F48；CREATE DB 预检 F23=F26），别被 status 标签的细分误导。
@@ -64,7 +64,7 @@
 ## ⛓️ 横切 / 别忘
 
 - [ ] **Batch-D 红线扩充**：删 legacy 前须先在 PluginDriven/connector 路径补齐 → `PhysicalMaxComputeTableSink`(写分发唯一副本)、`allowInsertOverwrite` 的 MC 分支、`bindMaxComputeTableSink` 静态分区过滤、**`MaxComputeScanNode` 读裁剪下推（P1-4 已补 plugin 侧）**。复查 Batch-D 设计对这些文件的"zero survivor"声明（连同既有 `PartitionsTableValuedFunction` 红线）。
-- [ ] **复查一条 known-degradation**：F9 `CAST 谓词被剥壳下推 ODPS → 可能丢行`（category=**correctness**, `ExprToConnectorExpressionConverter.java:108-109`, confirms 3/3）。虽被 Phase C 归"已登记降级"，但属正确性/丢行风险，建议二次确认是否真安全/真已登记。
+- [x] **F9 CAST 剥壳下推复查** ✅ **DONE @`cc32521ed99`**（[D-036]/[DV-020]；详见 `tasks/designs/P4-T06e-FIX-CAST-PUSHDOWN-design.md`）。**复查推翻 review 的「已登记降级」定级**：对抗核验 `wzoa6dkvw` **0/3 refuted**、verdict=**real-unregistered-regression**——MaxCompute 继承 `supportsCastPredicatePushdown=true`、剥壳谓词推 ODPS 源端 under-match（`CAST(str AS INT)=5`→`str="5"` 丢 `'05'/' 5'`）、BE 复算无法找回源端已丢行；legacy 丢弃 CAST 谓词（BE-only）故正确 ⇒ **回归**（非 DV-016 的 limit-opt 资格 CAST-unwrap）。**用户定 Fix**：① 连接器 `supportsCastPredicatePushdown→false`（激活既有 strip、恢复 legacy parity）；② fe-core `getSplits` 剥壳时抑制 source LIMIT（impl-review `wj2h0120n` F9-LIMITOPT-1：否则空 filter 触发 limit-opt under-return）。守门 连接器 UT2-2+mut / fe-core LimitStrip2-2+BatchMode9-9+mut2-2 / checkstyle 0 / import-gate。真值闸 live ODPS=DV-020。**out-of-scope surface**：JDBC `applyLimit`+cast-off 理论同类（MC 不 override applyLimit、本修对 MC 完整），DV-020 备查。
 - [~] **doc-sync**：P0-1/P0-2/P0-3 + **P1-4 已落并 commit**（decisions-log D-027..D-031、deviations-log DV-013/DV-014/DV-015、cutover-design §4.2、FIX-WRITE-DISTRIBUTION-design index-by-cols superseded、**FIX-PART-GATES design/review-rounds「pruning 不变式 clean」⚠️ 更正 + D-028 ⚠️ 补注（DG-1✅）**、本 HANDOFF、task-list）。**剩余（随 P2+ 处理）**：DG-2 证伪 DECISION-3「忠实镜像」、DG-4/DG-6 task-list「6/6 完成」措辞，各 P2+ 项落地时同步 design/log。
 
 ---

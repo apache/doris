@@ -130,7 +130,7 @@
 
 | 域 | 独立判定 | 是否达成 legacy parity |
 |---|---|---|
-| **1 读取** | 返回行**结果正确**（descriptor=`MAX_COMPUTE_TABLE`+TMCTable 与 legacy 逐字一致、BE static_cast/JNI 一致、split offset/`-1` sentinel 一致、谓词类型/时区转换镜像 legacy、conjunct 始终留给 BE 重算）；但**分区裁剪未端到端生效**（DG-1）、limit-split 默认反转（NG-5）、isKey=false（NG-6）、单子表达式失败致整 filter NO_PREDICATE（F8 已登记）、CAST 下推有丢行风险（F9 已登记）、无 batch-mode（NG-7）。 | ❌ **分区扫描效率 + 元数据保真未达**；行正确性达成。主要是**设计/wiring 缺口**（SPI scan node 无通道传 selected-partition/limit 上下文）。 |
+| **1 读取** | 返回行**结果正确**（descriptor=`MAX_COMPUTE_TABLE`+TMCTable 与 legacy 逐字一致、BE static_cast/JNI 一致、split offset/`-1` sentinel 一致、谓词类型/时区转换镜像 legacy、conjunct 始终留给 BE 重算）；但**分区裁剪未端到端生效**（DG-1）、limit-split 默认反转（NG-5）、isKey=false（NG-6）、单子表达式失败致整 filter NO_PREDICATE（F8 已登记）、CAST 下推丢行（F9 ⚠️复查证为**未登记回归**、已修 `cc32521ed99`/[D-036]）、无 batch-mode（NG-7）。 | ❌ **分区扫描效率 + 元数据保真未达**；行正确性达成。主要是**设计/wiring 缺口**（SPI scan node 无通道传 selected-partition/limit 上下文）。 |
 | **2 写入** | 事务生命周期（begin/finalizeSink/doBeforeCommit 抓 `loadedRows=getUpdateCnt()`/commit/rollback）、affected-rows 来源、提交协议（TBinaryProtocol/TMCCommitData）、write-session 参数、BE writer+block-id RPC **均与 legacy 等价（BE 零 diff）**；但 planner 侧**写分发**（GATHER vs hash+local-sort/并行，NG-2/NG-4）与**静态分区 bind**（NG-3/DG-2）回归，block-count 上限硬编码 20000（F14/F20 已登记），post-commit refresh 吞异常（NG-8）。 | ❌ **写分发 + 静态分区未达**（含 blocker）；事务/数据面达成。 |
 | **3 DDL** | 常规良构 case 达 parity（engine padding/一致性、local→remote 名解析、类型拒绝集、lifecycle/bucket/property、identity-only 分区、editlog 用 local 名）；jdbc/es/trino 共享路径未受波及。但 **DB 级 DDL** 与一项列校验回归：DROP DB FORCE 不级联（DG-3）、CREATE DB IF NOT EXISTS 丢远端预检（DG-4）、auto-inc 拒绝丢失（DG-5）、CTAS IF-NOT-EXISTS 误写（DG-6）。 | ⚠️ 常规 case 达成；**DB-DDL/CTAS 边界未达**。是**实现缺口**非设计缺口（SPI 形状能承载，代码没做）。 |
 | **4 元数据回放** | editlog/image 序列化、replay 重建 cache、follower、GSON 三注册（catalog/db/table）compat、replay key 用 local 名——**parity，无回归**。（注：`createTable` 返回值/CTAS 语义缺陷 DG-6 挂在本域，但属 DDL 语义而非 replay 机制问题。） | ✅ 回放机制达成 parity。 |
@@ -149,7 +149,7 @@
 | F7 | read | major | regression | **disagreement** | 同 F1（另一 lens） | 3 |
 | F2 | read | minor | regression | known-degr | limit-split opt 永久禁用（`checkOnlyPartitionEquality` 恒 false） | 2 |
 | F8 | read | major | regression | known-degr | 单子表达式不可转→整 filter NO_PREDICATE | 3 |
-| F9 | read | major | **correctness** | known-degr | **CAST 谓词被剥壳下推 ODPS→可能丢行** | 3 |
+| F9 | read | major | **correctness** | ~~known-degr~~→**regression** ⚠️ | **CAST 谓词被剥壳下推 ODPS→丢行**（⚠️2026-06-08 复查 `wzoa6dkvw` 0/3 refuted 推翻「known-degr/已登记」定级：实为**未登记静默丢行回归**，legacy 丢弃 CAST 谓词故正确、cutover 推下剥壳谓词更紧。已 **Fix** `cc32521ed99` [D-036]/[DV-020]） | 3 |
 | F3/F10 | read | minor | parity | **new-gap** | 所有列 isKey=false | 3/3 |
 | F6/F13 | read | minor | regression/d-i-gap | **new-gap** | 丢失 batch-mode 异步 split | 3/3 |
 | F11 | read | major | regression | **new-gap** | limit-split 忽略 session-var、默认触发 | 3 |
