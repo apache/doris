@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_repeat_output_slot") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
         SET ignore_shape_nodes='PhysicalDistribute';
         SET disable_nereids_rules='PRUNE_EMPTY_PARTITION';

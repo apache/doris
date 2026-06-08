@@ -36,7 +36,7 @@ import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewr
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
-import org.apache.doris.nereids.rules.rewrite.AddProjectForUniqueFunction;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForVolatileExpression;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
@@ -52,6 +52,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectLimitAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
@@ -124,6 +125,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectBetweenTopNAndAgg;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectExprUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -395,6 +397,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topic("Push project and filter on cte consumer to cte producer",
                                     topDown(
                                             new CollectFilterAboveConsumer(),
+                                            new CollectLimitAboveConsumer(),
                                             new CollectCteConsumerOutput())
                             ),
                             topic("eliminate join according unique or foreign key",
@@ -716,7 +719,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new PullUpProjectUnderTopN(),
                                 new PullUpProjectUnderLimit()
-                        )
+                        ),
+                        custom(RuleType.PULL_UP_PROJECT_EXPR_UNDER_TOPN,
+                                PullUpProjectExprUnderTopN::new)
                 ),
                 // TODO: these rules should be implementation rules, and generate alternative physical plans.
                 topic("Table/Physical optimization",
@@ -762,10 +767,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new SumLiteralRewrite(),
                             new MergePercentileToArray())
                 ),
-                topic("add projection for unique function",
-                        // separate AddProjectForUniqueFunction and MergeProjectable
+                topic("add projection for volatile expression",
+                        // separate AddProjectForVolatileExpression and MergeProjectable
                         // to avoid dead loop if code has bug
-                        topDown(new AddProjectForUniqueFunction()),
+                        topDown(new AddProjectForVolatileExpression()),
                         topDown(new MergeProjectable())
                 ),
                 topic("collect scan filter for hbo",
@@ -775,6 +780,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),
+                                new CollectLimitAboveConsumer(),
                                 new CollectCteConsumerOutput()
                         )
                 ),

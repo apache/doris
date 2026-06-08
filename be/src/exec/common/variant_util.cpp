@@ -355,10 +355,10 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         auto variant = ColumnVariant::create(data_type_object.variant_max_subcolumns_count(),
                                              data_type_object.enable_doc_mode());
 
-        variant->create_root(arg.type, arg.column->assume_mutable());
+        variant->create_root(arg.type, std::move(*arg.column).mutate());
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
-                check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
+                assert_cast<const ColumnNullable*>(arg.column.get())->get_null_map_column_ptr());
         *result = type->is_nullable() ? nullable : variant->get_ptr();
         return Status::OK();
     }
@@ -1988,7 +1988,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         }
         break;
     case ParseConfig::ParseTo::OnlyDocValueColumn: {
-        CHECK(column_variant.enable_doc_mode()) << "OnlyDocValueColumn requires doc mode enabled";
         std::vector<size_t> doc_item_indexes;
         doc_item_indexes.reserve(paths.size());
         phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
@@ -1998,6 +1997,14 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
             FieldInfo field_info;
             get_field_info(values[i], &field_info);
             if (paths[i].empty()) {
+                // Plain non-doc VARIANT can use doc-value KV as writer-side staging. An
+                // invalid root entry from JSON object/array is neither a scalar root value nor
+                // a doc KV path, so leave this row's doc offset empty. Doc-mode and valid scalar
+                // roots still populate the root subcolumn below.
+                if (!column_variant.enable_doc_mode() &&
+                    field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
+                    continue;
+                }
                 auto* subcolumn = column_variant.get_subcolumn(paths[i]);
                 DCHECK(subcolumn != nullptr);
                 flush_defaults(subcolumn);
@@ -2048,9 +2055,8 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         }
     }
     column_variant.incr_num_rows();
-    auto sparse_column = column_variant.get_sparse_column();
-    if (sparse_column->size() == old_num_rows) {
-        sparse_column->assume_mutable()->insert_default();
+    if (column_variant.get_sparse_column()->size() == old_num_rows) {
+        column_variant.get_sparse_column_mutable().insert_default();
     }
 #ifndef NDEBUG
     column_variant.check_consistency();
@@ -2147,10 +2153,15 @@ Status _parse_and_materialize_variant_columns(Block& block,
     for (size_t i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
-        MutableColumnPtr var_column = column_ref->assume_mutable();
+        MutableColumnPtr owner_column = std::move(*column_ref).mutate();
+        ColumnPtr nullable_null_map;
+        MutableColumnPtr var_column;
         if (is_nullable) {
-            const auto& nullable = assert_cast<const ColumnNullable&>(*column_ref);
-            var_column = nullable.get_nested_column_ptr()->assume_mutable();
+            const auto& nullable = assert_cast<const ColumnNullable&>(*owner_column);
+            nullable_null_map = nullable.get_null_map_column_ptr();
+            var_column = std::move(*nullable.get_nested_column_ptr()).mutate();
+        } else {
+            var_column = std::move(owner_column);
         }
         auto& var = assert_cast<ColumnVariant&>(*var_column);
         var_column->finalize();
@@ -2194,15 +2205,13 @@ Status _parse_and_materialize_variant_columns(Block& block,
             auto expected_root_type =
                     make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
             var.ensure_root_node_type(expected_root_type);
-            variant_column = var.assume_mutable();
+            variant_column = std::move(var_column);
         }
 
         // Wrap variant with nullmap if it is nullable
         ColumnPtr result = variant_column->get_ptr();
         if (is_nullable) {
-            const auto& null_map =
-                    assert_cast<const ColumnNullable&>(*column_ref).get_null_map_column_ptr();
-            result = ColumnNullable::create(result, null_map);
+            result = ColumnNullable::create(result, nullable_null_map);
         }
         block.get_by_position(variant_pos[i]).column = result;
     }
@@ -2214,6 +2223,49 @@ Status parse_and_materialize_variant_columns(Block& block, const std::vector<uin
     RETURN_IF_CATCH_EXCEPTION(
             { return _parse_and_materialize_variant_columns(block, variant_pos, configs); });
 }
+
+namespace {
+
+ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& column,
+                                                         const ParseConfig& config) {
+    // NestedGroup consumes the parse-time subcolumn tree to build nested storage structures, so it
+    // must not go through doc-value staging.
+    if (column.variant_enable_nested_group()) {
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    }
+
+    // Persistent doc mode owns doc-value bucket columns in VariantDocWriter. Keep it separate from
+    // the plain non-doc staging optimization, even when typed paths or parent indexes exist.
+    if (column.variant_enable_doc_mode()) {
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    }
+
+    // Deprecated flatten-nested still consumes parse-time subcolumns. Predefined typed paths and
+    // parent inverted indexes are handled later by regular doc-value staging: typed paths are
+    // forced into the materialized set unless typed-to-sparse is enabled, and materialized dynamic
+    // subcolumns inherit parent indexes while sparse payloads stay unindexed.
+    if (config.deprecated_enable_flatten_nested) {
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    }
+
+    // Plain dynamic non-doc VARIANT can avoid eagerly creating thousands of parse-time subcolumns.
+    // The segment writer will pick the materialized/sparse split from this doc-value KV staging.
+    // Keep a BE switch so tests and rollouts can compare the old parse-time path with staging under
+    // the same writer and schema.
+    switch (config::variant_storage_parse_mode) {
+    case 0:
+    case 2:
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    case 1:
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    default:
+        CHECK(false) << "invalid variant_storage_parse_mode: "
+                     << config::variant_storage_parse_mode;
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    }
+}
+
+} // namespace
 
 Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
                                              const std::vector<uint32_t>& column_pos) {
@@ -2245,13 +2297,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        // if doc mode is not enabled, no need to parse to doc value column
-        if (!column.variant_enable_doc_mode()) {
-            configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
-            continue;
-        }
-
-        configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        configs[i].parse_to = select_storage_variant_parse_target(column, configs[i]);
     }
 
     RETURN_IF_ERROR(parse_and_materialize_variant_columns(block, variant_column_pos, configs));

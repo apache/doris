@@ -244,4 +244,47 @@ TEST_F(ByteArrayPlainDecoderTest, test_skip_value) {
     EXPECT_EQ(result_column->get_data_at(0).to_string(), "cherry");
 }
 
+TEST_F(ByteArrayPlainDecoderTest, test_decode_truncated_length_prefix) {
+    uint8_t data[] = {0x01, 0x00};
+    _data_slice = Slice(data, sizeof(data));
+
+    ByteArrayPlainDecoder decoder;
+    ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
+
+    MutableColumnPtr column = ColumnString::create();
+    DataTypePtr data_type = std::make_shared<DataTypeString>();
+    size_t num_values = 1;
+    std::vector<uint16_t> run_length_null_map(1, num_values);
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_FALSE(decoder.decode_values(column, data_type, select_vector, false).ok());
+}
+
+TEST_F(ByteArrayPlainDecoderTest, test_decode_rejects_overflow_length) {
+    uint8_t data[8] = {};
+    encode_fixed32_le(data, 0);
+    encode_fixed32_le(data + 4, UINT32_MAX);
+    _data_slice = Slice(data, sizeof(data));
+
+    ByteArrayPlainDecoder decoder;
+    ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
+    ASSERT_TRUE(decoder.skip_values(1).ok());
+
+    MutableColumnPtr column = ColumnString::create();
+    DataTypePtr data_type = std::make_shared<DataTypeString>();
+    size_t num_values = 1;
+    std::vector<uint16_t> run_length_null_map(1, num_values);
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_FALSE(decoder.decode_values(column, data_type, select_vector, false).ok());
+}
+
 } // namespace doris

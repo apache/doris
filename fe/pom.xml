@@ -224,6 +224,7 @@ under the License.
         <module>fe-extension-spi</module>
         <module>fe-connector</module>
         <module>fe-extension-loader</module>
+        <module>fe-sql-parser</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
@@ -246,7 +247,7 @@ under the License.
         <cos-api.version>5.6.211</cos-api.version>
         <tencentcloud-sdk-java-sts.version>3.1.678</tencentcloud-sdk-java-sts.version>
         <huaweicloud-sdk-iam.version>3.1.20</huaweicloud-sdk-iam.version>
-        <esdk-obs.version>[3.21.11,)</esdk-obs.version>
+        <esdk-obs.version>3.21.11</esdk-obs.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <!--suppress UnresolvedMavenProperty -->
         <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
@@ -278,7 +279,6 @@ under the License.
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
-
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
@@ -397,6 +397,7 @@ under the License.
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
+        <argLine></argLine>
         <trino.version>435</trino.version>
         <nimbusds.version>10.0.1</nimbusds.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
@@ -1966,7 +1967,6 @@ under the License.
             <artifactId>junit-platform-launcher</artifactId>
             <scope>test</scope>
         </dependency>
-
         <!-- should be used in test scope -->
         <dependency>
             <groupId>org.awaitility</groupId>

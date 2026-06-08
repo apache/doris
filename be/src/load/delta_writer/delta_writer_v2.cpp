@@ -52,6 +52,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "storage/tablet_info.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
@@ -110,6 +111,8 @@ Status DeltaWriterV2::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.db_id = _tablet_schema->db_id();
+    context.table_id = _tablet_schema->table_id();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet = nullptr;
     context.write_type = DataWriteType::TYPE_DIRECT;
@@ -212,28 +215,39 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
 Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
                                                    const OlapTableSchemaParam* table_schema_param,
                                                    const TabletSchema& ori_tablet_schema) {
-    _tablet_schema->copy_from(ori_tablet_schema);
     // find the right index id
-    int i = 0;
-    auto indexes = table_schema_param->indexes();
-    for (; i < indexes.size(); i++) {
-        if (indexes[i]->index_id == index_id) {
+    const OlapTableIndexSchema* index_schema = nullptr;
+    for (const auto* schema : table_schema_param->indexes()) {
+        if (schema->index_id == index_id) {
+            index_schema = schema;
             break;
         }
     }
 
-    if (!indexes.empty() && !indexes[i]->columns.empty() &&
-        indexes[i]->columns[0]->unique_id() >= 0) {
-        _tablet_schema->build_current_tablet_schema(
-                index_id, static_cast<int32_t>(table_schema_param->version()), indexes[i],
-                ori_tablet_schema);
+    auto cache_key = TabletSchemaCache::build_load_schema_cache_key(
+            index_id, table_schema_param, ori_tablet_schema, index_schema);
+    auto cached_schema = TabletSchemaCache::instance()->lookup_schema(cache_key);
+    if (cached_schema.first != nullptr) {
+        _tablet_schema = cached_schema.second;
+        TabletSchemaCache::instance()->release(cached_schema.first);
+    } else {
+        _tablet_schema->copy_from(ori_tablet_schema);
+        if (index_schema != nullptr && !index_schema->columns.empty() &&
+            index_schema->columns[0]->unique_id() >= 0) {
+            _tablet_schema->build_current_tablet_schema(
+                    index_id, static_cast<int32_t>(table_schema_param->version()), index_schema,
+                    ori_tablet_schema);
+        }
+        _tablet_schema->set_table_id(table_schema_param->table_id());
+        _tablet_schema->set_db_id(table_schema_param->db_id());
+        if (table_schema_param->is_partial_update()) {
+            _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
+        }
+        auto inserted_schema = TabletSchemaCache::instance()->insert(cache_key, _tablet_schema);
+        _tablet_schema = inserted_schema.second;
+        TabletSchemaCache::instance()->release(inserted_schema.first);
     }
 
-    _tablet_schema->set_table_id(table_schema_param->table_id());
-    _tablet_schema->set_db_id(table_schema_param->db_id());
-    if (table_schema_param->is_partial_update()) {
-        _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
-    }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
     RETURN_IF_ERROR(_partial_update_info->init(

@@ -36,12 +36,14 @@
 #include <cstdint>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #include "common/metric.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
+#include "meta-service/meta_service_rate_limit_helper.h"
 #include "recycler/recycler.h"
 #include "recycler/recycler_service.h"
 namespace doris::cloud {
@@ -285,6 +287,18 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler =
                           [](void* s, brpc::Controller* c) {
                               return process_get_cluster_status((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
+                {"set_rpc_rate_limit_whitelist",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_set_rpc_rate_limit_whitelist((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
+                {"get_rpc_rate_limit_whitelist",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_get_rpc_rate_limit_whitelist((MS*)s, c);
                           },
                   .role = HttpRole::META_SERVICE}},
 
@@ -710,7 +724,7 @@ HttpResponse process_statistics_recycle(RecyclerServiceImpl* service, brpc::Cont
                                "failed to parse StatisticsRecycleRequest");
     }
     MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
+    std::string msg = "OK";
     service->statistics_recycle(req, code, msg);
     return http_text_reply(code, msg, msg);
 }
@@ -721,7 +735,7 @@ HttpResponse process_recycle_copy_jobs(RecyclerServiceImpl* service, brpc::Contr
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
     }
     MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
+    std::string msg = "OK";
     recycle_copy_jobs(service->txn_kv(), *instance_id, code, msg,
                       service->recycler()->thread_pool_group(), service->txn_lazy_committer());
     return http_text_reply(code, msg, msg);
@@ -748,7 +762,7 @@ HttpResponse process_check_instance(RecyclerServiceImpl* service, brpc::Controll
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "checker not enabled");
     }
     MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
+    std::string msg = "OK";
     service->check_instance(*instance_id, code, msg);
     return http_text_reply(code, msg, msg);
 }
@@ -776,7 +790,7 @@ HttpResponse process_check_meta(RecyclerServiceImpl* service, brpc::Controller* 
         !password || !user || user->empty()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "missing required parameters");
     }
-    std::string msg;
+    std::string msg = "OK";
     check_meta(service->txn_kv(), *instance_id, *host, *port, *user, *password, msg);
     return http_text_reply(MetaServiceCode::OK, msg, msg);
 }
@@ -993,6 +1007,53 @@ HttpResponse process_get_cluster_status(MetaServiceImpl* service, brpc::Controll
     GetClusterStatusResponse resp;
     service->get_cluster_status(ctrl, &req, &resp, nullptr);
     return http_json_reply_message(resp.status(), resp);
+}
+
+HttpResponse process_set_rpc_rate_limit_whitelist(MetaServiceImpl*, brpc::Controller* ctrl) {
+    rapidjson::Document doc;
+    std::string body = ctrl->request_attachment().to_string();
+    doc.Parse(body.c_str());
+
+    if (doc.HasParseError()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("parse json failed: {}",
+                                           rapidjson::GetParseError_En(doc.GetParseError())));
+    }
+
+    if (!doc.IsObject() || !doc.HasMember("rpcs") || !doc["rpcs"].IsArray()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "invalid request, need {\"rpcs\": [\"rpc1\", \"rpc2\"]}");
+    }
+
+    std::vector<std::string> rpcs;
+    for (auto& rpc : doc["rpcs"].GetArray()) {
+        if (rpc.IsString()) {
+            rpcs.emplace_back(rpc.GetString());
+        }
+    }
+
+    RpcRateLimitWhitelist::instance().set_whitelist(rpcs);
+    return http_json_reply(MetaServiceCode::OK, "success");
+}
+
+HttpResponse process_get_rpc_rate_limit_whitelist(MetaServiceImpl*, brpc::Controller*) {
+    auto rpcs = RpcRateLimitWhitelist::instance().get_whitelist();
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& allocator = doc.GetAllocator();
+
+    rapidjson::Value rpc_array(rapidjson::kArrayType);
+    for (const auto& rpc : rpcs) {
+        rpc_array.PushBack(rapidjson::Value(rpc.c_str(), allocator), allocator);
+    }
+    doc.AddMember("rpcs", rpc_array, allocator);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+
+    return http_json_reply(MetaServiceCode::OK, "success", buffer.GetString());
 }
 
 HttpResponse process_txn_lazy_commit(MetaServiceImpl* service, brpc::Controller* ctrl) {

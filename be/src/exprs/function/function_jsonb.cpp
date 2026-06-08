@@ -374,7 +374,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 2);
+        DORIS_CHECK_GE(arguments.size(), 2);
 
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
@@ -430,7 +430,7 @@ public:
                     path_null_maps, path_const, res_data, res_offsets, null_map->get_data()));
         } else {
             // not support other extract type for now (e.g. int, double, ...)
-            DCHECK_EQ(jsonb_path_columns.size(), 1);
+            DORIS_CHECK_EQ(jsonb_path_columns.size(), 1);
             const auto& rdata = jsonb_path_columns[0]->get_chars();
             const auto& roffsets = jsonb_path_columns[0]->get_offsets();
 
@@ -491,8 +491,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 1);
-        DCHECK(arguments.size() == 1 || arguments.size() == 2)
+        DORIS_CHECK_GE(arguments.size(), 1);
+        DORIS_CHECK(arguments.size() == 1 || arguments.size() == 2)
                 << "json_keys should have 1 or 2 arguments, but got " << arguments.size();
 
         const NullMap* data_null_map = nullptr;
@@ -501,7 +501,7 @@ public:
         auto&& [jsonb_data_column, json_data_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         if (jsonb_data_column->is_nullable()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(jsonb_data_column.get());
             col_from_string =
                     assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
             data_null_map = &nullable->get_null_map_data();
@@ -519,8 +519,7 @@ public:
             std::tie(jsonb_path_column, path_const) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
             if (jsonb_path_column->is_nullable()) {
-                const auto* nullable =
-                        check_and_get_column<ColumnNullable>(jsonb_path_column.get());
+                const auto* nullable = assert_cast<const ColumnNullable*>(jsonb_path_column.get());
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }
@@ -569,7 +568,7 @@ private:
                                                r_raw_ref.to_string());
             }
 
-            if (const_path.is_wildcard()) {
+            if (const_path.is_wildcard() || const_path.is_supper_wildcard()) {
                 return Status::InvalidJsonPath(
                         "In this situation, path expressions may not contain the * and ** tokens "
                         "or an array range.");
@@ -611,7 +610,7 @@ private:
                                 std::string_view(data.data, data.size), i);
                     }
 
-                    if (path.is_wildcard()) {
+                    if (path.is_wildcard() || path.is_supper_wildcard()) {
                         return Status::InvalidJsonPath(
                                 "In this situation, path expressions may not contain the * and ** "
                                 "tokens "
@@ -697,7 +696,7 @@ public:
             path_col = assert_cast<const ColumnString*>(path_column.get());
         }
 
-        DCHECK(!(jsonb_data_const && path_const))
+        DORIS_CHECK(!(jsonb_data_const && path_const))
                 << "jsonb_data_const and path_const should not be both const";
 
         auto create_all_null_result = [&]() {
@@ -710,11 +709,11 @@ public:
             return Status::OK();
         };
 
-        MutableColumnPtr result_null_map_column;
+        ColumnUInt8::MutablePtr result_null_map_column;
         NullMap* result_null_map = nullptr;
         if (data_null_map || path_null_map) {
             result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-            result_null_map = &static_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+            result_null_map = &result_null_map_column->get_data();
 
             if (data_null_map) {
                 VectorizedUtils::update_null_map(*result_null_map, *data_null_map,
@@ -1368,7 +1367,7 @@ struct JsonbLengthUtil {
     static Status jsonb_length_execute(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) {
-        DCHECK_GE(arguments.size(), 2);
+        DORIS_CHECK_GE(arguments.size(), 2);
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
         // prepare jsonb data column
@@ -1483,7 +1482,7 @@ struct JsonbContainsUtil {
     static Status jsonb_contains_execute(FunctionContext* context, Block& block,
                                          const ColumnNumbers& arguments, uint32_t result,
                                          size_t input_rows_count) {
-        DCHECK_GE(arguments.size(), 3);
+        DORIS_CHECK_GE(arguments.size(), 3);
 
         auto jsonb_data1_column = block.get_by_position(arguments[0]).column;
         auto jsonb_data2_column = block.get_by_position(arguments[1]).column;
@@ -2049,18 +2048,19 @@ public:
 
                 bool replace = false;
                 parents.emplace_back(json_documents[row_idx]->getValue());
+                const auto legs_count = json_path[path_index].get_leg_vector_size();
                 if (find_result.value) {
                     // find target path, replace it with the new value.
                     replace = true;
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(),
                                                json_path[path_index], parents)) {
-                        DCHECK(false);
                         continue;
                     }
                 } else {
                     // does not find target path, insert the new value.
                     JsonbPath new_path;
-                    for (size_t j = 0; j < json_path[path_index].get_leg_vector_size() - 1; ++j) {
+                    DCHECK_GT(legs_count, 0);
+                    for (size_t j = 0; j + 1 < legs_count; ++j) {
                         auto* current_leg = json_path[path_index].get_leg_from_leg_vector(j);
                         std::unique_ptr<leg_info> leg = std::make_unique<leg_info>(
                                 current_leg->leg_ptr, current_leg->leg_len,
@@ -2074,7 +2074,6 @@ public:
                     }
                 }
 
-                const auto legs_count = json_path[path_index].get_leg_vector_size();
                 leg_info* last_leg =
                         legs_count > 0
                                 ? json_path[path_index].get_leg_from_leg_vector(legs_count - 1)
@@ -2726,7 +2725,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 2);
+        DORIS_CHECK_GE(arguments.size(), 2);
 
         // Check if arguments count is valid (json_doc + at least one path)
         if (arguments.size() < 2) {

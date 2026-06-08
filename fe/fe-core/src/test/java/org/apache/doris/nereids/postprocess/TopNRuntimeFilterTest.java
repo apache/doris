@@ -18,24 +18,29 @@
 package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.ScanNode;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Map;
 
@@ -58,6 +63,37 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         PhysicalTopN<? extends Plan> localTopN
                 = (PhysicalTopN<? extends Plan>) rfSource;
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testTranslateTopNFilterTargetThroughLazyMaterializeOlapScan() {
+        String sql = "select * from customer order by c_custkey limit 5";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        TopnFilter filter = checker.getCascadesContext().getTopnFilterContext().getTopnFilters().stream()
+                .filter(f -> f.targets.keySet().stream().anyMatch(PhysicalLazyMaterializeOlapScan.class::isInstance))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("topn filter target is not lazy materialize olap scan"));
+        PhysicalLazyMaterializeOlapScan lazyScan = filter.targets.keySet().stream()
+                .filter(PhysicalLazyMaterializeOlapScan.class::isInstance)
+                .map(PhysicalLazyMaterializeOlapScan.class::cast)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("lazy materialize olap scan not found"));
+        Expression probeExpr = filter.targets.get(lazyScan);
+
+        TopnFilterContext topnFilterContext = new TopnFilterContext();
+        topnFilterContext.addTopnFilter(filter.topn, lazyScan.getScan(), probeExpr);
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext();
+        probeExpr.getInputSlots().forEach(slot -> translatorContext
+                .createSlotDesc(translatorContext.generateTupleDesc(), (SlotReference) slot));
+        ScanNode legacyScan = Mockito.mock(ScanNode.class);
+        topnFilterContext.translateTarget(lazyScan, legacyScan, translatorContext);
+
+        Assertions.assertTrue(topnFilterContext.getTopnFilter(filter.topn).legacyTargets.containsKey(legacyScan));
     }
 
     @Test

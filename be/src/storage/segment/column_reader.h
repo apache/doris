@@ -163,7 +163,8 @@ public:
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
 
     Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                              const TabletIndex* index_meta,
+                              const TabletIndex* index_meta, const std::string& rowset_id,
+                              uint32_t segment_id, size_t rows_of_segment,
                               std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
@@ -174,7 +175,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec, bool is_dict_page = false) const;
+                     BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta_is_nullable; }
 
@@ -249,7 +250,8 @@ private:
                                              const ColumnIteratorOptions& iter_opts);
 
     [[nodiscard]] Status _load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                                     const TabletIndex* index_meta);
+                                     const TabletIndex* index_meta, const std::string& rowset_id,
+                                     uint32_t segment_id, size_t rows_of_segment);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 

@@ -156,6 +156,17 @@ message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+option(ENABLE_TDE "Enable TDE feature module" OFF)
+set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
+option(ENABLE_TLS "Enable TLS feature module" OFF)
+set(TLS_MODULE_DIR "" CACHE STRING "TLS feature module directory under be/src")
+
+if (ENABLE_TDE AND "${TDE_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_TDE requires TDE_MODULE_DIR")
+endif()
+if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_TLS requires TLS_MODULE_DIR")
+endif()
 
 # Allow env to override when reconfiguring (avoid picking /usr/local).
 if (DEFINED ENV{ENABLE_PAIMON_CPP})

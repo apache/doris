@@ -163,8 +163,7 @@ Status FileBlock::finalize() {
     if (_downloaded_size != _block_range.size()) {
         SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
         size_t old_size = _block_range.size();
-        _block_range.right = _block_range.left + _downloaded_size - 1;
-        size_t new_size = _block_range.size();
+        size_t new_size = _downloaded_size;
         DCHECK(new_size < old_size);
         _mgr->reset_range(_key.hash, _block_range.left, old_size, new_size, cache_lock);
     }

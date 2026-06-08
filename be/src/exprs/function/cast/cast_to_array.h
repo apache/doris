@@ -51,7 +51,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
                 "CAST AS Array can only be performed between same-dimensional array types");
     }
 
-    const DataTypePtr& to_nested_type = to_type.get_nested_type();
+    DataTypePtr to_nested_type = to_type.get_nested_type();
 
     /// Prepare nested type conversion
     const auto nested_function =

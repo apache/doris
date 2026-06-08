@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
@@ -53,7 +54,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsVa
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -78,7 +78,7 @@ import java.util.Objects;
 import java.util.Stack;
 
 /**
- * collect the access path, for example: `select struct_element(s, 'data')` has access path: ['s', 'data']
+ * collect the access path, for example: `select element_at(s, 'data')` has access path: ['s', 'data']
  */
 public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void, CollectorContext> {
     private StatementContext statementContext;
@@ -313,37 +313,27 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
+        } else if (first.getDataType().isStructType()) {
+            // struct field access (formerly struct_element): collect the selected field as the path
+            Expression fieldName = arguments.get(1);
+            DataType fieldType = fieldName.getDataType();
+            if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
+                if (fieldType.isIntegerLikeType()) {
+                    int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
+                    List<StructField> fields = ((StructType) first.getDataType()).getFields();
+                    if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
+                        String realFieldName = fields.get(fieldIndex - 1).getName();
+                        context.accessPathBuilder.addPrefix(realFieldName);
+                        return continueCollectAccessPath(first, context);
+                    }
+                }
+                context.accessPathBuilder.addPrefix(((Literal) fieldName).getStringValue().toLowerCase());
+                return continueCollectAccessPath(first, context);
+            }
+            return visit(elementAt, context);
         } else {
             return visit(elementAt, context);
         }
-    }
-
-    // struct element_at
-    @Override
-    public Void visitStructElement(StructElement structElement, CollectorContext context) {
-        List<Expression> arguments = structElement.getArguments();
-        Expression struct = arguments.get(0);
-        Expression fieldName = arguments.get(1);
-        DataType fieldType = fieldName.getDataType();
-
-        if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
-            if (fieldType.isIntegerLikeType()) {
-                int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
-                List<StructField> fields = ((StructType) struct.getDataType()).getFields();
-                if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
-                    String realFieldName = fields.get(fieldIndex - 1).getName();
-                    context.accessPathBuilder.addPrefix(realFieldName);
-                    return continueCollectAccessPath(struct, context);
-                }
-            }
-            context.accessPathBuilder.addPrefix(((Literal) fieldName).getStringValue().toLowerCase());
-            return continueCollectAccessPath(struct, context);
-        }
-
-        for (Expression argument : arguments) {
-            visit(argument, context);
-        }
-        return null;
     }
 
     @Override
@@ -570,7 +560,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         }
         // Optimize IS NULL on nullable expressions: create a context with NULL suffix to indicate
         // only the null flag is needed. Works for top-level columns (col IS NULL → [col, NULL])
-        // and nested access (struct_element(s, 'city') IS NULL → [s, city, NULL]).
+        // and nested access (element_at(s, 'city') IS NULL → [s, city, NULL]).
         // For unrecognized expressions, the default visitor resets context, safely discarding NULL.
         if (arg.nullable() && context.accessPathBuilder.isEmpty()) {
             CollectorContext nullContext =
@@ -579,6 +569,24 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return continueCollectAccessPath(arg, nullContext);
         }
         return visit(isNull, context);
+    }
+
+    @Override
+    public Void visitIf(If ifExpr, CollectorContext context) {
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            ifExpr.getCondition().accept(this, new CollectorContext(context.statementContext, context.bottomFilter));
+            ifExpr.getTrueValue().accept(this, copyContext(context));
+            ifExpr.getFalseValue().accept(this, copyContext(context));
+            return null;
+        }
+        return visit(ifExpr, context);
+    }
+
+    private static CollectorContext copyContext(CollectorContext context) {
+        CollectorContext copy = new CollectorContext(context.statementContext, context.bottomFilter);
+        copy.accessPathBuilder.addSuffix(context.accessPathBuilder.getPathList());
+        copy.type = context.type;
+        return copy;
     }
 
     @Override

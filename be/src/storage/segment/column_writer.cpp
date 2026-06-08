@@ -30,8 +30,6 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/types.h"
 #include "io/fs/file_writer.h"
-#include "runtime/collection_value.h"
-#include "storage/field.h"
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/index/ordinal_page_index.h"
@@ -132,25 +130,24 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_options.meta->set_is_nullable(false);
     null_options.meta->set_length(
             cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_TINYINT)));
-    null_options.meta->set_encoding(DEFAULT_ENCODING);
     null_options.meta->set_compression(opts.meta->compression());
 
     null_options.need_zone_map = false;
     null_options.need_bloom_filter = false;
-    null_options.encoding_preference = opts.encoding_preference;
+    null_options.storage_format = opts.storage_format;
 
-    TabletColumn null_column =
-            TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
-                         null_options.meta->unique_id(), null_options.meta->length());
-    null_column.set_name("nullable");
-    null_column.set_index_length(-1); // no short key index
-    std::unique_ptr<StorageField> null_field(StorageFieldFactory::create(null_column));
-    return new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
+    auto null_column_ptr = std::make_shared<TabletColumn>(
+            FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
+            null_options.meta->unique_id(), null_options.meta->length());
+    null_column_ptr->set_name("nullable");
+    null_column_ptr->set_index_length(-1); // no short key index
+    null_options.meta->set_encoding(
+            EncodingInfo::resolve_default_encoding(opts.storage_format, *null_column_ptr));
+    return new ScalarColumnWriter(null_options, std::move(null_column_ptr), file_writer);
 }
 
-ColumnWriter::ColumnWriter(std::unique_ptr<StorageField> field, bool is_nullable,
-                           ColumnMetaPB* meta)
-        : _field(std::move(field)), _is_nullable(is_nullable), _column_meta(meta) {
+ColumnWriter::ColumnWriter(TabletColumnPtr column, bool is_nullable, ColumnMetaPB* meta)
+        : _column(std::move(column)), _is_nullable(is_nullable), _column_meta(meta) {
     _data_type = DataTypeFactory::instance().create_data_type(*_column_meta);
 }
 Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
@@ -169,7 +166,7 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
         column_options.meta = opts.meta->mutable_children_columns(i);
         column_options.need_zone_map = false;
         column_options.need_bloom_filter = sub_column.is_bf_column();
-        column_options.encoding_preference = opts.encoding_preference;
+        column_options.storage_format = opts.storage_format;
         std::unique_ptr<ColumnWriter> sub_column_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(column_options, &sub_column, file_writer, &sub_column_writer));
@@ -180,8 +177,7 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
             get_null_writer(opts, file_writer, column->get_subtype_count() + 1);
 
     *writer = std::unique_ptr<ColumnWriter>(new StructColumnWriter(
-            opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*column)), null_writer,
-            sub_column_writers));
+            opts, std::make_shared<TabletColumn>(*column), null_writer, sub_column_writers));
     return Status::OK();
 }
 
@@ -197,7 +193,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     item_options.meta = opts.meta->mutable_children_columns(0);
     item_options.need_zone_map = false;
     item_options.need_bloom_filter = item_column.is_bf_column();
-    item_options.encoding_preference = opts.encoding_preference;
+    item_options.storage_format = opts.storage_format;
     std::unique_ptr<ColumnWriter> item_writer;
     RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
 
@@ -212,28 +208,28 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     length_options.meta->set_is_nullable(false);
     length_options.meta->set_length(
             cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
-    length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
-    length_options.encoding_preference = opts.encoding_preference;
+    length_options.storage_format = opts.storage_format;
 
-    TabletColumn length_column =
-            TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
-                         length_options.meta->is_nullable(), length_options.meta->unique_id(),
-                         length_options.meta->length());
-    length_column.set_name("length");
-    length_column.set_index_length(-1); // no short key index
-    std::unique_ptr<StorageField> bigint_field(StorageFieldFactory::create(length_column));
+    auto length_column_ptr = std::make_shared<TabletColumn>(
+            FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
+            length_options.meta->is_nullable(), length_options.meta->unique_id(),
+            length_options.meta->length());
+    length_column_ptr->set_name("length");
+    length_column_ptr->set_index_length(-1); // no short key index
+    length_options.meta->set_encoding(
+            EncodingInfo::resolve_default_encoding(opts.storage_format, *length_column_ptr));
     auto* length_writer =
-            new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
+            new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
     ScalarColumnWriter* null_writer = get_null_writer(opts, file_writer, 3);
 
-    *writer = std::unique_ptr<ColumnWriter>(new ArrayColumnWriter(
-            opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*column)),
-            length_writer, null_writer, std::move(item_writer)));
+    *writer = std::unique_ptr<ColumnWriter>(
+            new ArrayColumnWriter(opts, std::make_shared<TabletColumn>(*column), length_writer,
+                                  null_writer, std::move(item_writer)));
     return Status::OK();
 }
 
@@ -257,7 +253,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
         item_options.meta = opts.meta->mutable_children_columns(i);
         item_options.need_zone_map = false;
         item_options.need_bloom_filter = item_column.is_bf_column();
-        item_options.encoding_preference = opts.encoding_preference;
+        item_options.storage_format = opts.storage_format;
         std::unique_ptr<ColumnWriter> item_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
@@ -276,29 +272,29 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     length_options.meta->set_is_nullable(false);
     length_options.meta->set_length(
             cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
-    length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
-    length_options.encoding_preference = opts.encoding_preference;
+    length_options.storage_format = opts.storage_format;
 
-    TabletColumn length_column =
-            TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
-                         length_options.meta->is_nullable(), length_options.meta->unique_id(),
-                         length_options.meta->length());
-    length_column.set_name("length");
-    length_column.set_index_length(-1); // no short key index
-    std::unique_ptr<StorageField> bigint_field(StorageFieldFactory::create(length_column));
+    auto length_column_ptr = std::make_shared<TabletColumn>(
+            FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
+            length_options.meta->is_nullable(), length_options.meta->unique_id(),
+            length_options.meta->length());
+    length_column_ptr->set_name("length");
+    length_column_ptr->set_index_length(-1); // no short key index
+    length_options.meta->set_encoding(
+            EncodingInfo::resolve_default_encoding(opts.storage_format, *length_column_ptr));
     auto* length_writer =
-            new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
+            new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
     ScalarColumnWriter* null_writer =
             get_null_writer(opts, file_writer, column->get_subtype_count() + 2);
 
-    *writer = std::unique_ptr<ColumnWriter>(new MapColumnWriter(
-            opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*column)), null_writer,
-            length_writer, inner_writer_list));
+    *writer = std::unique_ptr<ColumnWriter>(
+            new MapColumnWriter(opts, std::make_shared<TabletColumn>(*column), null_writer,
+                                length_writer, inner_writer_list));
 
     return Status::OK();
 }
@@ -312,9 +308,8 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
     auto type = agg_state_type->get_serialized_type()->get_primitive_type();
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
         type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT || type == PrimitiveType::TYPE_BITMAP) {
-        *writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(
-                opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*column)),
-                file_writer));
+        *writer = std::unique_ptr<ColumnWriter>(
+                new ScalarColumnWriter(opts, std::make_shared<TabletColumn>(*column), file_writer));
     } else if (type == PrimitiveType::TYPE_ARRAY) {
         RETURN_IF_ERROR(create_array_writer(opts, column, file_writer, writer));
     } else if (type == PrimitiveType::TYPE_MAP) {
@@ -338,28 +333,25 @@ Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
     if (column->is_extracted_column()) {
         if (column->name().find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
             *writer = std::make_unique<VariantDocCompactWriter>(
-                    opts, column,
-                    std::unique_ptr<StorageField>(StorageFieldFactory::create(*column)));
+                    opts, std::make_shared<TabletColumn>(*column));
             return Status::OK();
         }
         VLOG_DEBUG << "gen subwriter for " << column->path_info_ptr()->get_path();
-        *writer = std::make_unique<VariantSubcolumnWriter>(
-                opts, column, std::unique_ptr<StorageField>(StorageFieldFactory::create(*column)));
+        *writer = std::make_unique<VariantSubcolumnWriter>(opts,
+                                                           std::make_shared<TabletColumn>(*column));
         return Status::OK();
     }
-    *writer = std::make_unique<VariantColumnWriter>(
-            opts, column, std::unique_ptr<StorageField>(StorageFieldFactory::create(*column)));
+    *writer = std::make_unique<VariantColumnWriter>(opts, std::make_shared<TabletColumn>(*column));
     return Status::OK();
 }
 
 //Todo(Amory): here should according nullable and offset and need sub to simply this function
 Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn* column,
                             io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer) {
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(*column));
-    DCHECK(field.get() != nullptr);
+    auto column_ptr = std::make_shared<TabletColumn>(*column);
     if (is_scalar_type(column->type())) {
         *writer = std::unique_ptr<ColumnWriter>(
-                new ScalarColumnWriter(opts, std::move(field), file_writer));
+                new ScalarColumnWriter(opts, std::move(column_ptr), file_writer));
         return Status::OK();
     } else {
         switch (column->type()) {
@@ -386,7 +378,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
         }
         default:
             return Status::NotSupported("unsupported type for ColumnWriter: {}",
-                                        std::to_string(int(field->type())));
+                                        std::to_string(int(column_ptr->type())));
         }
     }
 }
@@ -417,7 +409,7 @@ Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** pt
         if (non_null_count == 0) {
             // All NULL: skip run-length iteration, directly append all nulls
             RETURN_IF_ERROR(append_nulls(num_rows));
-            *ptr += get_field()->size() * num_rows;
+            *ptr += cell_size() * num_rows;
             return Status::OK();
         }
 
@@ -445,10 +437,10 @@ Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** pt
         auto step = next_run_step();
         if (null_map[offset]) {
             RETURN_IF_ERROR(append_nulls(step));
-            *ptr += get_field()->size() * step;
+            *ptr += cell_size() * step;
         } else {
             // TODO:
-            //  1. `*ptr += get_field()->size() * step;` should do in this function, not append_data;
+            //  1. `*ptr += cell_size() * step;` should do in this function, not append_data;
             //  2. support array vectorized load and ptr offset add
             RETURN_IF_ERROR(append_data(ptr, step));
         }
@@ -470,10 +462,9 @@ Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num
 
 ///////////////////////////////////////////////////////////////////////////////////
 
-ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
-                                       std::unique_ptr<StorageField> field,
+ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                        io::FileWriter* file_writer)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta),
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta),
           _opts(opts),
           _file_writer(file_writer),
           _data_size(0) {
@@ -499,26 +490,34 @@ Status ScalarColumnWriter::init() {
 
     PageBuilder* page_builder = nullptr;
 
-    RETURN_IF_ERROR(EncodingInfo::get(get_field()->type(), _opts.meta->encoding(),
-                                      _opts.encoding_preference, &_encoding_info));
-    _opts.meta->set_encoding(_encoding_info->encoding());
+    // Caller must set a concrete (non-DEFAULT) encoding on the meta before init.
+    if (_opts.meta->encoding() == DEFAULT_ENCODING) {
+        return Status::InternalError(
+                "ColumnMetaPB encoding is DEFAULT_ENCODING for column_id={}, type={}; caller must "
+                "resolve to a concrete encoding before ScalarColumnWriter::init",
+                _opts.meta->column_id(), get_column()->type());
+    }
+    RETURN_IF_ERROR(
+            EncodingInfo::get(get_column()->type(), _opts.meta->encoding(), &_encoding_info));
     // create page builder
     PageBuilderOptions opts;
     opts.data_page_size = _opts.data_page_size;
     opts.dict_page_size = _opts.dict_page_size;
-    opts.encoding_preference = _opts.encoding_preference;
+    // V3 segments store the dictionary word page (and the dict-overflow fallback plain page)
+    // with the V3 binary plain layout; pre-V3 segments keep V1.
+    opts.dict_binary_plain_encoding =
+            (_opts.storage_format == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3)
+                    ? PLAIN_ENCODING_V3
+                    : PLAIN_ENCODING;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
-                                    get_field()->type(), _opts.meta->encoding());
+                                    get_column()->type(), _opts.meta->encoding());
     }
-    // should store more concrete encoding type instead of DEFAULT_ENCODING
-    // because the default encoding of a data type can be changed in the future
-    DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
     VLOG_DEBUG << fmt::format(
             "[verbose] scalar column writer init, column_id={}, type={}, encoding={}, "
             "is_nullable={}",
-            _opts.meta->column_id(), get_field()->type(),
+            _opts.meta->column_id(), get_column()->type(),
             EncodingTypePB_Name(_opts.meta->encoding()), _opts.meta->is_nullable());
     _page_builder.reset(page_builder);
     // create ordinal builder
@@ -529,7 +528,7 @@ Status ScalarColumnWriter::init() {
     }
     if (_opts.need_zone_map) {
         RETURN_IF_ERROR(
-                ZoneMapIndexWriter::create(_data_type, get_field(), _zone_map_index_builder));
+                ZoneMapIndexWriter::create(_data_type, get_column(), _zone_map_index_builder));
     }
 
     if (_opts.need_inverted_index) {
@@ -541,10 +540,6 @@ Status ScalarColumnWriter::init() {
                         Status init() override { return Status::OK(); }
                         Status add_values(const std::string name, const void* values,
                                           size_t count) override {
-                            return Status::OK();
-                        }
-                        Status add_array_values(size_t field_size, const CollectionValue* values,
-                                                size_t count) override {
                             return Status::OK();
                         }
                         Status add_array_values(size_t field_size, const void* value_ptr,
@@ -567,19 +562,19 @@ Status ScalarColumnWriter::init() {
                     break;
                 });
 
-                RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builders[i],
-                                                          _opts.index_file_writer,
-                                                          _opts.inverted_indexes[i]));
+                RETURN_IF_ERROR(IndexColumnWriter::create(
+                        get_column(), &_inverted_index_builders[i], _opts.index_file_writer,
+                        _opts.inverted_indexes[i]));
             }
         } while (false);
     }
     if (_opts.need_bloom_filter) {
         if (_opts.is_ngram_bf_index) {
             RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(
-                    BloomFilterOptions(), get_field()->type(), _opts.gram_size, _opts.gram_bf_size,
+                    BloomFilterOptions(), get_column()->type(), _opts.gram_size, _opts.gram_bf_size,
                     &_bloom_filter_index_builder));
         } else {
-            RETURN_IF_ERROR(BloomFilterIndexWriter::create(_opts.bf_options, get_field()->type(),
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(_opts.bf_options, get_column()->type(),
                                                            &_bloom_filter_index_builder));
         }
     }
@@ -629,7 +624,7 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
     }
     if (_opts.need_inverted_index) {
         for (const auto& builder : _inverted_index_builders) {
-            RETURN_IF_ERROR(builder->add_values(get_field()->name(), data, *num_written));
+            RETURN_IF_ERROR(builder->add_values(get_column()->name(), data, *num_written));
         }
     }
     if (_opts.need_bloom_filter) {
@@ -648,7 +643,7 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
 
 Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
     RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
-    *data += get_field()->size() * (*num_written);
+    *data += cell_size() * (*num_written);
     return Status::OK();
 }
 
@@ -698,7 +693,7 @@ Status ScalarColumnWriter::append_nullable(const uint8_t* null_map, const uint8_
     if (non_null_count == 0) {
         // All NULL: skip data writing, only update null bitmap and indexes
         RETURN_IF_ERROR(append_nulls(num_rows));
-        *ptr += get_field()->size() * num_rows;
+        *ptr += cell_size() * num_rows;
         return Status::OK();
     }
 
@@ -712,10 +707,10 @@ Status ScalarColumnWriter::append_nullable(const uint8_t* null_map, const uint8_
         size_t run_length = run.len;
         if (run.is_null) {
             RETURN_IF_ERROR(append_nulls(run_length));
-            *ptr += get_field()->size() * run_length;
+            *ptr += cell_size() * run_length;
         } else {
             // TODO:
-            //  1. `*ptr += get_field()->size() * step;` should do in this function, not append_data;
+            //  1. `*ptr += cell_size() * step;` should do in this function, not append_data;
             //  2. support array vectorized load and ptr offset add
             RETURN_IF_ERROR(append_data(ptr, run_length));
         }
@@ -890,12 +885,11 @@ Status ScalarColumnWriter::finish_current_page() {
 // offset column writer
 ////////////////////////////////////////////////////////////////////////////////
 
-OffsetColumnWriter::OffsetColumnWriter(const ColumnWriterOptions& opts,
-                                       std::unique_ptr<StorageField> field,
+OffsetColumnWriter::OffsetColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                        io::FileWriter* file_writer)
-        : ScalarColumnWriter(opts, std::move(field), file_writer) {
+        : ScalarColumnWriter(opts, std::move(column), file_writer) {
     // now we only explain data in offset column as uint64
-    DCHECK(get_field()->type() == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
+    DCHECK(get_column()->type() == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
 }
 
 OffsetColumnWriter::~OffsetColumnWriter() = default;
@@ -930,10 +924,9 @@ void OffsetColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
 }
 
 StructColumnWriter::StructColumnWriter(
-        const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
-        ScalarColumnWriter* null_writer,
+        const ColumnWriterOptions& opts, TabletColumnPtr column, ScalarColumnWriter* null_writer,
         std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta), _opts(opts) {
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     for (auto& sub_column_writer : sub_column_writers) {
         _sub_column_writers.push_back(std::move(sub_column_writer));
     }
@@ -1038,12 +1031,11 @@ Status StructColumnWriter::finish_current_page() {
     return Status::NotSupported("struct writer has no data, can not finish_current_page");
 }
 
-ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts,
-                                     std::unique_ptr<StorageField> field,
+ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                      OffsetColumnWriter* offset_writer,
                                      ScalarColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta),
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta),
           _item_writer(std::move(item_writer)),
           _opts(opts) {
     _offset_writer.reset(offset_writer);
@@ -1061,7 +1053,7 @@ Status ArrayColumnWriter::init() {
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_writer,
+            RETURN_IF_ERROR(IndexColumnWriter::create(get_column(), &_inverted_index_writer,
                                                       _opts.index_file_writer,
                                                       _opts.inverted_indexes[0]));
         }
@@ -1112,7 +1104,8 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
             RETURN_IF_ERROR(_inverted_index_writer->add_array_values(
-                    _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                    field_type_size(_item_writer->get_column()->type()),
+                    reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         }
     }
@@ -1123,13 +1116,14 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
             RETURN_IF_ERROR(_ann_index_writer->add_array_values(
-                    _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                    field_type_size(_item_writer->get_column()->type()),
+                    reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         } else {
             return Status::NotSupported(
                     "Ann index can only be build on array with scalar type. but got {} as "
                     "nested",
-                    _item_writer->get_field()->type());
+                    _item_writer->get_column()->type());
         }
     }
 
@@ -1209,11 +1203,10 @@ Status ArrayColumnWriter::finish_current_page() {
 }
 
 /// ============================= MapColumnWriter =====================////
-MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts,
-                                 std::unique_ptr<StorageField> field,
+MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                  ScalarColumnWriter* null_writer, OffsetColumnWriter* offset_writer,
                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta), _opts(opts) {
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
     _offsets_writer.reset(offset_writer);
     if (is_nullable()) {
@@ -1348,11 +1341,9 @@ Status MapColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
-VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts,
-                                         const TabletColumn* column,
-                                         std::unique_ptr<StorageField> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
-    _impl = std::make_unique<VariantColumnWriterImpl>(opts, column);
+VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column)
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
+    _impl = std::make_unique<VariantColumnWriterImpl>(opts, get_column());
 }
 
 Status VariantColumnWriter::init() {

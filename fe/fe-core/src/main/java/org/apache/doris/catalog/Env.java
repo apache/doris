@@ -55,6 +55,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
@@ -272,6 +273,7 @@ import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
 import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -1825,6 +1827,26 @@ public class Env {
                     Config.rpc_port);
             editLog.logMasterInfo(masterInfo);
             LOG.info("logMasterInfo:{}", masterInfo);
+
+            if (Boolean.getBoolean(FeConstants.DROP_BACKENDS_KEY)) {
+                LOG.info("drop_backends is set, dropping all backends...");
+                try {
+                    SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                    List<Backend> bes = systemInfoService.getAllClusterBackendsNoException().values()
+                            .stream().collect(Collectors.toList());
+                    if (Config.isNotCloudMode()) {
+                        for (Backend be : bes) {
+                            systemInfoService.dropBackend(be.getHost(), be.getHeartbeatPort());
+                        }
+                    } else {
+                        ((CloudSystemInfoService) systemInfoService).updateCloudBackends(Collections.emptyList(), bes);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("failed to drop backends", e);
+                }
+                System.clearProperty(FeConstants.DROP_BACKENDS_KEY);
+                LOG.info("finished dropping all backends");
+            }
 
             // for master, the 'isReady' is set behind.
             // but we are sure that all metadata is replayed if we get here.
@@ -4148,10 +4170,6 @@ public class Env {
             binlogConfig.appendToShowCreateTable(sb);
         }
 
-        // enable single replica compaction
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
-        sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
-
         // group commit interval ms
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
         sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
@@ -4468,6 +4486,12 @@ public class Env {
             }
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
+            }
+            if (table instanceof IcebergExternalTable) {
+                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
+                if (!partitionSpecSql.isEmpty()) {
+                    sb.append("\n").append(partitionSpecSql);
+                }
             }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
@@ -4860,6 +4884,12 @@ public class Env {
             }
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
+            }
+            if (table instanceof IcebergExternalTable) {
+                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
+                if (!partitionSpecSql.isEmpty()) {
+                    sb.append("\n").append(partitionSpecSql);
+                }
             }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
@@ -6306,7 +6336,6 @@ public class Env {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
-                .buildEnableSingleReplicaCompaction()
                 .buildEnableTso()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
@@ -6756,6 +6785,9 @@ public class Env {
      */
     public void setMutableConfigWithCallback(String key, String value) throws ConfigException {
         ConfigBase.setMutableConfig(key, value);
+        if ("ldap_default_roles".equals(key)) {
+            getAuth().getLdapManager().refresh(true, null);
+        }
         if (configtoThreads.get(key) != null) {
             try {
                 // not atomic. maybe delay to aware. but acceptable.

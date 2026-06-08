@@ -33,6 +33,7 @@
 #include "storage/compaction/base_compaction.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/query/query_factory.h"
+#include "storage/key_coder.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
@@ -657,7 +658,7 @@ class IndexCompactionUtils {
             const auto& rowset_writer = res.value();
 
             Block block = schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (const auto& row : data[i]) {
                 if constexpr (std::is_same_v<T, DataRow>) {
                     Field key = Field::create_field<TYPE_INT>(int32_t(row.key));
@@ -695,6 +696,8 @@ class IndexCompactionUtils {
                     }
                 }
             }
+
+            block.set_columns(std::move(columns));
 
             Status st = rowset_writer->add_block(&block);
             EXPECT_TRUE(st.ok()) << st.to_string();

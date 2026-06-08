@@ -19,8 +19,10 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -170,6 +172,10 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
+            List<Expression> nereidsTargetExprList = new ArrayList<>();
+            List<Boolean> targetAdjustedAfterNonIdentityList = new ArrayList<>();
+            Map<Integer, String> scanNodeTargetExprSql = new LinkedHashMap<>();
+            Map<Integer, Boolean> scanNodeHasDifferentTargets = new LinkedHashMap<>();
             boolean hasInvalidTarget = false;
             for (RuntimeFilter filter : group) {
                 Slot curTargetSlot = filter.getTargetSlot();
@@ -182,7 +188,8 @@ public class RuntimeFilterTranslator {
                 }
                 ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
                 Expr targetExpr;
-                if (curTargetSlot.equals(curTargetExpression)) {
+                boolean isIdentityTarget = curTargetSlot.equals(curTargetExpression);
+                if (isIdentityTarget) {
                     targetExpr = targetSlotRef;
                 } else {
                     Preconditions.checkArgument(curTargetExpression.getInputSlots().size() == 1,
@@ -195,12 +202,24 @@ public class RuntimeFilterTranslator {
                             new RuntimeFilterExpressionTranslator(targetSlotRef);
                     targetExpr = curTargetExpression.accept(translator, ctx);
                 }
+                boolean adjustedAfterNonIdentity = false;
+                if (!src.getType().equals(targetExpr.getType()) && head.getType() != TRuntimeFilterType.BITMAP) {
+                    adjustedAfterNonIdentity = !isIdentityTarget;
+                }
                 targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr, head.getType());
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);
+                nereidsTargetExprList.add(curTargetExpression);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
+                targetAdjustedAfterNonIdentityList.add(adjustedAfterNonIdentity);
+                int scanNodeId = scanNode.getId().asInt();
+                String targetExprSql = targetExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
+                String existingTargetExprSql = scanNodeTargetExprSql.putIfAbsent(scanNodeId, targetExprSql);
+                if (existingTargetExprSql != null && !existingTargetExprSql.equals(targetExprSql)) {
+                    scanNodeHasDifferentTargets.put(scanNodeId, true);
+                }
             }
             if (!hasInvalidTarget) {
                 org.apache.doris.planner.RuntimeFilter origFilter
@@ -223,9 +242,25 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    // TRuntimeFilterDesc keys target expressions and pruning metadata by scan node ID.
+                    // If one grouped RF has different targets on the same scan, BE cannot match
+                    // metadata back to a specific target expression, so skip pruning metadata.
+                    if (scanNodeHasDifferentTargets.getOrDefault(scanNode.getId().asInt(), false)
+                            || targetAdjustedAfterNonIdentityList.get(i)) {
+                        continue;
+                    }
+                    RuntimeFilterPartitionPruneClassifier.Classification classification =
+                            RuntimeFilterPartitionPruneClassifier.classify(
+                                    targetExpr, nereidsTargetExprList.get(i), scanNode);
+                    if (classification.canPrunePartitions()) {
+                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
+                    }
+                    origFilter.setTargetPartitionMonotonicity(
+                            scanNode.getId(), classification.getPartitionMonotonicity());
                 }
                 origFilter.setBitmapFilterNotIn(head.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
+                setWaitTimeMs(origFilter, head.isNonBlocking(), isLocalTarget);
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
@@ -261,6 +296,7 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
+            List<Boolean> targetAdjustedAfterNonIdentityList = new ArrayList<>();
             boolean hasInvalidTarget = false;
             Slot curTargetSlot = filter.getTargetSlot();
             Expression curTargetExpression = filter.getTargetExpression();
@@ -271,7 +307,8 @@ public class RuntimeFilterTranslator {
             } else {
                 ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
                 Expr targetExpr;
-                if (curTargetSlot.equals(curTargetExpression)) {
+                boolean isIdentityTarget = curTargetSlot.equals(curTargetExpression);
+                if (isIdentityTarget) {
                     targetExpr = targetSlotRef;
                 } else {
                     // map nereids target slot to original planner slot
@@ -285,12 +322,17 @@ public class RuntimeFilterTranslator {
                 }
 
                 // adjust data type
+                boolean adjustedAfterNonIdentity = false;
+                if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
+                    adjustedAfterNonIdentity = !isIdentityTarget;
+                }
                 targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr, filter.getType());
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
+                targetAdjustedAfterNonIdentityList.add(adjustedAfterNonIdentity);
             }
             if (!hasInvalidTarget) {
                 org.apache.doris.planner.RuntimeFilter origFilter
@@ -314,9 +356,21 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    if (targetAdjustedAfterNonIdentityList.get(i)) {
+                        continue;
+                    }
+                    RuntimeFilterPartitionPruneClassifier.Classification classification =
+                            RuntimeFilterPartitionPruneClassifier.classify(
+                                    targetExpr, filter.getTargetExpressions().get(i), scanNode);
+                    if (classification.canPrunePartitions()) {
+                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
+                    }
+                    origFilter.setTargetPartitionMonotonicity(
+                            scanNode.getId(), classification.getPartitionMonotonicity());
                 }
                 origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
+                setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
@@ -341,6 +395,27 @@ public class RuntimeFilterTranslator {
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
         return origFilter;
+    }
+
+    private void setWaitTimeMs(org.apache.doris.planner.RuntimeFilter filter,
+            boolean isNonBlocking, boolean isLocalTarget) {
+        if (isNonBlocking) {
+            filter.setWaitTimeMs(0);
+        } else {
+            if (ConnectContext.get() != null) {
+                SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
+                if (sessionVar.runtimeFilterWaitInfinitely
+                        || filter.getType() == TRuntimeFilterType.BITMAP
+                        || isLocalTarget) {
+                    // wait infinitely
+                    filter.setWaitTimeMs(sessionVar.getQueryTimeoutS() * 1000);
+                } else {
+                    filter.setWaitTimeMs(sessionVar.getRuntimeFilterWaitTimeMs());
+                }
+            } else {
+                filter.setWaitTimeMs(1000);
+            }
+        }
     }
 
     private Expr castTargetToSourceTypeIfNeeded(Expr src, Expr targetExpr, TRuntimeFilterType filterType) {

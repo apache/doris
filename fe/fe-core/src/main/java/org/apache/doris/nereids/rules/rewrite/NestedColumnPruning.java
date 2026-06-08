@@ -283,6 +283,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     }
                     // Offset-only access (e.g. length(str_col)): type stays varchar,
                     // but we must still send the access path to BE so it skips the char data.
+                    stripExactCoveredDataSkippingSuffixPaths(slot, allAccessPaths, allAccessPaths);
                     stripNullSuffixPaths(slot, allAccessPaths);
                     List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
                     result.put(slot.getExprId().asInt(),
@@ -348,35 +349,15 @@ public class NestedColumnPruning implements CustomRewriter {
                 continue;
             }
 
+            // If a field is read in full, its metadata-only NULL/OFFSET access is redundant
+            // for any data type: e.g. [s] covers both [s.NULL] and [s.OFFSET].
+            stripExactCoveredDataSkippingSuffixPaths(slot, allAccessPaths, allAccessPaths);
+
             // Strip OFFSET-suffix paths when a non-OFFSET path covers the same nested field or
             // container. The overlapping array/map container may live under the root slot itself
             // or under a nested struct field, so compare against the actual nested prefix instead
             // of gating this logic on the root slot type.
-            int slotId = slot.getExprId().asInt();
-            Collection<Pair<ColumnAccessPathType, List<String>>> paths = allAccessPaths.get(slotId);
-            List<List<String>> nonOffsetPaths = new ArrayList<>();
-            for (Pair<ColumnAccessPathType, List<String>> p : paths) {
-                List<String> path = p.second;
-                if (path.isEmpty()
-                        || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
-                    nonOffsetPaths.add(path);
-                }
-            }
-            List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
-            List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
-            for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(paths)) {
-                OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
-                        slot.getDataType(), p.second, nonOffsetPaths);
-                if (!rewrite.shouldRemoveOffsetPath()) {
-                    continue;
-                }
-                pathsToRemove.add(p);
-                for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
-                    pathsToAdd.add(Pair.of(p.first, supplementalPath));
-                }
-            }
-            paths.removeAll(pathsToRemove);
-            paths.addAll(pathsToAdd);
+            stripCoveredOffsetSuffixPaths(slot, allAccessPaths, allAccessPaths);
 
             // Strip NULL-suffix paths when a non-NULL path also exists for the same slot.
             // E.g. `SELECT col FROM t WHERE col IS NULL` — full data is needed, NULL path is redundant.
@@ -399,11 +380,16 @@ public class NestedColumnPruning implements CustomRewriter {
         // third: build predicate access path
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
+            stripExactCoveredDataSkippingSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
+            stripCoveredOffsetSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
+            stripCoveredArrayNullSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripNullSuffixPaths(slot, predicateAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                retainPredicatePathsInFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -414,6 +400,8 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                retainPredicatePathsInFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -456,6 +444,11 @@ public class NestedColumnPruning implements CustomRewriter {
             return OffsetPathRewrite.keep();
         }
         List<String> prefix = path.subList(0, path.size() - 1);
+        return analyzePrefixCoverage(slotType, prefix, nonOffsetPaths);
+    }
+
+    private static OffsetPathRewrite analyzePrefixCoverage(
+            DataType slotType, List<String> prefix, List<List<String>> nonOffsetPaths) {
         List<List<String>> supplementalPaths = new ArrayList<>();
         for (List<String> nonOffset : nonOffsetPaths) {
             OffsetPathRewrite candidate = compareOffsetPrefixCoverage(slotType, prefix, nonOffset);
@@ -471,6 +464,199 @@ public class NestedColumnPruning implements CustomRewriter {
             return OffsetPathRewrite.keep();
         }
         return OffsetPathRewrite.rewriteWithSupplementalPaths(supplementalPaths);
+    }
+
+    /**
+     * Remove OFFSET-only paths from {@code targetAccessPaths} when data paths in
+     * {@code coveringAccessPaths} already read the same array/map/string container or a child
+     * under it.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [arr.OFFSET, arr.*.field]} becomes {@code [arr.*.field]} because the array
+     *       child read must keep BE on the normal data iterator path.</li>
+     *   <li>{@code [map.*.OFFSET, map.VALUES]} becomes {@code [map.KEYS, map.VALUES]} because
+     *       {@code map['k']} still needs full keys for lookup, while values cover the offset.</li>
+     * </ul>
+     */
+    private static void stripCoveredOffsetSuffixPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty()) {
+            return;
+        }
+
+        List<List<String>> nonOffsetPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
+            List<String> path = p.second;
+            if (path.isEmpty()
+                    || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+                nonOffsetPaths.add(path);
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (path.isEmpty()
+                    || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+                nonOffsetPaths.add(path);
+            }
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(targetPaths)) {
+            OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
+                    slot.getDataType(), p.second, nonOffsetPaths);
+            if (!rewrite.shouldRemoveOffsetPath()) {
+                continue;
+            }
+            pathsToRemove.add(p);
+            for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
+                pathsToAdd.add(Pair.of(p.first, supplementalPath));
+            }
+        }
+        targetPaths.removeAll(pathsToRemove);
+        targetPaths.addAll(pathsToAdd);
+    }
+
+    /**
+     * Remove array NULL-only paths from {@code targetAccessPaths} when another path already reads
+     * the same array container or data under it. This mirrors OFFSET coverage because an array
+     * element/data read must not be combined with an array NULL_MAP_ONLY read for the same prefix.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [map.VALUES.NULL, map.VALUES.*.field]} becomes
+     *       {@code [map.VALUES.*.field]}.</li>
+     *   <li>{@code [map.*.NULL, map.VALUES.*.field]} becomes
+     *       {@code [map.KEYS, map.VALUES.*.field]} so map lookup keys are still available.</li>
+     * </ul>
+     */
+    private static void stripCoveredArrayNullSuffixPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty()) {
+            return;
+        }
+
+        List<List<String>> nonNullPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                nonNullPaths.add(path);
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                nonNullPaths.add(path);
+            }
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(targetPaths)) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                continue;
+            }
+            List<String> prefix = path.subList(0, path.size() - 1);
+            Optional<DataType> prefixType = dataTypeAtPath(slot.getDataType(), prefix);
+            if (!prefixType.isPresent() || !prefixType.get().isArrayType()) {
+                continue;
+            }
+            OffsetPathRewrite rewrite = analyzePrefixCoverage(slot.getDataType(), prefix, nonNullPaths);
+            if (!rewrite.shouldRemoveOffsetPath()) {
+                continue;
+            }
+            pathsToRemove.add(p);
+            for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
+                pathsToAdd.add(Pair.of(p.first, supplementalPath));
+            }
+        }
+        targetPaths.removeAll(pathsToRemove);
+        targetPaths.addAll(pathsToAdd);
+    }
+
+    /**
+     * Remove exact metadata-only NULL/OFFSET paths when the same field is read in full.
+     * This rule is type-agnostic: once {@code s} itself is accessed, {@code s.NULL} and
+     * {@code s.OFFSET} are redundant and unsafe to keep with the full data path.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [str_col, str_col.NULL]} becomes {@code [str_col]}.</li>
+     *   <li>{@code [arr, arr.OFFSET]} becomes {@code [arr]}.</li>
+     *   <li>{@code [map.*, map.*.OFFSET]} becomes {@code [map.*]}.</li>
+     * </ul>
+     */
+    private static void stripExactCoveredDataSkippingSuffixPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty()) {
+            return;
+        }
+
+        List<List<String>> fullAccessPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
+            if (!isDataSkippingOnlyAccessPath(p.second)) {
+                fullAccessPaths.add(p.second);
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            if (!isDataSkippingOnlyAccessPath(p.second)) {
+                fullAccessPaths.add(p.second);
+            }
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (!isDataSkippingOnlyAccessPath(path)) {
+                continue;
+            }
+            List<String> prefix = path.subList(0, path.size() - 1);
+            for (List<String> fullAccessPath : fullAccessPaths) {
+                if (pathCoversPrefix(fullAccessPath, prefix)) {
+                    pathsToRemove.add(p);
+                    break;
+                }
+            }
+        }
+        targetPaths.removeAll(pathsToRemove);
+    }
+
+    private static Optional<DataType> dataTypeAtPath(DataType slotType, List<String> path) {
+        if (path.isEmpty()) {
+            return Optional.empty();
+        }
+        DataType currentType = slotType;
+        for (int i = 1; i < path.size(); i++) {
+            String component = path.get(i);
+            if (currentType.isStructType()) {
+                StructField field = ((StructType) currentType).getField(component);
+                if (field == null) {
+                    return Optional.empty();
+                }
+                currentType = field.getDataType();
+            } else if (currentType.isArrayType()) {
+                if (!AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    return Optional.empty();
+                }
+                currentType = ((ArrayType) currentType).getItemType();
+            } else if (currentType.isMapType()) {
+                currentType = descendMapType((MapType) currentType, component);
+            } else {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(currentType);
     }
 
     private static OffsetPathRewrite compareOffsetPrefixCoverage(
@@ -590,21 +776,27 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Strip NULL-suffix paths that are redundant because a non-NULL path reads the same
-     * column/subcolumn in full (its data inherently includes the null flag).
+     * Strip NULL-suffix paths that are redundant because a non-NULL path reads child
+     * data below the same prefix or reads an OFFSET path over the same prefix.
      *
-     * For example, [int_col, NULL] is removed when [int_col] exists — reading the full
-     * column includes its null flag.
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [struct_col.NULL, struct_col.city]} becomes {@code [struct_col.city]}.</li>
+     *   <li>{@code [str_col.NULL, str_col.OFFSET]} becomes {@code [str_col.OFFSET]} because
+     *       the offset read can provide nullness for variable-length columns.</li>
+     * </ul>
      *
-     * A parent NULL path must also be removed when any child path is required under the
+     * <p>A parent NULL path must also be removed when any child path is required under the
      * same prefix, e.g. [struct_col, NULL] with [struct_col, city]. This looks like the
-     * parent null map is still useful for predicates, but it cannot be kept in
+     * parent null map may still be useful for predicates, but it cannot be kept in
      * allAccessPaths with the current BE iterator contract: Struct/Array/Map iterators
      * treat a leading NULL sub-path as NULL_MAP_ONLY and skip all children. If FE kept
      * [struct_col.NULL, struct_col.city] in allAccessPaths, BE would read only the
      * struct null map and default-fill city instead of routing the city child iterator.
-     * predicateAccessPaths still retains the NULL path, while the normal nullable
-     * container read materializes the parent null map together with required children.
+     * When the NULL path is removed from allAccessPaths, it must also be removed from
+     * predicateAccessPaths so the BE can rely on predicate paths being a subset of all
+     * paths. The normal nullable container read materializes the parent null map
+     * together with required children.
      */
     private static void stripNullSuffixPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
@@ -655,8 +847,41 @@ public class NestedColumnPruning implements CustomRewriter {
         }
     }
 
+    /**
+     * Keep predicate access paths as a subset of final all access paths after NULL/OFFSET cleanup.
+     * Predicate paths are built from filter expressions first, but later all-path rewrites may drop
+     * metadata-only paths or collapse paths to whole-column access. Any predicate path not present
+     * in final all paths must be removed before sending access info to BE.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>All paths {@code [s]}, predicate paths {@code [s.city.NULL]} becomes no predicate
+     *       paths after parent NULL removal.</li>
+     *   <li>All paths {@code [s.city.NULL, s.zip]}, predicate paths
+     *       {@code [s.NULL, s.city.NULL]} becomes {@code [s.city.NULL]}.</li>
+     * </ul>
+     */
+    private static void retainPredicatePathsInFinalAllAccessPaths(
+            List<ColumnAccessPath> predicatePaths, List<ColumnAccessPath> allPaths) {
+        if (predicatePaths.isEmpty()) {
+            return;
+        }
+
+        List<ColumnAccessPath> toRemove = new ArrayList<>();
+        for (ColumnAccessPath predicatePath : predicatePaths) {
+            if (!allPaths.contains(predicatePath)) {
+                toRemove.add(predicatePath);
+            }
+        }
+        predicatePaths.removeAll(toRemove);
+    }
+
     private static boolean hasStrictPrefix(List<String> path, List<String> prefix) {
         return path.size() > prefix.size() && path.subList(0, prefix.size()).equals(prefix);
+    }
+
+    private static boolean pathCoversPrefix(List<String> path, List<String> prefix) {
+        return prefix.size() >= path.size() && prefix.subList(0, path.size()).equals(path);
     }
 
     private static List<ColumnAccessPath> buildColumnAccessPaths(
@@ -682,7 +907,8 @@ public class NestedColumnPruning implements CustomRewriter {
         if (accessWholeColumn) {
             SlotReference slotReference = (SlotReference) slot;
             String wholeColumnName = slotReference.getOriginalColumn().get().getName();
-            return ImmutableList.of(new ColumnAccessPath(accessWholeColumnType, ImmutableList.of(wholeColumnName)));
+            return new ArrayList<>(
+                    ImmutableList.of(new ColumnAccessPath(accessWholeColumnType, ImmutableList.of(wholeColumnName))));
         }
         return paths;
     }
@@ -873,8 +1099,7 @@ public class NestedColumnPruning implements CustomRewriter {
                         children.values().iterator().next().pruneCastType(
                                 origin.children.values().iterator().next(),
                                 cast.children.values().iterator().next()
-                        ),
-                        ((ArrayType) cast.type).containsNull()
+                        )
                 );
             } else if (type instanceof MapType) {
                 return MapType.of(
@@ -1048,7 +1273,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 // Only the offset array is accessed (e.g. length(str_col)).
                 return Optional.of(type);
             } else if (isNullCheckOnly && !accessPartialChild) {
-                // Only the null flag is accessed (e.g. col IS NULL / struct_element(s,'f') IS NULL).
+                // Only the null flag is accessed (e.g. col IS NULL / element_at(s,'f') IS NULL).
                 // Return the node's type so that parent nodes include this child in their pruned type,
                 // while the access path (ending in NULL) tells BE to skip actual data reading.
                 return Optional.of(type);
@@ -1102,7 +1327,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return new StructType(newFields);
             } else if (dataType instanceof ArrayType) {
-                return ArrayType.of(newChildrenTypes.get(0).second, ((ArrayType) dataType).containsNull());
+                return ArrayType.of(newChildrenTypes.get(0).second);
             } else if (dataType instanceof MapType) {
                 return MapType.of(newChildrenTypes.get(0).second, newChildrenTypes.get(1).second);
             } else {

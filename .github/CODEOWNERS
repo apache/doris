@@ -18,23 +18,10 @@
 # for more syntax help and usage example
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners#codeowners-syntax
 
-be/src/io/ @gavinchou @dataroaring
 be/src/agent/be_exec_version_manager.cpp @BiteTheDDDDt @zclllyybb
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
-fe/fe-core/src/main/java/org/apache/doris/cloud/ @luwei16 @gavinchou @dearding @dataroaring
-cloud/src/meta-service/*job* @luwei16 @gavinchou @dataroaring
-cloud/src/meta-service/*meta_service_txn* @swjtu-zhanglei @gavinchou @dataroaring
-cloud/src/meta-service/*resource* @deardeng @gavinchou @dataroaring
-cloud/src/resource-manager/* @deardeng @gavinchou @dataroaring
-cloud/src/recycler/* @swjtu-zhanglei @gavinchou @dataroaring
-be/src/cloud/*compact* @luwei16 @gavinchou @dataroaring
-be/src/cloud/*schema* @luwei16 @gavinchou @dataroaring
-cloud/ @gavinchou @dataroaring @w41ter
-be/src/cloud/ @gavinchou @dataroaring
-gensrc/proto/olap_file.proto @gavinchou @dataroaring @yiguolei
-gensrc/proto/cloud.proto @gavinchou @dataroaring @w41ter
 fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs
 fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
 be/src/vec/functions @zclllyybb
@@ -49,3 +36,124 @@ be/src/exprs/vsearch.h @airborne12
 be/src/exprs/vsearch.cpp @airborne12
 .claude/ @zclllyybb
 AGENTS.md @zclllyybb
+
+be/src/cloud                                                 @liaoxin01 @luwei16 @gavinchou
+be/src/io                                                    @liaoxin01 @gavinchou @morningman @Gabriel39
+be/src/io/cache                                              @liaoxin01 @gavinchou @morningman @Gabriel39
+be/src/io/fs                                                 @liaoxin01 @gavinchou @morningman @Gabriel39
+be/src/io/tools                                              @liaoxin01 @gavinchou
+be/src/load                                                  @liaoxin01 @gavinchou
+be/src/load/channel                                          @liaoxin01 @gavinchou
+be/src/load/delta_writer                                     @liaoxin01 @gavinchou
+be/src/load/group_commit                                     @liaoxin01 @gavinchou
+be/src/load/memtable                                         @liaoxin01 @gavinchou
+be/src/load/routine_load                                     @liaoxin01 @gavinchou
+be/src/load/stream_load                                      @liaoxin01 @gavinchou
+be/src/storage                                               @gavinchou
+be/src/storage/cache                                         @liaoxin01 @gavinchou
+be/src/storage/compaction                                    @luwei16 @gavinchou
+be/src/storage/delete                                        @luwei16 @gavinchou
+be/src/storage/index                                         @airbone12
+be/src/storage/iterator                                      @yiguolei @gavinchou
+be/src/storage/predicate                                     @yiguolei @gavinchou
+be/src/storage/rowset                                        @gavinchou
+be/src/storage/schema_change                                 @luwei16 @gavinchou
+be/src/storage/segment                                       @yiguolei @liaoxin01 @gavinchou
+be/src/storage/snapshot                                      @deardeng @luwei16 @gavinchou
+be/src/storage/tablet                                        @gavinchou
+be/src/storage/task                                          @deardeng @gavinchou
+be/src/storage/txn                                           @liaoxin01 @gavinchou
+be/test/cloud                                                @luwei16 @liaoxin01 @gavinchou
+be/test/io                                                   @liaoxin01 @gavinchou @morningman @Gabriel39
+be/test/io/cache                                             @liaoxin01 @gavinchou @morningman @Gabriel39
+be/test/io/client                                            @gavinchou
+be/test/io/fs                                                @luwei16 @liaoxin01 @gavinchou @morningman @Gabriel39
+be/test/load                                                 @liaoxin01 @gavinchou
+be/test/load/channel                                         @liaoxin01 @gavinchou
+be/test/load/delta_writer                                    @liaoxin01 @gavinchou
+be/test/load/memtable                                        @liaoxin01 @gavinchou
+be/test/olap                                                 @gavinchou
+be/test/olap/rowset                                          @gavinchou
+be/test/storage                                              @gavinchou
+be/test/storage/cache                                        @liaoxin01 @gavinchou
+be/test/storage/compaction                                   @luwei16 @gavinchou
+be/test/storage/delete                                       @gavinchou
+be/test/storage/index                                        @airbone12
+be/test/storage/iterator                                     @yiguolei @gavinchou
+be/test/storage/predicate                                    @yiguolei @gavinchou
+be/test/storage/rowset                                       @gavinchou
+be/test/storage/schema_change                                @luwei16 @gavinchou
+be/test/storage/segment                                      @yiguolei @gavinchou
+be/test/storage/snapshot                                     @deardeng @luwei16 @gavinchou
+be/test/storage/tablet                                       @gavinchou
+be/test/storage/txn                                          @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/alter              @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/backup             @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/binlog             @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/clone              @deardeng @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud              @liaoxin01 @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/alter        @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/backup       @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/catalog      @morningman @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/common       @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/datasource   @mingyuchen @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/load         @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/master       @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/persist      @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/qe           @morrySnow @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/rpc          @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/snapshot     @luwei16 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/stage        @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/storage      @luwei16 @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/system       @deardeng @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/transaction  @mymeiyi @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cooldown           @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/fs                 @calvinkirs @morningman @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/ha                 @mymeiyi @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/journal            @mymeiyi @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/load               @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/master             @mymeiyi @deardeng @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/mtmv               @morrySnow @seawinde
+fe/fe-core/src/main/java/org/apache/doris/nereids            @morrySnow @924060929 @englefly @starocean999
+fe/fe-core/src/main/java/org/apache/doris/persist            @mymeiyi @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/persist/gson       @mymeiyi @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/persist/meta       @mymeiyi @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/alter              @luwei16 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/backup             @luwei16 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/binlog             @luwei16 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/clone              @deardeng @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud              @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/backup       @luwei16 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/cache        @liaoxin01 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/catalog      @morningman @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/common       @liaoxin01 @luwei16 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/load         @liaoxin01 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/master       @deardeng @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/rpc          @luwei16 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/stage        @liaoxin01 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/storage      @liaoxin01 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/system       @deardeng @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/cloud/transaction  @liaoxin01 @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/fs                 @calvinkirs @morningman @gavinchou @Gabriel39
+fe/fe-core/src/test/java/org/apache/doris/journal            @mymeiyi @gavinchou
+fe/fe-core/src/test/java/org/apache/doris/load               @liaoxin01 @gavinchou
+fe/fe-filesystem                                             @calvinkirs @morningman @gavinchou
+fe/fe-sql-parser/src/main/antlr4                             @morrySnow @starocean999 @924060929 @englefly
+cloud                                                        @gavinchou
+cloud/cmake                                                  @liaoxin01 @luwei16 @gavinchou
+cloud/conf                                                   @liaoxin01 @luwei16 @gavinchou
+cloud/script                                                 @gavinchou @luwei16
+cloud/src                                                    @gavinchou
+cloud/src/common                                             @liaoxin01 @luwei16 @gavinchou
+cloud/src/gen-cpp                                            @liaoxin01 @luwei16 @gavinchou
+cloud/src/meta-service                                       @liaoxin01 @luwei16 @gavinchou
+cloud/src/meta-store                                         @luwei16 @gavinchou
+cloud/src/rate-limiter                                       @luwei16 @gavinchou
+cloud/src/recycler                                           @liaoxin01 @gavinchou
+cloud/src/resource-manager                                   @deardeng @gavinchou
+cloud/src/snapshot                                           @luwei16 @gavinchou
+cloud/test                                                   @liaoxin01 @luwei16 @gavinchou
+gensrc/proto/cloud.proto                                     @luwei16 @gavinchou
+gensrc/proto/file_cache.proto                                @liaoxin01 @gavinchou
+gensrc/proto/olap_file.proto                                 @yiguolei @liaoxin01 @gavinchou
+gensrc/proto/segment_v2.proto                                @yiguolei @liaoxin01 @gavinchou

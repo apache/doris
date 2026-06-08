@@ -79,7 +79,7 @@ public:
         return Base::close(state);
     }
 
-    Status sink(RuntimeState* state, Block* input_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
 
         RETURN_IF_ERROR(_notify_rec_side_ready_if_needed(state));

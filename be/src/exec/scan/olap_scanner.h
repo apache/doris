@@ -49,6 +49,9 @@ class RuntimeState;
 class TPaloScanRange;
 class ScanLocalStateBase;
 struct FilterPredicates;
+#ifndef NDEBUG
+struct OlapReaderStatistics;
+#endif
 
 class Block;
 
@@ -65,6 +68,7 @@ public:
         TabletReadSource read_source;
         int64_t limit;
         bool aggregation;
+        bool read_row_binlog = false;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -76,6 +80,8 @@ public:
     Status close(RuntimeState* state) override;
 
     doris::TabletStorageType get_storage_type() override;
+
+    bool check_partition_pruned() const override;
 
     void update_realtime_counters() override;
 
@@ -93,14 +99,14 @@ private:
 
     [[nodiscard]] Status _init_return_columns();
     [[nodiscard]] Status _init_variant_columns();
+#ifndef NDEBUG
+    Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
+#endif
 
     std::vector<OlapScanRange*> _key_ranges;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
-
-    int64_t _bytes_read_from_local = 0;
-    int64_t _bytes_read_from_remote = 0;
 
 public:
     std::vector<ColumnId> _return_columns;

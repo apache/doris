@@ -29,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -195,6 +196,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     })
                     .collect(Collectors.toList());
         } else {
+            // Allow manual regression to isolate database-level table enumeration cost during collect.
+            if (DebugPointUtil.isEnable("ExternalDatabase.listTableNames.sleep")) {
+                long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                        "ExternalDatabase.listTableNames.sleep", "sleepMs", 0L);
+                if (sleepMs > 0) {
+                    LOG.info("debug point ExternalDatabase.listTableNames.sleep hit for {}.{}, sleep {}ms",
+                            extCatalog.getName(), remoteName, sleepMs);
+                    try {
+                        Thread.sleep(sleepMs);
+                    } catch (InterruptedException ignore) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
             tableNames = extCatalog.listTableNames(null, remoteName).stream().map(tableName -> {
                 String localTableName = extCatalog.fromRemoteTableName(remoteName, tableName);
                 if (this.isStoredTableNamesLowerCase()) {
@@ -438,9 +453,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         List<T> tables = Lists.newArrayList();
         Set<String> tblNames = getTableNamesWithLock();
         for (String tblName : tblNames) {
-            T tbl = getTableNullable(tblName);
-            if (tbl != null) {
-                tables.add(tbl);
+            try {
+                T tbl = getTableNullable(tblName);
+                if (tbl != null) {
+                    tables.add(tbl);
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get external table {}.{}.{} in SHOW TABLES path, skip it.",
+                        extCatalog.getName(), name, tblName, e);
             }
         }
         return tables;

@@ -606,7 +606,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
 
     PartitionedAggSharedState() = default;
-    ~PartitionedAggSharedState() override = default;
+    ~PartitionedAggSharedState() override { close(); }
 
     void close();
 
@@ -615,6 +615,10 @@ struct PartitionedAggSharedState : public BasicSharedState,
 
     // partition count is no longer stored in shared state; operators maintain their own
     std::atomic<bool> _is_spilled = false;
+    // This state is shared by the partitioned agg sink and source pipelines. Spill files left
+    // here are owned by the shared state until the source moves them into its local queue, so the
+    // cleanup must be tied to the shared state's lifetime and must be idempotent.
+    std::atomic_bool is_closed = false;
     std::deque<SpillFileSPtr> _spill_partitions;
 };
 
@@ -923,7 +927,8 @@ public:
 
     void sub_total_mem_usage(size_t delta) {
         auto prev_usage = mem_usage.fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
+        DCHECK_GE(prev_usage, cast_set<int64_t>(delta))
+                << "prev_usage: " << prev_usage << " delta: " << delta;
         if (cast_set<int64_t>(prev_usage - delta) <= _buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }

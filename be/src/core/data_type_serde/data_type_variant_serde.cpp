@@ -17,6 +17,8 @@
 
 #include "core/data_type_serde/data_type_variant_serde.h"
 
+#include <arrow/array/builder_binary.h>
+
 #include <cstdint>
 #include <string>
 
@@ -37,6 +39,32 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
+namespace {
+
+template <typename BuilderType>
+Status write_variant_column_to_arrow_impl(const IColumn& column, const ColumnVariant& var,
+                                          const NullMap* null_map, BuilderType& builder,
+                                          int64_t start, int64_t end, const cctz::time_zone& ctz) {
+    DataTypeSerDe::FormatOptions options;
+    options.timezone = &ctz;
+    for (int64_t i = start; i < end; ++i) {
+        if (null_map && (*null_map)[cast_set<size_t>(i)]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             builder.type()->name()));
+            continue;
+        }
+
+        std::string serialized_value;
+        var.serialize_one_row_to_string(i, &serialized_value, options);
+        const auto serialized_size =
+                cast_set<typename BuilderType::offset_type>(serialized_value.size());
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(serialized_value.data(), serialized_size),
+                                         column.get_name(), builder.type()->name()));
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                           MysqlRowBinaryBuffer& row_buffer,
@@ -101,7 +129,7 @@ void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const Jsonb
 Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                         BufferWritable& bw,
                                                         FormatOptions& options) const {
-    const auto* var = check_and_get_column<ColumnVariant>(column);
+    const auto* var = assert_cast<const ColumnVariant*>(&column);
     var->serialize_one_row_to_string(row_num, bw, options);
     return Status::OK();
 }
@@ -127,24 +155,17 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    arrow::ArrayBuilder* array_builder,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
-    const auto* var = check_and_get_column<ColumnVariant>(column);
-    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
-    FormatOptions options;
-    options.timezone = &ctz;
-    for (size_t i = start; i < end; ++i) {
-        if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
-        } else {
-            std::string serialized_value;
-            var->serialize_one_row_to_string(i, &serialized_value, options);
-            RETURN_IF_ERROR(
-                    checkArrowStatus(builder.Append(serialized_value.data(),
-                                                    static_cast<int>(serialized_value.size())),
-                                     column.get_name(), array_builder->type()->name()));
-        }
+    const auto* var = assert_cast<const ColumnVariant*>(&column);
+    if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
+        auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
+        return write_variant_column_to_arrow_impl(column, *var, null_map, builder, start, end, ctz);
+    } else if (array_builder->type()->id() == arrow::Type::STRING) {
+        auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+        return write_variant_column_to_arrow_impl(column, *var, null_map, builder, start, end, ctz);
+    } else {
+        return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
+                                       array_builder->type()->name());
     }
-    return Status::OK();
 }
 
 void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
@@ -158,7 +179,7 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {
-    const auto* var = check_and_get_column<ColumnVariant>(column);
+    const auto* var = assert_cast<const ColumnVariant*>(&column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
     std::vector<std::string> serialized_values;

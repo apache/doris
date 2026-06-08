@@ -107,19 +107,6 @@ TEST_F(CompactionActionTest, RunCompactionInvalidType) {
     EXPECT_TRUE(st.to_string().find("not supported") != std::string::npos);
 }
 
-TEST_F(CompactionActionTest, RunCompactionInvalidRemoteParam) {
-    auto action = _make_run_action();
-    HttpRequest req(_evhttp_req);
-    req._params[TABLET_ID_KEY] = "12345";
-    req._params[PARAM_COMPACTION_TYPE] = PARAM_COMPACTION_FULL;
-    req._params[PARAM_COMPACTION_REMOTE] = "invalid_value";
-
-    std::string json_result;
-    Status st = action._handle_run_compaction(&req, &json_result);
-    EXPECT_FALSE(st.ok());
-    EXPECT_TRUE(st.to_string().find("not supported") != std::string::npos);
-}
-
 TEST_F(CompactionActionTest, RunCompactionInvalidTabletId) {
     auto action = _make_run_action();
     HttpRequest req(_evhttp_req);

@@ -47,32 +47,31 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
+                        uint32_t result, size_t /*input_rows_count*/,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
 
         auto to_type = block.get_by_position(result).type;
-        auto serde = remove_nullable(to_type)->get_serde();
+        auto nested_to_type = remove_nullable(to_type);
+        auto serde = nested_to_type->get_serde();
 
         DataTypeSerDe::FormatOptions options;
         options.timezone = &context->state()->timezone_obj();
 
-        // by default framework, to_type is already unwrapped nullable
-        MutableColumnPtr column_to = to_type->create_column();
-        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
-                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
-
         if constexpr (CastMode == CastModeType::StrictMode) {
-            // WON'T write nulls to nullable_col_to, just raise errors. null_map is only used to skip invalid rows
-            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(
-                    *col_from, nullable_col_to->get_nested_column(), options, null_map));
+            MutableColumnPtr column_to = nested_to_type->create_column();
+            // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
+            RETURN_IF_ERROR(
+                    serde->from_string_strict_mode_batch(*col_from, *column_to, options, null_map));
+            block.get_by_position(result).column = std::move(column_to);
         } else {
+            auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
             RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, options));
+            block.get_by_position(result).column = std::move(nullable_col_to);
         }
 
-        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };
@@ -82,36 +81,35 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
+                        uint32_t result, size_t /*input_rows_count*/,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
+        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         auto to_type = block.get_by_position(result).type;
+        auto nested_to_type = remove_nullable(to_type);
         auto concrete_serde = std::dynamic_pointer_cast<typename ToDataType::SerDeType>(
-                remove_nullable(to_type)->get_serde());
-
-        // by default framework, to_type is already unwrapped nullable
-        MutableColumnPtr column_to = to_type->create_column();
-        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
-                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
+                nested_to_type->get_serde());
 
         // datelike types serde must have template functions for those types. but because of they need to be
         // template functions, so we cannot make them virtual. that's why we assert_cast `serde` before.
         if constexpr (CastMode == CastModeType::StrictMode) {
-            // WON'T write nulls to nullable_col_to, just raise errors. null_map is only used to skip invalid rows
+            MutableColumnPtr column_to = nested_to_type->create_column();
+            // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
             if constexpr (IsDataTypeInt<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_int_strict_mode_batch<FromDataType>(
-                        *col_from, nullable_col_to->get_nested_column()));
+                        *col_from, *column_to));
             } else if constexpr (IsDataTypeFloat<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_float_strict_mode_batch<FromDataType>(
-                        *col_from, nullable_col_to->get_nested_column()));
+                        *col_from, *column_to));
             } else {
                 static_assert(IsDataTypeDecimal<FromDataType>);
                 RETURN_IF_ERROR(
                         concrete_serde->template from_decimal_strict_mode_batch<FromDataType>(
-                                *col_from, nullable_col_to->get_nested_column()));
+                                *col_from, *column_to));
             }
+            block.get_by_position(result).column = std::move(column_to);
         } else {
+            auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
             if constexpr (IsDataTypeInt<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_int_batch<FromDataType>(
@@ -124,9 +122,9 @@ public:
                 RETURN_IF_ERROR(concrete_serde->template from_decimal_batch<FromDataType>(
                         *col_from, *nullable_col_to));
             }
+            block.get_by_position(result).column = std::move(nullable_col_to);
         }
 
-        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };
@@ -141,7 +139,7 @@ public:
         constexpr bool Nullable = std::is_same_v<FromDataType, ToDataType> &&
                                   (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>);
 
-        const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
+        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         ColumnUInt8::MutablePtr col_nullmap;

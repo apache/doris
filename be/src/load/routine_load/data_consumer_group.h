@@ -26,7 +26,6 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "io/fs/kafka_consumer_pipe.h"
 #include "load/routine_load/data_consumer.h"
 #include "util/blocking_queue.hpp"
 #include "util/uid_util.h"
@@ -66,11 +65,34 @@ public:
 
     // start all consumers
     virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx,
-                             std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
+                             std::shared_ptr<io::StreamLoadPipe> pipe) {
         return Status::OK();
     }
 
 protected:
+    // Submit all consumers to thread pool.
+    // consume_fn: wraps actual_consume per consumer.
+    // shutdown_fn: called when last consumer finishes (shuts down queue).
+    // Returns false if any submission fails.
+    bool _submit_all_consumers(
+            std::function<void(std::shared_ptr<DataConsumer>, ConsumeFinishCallback)> consume_fn,
+            std::function<void()> shutdown_fn, Status& result_st);
+
+    // Shared consumption loop skeleton. Calls _dequeue_and_process per iteration.
+    Status _run_consume_loop(std::shared_ptr<StreamLoadContext> ctx,
+                             std::shared_ptr<io::StreamLoadPipe> pipe, Status& result_st);
+
+    // Dequeue one item and append to pipe. Update left_rows/left_bytes.
+    // Returns false → queue empty/shutdown (eos). Returns true → continue.
+    virtual bool _dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows,
+                                      int64_t& left_bytes, Status& result_st) = 0;
+
+    // Shutdown the subclass queue. Called at loop exit.
+    virtual void _shutdown_queue() = 0;
+
+    // Called after successful finish. Override to collect post-consume state.
+    virtual void _on_finish(std::shared_ptr<StreamLoadContext> ctx) {}
+
     UniqueId _grp_id;
     std::vector<std::shared_ptr<DataConsumer>> _consumers;
     // thread pool to run each consumer in multi thread
@@ -88,22 +110,53 @@ class KafkaDataConsumerGroup : public DataConsumerGroup {
 public:
     KafkaDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
 
-    virtual ~KafkaDataConsumerGroup();
+    ~KafkaDataConsumerGroup() override;
 
     Status start_all(std::shared_ptr<StreamLoadContext> ctx,
-                     std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) override;
+                     std::shared_ptr<io::StreamLoadPipe> pipe) override;
     // assign topic partitions to all consumers equally
     Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 
-private:
     // start a single consumer
     void actual_consume(std::shared_ptr<DataConsumer> consumer,
                         BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms,
                         ConsumeFinishCallback cb);
 
 private:
-    // blocking queue to receive msgs from all consumers
+    bool _dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows, int64_t& left_bytes,
+                              Status& result_st) override;
+    void _shutdown_queue() override { _queue.shutdown(); }
+    void _on_finish(std::shared_ptr<StreamLoadContext> ctx) override;
+
     BlockingQueue<RdKafka::Message*> _queue;
+    std::map<int32_t, int64_t> _cmt_offset;
+    TFileFormatType::type _format;
+};
+
+// for kinesis
+class KinesisDataConsumerGroup : public DataConsumerGroup {
+public:
+    KinesisDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
+
+    ~KinesisDataConsumerGroup() override;
+
+    Status start_all(std::shared_ptr<StreamLoadContext> ctx,
+                     std::shared_ptr<io::StreamLoadPipe> pipe) override;
+
+    Status assign_stream_shards(std::shared_ptr<StreamLoadContext> ctx);
+
+private:
+    void actual_consume(std::shared_ptr<DataConsumer> consumer,
+                        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+                        int64_t max_running_time_ms, ConsumeFinishCallback cb);
+
+    bool _dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows, int64_t& left_bytes,
+                              Status& result_st) override;
+    void _shutdown_queue() override { _queue.shutdown(); }
+    void _on_finish(std::shared_ptr<StreamLoadContext> ctx) override;
+
+    BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>> _queue;
+    TFileFormatType::type _format;
 };
 
 } // end namespace doris

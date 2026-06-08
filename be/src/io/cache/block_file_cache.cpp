@@ -523,7 +523,8 @@ void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, boo
 
     auto& queue = get_queue(cell.file_block->cache_type());
     /// Move to the end of the queue. The iterator remains valid.
-    if (cell.queue_iterator && move_iter_flag) {
+    if (!config::enable_file_cache_async_touch_on_get_or_set && cell.queue_iterator &&
+        move_iter_flag) {
         queue.move_to_end(*cell.queue_iterator, cache_lock);
         _lru_recorder->record_queue_event(cell.file_block->cache_type(),
                                           CacheLRULogType::MOVETOBACK, cell.file_block->_key.hash,
@@ -824,13 +825,15 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     DCHECK(stats != nullptr);
     MonotonicStopWatch sw;
     sw.start();
-    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
-    std::lock_guard cache_lock(_mutex);
-    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
-    stats->lock_wait_timer += sw.elapsed_time();
     FileBlocks file_blocks;
+    std::vector<FileBlockSPtr> need_update_lru_blocks;
+    const bool async_touch_on_get_or_set = config::enable_file_cache_async_touch_on_get_or_set;
     int64_t duration = 0;
     {
+        ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
+        std::lock_guard cache_lock(_mutex);
+        ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
+        stats->lock_wait_timer += sw.elapsed_time();
         SCOPED_RAW_TIMER(&duration);
         /// Get all blocks which intersect with the given range.
         {
@@ -851,6 +854,9 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
         if (!context.is_warmup) {
             *_no_warmup_num_read_blocks << file_blocks.size();
         }
+        if (async_touch_on_get_or_set) {
+            need_update_lru_blocks.reserve(file_blocks.size());
+        }
         for (auto& block : file_blocks) {
             size_t block_size = block->range().size();
             *_total_read_size_metrics << block_size;
@@ -860,9 +866,20 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
                 if (!context.is_warmup) {
                     *_no_warmup_num_hit_blocks << 1;
                 }
+                if (async_touch_on_get_or_set &&
+                    need_to_move(block->cache_type(), context.cache_type)) {
+                    need_update_lru_blocks.emplace_back(block);
+                }
             }
         }
     }
+
+    if (async_touch_on_get_or_set) {
+        for (auto& block : need_update_lru_blocks) {
+            add_need_update_lru_block(std::move(block));
+        }
+    }
+
     *_get_or_set_latency_us << (duration / 1000);
     return FileBlocksHolder(std::move(file_blocks));
 }
@@ -1243,6 +1260,7 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
                      << " new_size=" << new_size;
         return;
     }
+    DCHECK_EQ(cell->file_block->_block_range.size(), old_size);
     if (cell->queue_iterator) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));
@@ -1251,8 +1269,13 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
                                           cell->file_block->get_hash_value(),
                                           cell->file_block->offset(), new_size);
     }
+    cell->file_block->_block_range.right = cell->file_block->_block_range.left + new_size - 1;
     _cur_cache_size -= old_size;
     _cur_cache_size += new_size;
+    if (cell->file_block->cache_type() == FileCacheType::TTL) {
+        _cur_ttl_size -= old_size;
+        _cur_ttl_size += new_size;
+    }
 }
 
 bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
@@ -1412,7 +1435,37 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto tablet_id = file_block->tablet_id();
     auto* cell = get_cell(hash, offset, cache_lock);
     file_block->cell = nullptr;
-    DCHECK(cell);
+    // Holder cleanup can race with prior cache metadata cleanup. In that case,
+    // skip the duplicate remove instead of touching a detached or replaced cell.
+    if (cell == nullptr) {
+        LOG(WARNING) << "remove skipped because cache cell is missing. hash=" << hash.to_string()
+                     << " offset=" << offset << " size=" << file_block->range().size()
+                     << " type=" << cache_type_to_string(type)
+                     << " state=" << FileBlock::state_to_string(file_block->state_unsafe())
+                     << " expiration_time=" << expiration_time << " sync=" << sync;
+        return;
+    }
+    if (cell->file_block.get() != file_block.get()) {
+        auto* cell_file_block = cell->file_block.get();
+        LOG(WARNING)
+                << "remove skipped because cache cell points to a different file block. hash="
+                << hash.to_string() << " offset=" << offset
+                << " size=" << file_block->range().size() << " type=" << cache_type_to_string(type)
+                << " state=" << FileBlock::state_to_string(file_block->state_unsafe())
+                << " expiration_time=" << expiration_time << " sync=" << sync << " cell_block_hash="
+                << (cell_file_block ? cell_file_block->get_hash_value().to_string() : "<null>")
+                << " cell_block_offset="
+                << (cell_file_block ? std::to_string(cell_file_block->offset()) : "<null>")
+                << " cell_block_size="
+                << (cell_file_block ? std::to_string(cell_file_block->range().size()) : "<null>")
+                << " cell_block_type="
+                << (cell_file_block ? cache_type_to_string(cell_file_block->cache_type())
+                                    : "<null>")
+                << " cell_block_state="
+                << (cell_file_block ? FileBlock::state_to_string(cell_file_block->state_unsafe())
+                                    : "<null>");
+        return;
+    }
     DCHECK(cell->queue_iterator);
     if (cell->queue_iterator) {
         auto& queue = get_queue(file_block->cache_type());
@@ -2000,16 +2053,16 @@ void BlockFileCache::run_background_monitor() {
                                          (double)_num_read_blocks_1h->get_value());
             }
 
-            if (_no_warmup_num_hit_blocks->get_value() > 0) {
+            if (_no_warmup_num_read_blocks->get_value() > 0) {
                 _no_warmup_hit_ratio->set_value((double)_no_warmup_num_hit_blocks->get_value() /
                                                 (double)_no_warmup_num_read_blocks->get_value());
             }
-            if (_no_warmup_num_hit_blocks_5m && _no_warmup_num_hit_blocks_5m->get_value() > 0) {
+            if (_no_warmup_num_read_blocks_5m && _no_warmup_num_read_blocks_5m->get_value() > 0) {
                 _no_warmup_hit_ratio_5m->set_value(
                         (double)_no_warmup_num_hit_blocks_5m->get_value() /
                         (double)_no_warmup_num_read_blocks_5m->get_value());
             }
-            if (_no_warmup_num_hit_blocks_1h && _no_warmup_num_hit_blocks_1h->get_value() > 0) {
+            if (_no_warmup_num_read_blocks_1h && _no_warmup_num_read_blocks_1h->get_value() > 0) {
                 _no_warmup_hit_ratio_1h->set_value(
                         (double)_no_warmup_num_hit_blocks_1h->get_value() /
                         (double)_no_warmup_num_read_blocks_1h->get_value());

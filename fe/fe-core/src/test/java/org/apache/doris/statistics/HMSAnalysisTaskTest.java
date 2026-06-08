@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -166,8 +168,8 @@ public class HMSAnalysisTaskTest {
                     + "COUNT(1) - COUNT(`hour`) AS `null_count`, "
                     + "SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`, "
                     + "SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`, "
-                    + "COUNT(1) * 4 AS `data_size`, NOW() AS `update_time`, "
-                    + "null as `hot_value` FROM (SELECT `hour` FROM `hms`.`default`.`test` ) __lc_t", sql);
+                    + "COUNT(1) * 4 AS `data_size`, NOW() AS `update_time`, null as `hot_value` "
+                    + "FROM (SELECT `hour` FROM `hms`.`default`.`test` ) __lc_t", sql);
             return null;
         }).when(task).runQuery(Mockito.anyString());
 
@@ -184,6 +186,66 @@ public class HMSAnalysisTaskTest {
         task.info = analysisInfoBuilder.build();
 
         task.doExecute();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testOrdinaryStatsWithHotValue() throws Exception {
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
+
+        Mockito.when(tableIf.getId()).thenReturn(30001L);
+        Mockito.when(tableIf.getName()).thenReturn("test");
+        Mockito.when(catalogIf.getId()).thenReturn(10001L);
+        Mockito.when(catalogIf.getName()).thenReturn("hms");
+        Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(databaseIf.getFullName()).thenReturn("default");
+        Mockito.when(tableIf.getPartitionNames()).thenReturn(ImmutableSet.of("date=20230101/hour=12"));
+
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::getHotValueCollectCount).thenReturn(10);
+
+            HMSAnalysisTask task = Mockito.spy(new HMSAnalysisTask());
+            Mockito.doAnswer(invocation -> {
+                String sql = invocation.getArgument(0);
+                Assertions.assertEquals("WITH cte1 AS (SELECT `hour` "
+                        + "FROM `hms`.`default`.`test` ), "
+                        + "cte2 AS (SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
+                        + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
+                        + "-1 AS `idx_id`, 'hour' AS `col_id`, NULL AS `part_id`, "
+                        + "COUNT(1) AS `row_count`, NDV(`hour`) AS `ndv`, "
+                        + "COUNT(1) - COUNT(`hour`) AS `null_count`, "
+                        + "SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`, "
+                        + "SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`, "
+                        + "COUNT(1) * 4 AS `data_size`, NOW() FROM cte1), "
+                        + "cte3 AS (SELECT IFNULL(GROUP_CONCAT(CONCAT("
+                        + "REPLACE(REPLACE(t.`column_key`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
+                        + "\" :\", ROUND(t.`count` / "
+                        + "(SELECT COUNT(1) FROM cte1 WHERE `hour` IS NOT NULL), 2)), \" ;\"), '') "
+                        + "as `hot_value` FROM (SELECT `hour` as `hash_value`, "
+                        + "MAX(`hour`) as `column_key`, COUNT(1) AS `count` "
+                        + "FROM cte1 WHERE `hour` IS NOT NULL "
+                        + "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 10) t) "
+                        + "SELECT * FROM cte2 CROSS JOIN cte3", sql);
+                return null;
+            }).when(task).runQuery(Mockito.anyString());
+
+            task.col = new Column("hour", PrimitiveType.INT);
+            task.tbl = tableIf;
+            task.catalog = catalogIf;
+            task.db = databaseIf;
+            task.setTable(tableIf);
+
+            AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
+            analysisInfoBuilder.setColName("hour");
+            analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
+            analysisInfoBuilder.setUsingSqlForExternalTable(true);
+            analysisInfoBuilder.setCollectHotValue(true);
+            task.info = analysisInfoBuilder.build();
+
+            task.doExecute();
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.reader;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 
 import org.apache.flink.cdc.connectors.base.utils.SerializerUtils;
@@ -29,6 +30,7 @@ import org.apache.kafka.connect.source.SourceRecord;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +39,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.debezium.document.Document;
 import io.debezium.document.DocumentReader;
 import io.debezium.document.DocumentWriter;
+import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 import lombok.Getter;
@@ -62,6 +65,82 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     protected SourceRecordDeserializer<SourceRecord, DeserializeResult> serializer;
     protected Map<TableId, TableChanges.TableChange> tableSchemas;
+
+    private final Map<String, Class<?>> splitKeyClassCache = new ConcurrentHashMap<>();
+
+    @Override
+    public synchronized void release(JobBaseConfig jobConfig) {
+        // Stop the engine but keep source-side state (e.g. the PG replication slot) for another
+        // backend to take over.
+        LOG.info("Release source reader for job {}", jobConfig.getJobId());
+        finishSplitRecords();
+    }
+
+    protected abstract Class<?> probeSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig);
+
+    protected Class<?> resolveSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig) {
+        String key = tableId.identifier() + "." + splitColumn.name();
+        return splitKeyClassCache.computeIfAbsent(
+                key, k -> probeSplitKeyClass(tableId, splitColumn, jobConfig));
+    }
+
+    protected static Object[] convertBounds(Object[] raw, Class<?> target, ObjectMapper mapper) {
+        if (raw == null) {
+            return null;
+        }
+        Object[] out = new Object[raw.length];
+        for (int i = 0; i < raw.length; i++) {
+            out[i] = convertBound(raw[i], target, mapper);
+        }
+        return out;
+    }
+
+    private static final Map<Class<?>, Function<String, Object>> BOUND_PARSERS =
+            Map.of(
+                    java.sql.Date.class, java.sql.Date::valueOf,
+                    java.sql.Timestamp.class, AbstractCdcSourceReader::parseTimestampBound,
+                    java.sql.Time.class, java.sql.Time::valueOf,
+                    java.time.LocalDateTime.class, java.time.LocalDateTime::parse,
+                    java.time.LocalDate.class, java.time.LocalDate::parse,
+                    java.time.LocalTime.class, java.time.LocalTime::parse,
+                    java.time.OffsetDateTime.class, java.time.OffsetDateTime::parse);
+
+    // Offset suffix like "+08:00" / "-05:00" ("Z" is handled separately).
+    private static final java.util.regex.Pattern OFFSET_SUFFIX =
+            java.util.regex.Pattern.compile("[+-]\\d{2}:\\d{2}$");
+
+    /**
+     * A java.sql.Timestamp bound is serialized to FE by Jackson as ISO-8601 (with a zone offset
+     * when WRITE_DATES_AS_TIMESTAMPS is off), which java.sql.Timestamp#valueOf cannot parse.
+     * Reconstruct instant-faithfully so the rebuilt bound binds back to the same value flink-cdc
+     * read.
+     */
+    private static java.sql.Timestamp parseTimestampBound(String s) {
+        try {
+            return java.sql.Timestamp.valueOf(s); // legacy SQL form "yyyy-MM-dd HH:mm:ss[.f]"
+        } catch (IllegalArgumentException notSqlForm) {
+            if (s.endsWith("Z") || OFFSET_SUFFIX.matcher(s).find()) {
+                return java.sql.Timestamp.from(java.time.OffsetDateTime.parse(s).toInstant());
+            }
+            return java.sql.Timestamp.valueOf(java.time.LocalDateTime.parse(s)); // ISO local ('T')
+        }
+    }
+
+    private static Object convertBound(Object v, Class<?> target, ObjectMapper mapper) {
+        if (v == null) {
+            return null;
+        }
+        if (target.isInstance(v)) {
+            return v;
+        }
+        Function<String, Object> parser = BOUND_PARSERS.get(target);
+        if (parser != null) {
+            return parser.apply(v.toString());
+        }
+        return mapper.convertValue(v, target);
+    }
 
     /**
      * Load tableSchemas from a JSON string (produced by {@link #serializeTableSchemas()}). Used

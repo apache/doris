@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -814,8 +815,9 @@ public class DateTimeExtractAndTransform {
         ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
 
         LocalDateTime localDateTime = datetime.toJavaDateType();
-        ZonedDateTime resultDateTime = localDateTime.atZone(fromZone).withZoneSameInstant(toZone);
-        return DateTimeV2Literal.fromJavaDateType(resultDateTime.toLocalDateTime(), datetime.getDataType().getScale());
+        Instant instant = DateTimeLiteral.convertLocalToInstant(localDateTime, fromZone);
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.ofInstant(instant, toZone),
+                datetime.getDataType().getScale());
     }
 
     private static void validateTimezoneOffset(String timezone) {

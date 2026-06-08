@@ -17,16 +17,20 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -78,6 +82,45 @@ public class HiveMetaStoreCacheTest {
         Assertions.assertEquals(0, entrySize(fileCache));
         Assertions.assertEquals(0, entrySize(partitionCache));
         Assertions.assertEquals(0, entrySize(partitionValuesCache));
+    }
+
+    @Test
+    public void testDefaultSpecsFollowConfig() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        long originalExpireAfterAccess = Config.external_cache_expire_time_seconds_after_access;
+        long originalPartitionCapacity = Config.max_hive_partition_cache_num;
+        long originalPartitionTableCapacity = Config.max_hive_partition_table_cache_num;
+        long originalFileCapacity = Config.max_external_file_cache_num;
+        try {
+            Config.external_cache_expire_time_seconds_after_access = 321L;
+            Config.max_hive_partition_cache_num = 100L;
+            Config.max_hive_partition_table_cache_num = 20L;
+            Config.max_external_file_cache_num = 30L;
+
+            HiveExternalMetaCache hiveMetaStoreCache = new HiveExternalMetaCache(executor, listExecutor);
+            hiveMetaStoreCache.initCatalog(0, Collections.emptyMap());
+
+            Map<String, MetaCacheEntryStats> stats = hiveMetaStoreCache.stats(0);
+            MetaCacheEntryStats partitionValuesStats = stats.get(HiveExternalMetaCache.ENTRY_PARTITION_VALUES);
+            MetaCacheEntryStats partitionStats = stats.get(HiveExternalMetaCache.ENTRY_PARTITION);
+            MetaCacheEntryStats fileStats = stats.get(HiveExternalMetaCache.ENTRY_FILE);
+            Assertions.assertEquals(321L, partitionValuesStats.getTtlSecond());
+            Assertions.assertEquals(20L, partitionValuesStats.getCapacity());
+            Assertions.assertEquals(321L, partitionStats.getTtlSecond());
+            Assertions.assertEquals(100L, partitionStats.getCapacity());
+            Assertions.assertEquals(321L, fileStats.getTtlSecond());
+            Assertions.assertEquals(30L, fileStats.getCapacity());
+        } finally {
+            Config.external_cache_expire_time_seconds_after_access = originalExpireAfterAccess;
+            Config.max_hive_partition_cache_num = originalPartitionCapacity;
+            Config.max_hive_partition_table_cache_num = originalPartitionTableCapacity;
+            Config.max_external_file_cache_num = originalFileCapacity;
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
     }
 
     private void putCache(

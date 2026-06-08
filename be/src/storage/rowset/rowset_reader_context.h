@@ -47,6 +47,9 @@ struct RowsetReaderContext {
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
+    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+    // For example, use lower rowset version / segment id first.
+    bool use_insert_order_when_same = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // limit of rows for read_orderby_key
@@ -66,7 +69,6 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
-    std::vector<VExprSPtr> remaining_conjunct_roots;
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;

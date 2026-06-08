@@ -48,6 +48,7 @@ import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
@@ -829,9 +830,9 @@ public abstract class RoutineLoadJob
         }
     }
 
-    abstract void updateCloudProgress() throws UserException;
+    protected abstract void updateCloudProgress() throws UserException;
 
-    abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
+    protected abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
 
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         return 0;
@@ -1000,7 +1001,11 @@ public abstract class RoutineLoadJob
         return 0L;
     }
 
-    abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
+    public void updateLag() throws UserException {
+    }
+
+    protected abstract RoutineLoadTaskInfo unprotectRenewTask(
+            RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
 
     // call before first scheduling
     // derived class can override this.

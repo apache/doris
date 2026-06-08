@@ -68,8 +68,8 @@ public:
             if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
                 throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                                 "string column length is too large: total_length={}, "
-                                "element_number={}, rows={}",
-                                total_length, element_number, rows);
+                                "limit={}, element_number={}, rows={}",
+                                total_length, MAX_STRING_SIZE, element_number, rows);
             }
         }
     }
@@ -77,7 +77,7 @@ public:
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnStr<T>.
-    static constexpr size_t MAX_STRING_SIZE = 0xffffffff;
+    static constexpr size_t MAX_STRING_SIZE = 4294967295;
 
     friend class COWHelper<IColumn, ColumnStr<T>>;
     friend class OlapBlockDataConvertor;
@@ -144,8 +144,6 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
-
-    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override;
 

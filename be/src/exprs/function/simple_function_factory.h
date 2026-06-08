@@ -92,7 +92,6 @@ void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
-void register_function_struct_element(SimpleFunctionFactory& factory);
 void register_function_variant_element(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
@@ -120,6 +119,8 @@ void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
 void register_function_binary(SimpleFunctionFactory& factory);
+void register_function_levenshtein(SimpleFunctionFactory& factory);
+void register_function_hamming_distance(SimpleFunctionFactory& factory);
 void register_function_soundex(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
@@ -332,7 +333,6 @@ public:
             register_function_array(instance);
             register_function_map(instance);
             register_function_struct(instance);
-            register_function_struct_element(instance);
             register_function_geo(instance);
             register_function_url(instance);
             register_function_multi_string_position(instance);
@@ -356,6 +356,8 @@ public:
             register_function_ai(instance);
             register_function_score(instance);
             register_function_binary(instance);
+            register_function_levenshtein(instance);
+            register_function_hamming_distance(instance);
             register_function_soundex(instance);
             register_function_json_transform(instance);
             register_function_json_hash(instance);
