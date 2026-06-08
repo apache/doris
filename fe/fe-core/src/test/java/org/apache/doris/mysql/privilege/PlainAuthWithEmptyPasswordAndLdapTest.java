@@ -80,7 +80,6 @@ public class PlainAuthWithEmptyPasswordAndLdapTest extends TestWithFeService {
 
     @AfterEach
     public void tearDown() {
-        System.out.println("4.0 [" + LdapConfig.ldap_allow_empty_pass + "]");
         LdapConfig.ldap_allow_empty_pass = true; // restoring default value for other tests
         mockedEnv.close();
     }
