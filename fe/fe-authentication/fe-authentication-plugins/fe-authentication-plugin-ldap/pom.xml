@@ -71,6 +71,14 @@ under the License.
             <version>6.0.7</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- reference for fe-common for compatibility integration tests for PR #61440 -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-common</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
