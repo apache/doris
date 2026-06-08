@@ -582,21 +582,21 @@ public:
     long io_context_use_count() const { return _io_ctx.use_count(); }
 };
 
-TEST(FileReaderTest, OpenStoresRequestAndCloseClearsState) {
+TEST(FileReaderTest, OpenStoresRequestAndCloseKeepsRequest) {
     auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
     auto file_description = std::make_unique<io::FileDescription>();
     auto io_ctx = std::make_shared<io::IOContext>();
     TestFileReader reader(system_properties, file_description, io_ctx);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->non_predicate_columns.push_back(field_projection(0));
     ASSERT_TRUE(reader.open(request).ok());
-    EXPECT_EQ(request, nullptr);
+    EXPECT_NE(request, nullptr);
     EXPECT_TRUE(reader.has_request());
 
     ASSERT_TRUE(reader.close().ok());
-    EXPECT_FALSE(reader.has_request());
+    EXPECT_TRUE(reader.has_request());
     EXPECT_TRUE(reader.eof());
 }
 
@@ -650,7 +650,7 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForStructChildren) {
     reader::TableColumnMapper mapper(options);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_column}, request.get()).ok());
     EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<int32_t>({0}));
     ASSERT_EQ(request->non_predicate_columns.size(), 1);
@@ -1144,7 +1144,7 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     reader::TableColumnMapper mapper(options);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {map_field}).ok());
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_column}, request.get()).ok());
     EXPECT_EQ(projection_ids(request->non_predicate_columns), std::vector<int32_t>({0}));
     ASSERT_EQ(request->non_predicate_columns.size(), 1);
@@ -1198,7 +1198,7 @@ TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) 
     column_predicates[reader::GlobalIndex(0)] = {create_comparison_predicate<PredicateType::GT>(
             0, "id", id_field.type, Field::create_field<TYPE_INT>(2), false)};
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     ASSERT_TRUE(mapper.create_scan_request({}, column_predicates, {table_id, table_value},
                                            request.get())
                         .ok());
@@ -1353,7 +1353,7 @@ TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->non_predicate_columns = {field_projection(0), field_projection(1)};
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -1390,7 +1390,7 @@ TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
 
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->non_predicate_columns = {field_projection(0), field_projection(1)};
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -1426,7 +1426,7 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
@@ -1470,7 +1470,7 @@ TEST_F(NewParquetReaderTest, ColumnPredicateOnlyPrunesAndDoesNotFilterRowsInside
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     reader::FileColumnPredicateFilter column_filter;
@@ -1506,7 +1506,7 @@ TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0), field_projection(1)};
     request->non_predicate_columns = {};
     request->conjuncts.push_back(create_int32_sum_greater_than_conjunct(0, 1, 7));
@@ -1537,7 +1537,7 @@ TEST_F(NewParquetReaderTest, PredicateColumnFiltersBeforeNonPredicateRead) {
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
@@ -1571,7 +1571,7 @@ TEST_F(NewParquetReaderTest, NonPredicateColumnKeepsSelectionFromPredicateColumn
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
@@ -1606,7 +1606,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
 
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
@@ -1686,7 +1686,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
 
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"lm"}));
@@ -1897,7 +1897,7 @@ TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
 
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"az", "za"}));
@@ -1950,7 +1950,7 @@ TEST_F(NewParquetReaderTest, DictionaryPageV2StringEdgesSurviveSelection) {
 
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"", "same"}));
@@ -1998,7 +1998,7 @@ TEST_F(NewParquetReaderTest, StatisticsPruningSkipsPrefixRowGroupsAndReadsLaterG
 
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 3));
@@ -2043,7 +2043,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderReturnsFileLocalPositions) {
 
     std::vector<reader::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->non_predicate_columns = {
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
             field_projection(0)};
@@ -2086,7 +2086,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     Block block = build_file_block_with_row_position(schema);
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
@@ -2130,7 +2130,7 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
             2, 2, -1, std::make_shared<DataTypeInt64>(),
             parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
     request->non_predicate_columns = {field_projection(0)};
@@ -2174,7 +2174,7 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
             2, 2, -1, std::make_shared<DataTypeInt64>(),
             parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->predicate_columns = {
             field_projection(0),
             field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
@@ -2219,7 +2219,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange
 
         std::vector<reader::ColumnDefinition> schema;
         ASSERT_TRUE(reader->get_schema(&schema).ok());
-        auto request = std::make_unique<reader::FileScanRequest>();
+        auto request = std::make_shared<reader::FileScanRequest>();
         request->non_predicate_columns = {
                 field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
                 field_projection(0)};

@@ -352,7 +352,7 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
         return Status::InternalError("Position delete parquet file is missing required columns");
     }
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     request->non_predicate_columns = {
             reader::LocalColumnIndex::top_level(
                     reader::LocalColumnId(file_path_field->file_local_id())),
@@ -471,7 +471,7 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
         delete_key_types.push_back(field_it->type);
     }
 
-    auto request = std::make_unique<reader::FileScanRequest>();
+    auto request = std::make_shared<reader::FileScanRequest>();
     for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
         const auto local_column_id = reader::LocalColumnId(delete_fields[idx].file_local_id());
         request->non_predicate_columns.push_back(
