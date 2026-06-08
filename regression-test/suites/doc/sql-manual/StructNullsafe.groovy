@@ -41,13 +41,13 @@ suite("nereids_scalar_fn_StructNullsafe", "p0") {
     """
 
     // test function struct 
-    qt_sql_struct_element_by_index "SELECT element_at(struct, 1), element_at(struct, 2) FROM fn_test_nullsafe_struct ORDER BY id"
-    qt_sql_struct_element_by_name "SELECT element_at(struct, 'id'), element_at(struct, 'name') FROM fn_test_nullsafe_struct ORDER BY id"
+    qt_sql_element_at_by_index "SELECT element_at(struct, 1), element_at(struct, 2) FROM fn_test_nullsafe_struct ORDER BY id"
+    qt_sql_element_at_by_name "SELECT element_at(struct, 'id'), element_at(struct, 'name') FROM fn_test_nullsafe_struct ORDER BY id"
 
     // test function named_struct
     qt_sql_literal_named_struct "SELECT named_struct('id', 1, 'name', NULL)"
-    qt_sql_literal_struct_element "SELECT element_at(named_struct('id', NULL, 'name', 'Tom'), 'id'), element_at(named_struct('id', 2, 'name', NULL), 'name')"
+    qt_sql_literal_element_at "SELECT element_at(named_struct('id', NULL, 'name', 'Tom'), 'id'), element_at(named_struct('id', 2, 'name', NULL), 'name')"
 
-    // test function struct_element 
+    // test function element_at 
     qt_sql_literal_struct "SELECT STRUCT(NULL, 'X')"
 }

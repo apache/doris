@@ -43,13 +43,13 @@ suite("test_struct_functions") {
 
     qt_select_all "SELECT * FROM ${tableName} ORDER BY k1"
 
-    qt_select_struct_element_1 "SELECT element_at(k2,'f1'),element_at(k2,'f2'),element_at(k2,'f3'),element_at(k2,'f4'),element_at(k2,'f5') FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_2 "SELECT element_at(k3,'f1'),element_at(k3,'f2'),element_at(k3,'f3') FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_3 "SELECT element_at(k4,1),element_at(k4,2),element_at(k4,3),element_at(k4,4) FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_4 "SELECT element_at(k5,1),element_at(k5,2),element_at(k5,3) FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_1 "SELECT element_at(k2,'f1'),element_at(k2,'f2'),element_at(k2,'f3'),element_at(k2,'f4'),element_at(k2,'f5') FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_2 "SELECT element_at(k3,'f1'),element_at(k3,'f2'),element_at(k3,'f3') FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_3 "SELECT element_at(k4,1),element_at(k4,2),element_at(k4,3),element_at(k4,4) FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_4 "SELECT element_at(k5,1),element_at(k5,2),element_at(k5,3) FROM ${tableName} ORDER BY k1"
 
     // DORIS-26105: subscript syntax `s['field']` / `s[index]` on STRUCT should work the same as
-    // element_at / struct_element and must not crash the BE (especially for NULL struct rows).
+    // element_at and must not crash the BE (especially for NULL struct rows).
     qt_select_struct_subscript_1 "SELECT k2['f1'],k2['f2'],k2['f3'],k2['f4'],k2['f5'] FROM ${tableName} ORDER BY k1"
     qt_select_struct_subscript_2 "SELECT k3['f1'],k3['f2'],k3['f3'] FROM ${tableName} ORDER BY k1"
     qt_select_struct_subscript_3 "SELECT k4[1],k4[2],k4[3],k4[4] FROM ${tableName} ORDER BY k1"

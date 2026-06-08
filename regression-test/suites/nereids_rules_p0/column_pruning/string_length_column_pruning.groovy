@@ -82,7 +82,7 @@ suite("string_length_column_pruning") {
     }
     sql "select if(length(str_col) >= 5, true, false) a from slcp_str_tbl order by id"
 
-    // Struct string field: length(struct_element) is the only use
+    // Struct string field: length(element_at) is the only use
     explain {
         sql "select length(element_at(struct_col, 'f3')) from slcp_str_tbl"
         contains "nested columns"
