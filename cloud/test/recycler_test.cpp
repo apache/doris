@@ -912,6 +912,24 @@ static int create_partition_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t 
     return 0;
 }
 
+static int create_partition_version_with_pending_txn_kv(TxnKv* txn_kv, int64_t table_id,
+                                                        int64_t partition_id, int64_t txn_id) {
+    auto key = partition_version_key({instance_id, db_id, table_id, partition_id});
+    VersionPB version;
+    version.set_version(1);
+    version.add_pending_txn_ids(txn_id);
+    auto val = version.SerializeAsString();
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    txn->put(key, val);
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
 static int create_delete_bitmap_update_lock_kv(TxnKv* txn_kv, int64_t table_id, int64_t lock_id,
                                                int64_t initiator, int64_t expiration) {
     auto key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
@@ -8737,15 +8755,16 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_partial_failure) {
     // Create partition version kv (required for lazy txn check)
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
 
-    // Inject failure: make delete_directory return -1
-    // This simulates the scenario where accessor fails to delete directory from object storage
+    // Inject failure for a tablet in the middle of the scanned key range. This verifies that
+    // successful tablet KV deletion does not use range remove across the failed tablet.
     std::atomic<int> delete_directory_call_count {0};
-    size_t partial_cnt = 0;
+    const std::string failed_tablet_path = tablet_path_prefix(tablet_id + 2);
     sp->set_call_back("SyncExecutor::Task::bypass_cancel",
                       [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
     sp->set_call_back("MockAccessor::delete_prefix",
-                      [&delete_directory_call_count, &partial_cnt](auto&& args) {
-                          if (partial_cnt++ < 2) {
+                      [&delete_directory_call_count, &failed_tablet_path](auto&& args) {
+                          auto* path_prefix = try_any_cast<const std::string*>(args[0]);
+                          if (*path_prefix == failed_tablet_path) {
                               auto* ret = try_any_cast_ret<int>(args);
                               delete_directory_call_count++;
                               ret->first = -1;    // Return error
@@ -8759,7 +8778,7 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_partial_failure) {
     EXPECT_EQ(ret, -1) << "First recycle attempt should failed";
     EXPECT_GT(delete_directory_call_count.load(), 0) << "delete_directory should have been called";
 
-    // Verify only the tablets that failed object deletion still keep their KV.
+    // Verify only the tablet that failed object deletion still keeps its KV.
     {
         int remaining_tablet_count = 0;
         int recycled_tablet_count = 0;
@@ -8773,10 +8792,12 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_partial_failure) {
             std::string tablet_idx_key = meta_tablet_idx_key({::instance_id, tablet_id + i});
             TxnErrorCode idx_err = txn->get(tablet_idx_key, &val);
             if (err == TxnErrorCode::TXN_OK) {
+                EXPECT_EQ(i, 2) << "Only the middle failed tablet should keep tablet meta";
                 EXPECT_EQ(idx_err, TxnErrorCode::TXN_OK)
                         << "Tablet index key should remain with failed tablet meta";
                 ++remaining_tablet_count;
             } else {
+                EXPECT_NE(i, 2) << "The failed middle tablet should not be range removed";
                 EXPECT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND)
                         << "Unexpected tablet meta get error";
                 EXPECT_EQ(idx_err, TxnErrorCode::TXN_KEY_NOT_FOUND)
@@ -8784,8 +8805,8 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_partial_failure) {
                 ++recycled_tablet_count;
             }
         }
-        EXPECT_EQ(remaining_tablet_count, 2);
-        EXPECT_EQ(recycled_tablet_count, 3);
+        EXPECT_EQ(remaining_tablet_count, 1);
+        EXPECT_EQ(recycled_tablet_count, 4);
     }
 
     // Clear the sync point to allow delete_directory to succeed
@@ -8830,6 +8851,110 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_partial_failure) {
             std::unique_ptr<RangeGetIterator> it;
             ASSERT_EQ(txn->get(recyc_rs_key_begin, recyc_rs_key_end, &it), TxnErrorCode::TXN_OK);
             EXPECT_EQ(it->size(), 0) << "All recycle rowset keys should be deleted";
+        }
+    }
+}
+
+TEST(RecyclerTest, recycle_tablet_with_lazy_txn_partial_failure) {
+    // If check_lazy_txn_finished fails before scheduling a tablet recycle task, successful tablet KV
+    // deletion must not use range remove across the failed tablet.
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    bool old_enable_check = config::enable_recycler_check_lazy_txn_finished;
+    config::enable_recycler_check_lazy_txn_finished = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler_check_lazy_txn_finished = old_enable_check;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(::instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_tablet_with_lazy_txn_partial_failure");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_tablet_with_lazy_txn_partial_failure");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t table_id = 22000;
+    constexpr int64_t index_id = 22001;
+    constexpr int64_t partition_id = 22002;
+    constexpr int64_t tablet_id = 22003;
+    constexpr int64_t failed_partition_id = 22008;
+
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    for (int i = 0; i < 5; ++i) {
+        ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id + i), 0);
+        create_committed_rowset(txn_kv.get(), accessor.get(),
+                                "recycle_tablet_with_lazy_txn_partial_failure", tablet_id + i, i,
+                                index_id, 2, 1, true);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        TabletIndexPB tablet_idx_pb;
+        tablet_idx_pb.set_db_id(db_id);
+        tablet_idx_pb.set_table_id(table_id);
+        tablet_idx_pb.set_index_id(index_id);
+        tablet_idx_pb.set_partition_id(failed_partition_id);
+        tablet_idx_pb.set_tablet_id(tablet_id + 2);
+        txn->put(meta_tablet_idx_key({::instance_id, tablet_id + 2}),
+                 tablet_idx_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
+    ASSERT_EQ(create_partition_version_with_pending_txn_kv(txn_kv.get(), table_id,
+                                                           failed_partition_id, 12345),
+              0);
+
+    std::atomic<int> lazy_txn_not_finished_count {0};
+    sp->set_call_back("SyncExecutor::Task::bypass_cancel",
+                      [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
+    sp->set_call_back("check_lazy_txn_finished::txn_not_finished",
+                      [&lazy_txn_not_finished_count](auto&&) { ++lazy_txn_not_finished_count; });
+    sp->enable_processing();
+
+    int ret = recycler.recycle_tablets(table_id, index_id, ctx);
+    EXPECT_EQ(ret, -1) << "Recycle should fail while a lazy txn is still pending";
+    EXPECT_EQ(lazy_txn_not_finished_count.load(), 1)
+            << "Only the middle tablet should hit the lazy txn pre-add failure path";
+
+    for (int i = 0; i < 5; ++i) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        std::string tablet_key =
+                meta_tablet_key({::instance_id, table_id, index_id, partition_id, tablet_id + i});
+        TxnErrorCode err = txn->get(tablet_key, &val);
+
+        std::string tablet_idx_key = meta_tablet_idx_key({::instance_id, tablet_id + i});
+        TxnErrorCode idx_err = txn->get(tablet_idx_key, &val);
+        if (i == 2) {
+            EXPECT_EQ(err, TxnErrorCode::TXN_OK)
+                    << "Failed middle tablet meta should not be range removed";
+            EXPECT_EQ(idx_err, TxnErrorCode::TXN_OK) << "Failed middle tablet index should remain";
+        } else {
+            EXPECT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << "Successful tablet meta should be recycled";
+            EXPECT_EQ(idx_err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << "Successful tablet index should be recycled";
         }
     }
 }

@@ -2887,12 +2887,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                 .tag("num_recycled", num_recycled);
     };
 
-    // The first string_view represents the tablet key which has been recycled
-    // The second bool represents whether the following fdb's tablet key deletion could be done using range move or not
+    // The tablet key and id which have been recycled.
     struct TabletInfo {
         std::string_view tablet_meta_key;
         int64_t tablet_id;
-        bool range_move;
     };
     SyncExecutor<TabletInfo> sync_executor(
             _thread_pool_group.recycle_tablet_pool,
@@ -2902,13 +2900,13 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
 
     // Elements in `tablets_info` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string> init_rs_keys;
+    bool has_failure = false;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
-        bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
         if (!tablet_meta_pb.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed tablet meta").tag("key", hex(k));
-            use_range_remove = false;
+            has_failure = true;
             return -1;
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
@@ -2916,33 +2914,34 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         if (config::enable_recycler_check_lazy_txn_finished &&
             !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
             LOG(WARNING) << "lazy txn not finished tablet_id=" << tablet_meta_pb.tablet_id();
+            has_failure = true;
             return -1;
         }
 
         TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::bypass_check", false);
-        sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
-                           &metrics_context, k]() mutable -> TabletInfo {
-            if (recycle_tablet(tid, metrics_context) != 0) {
-                LOG_WARNING("failed to recycle tablet")
-                        .tag("instance_id", instance_id_)
-                        .tag("tablet_id", tid);
-                range_move = false;
-                return {.tablet_meta_key = std::string_view(),
-                        .tablet_id = tid,
-                        .range_move = range_move};
-            }
-            ++num_recycled;
-            LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
-            return {.tablet_meta_key = k, .tablet_id = tid, .range_move = range_move};
-        });
+        sync_executor.add(
+                [this, &num_recycled, tid = tablet_id, &metrics_context, k]() -> TabletInfo {
+                    if (recycle_tablet(tid, metrics_context) != 0) {
+                        LOG_WARNING("failed to recycle tablet")
+                                .tag("instance_id", instance_id_)
+                                .tag("tablet_id", tid);
+                        return {.tablet_meta_key = std::string_view(), .tablet_id = tid};
+                    }
+                    ++num_recycled;
+                    LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
+                    return {.tablet_meta_key = k, .tablet_id = tid};
+                });
         return 0;
     };
 
-    // TODO(AlexYue): Add one ut to cover use_range_remove = false
     auto loop_done = [&, this]() -> int {
         int ret = 0;
         bool finished = true;
         bool has_empty_key = false;
+        DORIS_CLOUD_DEFER {
+            init_rs_keys.clear();
+            has_failure = false;
+        };
         auto tablets_info = sync_executor.when_all(&finished);
         if (!finished) {
             LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
@@ -2962,16 +2961,6 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         std::ranges::sort(tablets_info, [](const auto& prev, const auto& last) {
             return prev.tablet_meta_key < last.tablet_meta_key;
         });
-        bool use_range_remove = true;
-        for (auto& tablet_info : tablets_info) {
-            if (!has_empty_key && !tablet_info.range_move) {
-                use_range_remove = tablet_info.range_move;
-                break;
-            }
-        }
-        DORIS_CLOUD_DEFER {
-            init_rs_keys.clear();
-        };
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to delete tablet meta kv, instance_id=" << instance_id_;
@@ -2979,7 +2968,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         }
         std::string tablet_key_end;
         if (!tablets_info.empty()) {
-            if (use_range_remove) {
+            if (!has_empty_key && !has_failure) {
                 tablet_key_end = std::string(tablets_info.back().tablet_meta_key) + '\x00';
                 txn->remove(tablets_info.front().tablet_meta_key, tablet_key_end);
             } else {
