@@ -237,6 +237,22 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * Mirrors legacy {@code MaxComputeScanNode.isBatchMode()}'s {@code odpsTable.getFileNum() > 0}
+     * gate. The partition-count / non-empty-slots / session-var gates live in the generic scan
+     * node ({@code PluginDrivenScanNode.isBatchMode}); this method only answers the
+     * connector-specific "does this table have files to read in batches" question.
+     *
+     * <p>{@code planScanForPartitionBatch} is intentionally NOT overridden: the SPI default
+     * delegates to the 6-arg {@link #planScan}, which already builds one read session over the
+     * given partition subset — exactly the per-batch behaviour legacy {@code startSplit} got from
+     * {@code createTableBatchReadSession}.</p>
+     */
+    @Override
+    public boolean supportsBatchScan(ConnectorSession session, ConnectorTableHandle handle) {
+        return ((MaxComputeTableHandle) handle).getOdpsTable().getFileNum() > 0;
+    }
+
+    /**
      * Converts pruned partition spec strings (the keys of the Nereids selected-partition map,
      * e.g. {@code "pt=1,region=cn"}) into ODPS {@link com.aliyun.odps.PartitionSpec}s.
      * Mirrors legacy {@code MaxComputeScanNode}'s {@code new PartitionSpec(key)} conversion.
