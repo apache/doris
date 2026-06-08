@@ -314,7 +314,6 @@ Status ParquetReader::get_aggregate_result(const reader::FileAggregateRequest& r
 Status ParquetReader::close() {
     if (_state != nullptr) {
         RETURN_IF_ERROR(_state->file_context.close());
-        _state = std::make_unique<ParquetReaderScanState>();
     }
     return FileReader::close();
 }

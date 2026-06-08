@@ -66,15 +66,13 @@ std::string FileColumnPredicateFilter::debug_string() const {
 std::string FileScanRequest::debug_string() const {
     std::ostringstream out;
     out << "FileScanRequest{predicate_columns="
-        << join_debug_strings(predicate_columns,
-                              [](const LocalColumnIndex& projection) {
-                                  return projection.debug_string();
-                              })
+        << join_debug_strings(
+                   predicate_columns,
+                   [](const LocalColumnIndex& projection) { return projection.debug_string(); })
         << ", non_predicate_columns="
-        << join_debug_strings(non_predicate_columns,
-                              [](const LocalColumnIndex& projection) {
-                                  return projection.debug_string();
-                              })
+        << join_debug_strings(
+                   non_predicate_columns,
+                   [](const LocalColumnIndex& projection) { return projection.debug_string(); })
         << ", local_positions={";
     size_t position_idx = 0;
     for (const auto& [column_id, block_position] : local_positions) {
@@ -84,12 +82,10 @@ std::string FileScanRequest::debug_string() const {
         out << column_id << ":" << block_position;
     }
     out << "}, conjunct_count=" << conjuncts.size()
-        << ", delete_conjunct_count=" << delete_conjuncts.size()
-        << ", column_predicate_filters="
-        << join_debug_strings(column_predicate_filters,
-                              [](const FileColumnPredicateFilter& filter) {
-                                  return filter.debug_string();
-                              })
+        << ", delete_conjunct_count=" << delete_conjuncts.size() << ", column_predicate_filters="
+        << join_debug_strings(
+                   column_predicate_filters,
+                   [](const FileColumnPredicateFilter& filter) { return filter.debug_string(); })
         << "}";
     return out.str();
 }
