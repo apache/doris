@@ -82,6 +82,9 @@ Status ScalarColumnReader::skip_records(int64_t rows) {
         return Status::InternalError("Parquet record reader is not initialized for column {}",
                                      _name);
     }
+    if (rows <= 0) {
+        return Status::OK();
+    }
     int64_t skipped_rows = 0;
     try {
         _record_reader->Reset();
@@ -101,6 +104,7 @@ Status ScalarColumnReader::skip_records(int64_t rows) {
         return Status::InternalError("Failed to skip parquet records for column {}: {}", _name,
                                      e.what());
     }
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 
@@ -141,9 +145,9 @@ Status ScalarColumnReader::skip(int64_t rows) {
 
     const int64_t page_filtered_rows = page_filtered_rows_to_skip(rows);
     DORIS_CHECK(page_filtered_rows <= rows);
-    RETURN_IF_ERROR(skip_records(rows - page_filtered_rows));
+    const int64_t record_reader_skip_rows = rows - page_filtered_rows;
+    RETURN_IF_ERROR(skip_records(record_reader_skip_rows));
     advance_rows_read(rows);
-    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

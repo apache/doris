@@ -345,7 +345,6 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
         array_column->get_data_ptr() = std::move(nested_column);
         append_offsets(array_column->get_offsets(), entry_counts);
         append_parent_nulls(parent_null_map, parent_nulls);
-        update_reader_read_rows(*rows_read);
         return Status::OK();
     }
 
@@ -357,7 +356,6 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
         array_column->get_data_ptr() = std::move(nested_column);
         append_offsets(array_column->get_offsets(), entry_counts);
         append_parent_nulls(parent_null_map, parent_nulls);
-        update_reader_read_rows(*rows_read);
         return Status::OK();
     }
 
@@ -397,7 +395,6 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     append_offsets(array_column->get_offsets(), entry_counts);
     array_column->get_data_ptr() = std::move(nested_column);
     append_parent_nulls(parent_null_map, parent_nulls);
-    update_reader_read_rows(*rows_read);
     return Status::OK();
 }
 
@@ -438,7 +435,6 @@ Status ListColumnReader::skip(int64_t rows) {
         return Status::Corruption("Failed to skip parquet LIST column {}: skipped {} of {} rows",
                                   _name, rows_read, rows);
     }
-    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

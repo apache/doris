@@ -78,8 +78,8 @@ private:
         RuntimeProfile::Counter* selected_row_ranges = nullptr;
         RuntimeProfile::Counter* filtered_group_rows = nullptr;
         RuntimeProfile::Counter* filtered_page_rows = nullptr;
-        RuntimeProfile::Counter* pages_skipped_by_filter = nullptr;
-        RuntimeProfile::Counter* page_skip_bytes = nullptr;
+        RuntimeProfile::Counter* pages_skipped_by_data_page_filter = nullptr;
+        RuntimeProfile::Counter* data_page_filter_skip_bytes = nullptr;
         RuntimeProfile::Counter* selected_rows = nullptr;
         RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
         RuntimeProfile::Counter* total_batches = nullptr;

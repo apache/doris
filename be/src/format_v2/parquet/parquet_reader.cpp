@@ -224,8 +224,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     _state->scan_plan = row_group_plan;
     _state->scheduler.set_page_skip_profile(
-            {.skipped_pages = _parquet_profile.pages_skipped_by_filter,
-             .skipped_bytes = _parquet_profile.page_skip_bytes});
+            {.skipped_pages = _parquet_profile.pages_skipped_by_data_page_filter,
+             .skipped_bytes = _parquet_profile.data_page_filter_skip_bytes});
     _state->scheduler.set_scan_profile({
             .raw_rows_read = _parquet_profile.raw_rows_read,
             .selected_rows = _parquet_profile.selected_rows,
@@ -372,10 +372,10 @@ void ParquetReader::_init_profile() {
                 _profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredRowsByPage", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.pages_skipped_by_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PagesSkippedByFilter", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageSkipBytes", TUnit::BYTES, parquet_profile, 1);
+        _parquet_profile.pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PagesSkippedByDataPageFilter", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.data_page_filter_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "DataPageFilterSkipBytes", TUnit::BYTES, parquet_profile, 1);
         _parquet_profile.selected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "SelectedRows", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(

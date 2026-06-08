@@ -629,7 +629,6 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                 NestedScalarValueAppender {readers.scalar_value, "MAP", "value",
                                            value_max_definition_level},
                 rows, &context, rows_read));
-        update_reader_read_rows(*rows_read);
         return Status::OK();
     }
 
@@ -647,7 +646,6 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                 _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
                 key_max_definition_level, *readers.list_value, *scalar_list_value_reader,
                 &_key_overflow, &_value_overflow, rows, &context, rows_read));
-        update_reader_read_rows(*rows_read);
         return Status::OK();
     }
 
@@ -656,7 +654,6 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             key_max_definition_level, *readers.struct_value, &_struct_value_overflow,
             &_key_overflow, NestedStructValueAppender {readers.struct_value}, rows, &context,
             rows_read));
-    update_reader_read_rows(*rows_read);
     return Status::OK();
 }
 
@@ -697,7 +694,6 @@ Status MapColumnReader::skip(int64_t rows) {
         return Status::Corruption("Failed to skip parquet MAP column {}: skipped {} of {} rows",
                                   _name, rows_read, rows);
     }
-    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

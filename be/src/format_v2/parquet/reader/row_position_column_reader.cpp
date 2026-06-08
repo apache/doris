@@ -66,7 +66,6 @@ Status RowPositionColumnReader::read(int64_t rows, MutableColumnPtr& column, int
     }
     _next_row_position += rows;
     *rows_read = rows;
-    update_reader_read_rows(rows);
     return Status::OK();
 }
 
@@ -75,7 +74,6 @@ Status RowPositionColumnReader::skip(int64_t rows) {
         return Status::OK();
     }
     _next_row_position += rows;
-    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

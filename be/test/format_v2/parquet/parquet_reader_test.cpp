@@ -2090,19 +2090,21 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
         }
     }
 
-    ASSERT_NE(profile.get_counter("PagesSkippedByFilter"), nullptr);
-    ASSERT_NE(profile.get_counter("PageSkipBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("PagesSkippedByDataPageFilter"), nullptr);
+    ASSERT_NE(profile.get_counter("DataPageFilterSkipBytes"), nullptr);
     ASSERT_NE(profile.get_counter("RawRowsRead"), nullptr);
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
     ASSERT_NE(profile.get_counter("RowGroupFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexReadTime"), nullptr);
-    EXPECT_GT(profile.get_counter("PagesSkippedByFilter")->value(), 0);
-    EXPECT_GT(profile.get_counter("PageSkipBytes")->value(), 0);
+    EXPECT_GT(profile.get_counter("PagesSkippedByDataPageFilter")->value(), 0);
+    EXPECT_GT(profile.get_counter("DataPageFilterSkipBytes")->value(), 0);
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), 64);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 0);
     EXPECT_GT(profile.get_counter("RowGroupFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexReadTime")->value(), 0);
