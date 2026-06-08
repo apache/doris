@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
@@ -1083,7 +1084,7 @@ public class QueryStatsRecorderTest {
         PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(prodSlot));
 
         PhysicalCTEProducer<?> producer = Mockito.mock(PhysicalCTEProducer.class);
-        Mockito.when(producer.child()).thenReturn(scan);
+        Mockito.when(producer.children()).thenReturn(ImmutableList.of(scan));
 
         PhysicalCTEConsumer consumer = Mockito.mock(PhysicalCTEConsumer.class);
         Mockito.when(consumer.getOutput()).thenReturn(ImmutableList.of(consSlot));
@@ -1205,10 +1206,10 @@ public class QueryStatsRecorderTest {
     }
 
     /**
-     * PhysicalRecursiveUnion extends PhysicalBinary, not PhysicalSetOperation, so its
-     * getRegularChildrenOutputs() was never called. The base-case slots (from an OlapScan)
-     * must get queryHit; recursive-case slots (from WorkTableReference) are silently skipped.
-     * Plan: RecursiveUnion with base-case output [k1(#1)] from scan, recursive-case [k1(#5)] skipped.
+     * PhysicalRecursiveUnion extends PhysicalBinary and has two children: base case + recursive case.
+     * The base-case slots (from an OlapScan) must get queryHit; recursive-case slots
+     * (from a WorkTableReference-like child) are not in exprIdToScan and are silently skipped.
+     * This test uses two children to match the real PhysicalBinary structure.
      * Expected: k1.queryHit=true (base case only).
      */
     @Test
@@ -1221,9 +1222,14 @@ public class QueryStatsRecorderTest {
 
         PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(baseScanSlot));
 
+        // Mock the recursive child (WorkTableReference equivalent) — no scan registered.
+        Plan recursiveChild = Mockito.mock(Plan.class);
+        Mockito.when(recursiveChild.children()).thenReturn(ImmutableList.of());
+        Mockito.when(recursiveChild.getOutput()).thenReturn(ImmutableList.of(recursiveSlot));
+
         PhysicalRecursiveUnion<?, ?> recUnion = Mockito.mock(PhysicalRecursiveUnion.class);
-        // left child (base case) contains the scan; right child (recursive case) is not walked further
-        Mockito.when(recUnion.children()).thenReturn(ImmutableList.of(scan));
+        // Two children: left = base-case scan, right = recursive-case (not walked for exprIdToScan).
+        Mockito.when(recUnion.children()).thenReturn(ImmutableList.of(scan, recursiveChild));
         Mockito.when(recUnion.getRegularChildrenOutputs()).thenReturn(
                 ImmutableList.of(
                         ImmutableList.of(baseScanSlot),   // base case: resolves to scan
@@ -1240,6 +1246,8 @@ public class QueryStatsRecorderTest {
                 "k1 must be recorded from base case via getRegularChildrenOutputs");
         Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit,
                 "k1.queryHit must be true for recursive union base case");
+        // Exactly one delta entry — recursive-case slot (#5) must not create a second scan entry.
+        Assertions.assertEquals(1, deltas.size(), "only base-case scan must appear in deltas");
     }
 
     /**

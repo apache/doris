@@ -233,6 +233,28 @@ suite("query_stats_test") {
     assertTrue((cteK2[1] as int) >= 1, "k2: CTE consumer queryHit")
     assertTrue((cteK1[2] as int) >= 1, "k1: CTE WHERE filterHit")
 
+    // LATERAL VIEW / EXPLODE: the generator input column (k7, a varchar) gets queryHit
+    // because it is the source expression fed into the generator; the synthetic output
+    // slot (e1) is skipped by the PhysicalGenerate handler.
+    sql "clean all query stats"
+    sql "select e1 from ${tbName} lateral view explode_split(k7, ',') tmp as e1"
+    def lateralStats = sql "show query stats from ${tbName}"
+    def lvK7 = lateralStats.find { it[0] == "k7" }
+    assertNotNull(lvK7, "k7 must appear after LATERAL VIEW EXPLODE_SPLIT")
+    assertTrue((lvK7[1] as int) >= 1, "k7: LATERAL VIEW input column queryHit")
+
+    // Computed SELECT: SELECT k1+k2 — both input columns get queryHit even though
+    // the output expression is not a plain slot reference.
+    sql "clean all query stats"
+    sql "select k1 + k2 from ${tbName}"
+    def computedStats = sql "show query stats from ${tbName}"
+    def cmpK1 = computedStats.find { it[0] == "k1" }
+    def cmpK2 = computedStats.find { it[0] == "k2" }
+    assertNotNull(cmpK1, "k1 must appear in computed SELECT k1+k2")
+    assertNotNull(cmpK2, "k2 must appear in computed SELECT k1+k2")
+    assertTrue((cmpK1[1] as int) >= 1, "k1: computed SELECT queryHit")
+    assertTrue((cmpK2[1] as int) >= 1, "k2: computed SELECT queryHit")
+
     sql "admin set all frontends config (\"enable_query_hit_stats\"=\"false\");"
     sql "set enable_nereids_planner = ${origNereids}"
     sql "set enable_query_cache = ${origCache}"

@@ -239,15 +239,18 @@ public class QueryStatsRecorder {
             }
             return;
         }
-        // PhysicalCTEProducer: walk child explicitly so the producer scan is registered
+        // PhysicalCTEProducer: walk its single child so the producer scan is registered
         // before any PhysicalCTEConsumer nodes are encountered during the tree walk.
+        // Uses plan.children() for consistency with the rest of walkPlan.
         if (plan instanceof PhysicalCTEProducer) {
-            walkPlan(((PhysicalCTEProducer<?>) plan).child(),
+            walkPlan(plan.children().get(0),
                     exprIdToScan, exprIdToColName, deltas, aggOutputToInputSlots);
             return;
         }
         // PhysicalCTEConsumer: map consumer slots to producer scan slots so parent
         // plan nodes can resolve CTE column references correctly.
+        // Mapping is done before the children() loop so it is populated regardless of
+        // whether the consumer has children — consistent with how scan handlers work.
         if (plan instanceof PhysicalCTEConsumer) {
             PhysicalCTEConsumer cteConsumer = (PhysicalCTEConsumer) plan;
             for (Slot consumerSlot : cteConsumer.getOutput()) {
@@ -261,7 +264,6 @@ public class QueryStatsRecorder {
                     }
                 }
             }
-            return; // leaf node: no children to walk
         }
         for (Plan child : plan.children()) {
             walkPlan(child, exprIdToScan, exprIdToColName, deltas, aggOutputToInputSlots);
@@ -387,45 +389,16 @@ public class QueryStatsRecorder {
         }
         // UNION / INTERSECT / EXCEPT: record queryHit for each child's contributing columns.
         if (plan instanceof PhysicalSetOperation) {
-            PhysicalSetOperation setOp = (PhysicalSetOperation) plan;
-            List<List<SlotReference>> childrenOutputs = setOp.getRegularChildrenOutputs();
-            for (List<SlotReference> childOutput : childrenOutputs) {
-                for (SlotReference sr : childOutput) {
-                    PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
-                    if (sourceScan == null) {
-                        continue;
-                    }
-                    StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-                    if (delta != null) {
-                        String colName = sr.getOriginalColumn().map(col -> col.getName())
-                                .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
-                        if (colName != null) {
-                            delta.addQueryStats(colName);
-                        }
-                    }
-                }
-            }
+            recordSetOpChildrenOutputs(
+                    ((PhysicalSetOperation) plan).getRegularChildrenOutputs(),
+                    exprIdToScan, exprIdToColName, deltas);
         }
         // PhysicalRecursiveUnion extends PhysicalBinary (not PhysicalSetOperation); handle its
         // getRegularChildrenOutputs() explicitly. Recursive-case (WorkTableReference) slots skipped.
         if (plan instanceof PhysicalRecursiveUnion) {
-            PhysicalRecursiveUnion<?, ?> recUnion = (PhysicalRecursiveUnion<?, ?>) plan;
-            for (List<SlotReference> childOutput : recUnion.getRegularChildrenOutputs()) {
-                for (SlotReference sr : childOutput) {
-                    PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
-                    if (sourceScan == null) {
-                        continue;
-                    }
-                    StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-                    if (delta != null) {
-                        String colName = sr.getOriginalColumn().map(col -> col.getName())
-                                .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
-                        if (colName != null) {
-                            delta.addQueryStats(colName);
-                        }
-                    }
-                }
-            }
+            recordSetOpChildrenOutputs(
+                    ((PhysicalRecursiveUnion<?, ?>) plan).getRegularChildrenOutputs(),
+                    exprIdToScan, exprIdToColName, deltas);
         }
         // LATERAL VIEW / EXPLODE: record queryHit for the generator input columns (e.g. the
         // array column passed to EXPLODE). Generated output slots are synthetic and skipped.
@@ -471,6 +444,31 @@ public class QueryStatsRecorder {
                         // join-key projects as queryHit; parent filter/join expands as filterHit,
                         // root output loop expands as queryHit.
                         aggOutputToInputSlots.put(ne.getExprId(), inputSlots);
+                    }
+                }
+            }
+        }
+    }
+
+    /** Shared by PhysicalSetOperation and PhysicalRecursiveUnion — both expose the same
+     *  getRegularChildrenOutputs() contract and need identical queryHit recording logic. */
+    private static void recordSetOpChildrenOutputs(
+            List<List<SlotReference>> childrenOutputs,
+            Map<ExprId, PhysicalOlapScan> exprIdToScan,
+            Map<ExprId, String> exprIdToColName,
+            Map<String, StatsDelta> deltas) {
+        for (List<SlotReference> childOutput : childrenOutputs) {
+            for (SlotReference sr : childOutput) {
+                PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
+                if (sourceScan == null) {
+                    continue;
+                }
+                StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
+                if (delta != null) {
+                    String colName = sr.getOriginalColumn().map(col -> col.getName())
+                            .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
+                    if (colName != null) {
+                        delta.addQueryStats(colName);
                     }
                 }
             }
