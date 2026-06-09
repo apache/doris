@@ -23,8 +23,8 @@ import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 
-import com.codahale.metrics.Histogram;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -33,8 +33,6 @@ import org.junit.Test;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.util.List;
-import java.util.Map;
-import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -72,12 +70,10 @@ public class MetricsTest {
         MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("qing.lu@lbk.one").update(20L);
         MetricVisitor visitor = new PrometheusMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
-        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
-        }
+        MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_total counter"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_total{user=\"test_user\"} 1"));
@@ -86,7 +82,82 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
+        Assert.assertTrue(metricResult.contains(
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"qing.lu@lbk.one\"} 20.0"));
+        Assert.assertFalse(metricResult.contains("doris_fe_query_latency_ms_lu@lbk_one"));
 
+    }
+
+    @Test
+    public void testPrometheusVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
+        HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
+                Lists.newArrayList(new MetricLabel("user", "thomas.liu@developertools.com")));
+        histogramMetric.update(30L);
+        MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
+        prometheusVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
+                histogramMetric.getHistogram(), histogramMetric.getLabels());
+        String prometheusResult = prometheusVisitor.finish();
+        Assert.assertTrue(prometheusResult.contains(
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"thomas.liu@developertools.com\"} 30.0"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_liu@developertools_com"));
+        Assert.assertFalse(prometheusResult.contains("user=\"thomas\""));
+    }
+
+    @Test
+    public void testJsonVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
+        HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
+                Lists.newArrayList(new MetricLabel("user", "qing.lu@lbk.one")));
+        histogramMetric.update(20L);
+        MetricVisitor jsonVisitor = new JsonMetricVisitor();
+        jsonVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
+                histogramMetric.getHistogram(), histogramMetric.getLabels());
+        String jsonResult = jsonVisitor.finish();
+        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms\""));
+        Assert.assertTrue(jsonResult.contains("\"user\":\"qing.lu@lbk.one\""));
+        Assert.assertFalse(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms_lu@lbk_one\""));
+    }
+
+    @Test
+    public void testHistogramMetricRegistryWithSpecialCharacters() {
+        DorisMetricRegistry registry = new DorisMetricRegistry();
+        AutoMappedMetric<HistogramMetric> clusterHisto = new AutoMappedMetric<>(key -> {
+            String[] values = key.split(CloudMetrics.CLOUD_CLUSTER_DELIMITER, 2);
+            return new HistogramMetric("query.latency.ms", Lists.newArrayList(
+                    new MetricLabel("cluster_id", values[0]), new MetricLabel("cluster_name", values[1])));
+        });
+        AutoMappedMetric<HistogramMetric> metaHisto = new AutoMappedMetric<>(methodName ->
+                new HistogramMetric("meta_service.rpc.latency.ms",
+                        Lists.newArrayList(new MetricLabel("method", methodName))));
+        AutoMappedMetric<HistogramMetric> disabledHisto = new AutoMappedMetric<>(name ->
+                new HistogramMetric("disabled.latency.ms",
+                        Lists.newArrayList(new MetricLabel("name", name))));
+        AutoMappedMetric<HistogramMetric> staleHisto = new AutoMappedMetric<>(name ->
+                new HistogramMetric("stale.latency.ms",
+                        Lists.newArrayList(new MetricLabel("name", name))));
+
+        registry.addHistogramMetrics("cluster_query_latency", staleHisto);
+        registry.addHistogramMetrics("cluster_query_latency", clusterHisto);
+        registry.addHistogramMetrics("meta_service_rpc_latency", metaHisto);
+        registry.addHistogramMetrics("disabled_latency", disabledHisto, () -> false);
+
+        String clusterKey = "cluster.id-1" + CloudMetrics.CLOUD_CLUSTER_DELIMITER + "cluster.name@prod";
+        staleHisto.getOrAdd("stale.name").update(30L);
+        clusterHisto.getOrAdd(clusterKey).update(40L);
+        metaHisto.getOrAdd("get.Instance").update(50L);
+        disabledHisto.getOrAdd("disabled.name").update(60L);
+
+        MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
+        registry.acceptHistograms(prometheusVisitor);
+        String prometheusResult = prometheusVisitor.finish();
+        Assert.assertTrue(prometheusResult.contains(
+                "doris_fe_query_latency_ms{quantile=\"0.999\",cluster_id=\"cluster.id-1\","
+                        + "cluster_name=\"cluster.name@prod\"} 40.0"));
+        Assert.assertTrue(prometheusResult.contains(
+                "doris_fe_meta_service_rpc_latency_ms{quantile=\"0.999\",method=\"get.Instance\"} 50.0"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_id-1_cluster"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_meta_service_rpc_latency_ms_Instance"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_stale_latency_ms"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_disabled_latency_ms"));
     }
 
     @Test
@@ -173,10 +244,7 @@ public class MetricsTest {
         // doris metrics and system metrics.
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         // histogram
-        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
-        }
+        MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_failed_num counter"));
@@ -196,10 +264,7 @@ public class MetricsTest {
         // doris metrics and system metrics.
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         // histogram
-        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
-        }
+        MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_job counter"));
@@ -226,10 +291,7 @@ public class MetricsTest {
         // doris metrics and system metrics.
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         // histogram
-        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
-        }
+        MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_num gauge"));
@@ -245,10 +307,7 @@ public class MetricsTest {
         // doris metrics and system metrics.
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         // histogram
-        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
-        }
+        MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_num gauge"));
