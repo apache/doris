@@ -944,7 +944,10 @@ Status FileScannerV2::close(RuntimeState* state) {
 }
 
 void FileScannerV2::try_stop() {
-    _should_stop = true;
+    Scanner::try_stop();
+    if (_io_ctx) {
+        _io_ctx->should_stop = true;
+    }
 }
 
 void FileScannerV2::update_realtime_counters() {
