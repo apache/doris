@@ -25,10 +25,10 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/sink/writer/iceberg/iceberg_partition_path.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
-#include "exec/sink/writer/vhive_utils.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/table/iceberg/partition_spec_parser.h"
@@ -516,7 +516,7 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
 }
 
 std::string VIcebergTableWriter::_escape(const std::string& path) {
-    return VHiveUtils::escape_path_name(path);
+    return IcebergPartitionPath::escape(path);
 }
 
 std::vector<std::string> VIcebergTableWriter::_partition_values(
