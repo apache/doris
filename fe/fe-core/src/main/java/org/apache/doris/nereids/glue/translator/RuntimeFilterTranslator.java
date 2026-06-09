@@ -251,7 +251,7 @@ public class RuntimeFilterTranslator {
                     }
                     RuntimeFilterPartitionPruneClassifier.Classification classification =
                             RuntimeFilterPartitionPruneClassifier.classify(
-                                    targetExpr, nereidsTargetExprList.get(i), scanNode);
+                                    head.getType(), targetExpr, nereidsTargetExprList.get(i), scanNode);
                     if (classification.canPrunePartitions()) {
                         origFilter.markTargetCanPrunePartitions(scanNode.getId());
                     }
@@ -361,7 +361,7 @@ public class RuntimeFilterTranslator {
                     }
                     RuntimeFilterPartitionPruneClassifier.Classification classification =
                             RuntimeFilterPartitionPruneClassifier.classify(
-                                    targetExpr, filter.getTargetExpressions().get(i), scanNode);
+                                    filter.getType(), targetExpr, filter.getTargetExpressions().get(i), scanNode);
                     if (classification.canPrunePartitions()) {
                         origFilter.markTargetCanPrunePartitions(scanNode.getId());
                     }

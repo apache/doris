@@ -438,11 +438,11 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "* FROM rf_prune_list_int f JOIN rf_prune_dim_region d ON f.region_id = d.dim_region",
         "BLOOM_FILTER", 5, 3)
 
-    // Test 6c: Range partition (INT) - Bloom filter must not prune.
+    // Test 6c: Range partition (INT) - Bloom filter must not register RF partition pruning.
     // A Bloom filter can disprove individual values, not an arbitrary [a, b) range.
-    assertPruningProfile(
+    assertNoPartitionPruningProfile(
         "* FROM rf_prune_range_int f JOIN rf_prune_dim_int d ON f.part_col = d.dim_key",
-        "BLOOM_FILTER", 4, 0)
+        "BLOOM_FILTER")
 
     // Test 7: No pruning - dim matches all partitions
     sql "drop table if exists rf_prune_dim_all"
