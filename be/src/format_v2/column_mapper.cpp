@@ -83,8 +83,9 @@ bool column_names_match(const ColumnDefinition& lhs, const ColumnDefinition& rhs
     if (lhs.has_identifier_name() && column_has_name(rhs, lhs.get_identifier_name())) {
         return true;
     }
-    return std::ranges::any_of(lhs.name_mapping,
-                               [&](const std::string& alias) { return column_has_name(rhs, alias); });
+    return std::ranges::any_of(lhs.name_mapping, [&](const std::string& alias) {
+        return column_has_name(rhs, alias);
+    });
 }
 
 class ColumnMatcher {
@@ -193,7 +194,8 @@ const Field* find_partition_value(const ColumnDefinition& table_column,
         return value;
     }
     if (table_column.has_identifier_name()) {
-        if (const auto* value = find_by_name(table_column.get_identifier_name()); value != nullptr) {
+        if (const auto* value = find_by_name(table_column.get_identifier_name());
+            value != nullptr) {
             return value;
         }
     }
@@ -1725,9 +1727,8 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
         if (const auto* partition_value = find_partition_value(table_column, partition_values);
             table_column.is_partition_key && partition_value != nullptr) {
             // 1. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
-            _set_constant_mapping(
-                    &mapping, VExprContext::create_shared(TableLiteral::create_shared(
-                                      mapping.table_type, *partition_value)));
+            _set_constant_mapping(&mapping, VExprContext::create_shared(TableLiteral::create_shared(
+                                                    mapping.table_type, *partition_value)));
         } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
                    !table_column.is_partition_key) {
             // 2. BY_INDEX mapping, use the file column at the position specified by `ColumnDefinition::identifier` as a direct mapping. This mode is only used by Hive.

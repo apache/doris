@@ -45,12 +45,12 @@
 #include "core/field.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
-#include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/expr/slot_ref.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
@@ -79,9 +79,15 @@ struct ScanTask {
 };
 
 struct ReadProfile {
-    RuntimeProfile::Counter* num_delete_files;
-    RuntimeProfile::Counter* num_delete_rows;
-    RuntimeProfile::Counter* parse_delete_file_time;
+    RuntimeProfile::Counter* num_delete_files = nullptr;
+    RuntimeProfile::Counter* num_delete_rows = nullptr;
+    RuntimeProfile::Counter* parse_delete_file_time = nullptr;
+    RuntimeProfile::Counter* exec_timer = nullptr;
+    RuntimeProfile::Counter* prepare_split_timer = nullptr;
+    RuntimeProfile::Counter* finalize_timer = nullptr;
+    RuntimeProfile::Counter* create_reader_timer = nullptr;
+    RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
+    RuntimeProfile::Counter* open_reader_timer = nullptr;
 };
 
 struct TableReadOptions {
@@ -102,8 +108,6 @@ struct TableReadOptions {
     const bool allow_missing_columns = true;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
-
-    std::unique_ptr<ReadProfile> profile;
 };
 
 struct SplitReadOptions {
@@ -133,6 +137,7 @@ public:
     // 基类负责 current reader 的打开、EOF 后切换和关闭；子类只实现 protected hook。
     // table_block 的列必须已经是 table/global schema 语义。
     Status get_block(Block* block, bool* eos) {
+        SCOPED_TIMER(_profile.exec_timer);
         DORIS_CHECK(block->columns() == _projected_columns.size());
         block->clear_column_data(_projected_columns.size());
 
@@ -153,6 +158,7 @@ public:
             // `count` default rows for the upper COUNT(*), and MIN/MAX emits two rows containing
             // file-level min/max values for the upper MIN/MAX.
             if (!_aggregate_pushdown_tried) {
+                SCOPED_TIMER(_profile.pushdown_agg_timer);
                 bool pushed_down = false;
                 RETURN_IF_ERROR(_try_materialize_aggregate_pushdown_rows(block, &pushed_down));
                 if (pushed_down) {
@@ -214,6 +220,7 @@ protected:
     // 打开当前具体 reader。
     // 子类在这里基于当前 split/task 初始化底层 FileReader。
     virtual Status open_reader() {
+        SCOPED_TIMER(_profile.open_reader_timer);
         // 1. Get file schema and create column mapping.
         std::vector<ColumnDefinition> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
@@ -472,7 +479,8 @@ protected:
     }
 
     // Finalize file-local block to table/global schema block.
-    virtual Status finalize_chunk(Block* block, const size_t rows) {
+    Status finalize_chunk(Block* block, const size_t rows) {
+        SCOPED_TIMER(_profile.finalize_timer);
         size_t idx = 0;
         for (const auto& mapping : _data_reader.column_mapper.mappings()) {
             ColumnPtr column;
@@ -876,7 +884,7 @@ protected:
     std::vector<TableFilter> _table_filters;
     TableColumnPredicates _table_column_predicates;
     VExprContextSPtrs _conjuncts;
-    std::unique_ptr<ReadProfile> _profile;
+    ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
     TFileScanRangeParams* _scan_params;

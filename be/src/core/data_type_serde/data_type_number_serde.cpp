@@ -192,14 +192,19 @@ Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
         if (view.value_kind == DecodedValueKind::BOOL) {
             return read_number_decoded_values<TYPE_BOOLEAN, bool>(column, view);
         }
-    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT) {
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT || T == TYPE_LARGEINT) {
         if (view.value_kind == DecodedValueKind::INT32) {
             return read_number_decoded_values<T, int32_t>(column, view);
         }
-    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-                         T == TYPE_BIGINT) {
+        if (view.value_kind == DecodedValueKind::UINT32) {
+            return read_number_decoded_values<T, uint32_t>(column, view);
+        }
         if (view.value_kind == DecodedValueKind::INT64) {
             return read_number_decoded_values<T, int64_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::UINT64) {
+            return read_number_decoded_values<T, uint64_t>(column, view);
         }
     } else if constexpr (T == TYPE_FLOAT) {
         if (view.value_kind == DecodedValueKind::FLOAT) {

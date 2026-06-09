@@ -39,15 +39,6 @@ PrimitiveType decimal_primitive_type(int precision) {
     return precision > 38 ? TYPE_DECIMAL256 : TYPE_DECIMAL128I;
 }
 
-bool has_non_physical_annotation(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr) {
-        return false;
-    }
-    const auto& logical_type = column->logical_type();
-    return column->converted_type() != ::parquet::ConvertedType::NONE ||
-           (logical_type != nullptr && logical_type->is_valid() && !logical_type->is_none());
-}
-
 void mark_decimal(const ::parquet::ColumnDescriptor* column, int precision, int scale,
                   ParquetTypeDescriptor* result) {
     result->is_decimal = true;
@@ -68,6 +59,11 @@ void mark_decimal(const ::parquet::ColumnDescriptor* column, int precision, int 
         result->extra_type_info = ParquetExtraTypeInfo::NONE;
         break;
     }
+}
+
+void mark_integer(int bit_width, bool is_signed, ParquetTypeDescriptor* result) {
+    result->integer_bit_width = bit_width;
+    result->is_unsigned_integer = !is_signed;
 }
 
 DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* column,
@@ -103,18 +99,33 @@ DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* colu
         result->time_unit = ParquetTimeUnit::MICROS;
         result->extra_type_info = ParquetExtraTypeInfo::UNIT_MICROS;
         return create_type(TYPE_DATETIMEV2, nullable, 0, 6);
+    // Parquet stores signed and unsigned integer logical annotations on signed physical carriers:
+    // INT_8/UINT_8/INT_16/UINT_16/INT_32/UINT_32 use physical INT32, and
+    // INT_64/UINT_64 use physical INT64. Doris maps unsigned integers to the next wider
+    // signed type so all values in the unsigned range can be represented.
     case ::parquet::ConvertedType::INT_8:
+        mark_integer(8, true, result);
         return create_type(TYPE_TINYINT, nullable);
     case ::parquet::ConvertedType::UINT_8:
+        mark_integer(8, false, result);
+        return create_type(TYPE_SMALLINT, nullable);
     case ::parquet::ConvertedType::INT_16:
+        mark_integer(16, true, result);
         return create_type(TYPE_SMALLINT, nullable);
     case ::parquet::ConvertedType::UINT_16:
+        mark_integer(16, false, result);
+        return create_type(TYPE_INT, nullable);
     case ::parquet::ConvertedType::INT_32:
+        mark_integer(32, true, result);
         return create_type(TYPE_INT, nullable);
     case ::parquet::ConvertedType::UINT_32:
+        mark_integer(32, false, result);
+        return create_type(TYPE_BIGINT, nullable);
     case ::parquet::ConvertedType::INT_64:
+        mark_integer(64, true, result);
         return create_type(TYPE_BIGINT, nullable);
     case ::parquet::ConvertedType::UINT_64:
+        mark_integer(64, false, result);
         return create_type(TYPE_LARGEINT, nullable);
     case ::parquet::ConvertedType::NONE:
     default:
@@ -178,6 +189,7 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
     }
     if (logical_type->is_int()) {
         const auto& int_type = static_cast<const ::parquet::IntLogicalType&>(*logical_type);
+        mark_integer(int_type.bit_width(), int_type.is_signed(), result);
         switch (int_type.bit_width()) {
         case 8:
             return create_type(int_type.is_signed() ? TYPE_TINYINT : TYPE_SMALLINT, nullable);
@@ -218,7 +230,7 @@ DataTypePtr physical_type_to_doris_type(const ::parquet::ColumnDescriptor* colum
         type = std::make_shared<DataTypeString>();
         break;
     case ::parquet::Type::INT96:
-        type = std::make_shared<DataTypeString>();
+        type = create_type(TYPE_DATETIMEV2, nullable, 0, 6);
         break;
     default:
         return nullptr;
@@ -226,34 +238,12 @@ DataTypePtr physical_type_to_doris_type(const ::parquet::ColumnDescriptor* colum
     return nullable ? make_nullable(type) : type;
 }
 
-DataTypePtr direct_flat_primitive_doris_type(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr || column->max_repetition_level() != 0 ||
-        column->max_definition_level() > 1 || has_non_physical_annotation(column)) {
-        return nullptr;
-    }
-
-    const bool nullable = column->max_definition_level() > 0;
-    switch (column->physical_type()) {
-    case ::parquet::Type::BOOLEAN:
-        return create_type(TYPE_BOOLEAN, nullable);
-    case ::parquet::Type::INT32:
-        return create_type(TYPE_INT, nullable);
-    case ::parquet::Type::INT64:
-        return create_type(TYPE_BIGINT, nullable);
-    case ::parquet::Type::FLOAT:
-        return create_type(TYPE_FLOAT, nullable);
-    case ::parquet::Type::DOUBLE:
-        return create_type(TYPE_DOUBLE, nullable);
-    default:
-        return nullptr;
-    }
-}
-
 bool record_reader_physical_type_supported(::parquet::Type::type physical_type) {
     switch (physical_type) {
     case ::parquet::Type::BOOLEAN:
     case ::parquet::Type::INT32:
     case ::parquet::Type::INT64:
+    case ::parquet::Type::INT96:
     case ::parquet::Type::FLOAT:
     case ::parquet::Type::DOUBLE:
     case ::parquet::Type::BYTE_ARRAY:
@@ -262,26 +252,6 @@ bool record_reader_physical_type_supported(::parquet::Type::type physical_type) 
     default:
         return false;
     }
-}
-
-bool record_reader_integer_annotation_supported(const ::parquet::ColumnDescriptor* column,
-                                                const DataTypePtr& doris_type) {
-    const auto& logical_type = column->logical_type();
-    const bool has_int_logical_type =
-            logical_type != nullptr && logical_type->is_valid() && logical_type->is_int();
-    const bool has_int_converted_type =
-            column->converted_type() == ::parquet::ConvertedType::INT_8 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_8 ||
-            column->converted_type() == ::parquet::ConvertedType::INT_16 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_16 ||
-            column->converted_type() == ::parquet::ConvertedType::INT_32 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_32 ||
-            column->converted_type() == ::parquet::ConvertedType::INT_64 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_64;
-    auto primitive_type = remove_nullable(doris_type)->get_primitive_type();
-    return (has_int_logical_type || has_int_converted_type) &&
-           (primitive_type == TYPE_TINYINT || primitive_type == TYPE_SMALLINT ||
-            primitive_type == TYPE_INT || primitive_type == TYPE_BIGINT);
 }
 
 } // namespace
@@ -325,15 +295,11 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
 
     if (!record_reader_physical_type_supported(result.physical_type)) {
         result.supports_record_reader = false;
-        return result;
-    }
-    if (direct_flat_primitive_doris_type(column) != nullptr || result.is_string_like ||
-        (result.is_decimal && result.decimal_precision <= 38) ||
-        (result.is_timestamp && result.physical_type == ::parquet::Type::INT64) ||
-        record_reader_integer_annotation_supported(column, result.doris_type) ||
-        remove_nullable(result.doris_type)->get_primitive_type() == TYPE_DATEV2 ||
-        remove_nullable(result.doris_type)->get_primitive_type() == TYPE_TIMEV2) {
-        result.supports_record_reader = true;
+        result.reason = "Do not support physical type " + std::to_string(result.physical_type);
+    } else if (result.is_decimal && result.decimal_precision > 38) {
+        result.supports_record_reader = false;
+        result.reason = "Decimal precision " + std::to_string(result.decimal_precision) +
+                        " exceeds max supported 38";
     }
     return result;
 }

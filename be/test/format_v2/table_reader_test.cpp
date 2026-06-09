@@ -48,8 +48,8 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "format/format_common.h"
-#include "format_v2/expr/slot_ref.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format_v2/expr/slot_ref.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -224,7 +224,6 @@ public:
                 .runtime_state = _state.get(),
                 .scanner_profile = nullptr,
                 .allow_missing_columns = true,
-                .profile = nullptr,
         }));
 
         SplitReadOptions split_options;
@@ -691,14 +690,6 @@ std::shared_ptr<io::IOContext> make_io_context(io::FileReaderStats* file_reader_
     return io_ctx;
 }
 
-std::unique_ptr<ReadProfile> make_table_read_profile(RuntimeProfile* profile) {
-    auto read_profile = std::make_unique<ReadProfile>();
-    read_profile->num_delete_files = ADD_COUNTER(profile, "NumDeleteFiles", TUnit::UNIT);
-    read_profile->num_delete_rows = ADD_COUNTER(profile, "NumDeleteRows", TUnit::UNIT);
-    read_profile->parse_delete_file_time = ADD_TIMER(profile, "ParseDeleteFileTime");
-    return read_profile;
-}
-
 TTableFormatFileDesc make_iceberg_table_format_desc(
         const std::string& data_file_path,
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
@@ -838,7 +829,6 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -904,7 +894,6 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -946,7 +935,6 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::MINMAX,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -994,7 +982,6 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::MINMAX,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1042,7 +1029,6 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::MINMAX,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1091,7 +1077,6 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::MINMAX,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1161,7 +1146,6 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1229,7 +1213,6 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::MINMAX,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1290,7 +1273,6 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::MINMAX,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options_for_row_group_mid(file_path, 1)).ok());
@@ -1334,7 +1316,6 @@ TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options_for_row_group_mid(file_path, 2)).ok());
@@ -1376,7 +1357,6 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1425,7 +1405,6 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1469,7 +1448,6 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::MINMAX,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1512,7 +1490,6 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -1546,7 +1523,6 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
                                 .allow_missing_columns = true,
-                                .profile = nullptr,
                         })
                         .ok());
     ASSERT_TRUE(filtered_reader.prepare_split(build_split_options(file_path)).ok());
@@ -1595,7 +1571,6 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -1652,7 +1627,6 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -1936,7 +1910,6 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
                                 .runtime_state = &state,
                                 .scanner_profile = nullptr,
                                 .allow_missing_columns = true,
-                                .profile = nullptr,
                         })
                     .ok());
 
@@ -1990,7 +1963,6 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2035,7 +2007,6 @@ TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColu
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = false,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2085,7 +2056,6 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2135,7 +2105,6 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2187,7 +2156,6 @@ TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2233,7 +2201,6 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2284,7 +2251,6 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2339,7 +2305,6 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2401,7 +2366,6 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -2495,7 +2459,6 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2544,7 +2507,6 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes) {
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2600,7 +2562,6 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDele
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2655,7 +2616,6 @@ TEST(TableReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2708,7 +2668,6 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEqualityDele
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2763,7 +2722,6 @@ TEST(TableReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2812,7 +2770,6 @@ TEST(TableReaderTest, IcebergPositionDeleteOnlyMatchesOriginalDataFilePath) {
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2862,7 +2819,6 @@ TEST(TableReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering) {
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2921,7 +2877,6 @@ TEST(TableReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -2972,7 +2927,6 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .allow_missing_columns = true,
-                                    .profile = make_table_read_profile(&profile),
                             })
                         .ok());
 
@@ -3043,7 +2997,6 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -3093,7 +3046,6 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
@@ -3141,7 +3093,6 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
 
