@@ -50,7 +50,7 @@ public:
         return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 
-    char* data() { return (char*)_bloom_filter->directory().data; }
+    char* data() { return _bloom_filter->directory().data; }
 
     size_t size() { return _bloom_filter->directory().size; }
 

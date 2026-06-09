@@ -259,6 +259,22 @@ public class IcebergExternalTableTest {
         return spy;
     }
 
+    @Test
+    public void testGetComment() {
+        IcebergExternalTable spy = createSpyTable();
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("comment", "my-table-comment");
+        Mockito.when(icebergTable.properties()).thenReturn(properties);
+
+        Assertions.assertEquals("my-table-comment", spy.getComment());
+
+        properties.put("comment", "comment with \"quote\"");
+        Assertions.assertEquals("comment with \\\"quote\\\"", spy.getComment(true));
+
+        properties.remove("comment");
+        Assertions.assertEquals("", spy.getComment());
+    }
+
     /** Creates a mock Transform with the given canonical toString() value.
      *  Also stubs isIdentity() and isVoid() based on the value. */
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -398,4 +414,3 @@ public class IcebergExternalTableTest {
         Assertions.assertEquals("", spy.getPartitionSpecSql());
     }
 }
-
