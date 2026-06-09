@@ -229,6 +229,7 @@ void ColumnVariant::Subcolumn::insert(FieldWithDataType field) {
     info.scale = field.scale;
     info.scalar_type_id = field.base_scalar_type_id;
     info.num_dimensions = field.num_dimensions;
+    info.need_convert = field.need_convert;
     insert(std::move(field.field), info);
 }
 
@@ -1080,7 +1081,8 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                               .num_dimensions = static_cast<uint8_t>(
                                                       data.second.num_dimensions),
                                               .precision = data.second.precision,
-                                              .scale = data.second.scale});
+                                              .scale = data.second.scale,
+                                              .need_convert = data.second.need_convert});
     }
     try_get_from_doc_value_column(n, res);
     if (object.empty()) {
