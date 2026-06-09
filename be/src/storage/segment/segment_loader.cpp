@@ -55,7 +55,8 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t segment_id,
                                    SegmentCacheHandle* cache_handle, bool use_cache,
                                    bool need_load_pk_index_and_bf,
-                                   OlapReaderStatistics* index_load_stats) {
+                                   OlapReaderStatistics* index_load_stats,
+                                   const io::IOContext* io_ctx) {
     auto start = MonotonicMicros();
     SegmentCache::CacheKey cache_key(rowset->rowset_id(), segment_id);
     if (_segment_cache->lookup(cache_key, cache_handle)) {
@@ -72,7 +73,7 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
     }
     // If the segment is not healthy, then will create a new segment and will replace the unhealthy one in SegmentCache.
     segment_v2::SegmentSharedPtr segment;
-    RETURN_IF_ERROR(rowset->load_segment(segment_id, index_load_stats, &segment));
+    RETURN_IF_ERROR(rowset->load_segment(segment_id, index_load_stats, &segment, io_ctx));
     if (need_load_pk_index_and_bf) {
         RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats));
     }
@@ -95,13 +96,14 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     SegmentCacheHandle* cache_handle, bool use_cache,
                                     bool need_load_pk_index_and_bf,
-                                    OlapReaderStatistics* index_load_stats) {
+                                    OlapReaderStatistics* index_load_stats,
+                                    const io::IOContext* io_ctx) {
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
     for (int64_t i = 0; i < rowset->num_segments(); i++) {
         RETURN_IF_ERROR(load_segment(rowset, i, cache_handle, use_cache, need_load_pk_index_and_bf,
-                                     index_load_stats));
+                                     index_load_stats, io_ctx));
     }
     cache_handle->set_inited();
     return Status::OK();

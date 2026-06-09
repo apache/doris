@@ -29,7 +29,9 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
     options.msNum = 1
     options.beConfigs += [
         "enable_file_cache=true",
+        "enable_read_cache_file_directly=false",
         "disable_storage_page_cache=true",
+        "disable_segment_cache=true",
         "enable_java_support=false",
         "enable_evict_file_cache_in_advance=false",
         "file_cache_enter_disk_resource_limit_mode_percent=99",
@@ -120,7 +122,7 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
             sql "SYNC"
         }
 
-        def createTableAndLoad = { String tableName ->
+        def createTableAndLoad = { String tableName, boolean verifyRowCount = true ->
             sql "DROP TABLE IF EXISTS ${tableName} FORCE"
             sql """
                 CREATE TABLE ${tableName} (
@@ -138,8 +140,10 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
             """
             insertRows(tableName)
 
-            def rowCount = sql "SELECT COUNT(*) FROM ${tableName}"
-            assert rowCount[0][0] == rowsPerTable
+            if (verifyRowCount) {
+                def rowCount = sql "SELECT COUNT(*) FROM ${tableName}"
+                assert rowCount[0][0] == rowsPerTable
+            }
         }
 
         def parseProfileCounterValue = { String valueText ->
@@ -227,7 +231,8 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
                 segmentMetaWriteCacheBytes:
                         sumProfileCounter(profileString, "SegmentFooterIndexBytesWriteIntoCache"),
                 segmentMetaRemoteIo:
-                        sumProfileCounter(profileString, "SegmentFooterIndexNumRemoteIOTotal")
+                        sumProfileCounter(profileString, "SegmentFooterIndexNumRemoteIOTotal"),
+                scannerNum: sumProfileCounter(profileString, "NumScanners")
             ]
             logger.info("${label} file-cache counters: ${counters}")
             return counters
@@ -251,6 +256,16 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
             sql "set parallel_pipeline_task_num = 1"
             sql "set file_cache_query_limit_bytes = ${thresholdBytes}"
             logger.info("query file_cache_query_limit_bytes set to ${thresholdBytes}")
+        }
+
+        def setupParallelPreloadQuerySession = { long thresholdBytes ->
+            setupQuerySession(thresholdBytes)
+            sql "set parallel_scan_max_scanners_count = 4"
+            sql "set parallel_scan_min_rows_per_scanner = 1024"
+            if (supportMaxScannersConcurrency) {
+                sql "set max_scanners_concurrency = 4"
+            }
+            sql "set parallel_pipeline_task_num = 4"
         }
 
         def runProfileQuery = { String name, String query, long thresholdBytes ->
@@ -283,7 +298,7 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
 
         def runCase = { String tableName, boolean segmentMetaCounts, long thresholdBytes ->
             setBeParam("file_cache_query_limit_segment_meta", segmentMetaCounts.toString())
-            createTableAndLoad(tableName)
+            createTableAndLoad(tableName, false)
             setupQuerySession(thresholdBytes)
             clearFileCache()
             def query = "SELECT SUM(LENGTH(payload) + LENGTH(pad)) FROM ${tableName}"
@@ -293,8 +308,29 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
             return counters
         }
 
+        def runParallelPreloadCase = { String tableName, boolean segmentMetaCounts ->
+            long tinyThresholdBytes = 1L
+            createTableAndLoad(tableName, false)
+            setBeParam("file_cache_query_limit_segment_meta", segmentMetaCounts.toString())
+            setupParallelPreloadQuerySession(tinyThresholdBytes)
+            clearFileCache()
+            def query = "SELECT SUM(id + group_id + LENGTH(payload)) FROM ${tableName} " +
+                    "WHERE group_id >= 0"
+            def counters = runProfileQuery(tableName, query, tinyThresholdBytes)
+            assert counters.scannerNum > 1L :
+                    "parallel preload case should use multiple scanners, counters=${counters}"
+            assert counters.remoteOnlyTriggered == 1L :
+                    "tiny threshold should trigger remote-only-on-miss, counters=${counters}"
+            assert counters.skipCacheIo > 0L :
+                    "tiny threshold should skip later cache writes, counters=${counters}"
+            logger.info("parallel preload case ${tableName} finished, " +
+                    "segmentMetaCounts=${segmentMetaCounts}, counters=${counters}")
+            return counters
+        }
+
         def originalSegmentMetaConfig = getBeParam("file_cache_query_limit_segment_meta")
         logger.info("original file_cache_query_limit_segment_meta=${originalSegmentMetaConfig}")
+        assert getBeParam("enable_read_cache_file_directly").equalsIgnoreCase("false")
         try {
             def baseline = runCase("file_cache_limit_segment_meta_baseline", false, -1L)
             assert baseline.remoteOnlyTriggered == 0L :
@@ -400,6 +436,36 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
                     "segmentMetaWriteCacheBytes=${tinyWithSegmentMeta.segmentMetaWriteCacheBytes}, " +
                     "remoteOnlyTriggered=${tinyWithSegmentMeta.remoteOnlyTriggered}, " +
                     "skipCacheIo=${tinyWithSegmentMeta.skipCacheIo}")
+
+            def preloadWithoutSegmentMeta = runParallelPreloadCase(
+                    "file_cache_limit_segment_meta_preload_not_counted", false)
+            assert preloadWithoutSegmentMeta.segmentMetaWriteCacheBytes > 0L :
+                    "without segment meta accounting, parallel preload footer/meta should still " +
+                    "write cache, counters=${preloadWithoutSegmentMeta}"
+            assert preloadWithoutSegmentMeta.writeCacheBytes >=
+                    preloadWithoutSegmentMeta.segmentMetaWriteCacheBytes :
+                    "aggregate file-cache writes should include segment footer/meta writes, " +
+                    "counters=${preloadWithoutSegmentMeta}"
+            logger.info("parallel preload segment meta not counted result: " +
+                    "writeCacheBytes=${preloadWithoutSegmentMeta.writeCacheBytes}, " +
+                    "segmentMetaWriteCacheBytes=" +
+                    "${preloadWithoutSegmentMeta.segmentMetaWriteCacheBytes}, " +
+                    "scannerNum=${preloadWithoutSegmentMeta.scannerNum}")
+
+            def preloadWithSegmentMeta = runParallelPreloadCase(
+                    "file_cache_limit_segment_meta_preload_counted", true)
+            assert preloadWithSegmentMeta.segmentMetaWriteCacheBytes == 0L :
+                    "when segment footer/meta is counted, tiny threshold should block " +
+                    "parallel preload footer/meta cache writes, " +
+                    "counters=${preloadWithSegmentMeta}"
+            assert preloadWithSegmentMeta.writeCacheBytes == 0L :
+                    "when segment footer/meta is counted, tiny threshold should block all " +
+                    "profile cache writes in the parallel preload query, " +
+                    "counters=${preloadWithSegmentMeta}"
+            logger.info("parallel preload segment meta counted result: " +
+                    "writeCacheBytes=${preloadWithSegmentMeta.writeCacheBytes}, " +
+                    "segmentMetaWriteCacheBytes=${preloadWithSegmentMeta.segmentMetaWriteCacheBytes}, " +
+                    "scannerNum=${preloadWithSegmentMeta.scannerNum}")
         } finally {
             logger.info("restore file_cache_query_limit_segment_meta=${originalSegmentMetaConfig}")
             setBeParam("file_cache_query_limit_segment_meta", originalSegmentMetaConfig)

@@ -536,9 +536,9 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     }
     VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
     std::shared_ptr<ColumnReader> column_reader;
-    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
-            target_col.parent_unique_id(), node->path, &column_reader, opts->stats, node,
-            &opts->io_ctx));
+    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(target_col.parent_unique_id(),
+                                                                node->path, &column_reader,
+                                                                opts->stats, node, &opts->io_ctx));
     plan->kind = ReadKind::LEAF;
     plan->type = column_reader->get_vec_data_type();
     plan->relative_path = relative_path;
@@ -813,9 +813,8 @@ Status VariantColumnReader::_try_build_external_leaf_plan(ReadPlan* plan, int32_
     }
 
     std::shared_ptr<ColumnReader> leaf_column_reader;
-    Status st = column_reader_cache->get_path_column_reader(col_uid, relative_path,
-                                                            &leaf_column_reader, stats, nullptr,
-                                                            io_ctx);
+    Status st = column_reader_cache->get_path_column_reader(
+            col_uid, relative_path, &leaf_column_reader, stats, nullptr, io_ctx);
     DCHECK(!_has_prefix_path_unlocked(relative_path));
     if (st.ok()) {
         plan->kind = ReadKind::LEAF;
@@ -950,9 +949,8 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         return Status::OK();
     }
     if (node == nullptr) {
-        RETURN_IF_ERROR(_try_build_external_leaf_plan(plan, col_uid, relative_path,
-                                                      column_reader_cache, opt->stats,
-                                                      &opt->io_ctx));
+        RETURN_IF_ERROR(_try_build_external_leaf_plan(
+                plan, col_uid, relative_path, column_reader_cache, opt->stats, &opt->io_ctx));
         if (plan->kind == ReadKind::LEAF) {
             return Status::OK();
         }

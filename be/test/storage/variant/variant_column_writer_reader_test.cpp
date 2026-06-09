@@ -154,18 +154,16 @@ public:
                           const std::shared_ptr<TabletSchema>& tablet_schema)
             : ColumnReaderCache(nullptr, nullptr, nullptr, 0,
                                 [](std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
-                                   const io::IOContext*) {
-                                    return Status::OK();
-                                }),
+                                   const io::IOContext*) { return Status::OK(); }),
               _footer(footer),
               _file_reader(file_reader),
               _tablet_schema(tablet_schema) {}
 
-    Status get_path_column_reader(
-            int32_t col_uid, PathInData relative_path,
-            std::shared_ptr<segment_v2::ColumnReader>* column_reader, OlapReaderStatistics* stats,
-            const SubcolumnColumnMetaInfo::Node* node_hint = nullptr,
-            const io::IOContext* io_ctx = nullptr) override {
+    Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
+                                  std::shared_ptr<segment_v2::ColumnReader>* column_reader,
+                                  OlapReaderStatistics* stats,
+                                  const SubcolumnColumnMetaInfo::Node* node_hint = nullptr,
+                                  const io::IOContext* io_ctx = nullptr) override {
         DCHECK(node_hint != nullptr);
         // Use node_hint's footer_ordinal to locate the specific ColumnMeta
         int32_t footer_ordinal = node_hint->data.footer_ordinal;

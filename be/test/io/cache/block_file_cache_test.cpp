@@ -825,17 +825,22 @@ TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_segment_me
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_specialized_write_cache_stats) {
     const fs::path cache_path = caches_dir / "specialized_write_cache_stats_cache";
-    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = nullptr;
     Defer cleanup_cache {[&]() {
         std::error_code ignore;
         fs::remove_all(cache_path, ignore);
-        clear_cached_remote_reader_factory();
+        cleanup_cached_remote_reader_cache(cache_path.string());
     }};
 
-    create_cached_remote_reader_test_cache(cache_path, kCachedRemoteReaderTinyBlockSize);
+    ASSERT_TRUE(create_cached_remote_reader_cache(cache_path.string(), &cache).ok());
 
     auto read_and_check = [&](const std::string& name, bool is_inverted_index, int64_t mtime) {
-        const auto remote_file = create_cached_remote_reader_test_file(name, "abcdefghijklmnop");
+        const auto remote_file = caches_dir / name;
+        {
+            std::ofstream ofs(remote_file, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(ofs.is_open());
+            ofs << "abcdefghijklmnop";
+        }
         Defer cleanup_file {[&]() {
             std::error_code ec;
             fs::remove(remote_file, ec);

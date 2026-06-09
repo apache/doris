@@ -96,7 +96,8 @@ public:
                        uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {},
-                       OlapReaderStatistics* stats = nullptr);
+                       OlapReaderStatistics* stats = nullptr,
+                       const io::IOContext* io_ctx = nullptr);
 
     static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
     io::UInt128Wrapper file_cache_key() const {
@@ -246,9 +247,10 @@ private:
                         RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                         const io::FileReaderOptions& reader_options,
                         std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info,
-                        OlapReaderStatistics* stats);
+                        OlapReaderStatistics* stats = nullptr,
+                        const io::IOContext* io_ctx = nullptr);
     // open segment file and read the minimum amount of necessary information (footer)
-    Status _open(OlapReaderStatistics* stats);
+    Status _open(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                          OlapReaderStatistics* stats = nullptr,
                          const io::IOContext* io_ctx = nullptr);

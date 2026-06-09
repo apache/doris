@@ -52,12 +52,11 @@ public:
     // Main constructor used in production: cache is bound to a specific segment's
     // ColumnMetaAccessor, TabletSchema, file reader and row count, plus a footer
     // getter callback (Segment::_get_segment_footer).
-    ColumnReaderCache(
-            ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
-            io::FileReaderSPtr file_reader, uint64_t num_rows,
-            std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
-                                 const io::IOContext*)>
-                    get_footer_cb);
+    ColumnReaderCache(ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
+                      io::FileReaderSPtr file_reader, uint64_t num_rows,
+                      std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
+                                           const io::IOContext*)>
+                              get_footer_cb);
     virtual ~ColumnReaderCache();
     // Get all available readers
     // if include_subcolumns is true, return all available readers, including subcolumn readers

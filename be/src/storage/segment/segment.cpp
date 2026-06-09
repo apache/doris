@@ -203,13 +203,14 @@ io::IOContext create_index_io_context(const io::IOContext* source, OlapReaderSta
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
-                     InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats) {
+                     InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats,
+                     const io::IOContext* source_io_ctx) {
     // Ensure tablet_id is available in reader_options for CachedRemoteFileReader peer read.
     io::FileReaderOptions opts_with_tablet = reader_options;
     opts_with_tablet.tablet_id = tablet_id;
 
     auto s = _open(fs, path, segment_id, rowset_id, tablet_schema, opts_with_tablet, output,
-                   idx_file_info, stats);
+                   idx_file_info, stats, source_io_ctx);
     if (s.ok() && output && *output) {
         (*output)->_tablet_id = tablet_id;
     }
@@ -230,7 +231,8 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tab
 Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                       const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
-                      InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats) {
+                      InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats,
+                      const io::IOContext* source_io_ctx) {
     io::FileReaderSPtr file_reader;
     auto st = fs->open_file(path, &file_reader, &reader_options);
     TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
@@ -240,7 +242,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
     if (st) {
         segment->_fs = fs;
         segment->_file_reader = std::move(file_reader);
-        st = segment->_open(stats);
+        st = segment->_open(stats, source_io_ctx);
     }
 
     // Three-tier retry for CORRUPTION errors when file cache is enabled.
@@ -259,7 +261,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         if (st) {
             segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
-            st = segment->_open(stats);
+            st = segment->_open(stats, source_io_ctx);
         }
         TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
         if (st.is<ErrorCode::CORRUPTION>()) { // corrupt again
@@ -275,7 +277,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
             RETURN_IF_ERROR(fs->open_file(path, &file_reader, &opt));
             segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
-            st = segment->_open(stats);
+            st = segment->_open(stats, source_io_ctx);
             if (!st.ok()) {
                 // Tier 3: Remote source itself is corrupt.
                 LOG(WARNING) << "failed to try to read remote source file directly,"
@@ -320,9 +322,9 @@ void Segment::update_metadata_size() {
     _tracked_meta_mem_usage = _meta_mem_usage;
 }
 
-Status Segment::_open(OlapReaderStatistics* stats) {
+Status Segment::_open(OlapReaderStatistics* stats, const io::IOContext* source_io_ctx) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats));
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats, source_io_ctx));
 
     _pk_index_meta.reset(
             footer_pb_shared->has_primary_key_index_meta()
