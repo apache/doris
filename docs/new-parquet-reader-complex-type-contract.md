@@ -1,20 +1,38 @@
 # New Parquet Reader 复杂类型完整功能契约
 
-本文定义 Doris new parquet reader 最终完整复杂类型能力的实现契约。它承接
-`complex-column-predicate-and-stats-filtering.md` 已落地的第一阶段方案，以及
-`new-parquet-reader-complex-type-gaps.md` 中梳理的功能缺口。
+本文定义 Doris new parquet reader 嵌套复杂类型支持的实现契约。主线是参考 Arrow
+Parquet reader 的 Dremel 语义处理方式，建立统一的 nested shape/value 抽象，让
+`STRUCT`、`LIST`、`MAP` 及其嵌套组合先具备稳定读取、投影裁剪、schema evolution 和
+selected read 基础能力。
 
-完整复杂类型能力的核心不是扩大单点 case，而是建立统一的 Dremel shape/value
-模型，使复杂列读取、nested projection、schema evolution、file-layer pruning 和 lazy
-materialization 都遵守同一套语义。
+row-level filter、file-layer pruning 和 lazy materialization 是 nested shape 抽象的消费者。
+过渡期 nested file-layer pruning 只覆盖 `STRUCT` / nested `STRUCT` 下 non-repeated primitive
+leaf；其它复杂表达式只做 row-level filter，不做 pruning hint。
 
 ## 1. 总体目标
+
+### 1.1 Arrow 参考模型
+
+Arrow Parquet reader 的复杂类型读取可以抽象为递归 reader tree：
+
+- primitive leaf reader 解码 value、definition level 和 repetition level。
+- list reader 根据 child leaf 的 def/rep levels 构造 offsets 和 parent validity。
+- struct reader 从 child reader 中选择 shape source，构造 parent validity 并组装 child arrays。
+- projection pruning 在 reader tree 构造阶段裁剪未选 children，读出的 complex type 是投影后的
+  subtree。
+
+Doris 不直接复用 Arrow complex array 构造结果，但应复用这套语义分层：leaf 提供 level
+stream，complex reader 消费 level stream 生成 shape，value materialization 依附 shape 完成。
+
+### 1.2 Doris 目标
 
 最终 new parquet reader 应支持以下能力：
 
 - 完整读取 `STRUCT`、`LIST`、`MAP` 及其任意合法嵌套组合。
+- 建立统一 nested shape/value 抽象，避免 `STRUCT`、`LIST`、`MAP` 各自维护不兼容状态机。
 - 支持 nullable complex node 的 parent null shape，即使该 node 没有直接 scalar child。
 - 支持 nested projection，包括 output child、filter-only child、schema evolution child 的合并。
+- 支持 selected read 按 table row 对齐复杂列 shape 和 payload。
 - 支持 nested row-level predicate localization，但不改变 Doris file block 的 top-level complex
   column layout。
 - 过渡期只支持 `STRUCT` / nested `STRUCT` 下 non-repeated primitive leaf 的 nested file-layer
@@ -185,7 +203,16 @@ struct NestedValueBatch {
 };
 ```
 
-shape 表示 Dremel row/level 语义；value 表示 primitive leaf payload。
+shape 表示 Dremel row/level 语义；value 表示 primitive leaf payload。两者的边界必须清楚：
+
+- level stream：primitive leaf reader 产生的 def/rep level 序列。
+- nested shape：complex reader 从 level stream 推导出的 parent null、offsets 和 row/value
+  membership。
+- value batch：primitive leaf 的实际 payload 以及每个 level slot 是否有 value。
+
+Arrow 的 complex reader 也是先消费 child level stream，再构造 list offsets、struct validity 和
+child arrays。Doris 的实现应生成 Doris `ColumnStruct` / `ColumnArray` / `ColumnMap`，但 shape
+构造的职责边界保持一致。
 
 ### 4.2 shape source
 
@@ -201,7 +228,19 @@ shape 表示 Dremel row/level 语义；value 表示 primitive leaf payload。
 
 shape source 选择应由 reader tree 内部完成，调用方只表达需要读取的 subtree。
 
-### 4.3 shape validation
+### 4.3 shape builder
+
+完整实现应把 complex shape 构造集中在可复用 builder 中：
+
+- struct shape builder：从一个 shape source 构造 parent validity，并校验 sibling child shape。
+- list shape builder：从 element level stream 构造 list offsets、null list、empty list 和 null
+  element。
+- map shape builder：从 key/value entry level stream 构造 map offsets，并校验 key/value entry
+  对齐。
+
+reader tree 调用这些 builder 组装 Doris column，避免每个 reader 复制 def/rep 状态机。
+
+### 4.4 shape validation
 
 同一 complex node 的多个 child shape 必须一致：
 
@@ -210,7 +249,7 @@ shape source 选择应由 reader tree 内部完成，调用方只表达需要读
 - 对 repeated container，sibling child 必须能按 repeated level 对齐到同一个 parent row/entry。
 - 不一致时返回 corruption，不做静默修复。
 
-### 4.4 value materialization
+### 4.5 value materialization
 
 value materialization 必须依附 shape：
 
@@ -431,6 +470,12 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
   - array of primitive/struct/list/map。
   - map value as primitive/struct/list/map。
   - empty/null list、null element、empty/null map、null map value。
+- nested shape：
+  - struct parent null shape 来自 scalar child。
+  - struct parent null shape 来自 complex child descendant。
+  - list offsets、empty list、null list、null element。
+  - map offsets、empty map、null map、null value。
+  - sibling child shape mismatch 返回 corruption。
 - nested projection：
   - output child only。
   - filter-only child only。
@@ -458,12 +503,14 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
 ### Phase 0: 契约和安全测试
 
 - 固化本文契约。
+- 补 Arrow-style Dremel shape 语义测试矩阵。
 - 补非 struct field 链表达式不产生 pruning hint 的 negative tests。
 - 补 filter-only projection 和 schema evolution regression tests。
 
 ### Phase 1: Nested Shape Engine
 
-- 引入统一 shape/value batch。
+- 引入统一 level stream、shape batch 和 value batch。
+- 引入 struct/list/map shape builder。
 - `STRUCT` 不再依赖 scalar child。
 - 支持 nullable struct only complex children。
 - 收敛 sibling shape validation。
