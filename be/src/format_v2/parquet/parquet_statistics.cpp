@@ -608,11 +608,13 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         return result;
     case ::parquet::Type::INT32:
         result.has_min_max = set_decoded_min_max<::parquet::Int32Type>(
-                statistics, column_schema, DecodedValueKind::INT32, &result);
+                statistics, column_schema, decoded_value_kind(column_schema.type_descriptor),
+                &result);
         return result;
     case ::parquet::Type::INT64:
         result.has_min_max = set_decoded_min_max<::parquet::Int64Type>(
-                statistics, column_schema, DecodedValueKind::INT64, &result);
+                statistics, column_schema, decoded_value_kind(column_schema.type_descriptor),
+                &result);
         return result;
     case ::parquet::Type::FLOAT:
         result.has_min_max = set_decoded_min_max<::parquet::FloatType>(
@@ -898,10 +900,12 @@ bool set_page_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_inde
                 column_index, column_schema, page_idx, DecodedValueKind::BOOL, page_statistics);
     case ::parquet::Type::INT32:
         return set_page_decoded_min_max<::parquet::Int32Type>(
-                column_index, column_schema, page_idx, DecodedValueKind::INT32, page_statistics);
+                column_index, column_schema, page_idx,
+                decoded_value_kind(column_schema.type_descriptor), page_statistics);
     case ::parquet::Type::INT64:
         return set_page_decoded_min_max<::parquet::Int64Type>(
-                column_index, column_schema, page_idx, DecodedValueKind::INT64, page_statistics);
+                column_index, column_schema, page_idx,
+                decoded_value_kind(column_schema.type_descriptor), page_statistics);
     case ::parquet::Type::FLOAT:
         return set_page_decoded_min_max<::parquet::FloatType>(
                 column_index, column_schema, page_idx, DecodedValueKind::FLOAT, page_statistics);

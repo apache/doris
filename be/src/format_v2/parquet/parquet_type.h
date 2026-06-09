@@ -22,6 +22,7 @@
 #include <string>
 
 #include "core/data_type/data_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -82,5 +83,7 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
 // 当前支持 flat primitive/string/decimal/timestamp。复杂 nested column 仍通过 children
 // 递归组合，list/map assembler 后续补齐。
 bool supports_record_reader(const ParquetTypeDescriptor& type_descriptor);
+
+DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor);
 
 } // namespace doris::parquet

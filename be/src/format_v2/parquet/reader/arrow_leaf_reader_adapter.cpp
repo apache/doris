@@ -53,34 +53,6 @@ DecodedTimeUnit decoded_time_unit(ParquetTimeUnit time_unit) {
     }
 }
 
-DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor) {
-    switch (type_descriptor.physical_type) {
-    case ::parquet::Type::BOOLEAN:
-        return DecodedValueKind::BOOL;
-    case ::parquet::Type::INT32:
-        if (type_descriptor.is_unsigned_integer && type_descriptor.integer_bit_width == 32) {
-            return DecodedValueKind::UINT32;
-        }
-        return DecodedValueKind::INT32;
-    case ::parquet::Type::INT64:
-        if (type_descriptor.is_unsigned_integer && type_descriptor.integer_bit_width == 64) {
-            return DecodedValueKind::UINT64;
-        }
-        return DecodedValueKind::INT64;
-    case ::parquet::Type::INT96:
-        return DecodedValueKind::INT96;
-    case ::parquet::Type::FLOAT:
-        return DecodedValueKind::FLOAT;
-    case ::parquet::Type::DOUBLE:
-        return DecodedValueKind::DOUBLE;
-    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        return DecodedValueKind::FIXED_BINARY;
-    case ::parquet::Type::BYTE_ARRAY:
-    default:
-        return DecodedValueKind::BINARY;
-    }
-}
-
 Status decoded_fixed_value_size(const ArrowLeafReaderContext& context, DecodedValueKind value_kind,
                                 size_t* value_size) {
     switch (value_kind) {

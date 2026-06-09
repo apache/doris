@@ -45,6 +45,7 @@
 #include "core/types.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 
@@ -1392,6 +1393,41 @@ TEST_F(ParquetColumnReaderTest, ReadAllSupportedPhysicalAndLogicalTypes) {
         ASSERT_TRUE(supports_record_reader(_fields[field_idx]->type_descriptor));
         read_and_validate(field_idx);
     }
+}
+
+TEST_F(ParquetColumnReaderTest, TransformUnsignedIntegerStatistics) {
+    auto row_group = _file_reader->metadata()->RowGroup(0);
+    ASSERT_NE(row_group, nullptr);
+
+    const auto uint32_field_idx = find_field_idx("uint32_col");
+    const auto& uint32_schema = *_fields[uint32_field_idx];
+    ASSERT_EQ(uint32_schema.type_descriptor.physical_type, ::parquet::Type::INT32);
+    ASSERT_TRUE(uint32_schema.type_descriptor.is_unsigned_integer);
+    ASSERT_EQ(uint32_schema.type_descriptor.integer_bit_width, 32);
+    auto uint32_chunk = row_group->ColumnChunk(uint32_schema.leaf_column_id);
+    ASSERT_NE(uint32_chunk, nullptr);
+    auto uint32_stats = ParquetStatisticsUtils::TransformColumnStatistics(
+            uint32_schema, uint32_chunk->statistics());
+    ASSERT_TRUE(uint32_stats.has_min_max);
+    const auto uint32_min = uint32_stats.min_value.get<TYPE_BIGINT>();
+    const auto uint32_max = uint32_stats.max_value.get<TYPE_BIGINT>();
+    EXPECT_EQ(uint32_min, 0);
+    EXPECT_EQ(uint32_max, static_cast<int64_t>(std::numeric_limits<uint32_t>::max()));
+
+    const auto uint64_field_idx = find_field_idx("uint64_col");
+    const auto& uint64_schema = *_fields[uint64_field_idx];
+    ASSERT_EQ(uint64_schema.type_descriptor.physical_type, ::parquet::Type::INT64);
+    ASSERT_TRUE(uint64_schema.type_descriptor.is_unsigned_integer);
+    ASSERT_EQ(uint64_schema.type_descriptor.integer_bit_width, 64);
+    auto uint64_chunk = row_group->ColumnChunk(uint64_schema.leaf_column_id);
+    ASSERT_NE(uint64_chunk, nullptr);
+    auto uint64_stats = ParquetStatisticsUtils::TransformColumnStatistics(
+            uint64_schema, uint64_chunk->statistics());
+    ASSERT_TRUE(uint64_stats.has_min_max);
+    const auto uint64_min = uint64_stats.min_value.get<TYPE_LARGEINT>();
+    const auto uint64_max = uint64_stats.max_value.get<TYPE_LARGEINT>();
+    EXPECT_EQ(uint64_min, 0);
+    EXPECT_EQ(uint64_max, static_cast<int128_t>(std::numeric_limits<uint64_t>::max()));
 }
 
 TEST_F(ParquetColumnReaderTest, ReadSupportedComplexTypes) {
