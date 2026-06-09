@@ -662,4 +662,81 @@ suite("string_length_column_pruning") {
         contains "OFFSET"
     }
     order_qt_length_varchar "select length(v) from slcp_varchar_tbl"
+
+    // ─── OFFSET covers NULL across all complex data types ──────────────────────
+    //
+    // When both OFFSET and NULL access paths exist for the same field/subfield,
+    // the NULL path is redundant because the OFFSET data already provides
+    // nullness information for variable-length columns. stripNullSuffixPaths()
+    // removes [col.NULL] when [col.OFFSET] exists for the same prefix.
+    //
+    // This applies uniformly to all complex data types: array, map, struct
+    // subfields of string, array, and map.
+
+    // Array root: cardinality(arr_col) -> [arr_col.OFFSET]
+    //             arr_col IS NULL      -> [arr_col.NULL]
+    // OFFSET covers NULL → [arr_col.NULL] must not appear.
+    explain {
+        sql "select cardinality(arr_col), arr_col is null from slcp_str_tbl"
+        contains "nested columns"
+        contains "arr_col.OFFSET"
+        notContains "arr_col.NULL"
+    }
+    sql "select cardinality(arr_col), arr_col is null from slcp_str_tbl"
+
+    // Map root: cardinality(map_col) -> [map_col.OFFSET]
+    //           map_col IS NULL      -> [map_col.NULL]
+    // OFFSET covers NULL → [map_col.NULL] must not appear.
+    explain {
+        sql "select cardinality(map_col), map_col is null from slcp_str_tbl"
+        contains "nested columns"
+        contains "map_col.OFFSET"
+        notContains "map_col.NULL"
+    }
+    sql "select cardinality(map_col), map_col is null from slcp_str_tbl"
+
+    // Struct string subfield: length(element_at(struct_col, 'f3')) -> [struct_col.f3.OFFSET]
+    //                         element_at(struct_col, 'f3') IS NULL  -> [struct_col.f3.NULL]
+    // OFFSET covers NULL → [struct_col.f3.NULL] must not appear.
+    explain {
+        sql """select length(element_at(struct_col, 'f3')),
+                     element_at(struct_col, 'f3') is null
+              from slcp_str_tbl"""
+        contains "nested columns"
+        contains "OFFSET"
+        notContains "struct_col.f3.NULL"
+    }
+    sql """select length(element_at(struct_col, 'f3')),
+                 element_at(struct_col, 'f3') is null
+          from slcp_str_tbl"""
+
+    // Struct array subfield: cardinality(element_at(s, 'arr')) -> [s.arr.OFFSET]
+    //                        element_at(s, 'arr') IS NULL      -> [s.arr.NULL]
+    // OFFSET covers NULL → [s.arr.NULL] must not appear.
+    explain {
+        sql """select cardinality(element_at(s, 'arr')),
+                     element_at(s, 'arr') is null
+              from slcp_struct_root_tbl"""
+        contains "nested columns"
+        contains "OFFSET"
+        notContains "s.arr.NULL"
+    }
+    sql """select cardinality(element_at(s, 'arr')),
+                 element_at(s, 'arr') is null
+          from slcp_struct_root_tbl"""
+
+    // Struct map subfield: cardinality(element_at(s, 'm')) -> [s.m.OFFSET]
+    //                      element_at(s, 'm') IS NULL      -> [s.m.NULL]
+    // OFFSET covers NULL → [s.m.NULL] must not appear.
+    explain {
+        sql """select cardinality(element_at(s, 'm')),
+                     element_at(s, 'm') is null
+              from slcp_struct_root_tbl"""
+        contains "nested columns"
+        contains "OFFSET"
+        notContains "s.m.NULL"
+    }
+    sql """select cardinality(element_at(s, 'm')),
+                 element_at(s, 'm') is null
+          from slcp_struct_root_tbl"""
 }

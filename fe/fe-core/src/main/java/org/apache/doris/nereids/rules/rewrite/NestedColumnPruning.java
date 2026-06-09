@@ -275,7 +275,7 @@ public class NestedColumnPruning implements CustomRewriter {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
-
+            stripNullSuffixPaths(slot, allAccessPaths);
             if (slot.getDataType().isStringLikeType()) {
                 if (accessTree.hasStringOffsetOnlyAccess()) {
                     if (skipDataSkippingOnlyAccessPath) {
@@ -284,7 +284,6 @@ public class NestedColumnPruning implements CustomRewriter {
                     // Offset-only access (e.g. length(str_col)): type stays varchar,
                     // but we must still send the access path to BE so it skips the char data.
                     stripExactCoveredDataSkippingSuffixPaths(slot, allAccessPaths, allAccessPaths);
-                    stripNullSuffixPaths(slot, allAccessPaths);
                     List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
                     result.put(slot.getExprId().asInt(),
                             new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
@@ -359,9 +358,6 @@ public class NestedColumnPruning implements CustomRewriter {
             // of gating this logic on the root slot type.
             stripCoveredOffsetSuffixPaths(slot, allAccessPaths, allAccessPaths);
 
-            // Strip NULL-suffix paths when a non-NULL path also exists for the same slot.
-            // E.g. `SELECT col FROM t WHERE col IS NULL` — full data is needed, NULL path is redundant.
-            stripNullSuffixPaths(slot, allAccessPaths);
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             if (shouldSkipAccessInfo(slot, prunedDataType, allPaths, predicateAccessPaths)) {
                 continue;
