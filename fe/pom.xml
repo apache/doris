@@ -266,6 +266,7 @@ under the License.
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
         <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
+        <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-net.version>3.13.0</commons-net.version>
         <commons-pool2.version>2.2</commons-pool2.version>
@@ -860,6 +861,13 @@ under the License.
                 <groupId>commons-codec</groupId>
                 <artifactId>commons-codec</artifactId>
                 <version>${commons-codec.version}</version>
+            </dependency>
+            <!-- commons-lang 2.x: required at RUNTIME by hive-catalog-shade's HiveConf
+                 (org.apache.commons.lang.StringUtils). Not referenced by any fe source. -->
+            <dependency>
+                <groupId>commons-lang</groupId>
+                <artifactId>commons-lang</artifactId>
+                <version>${commons-lang.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
             <dependency>

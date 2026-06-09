@@ -31,8 +31,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.maxcompute.MCTransaction;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -69,6 +67,7 @@ import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.Transaction;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -486,8 +485,12 @@ public class FrontendServiceImplTest {
     public void testGetMaxComputeBlockIdRange() throws Exception {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
         long txnId = Env.getCurrentEnv().getNextId();
-        MCTransaction transaction = new MCTransaction(Mockito.mock(MaxComputeExternalCatalog.class));
-        setPrivateField(transaction, "writeSessionId", "session-1");
+        // The block-id RPC consumes the generic Transaction SPI (supportsWriteBlockAllocation /
+        // allocateWriteBlockRange); the live impl is PluginDrivenTransactionManager's connector
+        // transaction. Mock the interface to pin the RPC's allocate-and-return contract.
+        Transaction transaction = Mockito.mock(Transaction.class);
+        Mockito.when(transaction.supportsWriteBlockAllocation()).thenReturn(true);
+        Mockito.when(transaction.allocateWriteBlockRange("session-1", 1L)).thenReturn(0L, 1L);
         Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, transaction);
 
         try {

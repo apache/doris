@@ -18,6 +18,7 @@
 package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -38,6 +39,14 @@ public interface Connector extends Closeable {
 
     /** Returns the scan plan provider for split generation. */
     default ConnectorScanPlanProvider getScanPlanProvider() {
+        return null;
+    }
+
+    /**
+     * Returns the write plan provider for sink ({@code TDataSink}) generation,
+     * or {@code null} if this connector does not support writes.
+     */
+    default ConnectorWritePlanProvider getWritePlanProvider() {
         return null;
     }
 

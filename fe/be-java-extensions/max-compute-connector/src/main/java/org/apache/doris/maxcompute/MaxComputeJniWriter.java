@@ -21,7 +21,6 @@ import org.apache.doris.common.jni.JniWriter;
 import org.apache.doris.common.jni.vec.VectorColumn;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.common.maxcompute.MCProperties;
-import org.apache.doris.common.maxcompute.MCUtils;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
