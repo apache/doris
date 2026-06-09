@@ -92,11 +92,35 @@ public class Count extends NotNullableAggregateFunction
     public void checkLegalityAfterRewrite() {
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
-            if (distinct && (argument.getDataType().isComplexType()
-                    || argument.getDataType().isObjectType() || argument.getDataType().isJsonType())) {
-                throw new AnalysisException("COUNT DISTINCT could not process type " + this.toSql());
+            if (distinct) {
+                checkDistinctArgument(argument, this);
             }
         }
+    }
+
+    static void checkDistinctArgument(Expression argument, Expression function) {
+        DataType argumentType = argument.getDataType();
+        if (isUnsupportedDistinctArgument(argumentType)) {
+            throwDistinctArgumentException(function);
+        }
+    }
+
+    static void checkDistinctVariantArgument(Expression argument, Expression function) {
+        DataType argumentType = argument.getDataType();
+        if (argumentType.isVariantType()) {
+            throwDistinctArgumentException(function);
+        }
+    }
+
+    private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
+        return argumentType.isComplexType()
+                || argumentType.isObjectType()
+                || argumentType.isJsonType()
+                || argumentType.isVariantType();
+    }
+
+    private static void throwDistinctArgumentException(Expression function) {
+        throw new AnalysisException("COUNT DISTINCT could not process type " + function.toSql());
     }
 
     public boolean isStar() {
