@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -77,6 +78,15 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
     public boolean limitOneIsEliminated() {
         return limitOneIsEliminated;
+    }
+
+    /** Whether this is a correlated scalar subquery with ORDER BY and LIMIT 1. */
+    public boolean isCorrelatedTopN() {
+        if (hasTopLevelScalarAgg || correlateSlots.isEmpty() || !(queryPlan instanceof LogicalLimit)) {
+            return false;
+        }
+        LogicalLimit<?> limit = (LogicalLimit<?>) queryPlan;
+        return limit.getLimit() == 1 && limit.getOffset() == 0 && limit.child() instanceof LogicalSort;
     }
 
     /**
@@ -183,7 +193,7 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
                 return null;
             }
         } else if (plan instanceof LogicalProject || plan instanceof LogicalSubQueryAlias
-                || plan instanceof LogicalSort) {
+                || plan instanceof LogicalSort || plan instanceof LogicalLimit) {
             for (Plan child : plan.children()) {
                 LogicalAggregate<?> result = findTopLevelScalarAgg(child, slots);
                 if (result != null) {

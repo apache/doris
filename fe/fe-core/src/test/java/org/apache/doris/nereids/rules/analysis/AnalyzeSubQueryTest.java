@@ -29,10 +29,15 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.FieldChecker;
@@ -65,6 +70,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
@@ -244,6 +250,60 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         for (String sql : notNullableSqls) {
             checkScalarSubquerySlotNullable(sql, false);
         }
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryWithTopN() {
+        String sql = "select T1.id, (select T2.score from T2 where T2.id = T1.id "
+                + "order by T2.score desc limit 1) from T1";
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+
+        List<LogicalWindow<?>> windows = Lists.newArrayList();
+        List<LogicalJoin<?, ?>> joins = Lists.newArrayList();
+        plan.foreach(node -> {
+            if (node instanceof LogicalWindow) {
+                windows.add((LogicalWindow<?>) node);
+            } else if (node instanceof LogicalJoin) {
+                joins.add((LogicalJoin<?, ?>) node);
+            }
+        });
+
+        Assertions.assertEquals(1, windows.size(), plan.treeString());
+        NamedExpression rowNumberAlias = windows.get(0).getWindowExpressions().get(0);
+        WindowExpression windowExpression = (WindowExpression) rowNumberAlias.child(0);
+        Assertions.assertInstanceOf(RowNumber.class, windowExpression.getFunction());
+        Assertions.assertEquals(1, windowExpression.getPartitionKeys().size());
+        Assertions.assertEquals("id", ((Slot) windowExpression.getPartitionKeys().get(0)).getName());
+        Assertions.assertEquals(1, windowExpression.getOrderKeys().size());
+        Assertions.assertEquals("score", ((Slot) windowExpression.getOrderKeys().get(0).child()).getName());
+        Assertions.assertFalse(windowExpression.getOrderKeys().get(0).isAsc());
+
+        Assertions.assertEquals(1, joins.size());
+        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, joins.get(0).getJoinType());
+        Assertions.assertTrue(plan.getOutput().get(1).nullable());
+
+        String filterSql = "select T1.id from T1 where T1.score > (select T2.score from T2 "
+                + "where T2.id = T1.id order by T2.score limit 1)";
+        Plan filterPlan = PlanChecker.from(connectContext)
+                .analyze(filterSql)
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(filterPlan.anyMatch(LogicalWindow.class::isInstance), filterPlan.treeString());
+        Assertions.assertFalse(filterPlan.anyMatch(LogicalApply.class::isInstance), filterPlan.treeString());
+
+        String aliasOrderSql = "select T1.id, (select T2.score + 1 as ordered_score from T2 "
+                + "where T2.id = T1.id order by ordered_score desc limit 1) from T1";
+        Plan aliasOrderPlan = PlanChecker.from(connectContext)
+                .analyze(aliasOrderSql)
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(aliasOrderPlan.anyMatch(LogicalWindow.class::isInstance),
+                aliasOrderPlan.treeString());
+        Assertions.assertFalse(aliasOrderPlan.anyMatch(LogicalApply.class::isInstance),
+                aliasOrderPlan.treeString());
     }
 
     private void checkScalarSubquerySlotNullable(String sql, boolean outputNullable) {

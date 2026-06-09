@@ -427,7 +427,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     subquery = result.subquery;
                     newCorrelatedOuterExpr = result.correlatedOuterExpr;
                 }
-            } else {
+            } else if (!((ScalarSubquery) subquery).isCorrelatedTopN()) {
                 // if scalar subquery doesn't have top level scalar agg we will create one, for example
                 // select (select t2.c1 from t2 where t2.c2 = t1.c2) from t1;
                 // the original output of the correlate subquery is t2.c1, after adding a scalar agg, it will be
