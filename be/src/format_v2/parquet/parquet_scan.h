@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "common/status.h"
@@ -103,6 +104,9 @@ public:
         _page_skip_profile = page_skip_profile;
     }
     void set_scan_profile(ParquetScanProfile scan_profile) { _scan_profile = scan_profile; }
+    void set_global_rowid_context(std::optional<format::GlobalRowIdContext> context) {
+        _global_rowid_context = context;
+    }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
 
@@ -140,6 +144,7 @@ private:
     int64_t _current_range_rows_read = 0;
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
+    std::optional<format::GlobalRowIdContext> _global_rowid_context;
 };
 
 } // namespace doris::parquet

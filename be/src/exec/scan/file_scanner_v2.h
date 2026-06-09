@@ -19,6 +19,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -84,6 +85,9 @@ private:
     Status _create_table_reader(const TFileRangeDesc& range);
     Status _create_table_reader_for_format(const TFileRangeDesc& range);
     Status _prepare_table_reader_split(const TFileRangeDesc& range);
+    bool _should_enable_file_meta_cache() const;
+    std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
+            const TFileRangeDesc& range) const;
     Status _generate_partition_values(const TFileRangeDesc& range,
                                       std::map<std::string, Field>* partition_values) const;
     Status _parse_partition_value(const SlotDescriptor* slot_desc, const std::string& value,
@@ -109,6 +113,7 @@ private:
 
     std::unique_ptr<format::TableReader> _table_reader;
     std::vector<format::ColumnDefinition> _projected_columns;
+    bool _need_global_rowid_column = false;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
     std::unordered_map<int32_t, format::GlobalIndex> _slot_id_to_global_index;
     std::unordered_map<std::string, PartitionSlotInfo> _partition_slot_descs;

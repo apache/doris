@@ -2944,8 +2944,7 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
 }
 
 TEST(TableReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputColumn) {
-    const auto row_position_column_id =
-            doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+    const auto row_position_column_id = ROW_POSITION_COLUMN_ID;
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(
             make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));

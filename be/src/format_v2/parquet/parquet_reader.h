@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "common/status.h"
@@ -41,7 +42,8 @@ class ParquetReader : public format::FileReader {
 public:
     ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                   std::unique_ptr<io::FileDescription>& file_description,
-                  std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile);
+                  std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
+                  std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt);
     ~ParquetReader() override;
 
     // 打开 Parquet 文件并解析 footer metadata。
@@ -133,6 +135,7 @@ private:
 
     std::unique_ptr<ParquetReaderScanState> _state;
     ParquetProfile _parquet_profile;
+    std::optional<format::GlobalRowIdContext> _global_rowid_context;
 };
 
 } // namespace doris::parquet

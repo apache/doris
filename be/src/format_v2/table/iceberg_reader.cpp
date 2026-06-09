@@ -267,8 +267,7 @@ std::string IcebergTableReader::_data_file_path() const {
 }
 
 Status IcebergTableReader::_append_row_position_output_column(format::FileScanRequest* request) {
-    const auto row_position_column_id = format::LocalColumnId(
-            doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID);
+    const auto row_position_column_id = format::LocalColumnId(format::ROW_POSITION_COLUMN_ID);
     _append_file_scan_column(request, row_position_column_id, &request->non_predicate_columns);
     _row_position_block_position = request->local_positions.at(row_position_column_id).value();
     return Status::OK();

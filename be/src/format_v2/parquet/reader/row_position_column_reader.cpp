@@ -28,14 +28,12 @@ namespace doris::parquet {
 
 RowPositionColumnReader::RowPositionColumnReader(int64_t row_group_first_row,
                                                  ParquetColumnReaderProfile profile)
-        : ParquetColumnReader(
-                  ParquetColumnSchema {
-                          .name = ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME},
-                  std::make_shared<DataTypeInt64>(), profile),
+        : ParquetColumnReader(ParquetColumnSchema {.name = format::ROW_POSITION_COLUMN_NAME},
+                              std::make_shared<DataTypeInt64>(), profile),
           _row_group_first_row(row_group_first_row) {}
 
 int RowPositionColumnReader::file_column_id() const {
-    return ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID;
+    return format::ROW_POSITION_COLUMN_ID;
 }
 
 int RowPositionColumnReader::parquet_leaf_column_id() const {
