@@ -124,16 +124,16 @@ TEST_F(PartitionTransformersTest, test_floating_point_special_partition_value) {
     auto double_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, false);
 
-    EXPECT_EQ("NaN", transform.get_partition_value(
-                             float_type, std::numeric_limits<Float32>::quiet_NaN()));
-    EXPECT_EQ("Infinity", transform.get_partition_value(
-                                  float_type, std::numeric_limits<Float32>::infinity()));
-    EXPECT_EQ("-Infinity", transform.get_partition_value(
-                                   float_type, -std::numeric_limits<Float32>::infinity()));
-    EXPECT_EQ("NaN", transform.get_partition_value(
-                             double_type, std::numeric_limits<Float64>::quiet_NaN()));
-    EXPECT_EQ("Infinity", transform.get_partition_value(
-                                  double_type, std::numeric_limits<Float64>::infinity()));
+    EXPECT_EQ("NaN",
+              transform.get_partition_value(float_type, std::numeric_limits<Float32>::quiet_NaN()));
+    EXPECT_EQ("Infinity",
+              transform.get_partition_value(float_type, std::numeric_limits<Float32>::infinity()));
+    EXPECT_EQ("-Infinity",
+              transform.get_partition_value(float_type, -std::numeric_limits<Float32>::infinity()));
+    EXPECT_EQ("NaN", transform.get_partition_value(double_type,
+                                                   std::numeric_limits<Float64>::quiet_NaN()));
+    EXPECT_EQ("Infinity",
+              transform.get_partition_value(double_type, std::numeric_limits<Float64>::infinity()));
     EXPECT_EQ("-Infinity", transform.get_partition_value(
                                    double_type, -std::numeric_limits<Float64>::infinity()));
 }
