@@ -1365,8 +1365,7 @@ int InstanceChecker::collect_unexpired_job_tmp_rowsets(
     int64_t num_unexpired = 0;
     int64_t num_expired = 0;
     int64_t last_txn_id = -1;
-    int64_t current_time =
-            duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    int64_t current_time = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
 
     while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
@@ -1429,7 +1428,8 @@ int InstanceChecker::collect_unexpired_job_tmp_rowsets(
             // below any real expiration so the helper never updates the recycler's
             // earliest-ts bvar (the checker must not touch the recycler's metrics).
             int64_t earlest_ts = 0;
-            int64_t expiration = calculate_tmp_rowset_expired_time(instance_id_, rowset, &earlest_ts);
+            int64_t expiration =
+                    calculate_tmp_rowset_expired_time(instance_id_, rowset, &earlest_ts);
             if (current_time < expiration) {
                 tmp_rowsets[rowset.tablet_id()].insert(rowset.rowset_id_v2());
                 ++num_unexpired;
@@ -1438,8 +1438,7 @@ int InstanceChecker::collect_unexpired_job_tmp_rowsets(
                             << "collect unexpired tmp rowsets for delete bitmap checker reached "
                             << "limit, remaining tmp rowsets will not be considered and may cause "
                             << "false positives, instance_id=" << instance_id_
-                            << ", num_scanned=" << num_scanned
-                            << ", num_non_job=" << num_non_job
+                            << ", num_scanned=" << num_scanned << ", num_non_job=" << num_non_job
                             << ", num_skipped_non_job_txns=" << num_skipped_non_job_txns
                             << ", num_unexpired=" << num_unexpired
                             << ", num_expired=" << num_expired
@@ -1458,8 +1457,7 @@ int InstanceChecker::collect_unexpired_job_tmp_rowsets(
     }
 
     LOG(INFO) << "collect unexpired tmp rowsets for delete bitmap checker finished, instance_id="
-              << instance_id_ << ", num_scanned=" << num_scanned
-              << ", num_non_job=" << num_non_job
+              << instance_id_ << ", num_scanned=" << num_scanned << ", num_non_job=" << num_non_job
               << ", num_skipped_non_job_txns=" << num_skipped_non_job_txns
               << ", num_unexpired=" << num_unexpired << ", num_expired=" << num_expired;
     return 0;
