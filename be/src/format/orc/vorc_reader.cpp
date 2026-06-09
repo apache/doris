@@ -3197,7 +3197,7 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             for (int& dict_code : dict_codes) {
                 hybrid_set->insert(&dict_code);
             }
-            root = VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set, false);
         }
         {
             SlotDescriptor* slot = nullptr;
