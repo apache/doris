@@ -29,9 +29,12 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <memory>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
 #include "common/compare.h"
@@ -85,32 +88,48 @@ private:
 public:
     using value_type = typename PrimitiveTypeTraits<T>::CppType;
     using Container = PaddedPODArray<value_type>;
+    using ImmContainer = std::span<const value_type>;
 
 private:
+    struct ExternalDataSpan {
+        std::shared_ptr<void> owner;
+        const value_type* data = nullptr;
+        size_t size = 0;
+    };
+
     ColumnVector() = default;
     explicit ColumnVector(const size_t n) : data(n) {}
     explicit ColumnVector(const size_t n, const value_type x) : data(n, x) {}
-    ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
+    ColumnVector(const ColumnVector& src) {
+        data.reserve(src.size());
+        src.for_each_immutable_data_span(
+                [this](ImmContainer values) { data.insert(values.begin(), values.end()); });
+    }
 
     /// Sugar constructor.
     ColumnVector(std::initializer_list<value_type> il) : data {il} {}
 
 public:
-    size_t size() const override { return data.size(); }
+    size_t size() const override { return data.size() + _external_size; }
 
     StringRef get_data_at(size_t n) const override {
-        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
+        auto values = immutable_data();
+        return {reinterpret_cast<const char*>(&values[n]), sizeof(values[n])};
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).get_data()[n]);
+        materialize_external_data();
+        data.push_back(
+                assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).immutable_data()[n]);
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
+        materialize_external_data();
         data.push_back(unaligned_load<value_type>(pos));
     }
 
     void insert_many_vals(value_type val, size_t n) {
+        materialize_external_data();
         auto old_size = data.size();
         data.resize(old_size + n);
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
@@ -121,6 +140,7 @@ public:
     void insert_range_of_integer(value_type begin, value_type end) {
         if constexpr (!is_float_or_double(T) && T != TYPE_TIMEV2 && T != TYPE_TIMESTAMPTZ &&
                       !is_date_type(T)) {
+            materialize_external_data();
             auto old_size = data.size();
             auto new_size = old_size + static_cast<size_t>(end - begin);
             data.resize(new_size);
@@ -132,6 +152,7 @@ public:
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {
+        materialize_external_data();
         data.reserve(data.size() + num);
         constexpr size_t input_value_size = sizeof(uint24_t);
 
@@ -147,6 +168,7 @@ public:
     }
 
     void insert_datetime_column(const char* data_ptr, size_t num) {
+        materialize_external_data();
         data.reserve(data.size() + num);
         size_t value_size = sizeof(uint64_t);
         for (int i = 0; i < num; i++) {
@@ -170,22 +192,56 @@ public:
         }
     }
 
+    void insert_many_fix_len_data_with_owner(const char* data_ptr, size_t num,
+                                             std::shared_ptr<void> owner) override {
+        if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+            // The legacy DATE/DATETIME encodings stored on page are not byte-identical to the
+            // in-memory VecDateTimeValue layout. They must keep the existing decode-and-convert
+            // path instead of adopting page memory directly.
+            insert_many_fix_len_data(data_ptr, num);
+            return;
+        }
+        const bool can_use_external_data =
+                owner != nullptr && data.empty() &&
+                reinterpret_cast<uintptr_t>(data_ptr) % alignof(value_type) == 0;
+        if (can_use_external_data) {
+            // The page decoder already owns decoded fixed-width values in naturally aligned page
+            // memory. Keep the page owner and append a read-only span instead of copying it into
+            // the local PODArray. A large Doris block can cross several storage pages, so this is
+            // intentionally segmented; consumers that can iterate spans stay zero-copy, while
+            // legacy consumers that require one contiguous array call immutable_data()/get_data()
+            // and materialize once.
+            _append_external_data_span(reinterpret_cast<const value_type*>(data_ptr), num,
+                                       std::move(owner));
+            return;
+        }
+        insert_many_fix_len_data(data_ptr, num);
+    }
+
     void insert_many_raw_data(const char* data_ptr, size_t num) override {
         DCHECK(data_ptr);
+        materialize_external_data();
         auto old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(value_type));
     }
 
-    void insert_default() override { data.push_back(default_value()); }
+    void insert_default() override {
+        materialize_external_data();
+        data.push_back(default_value());
+    }
 
     void insert_many_defaults(size_t length) override {
+        materialize_external_data();
         size_t old_size = data.size();
         data.resize(old_size + length);
         std::fill(data.data() + old_size, data.data() + old_size + length, default_value());
     }
 
-    void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
+    void pop_back(size_t n) override {
+        materialize_external_data();
+        data.resize_assume_reserved(data.size() - n);
+    }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
 
@@ -203,30 +259,32 @@ public:
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
+        auto values = immutable_data();
         if (null_data) {
             for (size_t i = start; i < end; i++) {
                 if (null_data[i] == 0) {
-                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&values[i]),
                                                       sizeof(value_type), hash);
                 }
             }
         } else {
             for (size_t i = start; i < end; i++) {
-                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&values[i]),
                                                   sizeof(value_type), hash);
             }
         }
     }
 
     void ALWAYS_INLINE update_crc_with_value_without_null(size_t idx, uint32_t& hash) const {
+        auto values = immutable_data();
         if constexpr (is_date_or_datetime(T)) {
             char buf[64];
-            const auto& date_val = (const VecDateTimeValue&)data[idx];
+            const auto& date_val = (const VecDateTimeValue&)values[idx];
             auto len = date_val.to_buffer(buf);
             hash = HashUtil::zlib_crc_hash(buf, len, hash);
 
         } else {
-            hash = HashUtil::zlib_crc_hash(&data[idx], sizeof(value_type), hash);
+            hash = HashUtil::zlib_crc_hash(&values[idx], sizeof(value_type), hash);
         }
     }
 
@@ -263,16 +321,30 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    size_t byte_size() const override { return data.size() * sizeof(data[0]); }
+    size_t byte_size() const override { return size() * sizeof(value_type); }
 
-    size_t allocated_bytes() const override { return data.allocated_bytes(); }
-
-    bool has_enough_capacity(const IColumn& src) const override {
-        const auto& src_vec = assert_cast<const ColumnVector&>(src);
-        return data.capacity() - data.size() > src_vec.data.size();
+    size_t allocated_bytes() const override {
+        // External spans point into page-cache owned memory. Count only ColumnVector metadata here;
+        // charging the page bytes again would double-count memory already tracked by the storage
+        // page cache.
+        return data.allocated_bytes() + _external_data_spans.capacity() * sizeof(ExternalDataSpan);
     }
 
-    void insert_value(const value_type value) { data.push_back(value); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        // Capacity reuse is meaningful only for the mutable local PODArray. A page-backed column has
+        // immutable external spans, so any append-style reuse must first materialize and should not
+        // be selected by generic block reuse heuristics.
+        if (_has_external_data()) {
+            return false;
+        }
+        const auto& src_vec = assert_cast<const ColumnVector&>(src);
+        return data.capacity() - data.size() > src_vec.size();
+    }
+
+    void insert_value(const value_type value) {
+        materialize_external_data();
+        data.push_back(value);
+    }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size,
                               IColumn* col_ptr) const override {
@@ -289,8 +361,10 @@ public:
 
     /// This method implemented in header because it could be possibly devirtualized.
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
-        return Compare::compare(
-                data[n], assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).data[m]);
+        const auto lhs_values = immutable_data();
+        const auto rhs_values =
+                assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).immutable_data();
+        return Compare::compare(lhs_values[n], rhs_values[m]);
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
@@ -298,7 +372,10 @@ public:
 
     void reserve(size_t n) override { data.reserve(n); }
 
-    void resize(size_t n) override { data.resize(n); }
+    void resize(size_t n) override {
+        materialize_external_data();
+        data.resize(n);
+    }
 
     std::string get_name() const override { return type_to_string(T); }
 
@@ -308,11 +385,14 @@ public:
 
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
 
-    void clear() override { data.clear(); }
+    void clear() override {
+        data.clear();
+        _reset_external_data();
+    }
 
     bool get_bool(size_t n) const override {
         if constexpr (T == TYPE_BOOLEAN) {
-            return bool(data[n]);
+            return bool(immutable_data()[n]);
         } else {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "Method get_int is not supported for " + get_name());
@@ -326,7 +406,7 @@ public:
                                    "Method get_int is not supported for " + get_name());
             return 0;
         } else {
-            return Int64(data[n]);
+            return Int64(immutable_data()[n]);
         }
     }
 
@@ -337,7 +417,10 @@ public:
     // but its type is different from column's data type (int64 vs uint64), so that during column
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
-    void insert(const Field& x) override { data.push_back(x.get<T>()); }
+    void insert(const Field& x) override {
+        materialize_external_data();
+        data.push_back(x.get<T>());
+    }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -350,7 +433,8 @@ public:
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     StringRef get_raw_data() const override {
-        return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
+        auto values = immutable_data();
+        return StringRef(reinterpret_cast<const char*>(values.data()), values.size());
     }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -358,27 +442,63 @@ public:
     }
 
     /** More efficient methods of manipulation - to manipulate with data directly. */
-    Container& get_data() { return data; }
+    Container& get_data() {
+        materialize_external_data();
+        return data;
+    }
 
-    const Container& get_data() const { return data; }
+    const Container& get_data() const {
+        materialize_external_data();
+        return data;
+    }
 
-    const value_type& get_element(size_t n) const { return data[n]; }
+    // Read-only consumers should prefer for_each_immutable_data_span() when they can process
+    // segmented input. Scan blocks often span multiple storage pages; immutable_data() still keeps
+    // the historical contiguous-span contract and therefore materializes multi-page columns.
+    ImmContainer immutable_data() const {
+        if (_has_external_data()) {
+            if (_external_data_spans.size() == 1) {
+                const auto& span = _external_data_spans.front();
+                return {span.data, span.size};
+            }
+            materialize_external_data();
+        }
+        return {data.data(), data.size()};
+    }
 
-    value_type& get_element(size_t n) { return data[n]; }
+    template <typename Func>
+    void for_each_immutable_data_span(Func&& func) const {
+        if (!data.empty()) {
+            func(ImmContainer {data.data(), data.size()});
+        }
+        for (const auto& span : _external_data_spans) {
+            func(ImmContainer {span.data, span.size});
+        }
+    }
+
+    const value_type& get_element(size_t n) const { return immutable_data()[n]; }
+
+    value_type& get_element(size_t n) {
+        materialize_external_data();
+        return data[n];
+    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
+        materialize_external_data();
+        data[self_row] =
+                assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).immutable_data()[row];
     }
 
     // Optimized batch version using memcpy for continuous range
     void replace_column_data_range(const IColumn& src, size_t src_start, size_t count,
                                    size_t self_start) override {
         DCHECK(size() >= self_start + count);
+        materialize_external_data();
         const auto& src_col = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src);
         DCHECK(src_col.size() >= src_start + count);
-        memcpy(data.data() + self_start, src_col.data.data() + src_start,
-               count * sizeof(value_type));
+        auto src_values = src_col.immutable_data();
+        memcpy(data.data() + self_start, src_values.data() + src_start, count * sizeof(value_type));
     }
 
     bool support_replace_column_data_range() const override { return true; }
@@ -397,6 +517,7 @@ public:
                           uint8_t* __restrict filter) const override;
 
     void erase(size_t start, size_t length) override {
+        materialize_external_data();
         if (start >= data.size() || length == 0) {
             return;
         }
@@ -419,11 +540,64 @@ public:
         }
     }
 
+private:
+    bool _has_external_data() const { return !_external_data_spans.empty(); }
+
+    void _append_external_data_span(const value_type* external_data, size_t external_size,
+                                    std::shared_ptr<void> owner) {
+        if (external_size == 0) {
+            return;
+        }
+        DCHECK(external_data != nullptr);
+        DCHECK(owner != nullptr);
+        if (!_external_data_spans.empty()) {
+            auto& last = _external_data_spans.back();
+            if (last.owner.get() == owner.get() && last.data + last.size == external_data) {
+                // Consecutive decoder calls can return adjacent slices from the same page. Merge
+                // them so read-only consumers see fewer spans without changing ownership semantics.
+                last.size += external_size;
+                _external_size += external_size;
+                return;
+            }
+        }
+        _external_data_spans.push_back(
+                ExternalDataSpan {.owner = std::move(owner),
+                                  .data = external_data,
+                                  .size = external_size});
+        _external_size += external_size;
+    }
+
+    void _reset_external_data() const {
+        _external_data_spans.clear();
+        _external_size = 0;
+    }
+
+    void materialize_external_data() const {
+        if (!_has_external_data()) {
+            return;
+        }
+        // This is the boundary back to the traditional ColumnVector contract: many generic
+        // expression, sort, filter, and serialization paths assume a single contiguous
+        // PaddedPODArray. Page-backed scan spans are safe only for read-only consumers that
+        // explicitly iterate spans; all other paths pay one copy here and then behave exactly like
+        // an ordinary ColumnVector.
+        const auto old_size = data.size();
+        data.resize(old_size + _external_size);
+        auto* dst = data.data() + old_size;
+        for (const auto& span : _external_data_spans) {
+            memcpy(dst, span.data, span.size * sizeof(value_type));
+            dst += span.size;
+        }
+        _reset_external_data();
+    }
+
 protected:
     uint32_t _zlib_crc32_hash(uint32_t hash, size_t idx) const;
     uint32_t _crc32c_hash_value(uint32_t hash, const value_type& value) const;
     uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
-    Container data;
+    mutable Container data;
+    mutable std::vector<ExternalDataSpan> _external_data_spans;
+    mutable size_t _external_size = 0;
 };
 
 using ColumnUInt8 = ColumnVector<TYPE_BOOLEAN>;

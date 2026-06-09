@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <memory>
+#include <utility>
+
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -159,6 +162,16 @@ public:
     void insert_many_fix_len_data(const char* pos, size_t num) override {
         push_false_to_nullmap(num);
         get_nested_column().insert_many_fix_len_data(pos, num);
+    }
+
+    void insert_many_fix_len_data_with_owner(const char* pos, size_t num,
+                                             std::shared_ptr<void> owner) override {
+        // A nullable column has two physical children: the nested data and the null map. This entry
+        // point is used only when storage has already proved the appended range contains no NULLs,
+        // so we append a false null map and may let the nested fixed-width column borrow page
+        // memory. Ranges with real NULLs are decoded through nullable-specific paths instead.
+        push_false_to_nullmap(num);
+        get_nested_column().insert_many_fix_len_data_with_owner(pos, num, std::move(owner));
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {

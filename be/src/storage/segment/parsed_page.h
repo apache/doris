@@ -20,6 +20,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <memory>
+#include <utility>
 
 #include "common/status.h"
 #include "storage/segment/binary_dict_page.h"
@@ -43,7 +44,7 @@ struct ParsedPage {
                          PageDecoderOptions opts = PageDecoderOptions()) {
         result->~ParsedPage();
         ParsedPage* page = new (result)(ParsedPage);
-        page->page_handle = std::move(handle);
+        page->page_handle = std::make_shared<PageHandle>(std::move(handle));
 
         auto null_size = footer.nullmap_size();
         page->has_null = null_size > 0;
@@ -58,6 +59,9 @@ struct ParsedPage {
         PageDecoder* decoder;
         RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &decoder));
         page->data_decoder.reset(decoder);
+        // The decoder may forward fixed-width values as immutable column memory. Keep the
+        // underlying page alive through any output column that adopts this shared owner.
+        page->data_decoder->set_page_data_owner(page->page_handle);
         RETURN_IF_ERROR(page->data_decoder->init());
 
         if (encoding->encoding() == DICT_ENCODING) {
@@ -78,7 +82,7 @@ struct ParsedPage {
 
     ~ParsedPage() { data_decoder = nullptr; }
 
-    PageHandle page_handle;
+    std::shared_ptr<PageHandle> page_handle;
 
     bool has_null;
     Slice null_bitmap;

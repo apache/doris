@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -243,6 +244,14 @@ public:
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method insert_many_fix_len_data is not supported for " + get_name());
+    }
+
+    // Fixed-width page decoders can pass a shared owner for the source memory. Columns that know
+    // how to read immutable external storage may keep that owner and avoid an immediate memcpy;
+    // the default implementation preserves the historical eager-copy behavior for all columns.
+    virtual void insert_many_fix_len_data_with_owner(const char* pos, size_t num,
+                                                     std::shared_ptr<void> owner) {
+        insert_many_fix_len_data(pos, num);
     }
 
     // todo(zeno) Use dict_args temp object to cover all arguments

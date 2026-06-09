@@ -124,10 +124,10 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
 
     // mem_size = real_need_copy_num * sizeof(T)
     auto mem_size = real_need_copy_num * sizeof(typename PrimitiveTypeTraits<T>::CppType);
-    const auto* origin_data =
+    const auto values =
             assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data_column)
-                    .get_data()
-                    .data();
+                    .immutable_data();
+    const auto* origin_data = values.data();
 
     // column data
     if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {

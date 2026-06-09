@@ -22,6 +22,7 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -86,6 +87,16 @@ public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;
 
+private:
+    static decltype(auto) _column_values(const ColVecType& column) {
+        if constexpr (is_decimal(T)) {
+            return column.get_data();
+        } else {
+            return column.immutable_data();
+        }
+    }
+
+public:
     String get_name() const override { return "sum"; }
 
     AggregateFunctionSum(const DataTypes& argument_types_)
@@ -107,8 +118,40 @@ public:
              Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        this->data(place).add(
-                typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
+        const auto& values = _column_values(column);
+        this->data(place).add(typename PrimitiveTypeTraits<TResult>::CppType(values[row_num]));
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena&) const override {
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        auto& aggregate_data = this->data(place);
+        if constexpr (is_decimal(T)) {
+            // Decimal columns are already stored in Doris-owned contiguous memory and their
+            // arithmetic goes through the existing decimal container semantics.
+            const auto& source_values = _column_values(column);
+            const auto* __restrict values = source_values.data();
+            for (size_t i = 0; i < batch_size; ++i) {
+                aggregate_data.add(typename PrimitiveTypeTraits<TResult>::CppType(values[i]));
+            }
+        } else {
+            // This is semantically the same as the default IAggregateFunctionHelper loop over
+            // add(), but it is intentionally written for the hot no-group-by SUM path. Fixed-width
+            // scan columns can be backed by several storage pages inside one large block; iterating
+            // page spans keeps those pages read-only and avoids materializing them into one
+            // contiguous PODArray just to add the values.
+            size_t remaining = batch_size;
+            column.for_each_immutable_data_span([&](typename ColVecType::ImmContainer source_values) {
+                const size_t rows = std::min(remaining, source_values.size());
+                const auto* __restrict values = source_values.data();
+                for (size_t i = 0; i < rows; ++i) {
+                    aggregate_data.add(typename PrimitiveTypeTraits<TResult>::CppType(values[i]));
+                }
+                remaining -= rows;
+            });
+            DCHECK_EQ(remaining, 0);
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
@@ -152,7 +195,8 @@ public:
         DCHECK(col.item_size() == sizeof(Data))
                 << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(num_rows);
-        auto* src_data = src.get_data().data();
+        const auto& source_values = _column_values(src);
+        auto* src_data = source_values.data();
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
@@ -223,7 +267,8 @@ public:
         if (*could_use_previous_result) {
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto* data = column.get_data().data();
+            const auto& source_values = _column_values(column);
+            const auto* data = source_values.data();
             auto outcoming_pos = frame_start - 1;
             auto incoming_pos = frame_end - 1;
             if (!previous_is_nul && outcoming_pos >= partition_start &&
@@ -256,9 +301,10 @@ public:
         } else {
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& source_values = _column_values(column);
             for (size_t row_num = current_frame_start; row_num < current_frame_end; ++row_num) {
                 this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
+                        typename PrimitiveTypeTraits<TResult>::CppType(source_values[row_num]));
             }
             *use_null_result = false;
             *could_use_previous_result = true;
