@@ -46,14 +46,14 @@ enum class ScanFilterStage {
     KEY_RANGE = 0,
     // Inverted index bitmap pruning for column predicates or pushed-down exprs.
     INDEX_INVERTED,
+    // ANN range index pruning.
+    INDEX_ANN,
+    // Dictionary pruning before decoding data pages.
+    INDEX_DICT,
     // Bloom filter index pruning at page granularity.
     INDEX_BLOOM_FILTER,
     // Zone map pruning at page granularity.
     INDEX_ZONE_MAP,
-    // Dictionary pruning before decoding data pages.
-    INDEX_DICT,
-    // ANN range index pruning.
-    INDEX_ANN,
     // Vectorized column predicate evaluation after rows are read.
     EXEC_VECTOR,
     // Short-circuit column predicate evaluation after lazy materialization.

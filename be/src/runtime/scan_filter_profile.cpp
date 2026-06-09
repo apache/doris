@@ -18,10 +18,11 @@
 #include "runtime/scan_filter_profile.h"
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <sstream>
+#include <unordered_set>
 
 #include "runtime/runtime_profile.h"
 
@@ -32,28 +33,17 @@ namespace {
 constexpr const char* SCAN_FILTER_INFO = "ScanFilterInfo";
 constexpr const char* KEY_RANGE_INFO = "KeyRangeInfo";
 constexpr const char* RUNTIME_FILTER_PARTITION_PRUNING = "RuntimeFilterPartitionPruning";
+constexpr int NOT_APPLIED_PROFILE_ORDER = static_cast<int>(ScanFilterStage::NUM_STAGES);
 
 bool is_index_stage(ScanFilterStage stage) {
-    return stage == ScanFilterStage::INDEX_INVERTED ||
-           stage == ScanFilterStage::INDEX_BLOOM_FILTER ||
-           stage == ScanFilterStage::INDEX_ZONE_MAP || stage == ScanFilterStage::INDEX_DICT ||
-           stage == ScanFilterStage::INDEX_ANN;
+    return stage == ScanFilterStage::INDEX_INVERTED || stage == ScanFilterStage::INDEX_ANN ||
+           stage == ScanFilterStage::INDEX_DICT || stage == ScanFilterStage::INDEX_BLOOM_FILTER ||
+           stage == ScanFilterStage::INDEX_ZONE_MAP;
 }
 
 bool is_exec_stage(ScanFilterStage stage) {
     return stage == ScanFilterStage::EXEC_VECTOR || stage == ScanFilterStage::EXEC_SHORT_CIRCUIT ||
            stage == ScanFilterStage::EXEC_COMMON_EXPR || stage == ScanFilterStage::EXEC_RESIDUAL;
-}
-
-std::string join_ids(const std::vector<int32_t>& ids) {
-    std::stringstream ss;
-    for (size_t i = 0; i < ids.size(); ++i) {
-        if (i != 0) {
-            ss << ",";
-        }
-        ss << ids[i];
-    }
-    return ss.str();
 }
 
 void set_counter(RuntimeProfile* profile, const std::string& name, TUnit::type type,
@@ -82,38 +72,6 @@ void add_info_string_if_not_empty(RuntimeProfile* profile, const std::string& ke
     }
 }
 
-int stage_display_order(ScanFilterStage stage) {
-    switch (stage) {
-    case ScanFilterStage::KEY_RANGE:
-        return 1;
-    case ScanFilterStage::INDEX_INVERTED:
-        return 2;
-    case ScanFilterStage::INDEX_ANN:
-        return 3;
-    case ScanFilterStage::INDEX_DICT:
-        return 4;
-    case ScanFilterStage::INDEX_BLOOM_FILTER:
-        return 5;
-    case ScanFilterStage::INDEX_ZONE_MAP:
-        return 6;
-    case ScanFilterStage::EXEC_VECTOR:
-        return 7;
-    case ScanFilterStage::EXEC_SHORT_CIRCUIT:
-        return 8;
-    case ScanFilterStage::EXEC_COMMON_EXPR:
-        return 9;
-    case ScanFilterStage::EXEC_RESIDUAL:
-        return 10;
-    case ScanFilterStage::NUM_STAGES:
-        break;
-    }
-    return 99;
-}
-
-const char* stage_profile_name(ScanFilterStage stage) {
-    return scan_filter_stage_name(stage);
-}
-
 const char* scan_filter_source_name(ScanFilterKind kind) {
     switch (kind) {
     case ScanFilterKind::NORMAL:
@@ -128,29 +86,11 @@ const char* scan_filter_source_name(ScanFilterKind kind) {
     return "Unknown";
 }
 
-bool contains_id(const std::vector<int32_t>& ids, int32_t id) {
-    return std::find(ids.begin(), ids.end(), id) != ids.end();
-}
-
-bool has_runtime_filter_partition_pruning_stats(
-        const ScanRuntimeFilterPartitionPruningStats& stats) {
-    return stats.total_partitions > 0 || stats.pruned_partitions > 0 || stats.pruned_tablets > 0;
-}
-
-constexpr std::array<ScanFilterStage, static_cast<size_t>(ScanFilterStage::NUM_STAGES)>
-ordered_stages() {
-    return {ScanFilterStage::KEY_RANGE,          ScanFilterStage::INDEX_INVERTED,
-            ScanFilterStage::INDEX_ANN,          ScanFilterStage::INDEX_DICT,
-            ScanFilterStage::INDEX_BLOOM_FILTER, ScanFilterStage::INDEX_ZONE_MAP,
-            ScanFilterStage::EXEC_VECTOR,        ScanFilterStage::EXEC_SHORT_CIRCUIT,
-            ScanFilterStage::EXEC_COMMON_EXPR,   ScanFilterStage::EXEC_RESIDUAL};
-}
-
 struct SummaryStats {
     bool participated = false;
     bool has_filtering_stage = false;
     bool has_time = false;
-    int first_stage = 99;
+    int first_stage = NOT_APPLIED_PROFILE_ORDER;
     int last_stage = -1;
     int64_t input_rows = 0;
     int64_t output_rows = 0;
@@ -163,7 +103,7 @@ void update_summary(SummaryStats* summary, ScanFilterStage stage,
     if (!stats.participated()) {
         return;
     }
-    const auto order = stage_display_order(stage);
+    const auto order = static_cast<int>(stage);
     if (stats.filtered_rows > 0) {
         if (!summary->has_filtering_stage || order < summary->first_stage) {
             summary->first_stage = order;
@@ -201,7 +141,7 @@ struct MaterializedFilterSnapshot {
 
 void materialize_filter_stage(RuntimeProfile* filter_profile, ScanFilterStage stage,
                               const ScanFilterStageStatsSnapshot& stats) {
-    auto* stage_profile = get_or_create_child(filter_profile, stage_profile_name(stage));
+    auto* stage_profile = get_or_create_child(filter_profile, scan_filter_stage_name(stage));
     set_root_counter(stage_profile, "InputRows", TUnit::UNIT, 2, stats.input_rows);
     set_root_counter(stage_profile, "FilteredRows", TUnit::UNIT, 2, stats.filtered_rows);
     if (stats.has_time) {
@@ -212,37 +152,27 @@ void materialize_filter_stage(RuntimeProfile* filter_profile, ScanFilterStage st
 std::string scan_filter_stages_string(const MaterializedFilterSnapshot& snapshot,
                                       bool is_key_range_source) {
     std::vector<std::string> stages;
-    for (const auto stage : ordered_stages()) {
+    for (int i = 0; i < static_cast<int>(ScanFilterStage::NUM_STAGES); ++i) {
+        const auto stage = static_cast<ScanFilterStage>(i);
         if (snapshot.stage_snapshots[static_cast<size_t>(stage)].participated()) {
-            stages.emplace_back(stage_profile_name(stage));
+            stages.emplace_back(scan_filter_stage_name(stage));
         }
     }
     if (stages.empty()) {
         return is_key_range_source ? "KeyRangeInfo" : "NotApplied";
     }
-
-    std::stringstream ss;
-    for (size_t i = 0; i < stages.size(); ++i) {
-        if (i != 0) {
-            ss << " -> ";
-        }
-        ss << stages[i];
-    }
-    return ss.str();
+    return fmt::format("{}", fmt::join(stages, " -> "));
 }
 
 std::string target_string(const ScanFilterDesc& desc) {
-    std::stringstream ss;
+    std::vector<std::string> parts;
     if (desc.column_id >= 0) {
-        ss << "column_id=" << desc.column_id;
+        parts.emplace_back(fmt::format("column_id={}", desc.column_id));
     }
     if (!desc.column_name.empty()) {
-        if (ss.tellp() > 0) {
-            ss << ", ";
-        }
-        ss << "column=" << desc.column_name;
+        parts.emplace_back(fmt::format("column={}", desc.column_name));
     }
-    return ss.str();
+    return fmt::format("{}", fmt::join(parts, ", "));
 }
 
 std::string source_string(const ScanFilterDesc& desc) {
@@ -298,7 +228,8 @@ void materialize_filter_counters(RuntimeProfile* filter_profile,
     if (profile_level < 2) {
         return;
     }
-    for (const auto stage : ordered_stages()) {
+    for (int i = 0; i < static_cast<int>(ScanFilterStage::NUM_STAGES); ++i) {
+        const auto stage = static_cast<ScanFilterStage>(i);
         const auto& stage_stats = snapshot.stage_snapshots[static_cast<size_t>(stage)];
         if (!stage_stats.participated()) {
             continue;
@@ -324,23 +255,6 @@ void materialize_runtime_filter_partition_pruning(
     }
 }
 
-int first_profile_order(const MaterializedFilterSnapshot& snapshot, bool is_key_range_source) {
-    if (snapshot.total.participated) {
-        return snapshot.total.first_stage;
-    }
-    if (is_key_range_source) {
-        return 1;
-    }
-    return 99;
-}
-
-int64_t first_profile_input_rows(const MaterializedFilterSnapshot& snapshot, int order) {
-    if (snapshot.total.participated && snapshot.total.first_stage == order) {
-        return snapshot.total.input_rows;
-    }
-    return snapshot.total.input_rows;
-}
-
 } // namespace
 
 const char* scan_filter_kind_name(ScanFilterKind kind) {
@@ -363,14 +277,14 @@ const char* scan_filter_stage_name(ScanFilterStage stage) {
         return "KeyRange";
     case ScanFilterStage::INDEX_INVERTED:
         return "IndexInverted";
+    case ScanFilterStage::INDEX_ANN:
+        return "IndexAnn";
+    case ScanFilterStage::INDEX_DICT:
+        return "IndexDict";
     case ScanFilterStage::INDEX_BLOOM_FILTER:
         return "IndexBloomFilter";
     case ScanFilterStage::INDEX_ZONE_MAP:
         return "IndexZoneMap";
-    case ScanFilterStage::INDEX_DICT:
-        return "IndexDict";
-    case ScanFilterStage::INDEX_ANN:
-        return "IndexAnn";
     case ScanFilterStage::EXEC_VECTOR:
         return "ExecuteVector";
     case ScanFilterStage::EXEC_SHORT_CIRCUIT:
@@ -529,8 +443,9 @@ void ScanFilterProfile::materialize(RuntimeProfile* profile, int profile_level) 
         const auto& key_range = *key_range_snapshot;
         const auto key_range_stats = key_range.handle.stats->snapshot(ScanFilterStage::KEY_RANGE);
         if (!key_range.source_filter_ids.empty()) {
-            key_range_profile->add_info_string("SourceFilterIds",
-                                               join_ids(key_range.source_filter_ids));
+            key_range_profile->add_info_string(
+                    "SourceFilterIds",
+                    fmt::format("{}", fmt::join(key_range.source_filter_ids, ",")));
         }
         if (profile_level >= 2) {
             add_info_string_if_not_empty(key_range_profile, "ScanKeys", key_range.scan_keys);
@@ -544,32 +459,19 @@ void ScanFilterProfile::materialize(RuntimeProfile* profile, int profile_level) 
     }
 
     const bool has_partition_pruning_stats =
-            has_runtime_filter_partition_pruning_stats(runtime_filter_partition_pruning_stats);
+            runtime_filter_partition_pruning_stats.total_partitions > 0;
     if (scan_filter_snapshots.empty() && !has_partition_pruning_stats &&
         runtime_filter_acquire_time_ns <= 0) {
         return;
     }
 
-    std::vector<int32_t> key_range_source_filter_ids;
+    std::unordered_set<int32_t> key_range_source_filter_ids;
     if (key_range_snapshot.has_value()) {
-        key_range_source_filter_ids = key_range_snapshot->source_filter_ids;
+        key_range_source_filter_ids.insert(key_range_snapshot->source_filter_ids.begin(),
+                                           key_range_snapshot->source_filter_ids.end());
     }
 
-    std::ranges::sort(scan_filter_snapshots, [&](const auto& left, const auto& right) {
-        const bool left_key_range_source =
-                contains_id(key_range_source_filter_ids, left.desc.filter_id);
-        const bool right_key_range_source =
-                contains_id(key_range_source_filter_ids, right.desc.filter_id);
-        const int left_order = first_profile_order(left, left_key_range_source);
-        const int right_order = first_profile_order(right, right_key_range_source);
-        if (left_order != right_order) {
-            return left_order < right_order;
-        }
-        const int64_t left_input_rows = first_profile_input_rows(left, left_order);
-        const int64_t right_input_rows = first_profile_input_rows(right, right_order);
-        if (left_input_rows != right_input_rows) {
-            return left_input_rows > right_input_rows;
-        }
+    std::ranges::sort(scan_filter_snapshots, [](const auto& left, const auto& right) {
         return left.desc.filter_id < right.desc.filter_id;
     });
 
@@ -590,9 +492,8 @@ void ScanFilterProfile::materialize(RuntimeProfile* profile, int profile_level) 
     for (const auto& snapshot : scan_filter_snapshots) {
         auto* filter_profile = get_or_create_child(
                 scan_filter_profile, fmt::format("ScanFilter {}", snapshot.desc.filter_id));
-        materialize_filter_counters(
-                filter_profile, snapshot, profile_level,
-                contains_id(key_range_source_filter_ids, snapshot.desc.filter_id));
+        materialize_filter_counters(filter_profile, snapshot, profile_level,
+                                    key_range_source_filter_ids.contains(snapshot.desc.filter_id));
     }
 }
 
