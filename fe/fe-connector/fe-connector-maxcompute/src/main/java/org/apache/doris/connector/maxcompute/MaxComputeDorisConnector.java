@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import com.aliyun.odps.Odps;
+import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.account.AccountFormat;
 import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
@@ -58,6 +59,7 @@ public class MaxComputeDorisConnector implements Connector {
     private Odps odps;
     private String endpoint;
     private String defaultProject;
+    private boolean enableNamespaceSchema;
     private String quota;
     private McStructureHelper structureHelper;
     private MaxComputeScanPlanProvider scanPlanProvider;
@@ -107,7 +109,7 @@ public class MaxComputeDorisConnector implements Connector {
         }
         odps.setAccountFormat(accountFormat);
 
-        boolean enableNamespaceSchema = Boolean.parseBoolean(
+        enableNamespaceSchema = Boolean.parseBoolean(
                 properties.getOrDefault(
                         MCConnectorProperties.ENABLE_NAMESPACE_SCHEMA,
                         MCConnectorProperties
@@ -137,6 +139,14 @@ public class MaxComputeDorisConnector implements Connector {
         int retryTimes = Integer.parseInt(properties.getOrDefault(
                 MCConnectorProperties.RETRY_COUNT,
                 MCConnectorProperties.DEFAULT_RETRY_COUNT));
+
+        // Apply the same timeouts to the raw ODPS client: metadata / project / schema / DDL and the
+        // CREATE-time connectivity test (testConnection) go through odps.getRestClient(), not the
+        // Storage API. Mirrors legacy MaxComputeExternalCatalog.initLocalObjectsImpl; the RestOptions
+        // below cover only the Storage API EnvironmentSettings used by the scan/write paths.
+        odps.getRestClient().setConnectTimeout(connectTimeout);
+        odps.getRestClient().setReadTimeout(readTimeout);
+        odps.getRestClient().setRetryTimes(retryTimes);
 
         RestOptions restOptions = RestOptions.newBuilder()
                 .withConnectTimeout(connectTimeout)
@@ -198,13 +208,62 @@ public class MaxComputeDorisConnector implements Connector {
     public ConnectorTestResult testConnection(ConnectorSession session) {
         try {
             ensureInitialized();
-            odps.projects().exists(defaultProject);
+            validateMaxComputeConnection();
             return ConnectorTestResult.success(
                     "MaxCompute project '" + defaultProject + "' is accessible");
         } catch (Exception e) {
-            return ConnectorTestResult.failure(
-                    "MaxCompute connection test failed: " + e.getMessage());
+            return ConnectorTestResult.failure(e.getMessage());
         }
+    }
+
+    /**
+     * Validates FE&rarr;ODPS connectivity for CREATE CATALOG (test_connection=true), mirroring
+     * legacy {@code MaxComputeExternalCatalog.validateMaxComputeConnection}. When namespace schema
+     * is enabled the project is three-tier, so the schema list must be reachable; otherwise the
+     * project itself must exist and be accessible.
+     */
+    protected void validateMaxComputeConnection() {
+        if (enableNamespaceSchema) {
+            validateMaxComputeProjectAndNamespaceSchema();
+        } else {
+            validateMaxComputeProject();
+        }
+    }
+
+    private void validateMaxComputeProject() {
+        boolean projectExists;
+        try {
+            projectExists = maxComputeProjectExists(defaultProject);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
+                    + "'. Check " + MCConnectorProperties.PROJECT + ", " + MCConnectorProperties.ENDPOINT
+                    + " and credentials. Cause: " + e.getMessage(), e);
+        }
+        if (!projectExists) {
+            throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
+                    + "'. Check " + MCConnectorProperties.PROJECT + ", " + MCConnectorProperties.ENDPOINT
+                    + " and credentials. Cause: project does not exist or is not accessible");
+        }
+    }
+
+    private void validateMaxComputeProjectAndNamespaceSchema() {
+        try {
+            validateMaxComputeNamespaceSchemaAccess(defaultProject);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
+                    + "' with namespace schema. Check " + MCConnectorProperties.PROJECT + ", "
+                    + MCConnectorProperties.ENDPOINT
+                    + ", credentials, and whether the schema list is accessible for the namespace "
+                    + "schema configuration. Cause: " + e.getMessage(), e);
+        }
+    }
+
+    protected boolean maxComputeProjectExists(String projectName) throws OdpsException {
+        return odps.projects().exists(projectName);
+    }
+
+    protected void validateMaxComputeNamespaceSchemaAccess(String projectName) throws OdpsException {
+        odps.schemas().iterator(projectName).hasNext();
     }
 
     public Odps getClient() {

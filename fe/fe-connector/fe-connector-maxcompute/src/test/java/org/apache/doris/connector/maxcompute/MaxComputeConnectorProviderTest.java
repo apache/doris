@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.maxcompute;
 
+import org.apache.doris.connector.api.ConnectorTestResult;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -236,5 +238,135 @@ public class MaxComputeConnectorProviderTest {
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
         Assertions.assertTrue(ex.getMessage().contains("Unsupported auth type"));
+    }
+
+    // --- 6. split-byte-size error message names the byte-size property, not row-count ---
+    // Migrated from MaxComputeExternalCatalogTest.testSplitByteSizeErrorMessage (PR
+    // apache/doris#64119), which fixed a copy-paste that printed SPLIT_ROW_COUNT in the
+    // SPLIT_BYTE_SIZE floor error. This fork was already correct (G6); the test pins it.
+
+    @Test
+    public void testSplitByteSizeErrorMessageNamesByteSizeNotRowCount() {
+        Map<String, String> props = validProps();
+        props.put(MCConnectorProperties.SPLIT_STRATEGY,
+                MCConnectorProperties.SPLIT_BY_BYTE_SIZE_STRATEGY);
+        props.put(MCConnectorProperties.SPLIT_BYTE_SIZE, "1048576");
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.validateProperties(props));
+        Assertions.assertTrue(ex.getMessage().contains(MCConnectorProperties.SPLIT_BYTE_SIZE),
+                "got: " + ex.getMessage());
+        Assertions.assertFalse(ex.getMessage().contains(MCConnectorProperties.SPLIT_ROW_COUNT),
+                "got: " + ex.getMessage());
+    }
+
+    // --- 7. CREATE CATALOG connectivity test (test_connection) — the FE->ODPS half of catalog
+    // validation, complementing the property half above. Migrated from
+    // MaxComputeExternalCatalogTest.testCheckWhenCreating* (PR apache/doris#64119): the legacy
+    // MaxComputeExternalCatalog.checkWhenCreating override is now MaxComputeDorisConnector
+    // .testConnection(), wired by PluginDrivenExternalCatalog.checkWhenCreating (TEST_CONNECTION
+    // gate -> testConnection -> DdlException on failure). The two ODPS calls (project-exists /
+    // namespace-schema-list) are overridden so the tests run offline with no Mockito, mirroring the
+    // PR's TestMaxComputeExternalCatalog seam subclass. ---
+
+    @Test
+    public void testMaxComputeDoesNotForceConnectivityTestByDefault() {
+        // PR testCheckWhenCreatingSkipsValidationByDefault: MaxCompute leaves test_connection off by
+        // default, so PluginDrivenExternalCatalog.checkWhenCreating skips testConnection entirely.
+        Assertions.assertFalse(
+                new MaxComputeDorisConnector(connectivityProps(true), null).defaultTestConnection());
+    }
+
+    @Test
+    public void testConnectionValidatesProjectWhenNamespaceSchemaDisabled() {
+        TestMaxComputeDorisConnector connector =
+                new TestMaxComputeDorisConnector(connectivityProps(false));
+        ConnectorTestResult result = connector.testConnection(null);
+        Assertions.assertTrue(result.isSuccess(), "got: " + result.getMessage());
+        Assertions.assertEquals("mc_project", connector.checkedProjectName);
+        Assertions.assertNull(connector.checkedNamespaceSchemaProjectName);
+    }
+
+    @Test
+    public void testConnectionValidatesSchemaWhenNamespaceSchemaEnabled() {
+        TestMaxComputeDorisConnector connector =
+                new TestMaxComputeDorisConnector(connectivityProps(true));
+        ConnectorTestResult result = connector.testConnection(null);
+        Assertions.assertTrue(result.isSuccess(), "got: " + result.getMessage());
+        Assertions.assertEquals("mc_project", connector.checkedNamespaceSchemaProjectName);
+        Assertions.assertNull(connector.checkedProjectName);
+    }
+
+    @Test
+    public void testConnectionReportsInaccessibleProject() {
+        TestMaxComputeDorisConnector connector =
+                new TestMaxComputeDorisConnector(connectivityProps(false));
+        connector.projectExists = false;
+        ConnectorTestResult result = connector.testConnection(null);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertTrue(
+                result.getMessage().contains("Failed to validate MaxCompute project 'mc_project'"),
+                "got: " + result.getMessage());
+        Assertions.assertTrue(
+                result.getMessage().contains("does not exist or is not accessible"),
+                "got: " + result.getMessage());
+        Assertions.assertNull(connector.checkedNamespaceSchemaProjectName);
+    }
+
+    @Test
+    public void testConnectionReportsInaccessibleNamespaceSchema() {
+        TestMaxComputeDorisConnector connector =
+                new TestMaxComputeDorisConnector(connectivityProps(true));
+        connector.threeTierModel = false;
+        ConnectorTestResult result = connector.testConnection(null);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertTrue(
+                result.getMessage().contains("Failed to validate MaxCompute project 'mc_project'"),
+                "got: " + result.getMessage());
+        Assertions.assertTrue(
+                result.getMessage().contains("schema list is accessible"),
+                "got: " + result.getMessage());
+    }
+
+    private static Map<String, String> connectivityProps(boolean enableNamespaceSchema) {
+        Map<String, String> props = new HashMap<>();
+        props.put(MCConnectorProperties.PROJECT, "mc_project");
+        props.put(MCConnectorProperties.ENDPOINT,
+                "http://service.cn-beijing.maxcompute.aliyun-inc.com/api");
+        props.put(MCConnectorProperties.ACCESS_KEY, "access_key");
+        props.put(MCConnectorProperties.SECRET_KEY, "secret_key");
+        props.put(MCConnectorProperties.ENABLE_NAMESPACE_SCHEMA,
+                Boolean.toString(enableNamespaceSchema));
+        return props;
+    }
+
+    /**
+     * Overrides the two ODPS-touching seams so the connectivity test runs offline, mirroring the
+     * PR's {@code TestMaxComputeExternalCatalog}. {@code projectExists}/{@code threeTierModel} drive
+     * the simulated remote state; {@code checked*ProjectName} record which validation path ran.
+     */
+    private static final class TestMaxComputeDorisConnector extends MaxComputeDorisConnector {
+        private boolean projectExists = true;
+        private boolean threeTierModel = true;
+        private String checkedProjectName;
+        private String checkedNamespaceSchemaProjectName;
+
+        private TestMaxComputeDorisConnector(Map<String, String> props) {
+            super(props, null);
+        }
+
+        @Override
+        protected boolean maxComputeProjectExists(String projectName) {
+            checkedProjectName = projectName;
+            return projectExists;
+        }
+
+        @Override
+        protected void validateMaxComputeNamespaceSchemaAccess(String projectName) {
+            checkedNamespaceSchemaProjectName = projectName;
+            if (!threeTierModel) {
+                throw new RuntimeException("schema list is not accessible");
+            }
+        }
     }
 }

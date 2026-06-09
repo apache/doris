@@ -87,6 +87,9 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle.getTableHandle();
         Table odpsTable = mcHandle.getOdpsTable();
+        // Reject external tables / logical views before opening a write session (mirrors legacy
+        // MCTransaction.beginInsert): the ODPS Storage API cannot write to them.
+        mcHandle.checkOperationSupported("Writing");
         TableIdentifier tableId = mcHandle.getTableIdentifier();
 
         boolean isOverwrite = handle.isOverwrite();

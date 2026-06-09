@@ -5,6 +5,43 @@
 
 ---
 
+# 🔥 第 18 次 handoff（2026-06-09，覆盖）— PR #64119（MaxCompute test_connection 校验 + 外表/视图 read·write 拒绝）迁移 SPI DONE，连接器 UT 全绿
+
+> **本 session**：用户要求把 upstream PR apache/doris#64119（`[fix](fe) Improve MaxCompute catalog validation`，11 文件/+422）的功能完整迁移到 SPI 框架，并跑通其 3 个单元测试。PR 改的 fe-core 类（`MaxComputeExternalCatalog`/`MaxComputeExternalTable`/`MCTransaction`/`MaxComputeScanNode`）在本 fork 已于 P4 删除→连接器化，故为真迁移。**用户定夺**：① 范围 = surgical（补 A + 加 C，B/D 已在不动）；② 测试 = fold 进现有连接器测试文件。
+
+## ✅ 本 session 已完成（4 main + 3 test，全门绿，本地未 commit）
+
+- **Gap 分析（关键发现）**：PR 4 行为里 **(B) REST 超时**（`MaxComputeDorisConnector.buildSettings` RestOptions）与 **(D) split_byte_size 报错文案**（`MaxComputeConnectorProvider:82` 已用 `SPLIT_BYTE_SIZE`，G6 已修）**早已在 fork**；**(A) test_connection 连通性校验**仅 stub（`testConnection()` 调 `odps.projects().exists()` 但**丢返回值**、**无 namespace-schema 分支**）；**(C) 外表/逻辑视图 read+write 拒绝**完全缺失。→ 实际新工 = 补全 A + 实现 C。
+- **(A) 补全 `MaxComputeDorisConnector.testConnection()`**：加 `enableNamespaceSchema` 字段（doInit 赋值）；改调 `validateMaxComputeConnection()`——`enableNamespaceSchema ?` schema 校验(`odps.schemas().iterator(project).hasNext()`) `:` project 校验(`odps.projects().exists(project)` **查返回值**)；4 个 protected seam 镜像 PR 的 `MaxComputeExternalCatalog`。失败经 `ConnectorTestResult.failure(msg)`，由 `PluginDrivenExternalCatalog.checkWhenCreating`（已有 TEST_CONNECTION 闸 + testConnection wiring）包成 DdlException。MC 默认 test_connection=false（不 override `defaultTestConnection()`）。
+- **(C) 外表/视图拒绝**：`MaxComputeTableHandle.checkOperationSupported(...)`（实例 + 静态纯守卫，throw `DorisConnectorException("{Reading|Writing} MaxCompute external table or logical view is not supported: db.name")`），接入 `MaxComputeScanPlanProvider.planScan:187`（"Reading"，所有读路径汇入此 6-arg；4/5-arg + planScanForPartitionBatch 默认都委派至此）+ `MaxComputeWritePlanProvider.planWrite:92`（"Writing"，开 write session 前）。镜像 PR `isUnsupportedOdpsTable` + getSplits/beginInsert 守卫。
+- **测试（fold 进现有 3 文件 ↔ PR 3 测）**：`MaxComputeConnectorProviderTest` +6（D split-msg / MC default-off / 4×testConnection via `TestMaxComputeDorisConnector` seam 子类，offline 无 Mockito）；`MaxComputeConnectorTransactionTest` +3（write reject ×2 + 负例）；`MaxComputeScanPlanProviderTest` +3（read reject ×2 + 负例）。
+- **守门全绿**：`mvn -pl :fe-connector-maxcompute -am test` = **101 run / 0 fail / 0 err / 1 skip**（skip=OdpsLiveConnectivityTest 无 live env）；**checkstyle 0 violations**；import-gate 净（仅加 connector-api + odps import，无 fe-core）。**mutation 验真**：`||`→`&&`(守卫) + `if(enableNamespaceSchema)` 取反(路由) → 精确 **8 红**（4 reject + 4 connectivity），还原后复绿。
+
+## ✅ 追加（用户要求把 PR 3 个 groovy 回归测试也迁过来）
+- **3 个 groovy 已迁**（`regression-test/suites/external_table_p2/maxcompute/`，皆 `p2,external` 活集成测，本地**无 live ODPS 无法跑**，仅结构核：三引号/花括号平衡、属性键与连接器 `MCConnectorProperties` 一致）：
+  - 新增 `test_max_compute_validate_connection.groovy`（PR 原样，属性键全对得上 fork）：4 catalog——default(无 test_connection)/explicit-false 用非法 endpoint `127.0.0.1:1` 应**建成功**（跳连通性）；validate-project(test_connection=true) 应抛 `Failed to validate MaxCompute project`；validate-schema(+enable.namespace.schema) 应抛 `with namespace schema`。**断言子串与本 session (A) 实现的报错文案对齐**（经 `PluginDrivenExternalCatalog.checkWhenCreating` 包成 DdlException 后仍含该子串）。
+  - 改 `test_external_catalog_maxcompute.groovy`：2 个 `${mc_db}` catalog 块加 `"test_connection"="true"`（replace_all 命中前 2 块；第 3 块 `other_mc_datalake_test` 不动 = 镜像 PR 仅 2 hunk）。
+  - 改 `test_max_compute_schema.groovy`：namespace catalog 加 `"test_connection"="true"` + 补 EOF 换行（PR 同款）。
+- **fork odps SDK = 0.45.2-public**（upstream PR = 0.53.2）；(A)/(C) 用的 API（`projects().exists`/`schemas().iterator`/`Table.isExternalTable·isVirtualView`）跨版本稳定、UT 已绿。
+
+## ✅ 追加2 — (B) 裸 client 超时补全（用户定"补"，DONE，门绿）
+- 早期"(B) 已完成"判断**不准**：fork 只有 EnvironmentSettings/RestOptions 超时（`buildSettings`，仅 Storage API scan/write），**裸 odps client 超时缺失**——而 metadata/project/schema/testConnection 走的就是裸 client（`odps.getRestClient()`）。PR 的 (B) 正是在 `MaxComputeExternalCatalog.initLocalObjectsImpl` 设裸 client 超时。
+- **已补**：`MaxComputeDorisConnector.buildSettings` 内复用已解析的 3 个 int，加 `odps.getRestClient().setConnectTimeout/setReadTimeout/setRetryTimes`（零重复解析；0.45.2 API 已核存在）。故 `mc.connect_timeout/read_timeout/retry_count` 现作用于 metadata + 连通性调用。守门复跑 = **101/0/0/1 + checkstyle 0**，offline (A) 测不受影响（只 set 字段不联网）。
+
+## 🎯 下一步（用户定）
+- **10 文件 working tree 未 commit**（4 main + 3 UT + 3 groovy）；push/PR 由用户定。
+- **`fe/pom.xml`**：PR 仅改 tea 依赖注释（非功能、且 fork fe-core 已 odps-free），无须迁。
+- **plan-doc 仅更本 HANDOFF**；PROGRESS/decisions/task-list 未动（本工为用户 ad-hoc PR 迁移、非 P-task；如需正式 ADR/进度同步可补）。
+
+## ⚙️ 操作须知（复用 + 本 session 坑）
+- 连接器测试模块**无 Mockito**（仅 junit-jupiter，纯 seam 直测）——迁 fe-core Mockito 测须改写：连接器校验类用 **protected-seam 子类覆盖**（连 ctx 可传 null、odps client 离线构造 AK/SK 不联网），表型 reject 用**纯静态守卫直测**（见 [[catalog-spi-fe-core-test-infra]]）。
+- maven 绝对 `-f .../fe/pom.xml -pl :fe-connector-maxcompute -am test [-Dtest=X] -Dmaven.build.cache.enabled=false`；**必带 -am**；读真实 `Tests run:`/`BUILD`，勿信后台 echo exit。
+- 分支 `catalog-spi-06`。未跟踪 `.audit-scratch/`（本 session 测试 log）/`conf.cmy/`/`*.bak`/`scheduled_tasks.lock`（勿提交）。
+
+---
+
+<details><summary>📅 历史：第 17 次 handoff（2026-06-09）— 老 MaxCompute 代码移除 DONE（3 commit，全门绿）</summary>
+
 # 🔥 第 17 次 handoff（2026-06-09，覆盖）— 🎉 老 MaxCompute 代码移除 DONE（3 commit，全门绿）
 
 > **本 session**：用户确认 🅰 live ODPS e2e 绿后执行 Batch-D 删除。**基于最新 upstream `9ed49571b20`(#64253) 新建分支 `catalog-spi-06`**（upstream 已含全部 cutover+gap-fix 代码，与旧 `catalog-spi-05` tree 字节一致，已核：`git diff` 0 文件差）。**2 code commit + 1 doc commit，全部守门绿。**
@@ -21,6 +58,8 @@
 ## ⚙️ 操作须知
 - 分支 `catalog-spi-06`（off upstream/branch-catalog-spi，tracking 已设）；本地 3 commit 未 push。未跟踪 `.audit-scratch/`/`conf.cmy/`/`*.bak`/`scheduled_tasks.lock`（勿提交）。
 - **删多模块 dep 时核传递依赖**（DV-022 教训：模块自身代码可能白拿被删 dep 的传递 jar，删前 `dependency:tree` + 删后编译验）。maven 绝对 `-f fe/pom.xml -pl :<art> -am`，读真实 BUILD（[[doris-build-verify-gotchas]]）。
+
+</details>
 
 ---
 
