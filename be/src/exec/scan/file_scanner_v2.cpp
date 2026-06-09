@@ -53,9 +53,9 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/slot_ref.h"
 #include "format_v2/table/hive_reader.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table_reader.h"
-#include "format_v2/table/iceberg_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -153,8 +153,8 @@ format::ColumnDefinition build_schema_column_from_external_field(
     format::ColumnDefinition column {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
-            .name_mapping = field.__isset.name_mapping ? field.name_mapping
-                                                       : std::vector<std::string> {},
+            .name_mapping =
+                    field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -835,12 +835,12 @@ Status FileScannerV2::_build_projected_columns() {
         if (is_partition_slot(slot_info)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(
-                    column.name, PartitionSlotInfo {.slot_desc = it->second,
-                                                    .canonical_name = column.name});
+                    column.name,
+                    PartitionSlotInfo {.slot_desc = it->second, .canonical_name = column.name});
             for (const auto& alias : column.name_mapping) {
                 _partition_slot_descs.emplace(
-                        alias, PartitionSlotInfo {.slot_desc = it->second,
-                                                  .canonical_name = column.name});
+                        alias,
+                        PartitionSlotInfo {.slot_desc = it->second, .canonical_name = column.name});
             }
         }
         const auto global_index = format::GlobalIndex(slot_idx);

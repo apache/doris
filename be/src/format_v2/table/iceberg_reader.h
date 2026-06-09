@@ -23,9 +23,9 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/table_reader.h"
-#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {

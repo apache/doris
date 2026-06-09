@@ -32,13 +32,13 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
-#include "format_v2/parquet/parquet_reader.h"
-#include "format_v2/parquet/reader/column_reader.h"
+#include "format/table/deletion_vector_reader.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/expr/slot_ref.h"
+#include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
-#include "format/table/deletion_vector_reader.h"
 #include "io/file_factory.h"
 
 namespace doris::iceberg {
