@@ -241,12 +241,10 @@ ScanFilterHandle ScanLocalStateBase::_register_scan_filter(const VExprSPtr& root
         desc.topn_filter_source_node_id = assert_cast<VTopNPred*>(root.get())->source_node_id();
     }
     if (slot != nullptr) {
-        desc.slot_id = slot->id();
         desc.column_name = slot->col_name();
         desc.column_id = _parent->intermediate_row_desc().get_column_id(slot->id());
     }
-    desc.debug_string = root->debug_string();
-    desc.compact_info = desc.debug_string;
+    desc.expr_debug_string = root->debug_string();
     return _scan_filter_profile->register_filter(std::move(desc));
 }
 
