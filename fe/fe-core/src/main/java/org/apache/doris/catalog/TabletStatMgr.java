@@ -25,7 +25,6 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
@@ -61,40 +60,6 @@ public class TabletStatMgr extends MasterDaemon {
 
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
-    }
-
-    private void delayRowCountReportIfNeeded(Database db, OlapTable olapTable, boolean indexReported) {
-        // Delay only when the current refresh is about to publish a usable row count.
-        // If indexReported is still false, strict row-count readers already see UNKNOWN_ROW_COUNT,
-        // so sleeping there would only slow down tablet stat refresh without creating a more precise test window.
-        if (!indexReported) {
-            return;
-        }
-        DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("TabletStatMgr.delay_row_count_report");
-        if (debugPoint == null) {
-            return;
-        }
-        String dbName = debugPoint.param("db", "");
-        String tableName = debugPoint.param("table", "");
-        long sleepMs = debugPoint.param("sleep_ms", -1L);
-        if (dbName.isEmpty() || tableName.isEmpty() || sleepMs <= 0) {
-            return;
-        }
-        // Accept both the display db name and the fully qualified db name so regression cases
-        // can target the same table across different FE naming conventions.
-        if ((!db.getFullName().equals(dbName) && !db.getName().equals(dbName))
-                || !olapTable.getName().equals(tableName)) {
-            return;
-        }
-        // Delay FE row count publication for the target table so tests can reproduce the unknown-row window.
-        try {
-            LOG.info("Delay row count report for {}.{} (full db name: {}) by {} ms",
-                    db.getName(), tableName, db.getFullName(), sleepMs);
-            Thread.sleep(sleepMs);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("Interrupted while delaying row count report for {}.{}", dbName, tableName, e);
-        }
     }
 
     @Override
@@ -304,8 +269,6 @@ public class TabletStatMgr extends MasterDaemon {
 
                                 tableBinlogSize += tabletBinlogSize;
                             } // end for tablets
-                            // Delay FE row count publication for a specific table when the debug point is enabled.
-                            delayRowCountReportIfNeeded(db, olapTable, indexReported);
                             index.setRowCountReported(indexReported);
                             index.setRowCount(indexRowCount);
                             LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
