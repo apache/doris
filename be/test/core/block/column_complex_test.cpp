@@ -76,8 +76,10 @@ TEST(ColumnComplexTest, GetDataAtTest) {
 
     ASSERT_EQ(column_bitmap->size(), 1);
     ASSERT_EQ(column_bitmap_verify->size(), 1);
-    ASSERT_EQ(column_bitmap->get_data_at(0), column_bitmap_verify->get_data_at(0));
-    ASSERT_EQ(column_hll->get_data_at(0), column_hll_verify->get_data_at(0));
+    ASSERT_EQ(column_bitmap->get_element(0).to_string(),
+              column_bitmap_verify->get_element(0).to_string());
+    ASSERT_EQ(column_hll->get_element(0).to_string(),
+              column_hll_verify->get_element(0).to_string());
     ASSERT_EQ(column_quantile_state->operator[](0), column_quantile_state_verify->operator[](0));
     std::cout << "3. test insert_default/insert_value empty success" << std::endl;
 
@@ -117,7 +119,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_bitmap->get_element(1).to_string(), bitmap_verify_data[0].to_string());
     ASSERT_EQ(column_hll->get_element(1).to_string(),
               column_hll_verify->get_element(0).to_string());
-    ASSERT_EQ(column_quantile_state->get_data_at(1), column_quantile_state_verify->get_data_at(0));
+    ASSERT_EQ(column_quantile_state->operator[](1), column_quantile_state_verify->operator[](0));
     std::cout << "4. test insert/update/get_element data success" << std::endl;
 
     // insert data from column idx 1
