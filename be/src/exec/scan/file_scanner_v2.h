@@ -96,6 +96,11 @@ private:
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
 
+    struct PartitionSlotInfo {
+        const SlotDescriptor* slot_desc = nullptr;
+        std::string canonical_name;
+    };
+
     const TFileScanRangeParams* _params = nullptr;
     std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
@@ -106,7 +111,7 @@ private:
     std::vector<format::ColumnDefinition> _projected_columns;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
     std::unordered_map<int32_t, format::GlobalIndex> _slot_id_to_global_index;
-    std::unordered_map<std::string, const SlotDescriptor*> _partition_slot_descs;
+    std::unordered_map<std::string, PartitionSlotInfo> _partition_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;

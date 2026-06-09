@@ -234,6 +234,9 @@ struct ColumnDefinition {
     int32_t local_id = -1;
     // Logical table column name. This is also the matching name for by-name file formats.
     std::string name;
+    // Historical or external names for the same logical field. Table formats such as Iceberg can
+    // use this to resolve partition path keys after column rename.
+    std::vector<std::string> name_mapping {};
     DataTypePtr type;
     // Projected nested table children. Children use table/global identifiers; they are resolved to
     // file-local child ids by TableColumnMapper before reaching FileReader.

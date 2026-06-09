@@ -17,6 +17,7 @@
 
 #include "format_v2/table/paimon_reader.h"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -50,7 +51,16 @@ const schema::external::TField* find_child_field_by_name(
         const std::vector<schema::external::TFieldPtr>& fields, const std::string& name) {
     for (const auto& field_ptr : fields) {
         const auto* field = get_field_ptr(field_ptr);
-        if (field != nullptr && field->__isset.name && to_lower(field->name) == to_lower(name)) {
+        if (field == nullptr) {
+            continue;
+        }
+        if (field->__isset.name && to_lower(field->name) == to_lower(name)) {
+            return field;
+        }
+        if (field->__isset.name_mapping &&
+            std::ranges::any_of(field->name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(name);
+            })) {
             return field;
         }
     }
@@ -80,6 +90,8 @@ void annotate_column_from_field(format::ColumnDefinition* column,
     if (field.__isset.id) {
         column->identifier = Field::create_field<TYPE_INT>(field.id);
     }
+    column->name_mapping =
+            field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
     if (!field.__isset.nestedField) {
         return;
     }
