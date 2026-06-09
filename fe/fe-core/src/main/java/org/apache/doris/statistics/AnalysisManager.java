@@ -597,6 +597,24 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    // Bootstrap table-level row count immediately after write so the optimizer can consume
+    // a usable base row count before column statistics are available.
+    public void bootstrapTableStatsIfAbsent(OlapTable table, long loadedRows) {
+        if (loadedRows <= 0) {
+            return;
+        }
+        if (findTableStatsStatus(table.getId()) != null) {
+            return;
+        }
+        synchronized (idToTblStats) {
+            if (idToTblStats.containsKey(table.getId())) {
+                return;
+            }
+            long bootstrapRowCount = resolveBootstrapRowCount(table, loadedRows);
+            updateTableStatsStatus(TableStatsMeta.newBootstrapStats(table, bootstrapRowCount, loadedRows));
+        }
+    }
+
     public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableNameInfo tblName, String priority) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         if (priority == null || priority.isEmpty()) {
@@ -614,6 +632,19 @@ public class AnalysisManager implements Writable {
             result.addAll(getPendingJobs(veryLowPriorityJobs, JobPriority.VERY_LOW, tblName));
         }
         return result;
+    }
+
+    private long resolveBootstrapRowCount(OlapTable table, long loadedRows) {
+        long bootstrapRowCount = loadedRows;
+        long baseIndexRowCount = table.getRowCountForIndex(table.getBaseIndexId(), true);
+        if (baseIndexRowCount > 0) {
+            bootstrapRowCount = Math.max(bootstrapRowCount, baseIndexRowCount);
+        }
+        long tableRowCount = table.getRowCount();
+        if (tableRowCount > 0) {
+            bootstrapRowCount = Math.max(bootstrapRowCount, tableRowCount);
+        }
+        return bootstrapRowCount;
     }
 
     protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableNameInfo, Set<Pair<String, String>>> jobMap,

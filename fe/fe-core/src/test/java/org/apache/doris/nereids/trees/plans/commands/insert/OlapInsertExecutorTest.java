@@ -39,6 +39,8 @@ import org.apache.doris.qe.InsertResult;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -182,6 +184,70 @@ class OlapInsertExecutorTest {
         }
     }
 
+    @Test
+    void testExecuteSingleInsertVisibleBootstrapsTableStatsWhenAbsent() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        ctx.getSessionVariable().setEnableInsertSelectTableStatsBootstrap(true);
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        AnalysisManager analysisManager = Mockito.spy(new AnalysisManager());
+        Env currentEnv = createCurrentEnv(loadManager, analysisManager);
+        StmtExecutor stmtExecutor = createStmtExecutor();
+
+        Mockito.doNothing().when(analysisManager).logCreateTableStats(Mockito.any(TableStatsMeta.class));
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            Mockito.when(txnMgr.commitAndPublishTransaction(
+                    Mockito.any(), Mockito.anyList(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(),
+                    Mockito.isNull())).thenReturn(true);
+
+            OlapInsertExecutor executor = createExecutor(ctx);
+            executor.txnId = 10004L;
+            executor.executeSingleInsert(stmtExecutor);
+
+            TableStatsMeta tableStats = analysisManager.findTableStatsStatus(2L);
+            Assertions.assertNotNull(tableStats);
+            Assertions.assertEquals(12L, tableStats.rowCount);
+            Assertions.assertEquals(12L, tableStats.updatedRows.get());
+            Assertions.assertEquals(12L, tableStats.getRowCount(101L));
+            Assertions.assertTrue(tableStats.isColumnsStatsEmpty());
+        }
+    }
+
+    @Test
+    void testExecuteSingleInsertVisibleDoesNotBootstrapTableStatsWhenDisabled() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        AnalysisManager analysisManager = Mockito.spy(new AnalysisManager());
+        Env currentEnv = createCurrentEnv(loadManager, analysisManager);
+        StmtExecutor stmtExecutor = createStmtExecutor();
+
+        Mockito.doNothing().when(analysisManager).logCreateTableStats(Mockito.any(TableStatsMeta.class));
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            Mockito.when(txnMgr.commitAndPublishTransaction(
+                    Mockito.any(), Mockito.anyList(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(),
+                    Mockito.isNull())).thenReturn(true);
+
+            OlapInsertExecutor executor = createExecutor(ctx);
+            executor.txnId = 10005L;
+            executor.executeSingleInsert(stmtExecutor);
+
+            Assertions.assertNull(analysisManager.findTableStatsStatus(2L));
+        }
+    }
+
     // Build a fresh context per case so insertResult and QueryState do not leak between tests.
     private ConnectContext createExecutorContext() {
         ConnectContext ctx = new ConnectContext();
@@ -227,6 +293,10 @@ class OlapInsertExecutorTest {
 
     // Provide the job-manager chain needed by master-side setTxnCallbackId().
     private Env createCurrentEnv(LoadManager loadManager) {
+        return createCurrentEnv(loadManager, Mockito.mock(AnalysisManager.class));
+    }
+
+    private Env createCurrentEnv(LoadManager loadManager, AnalysisManager analysisManager) {
         Env currentEnv = Mockito.mock(Env.class);
         // Mock the internal catalog because ConnectContext.setEnv() resolves the default catalog on master.
         InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
@@ -236,6 +306,7 @@ class OlapInsertExecutorTest {
         Mockito.when(internalCatalog.getName()).thenReturn("internal");
         Mockito.when(currentEnv.getLoadManager()).thenReturn(loadManager);
         Mockito.when(currentEnv.getJobManager()).thenReturn(jobManager);
+        Mockito.when(currentEnv.getAnalysisManager()).thenReturn(analysisManager);
         Mockito.when(jobManager.getStreamingTaskManager()).thenReturn(streamingTaskManager);
         Mockito.when(streamingTaskManager.getStreamingInsertTaskById(Mockito.anyLong())).thenReturn(null);
         return currentEnv;
@@ -244,14 +315,21 @@ class OlapInsertExecutorTest {
     // Create an executor with mocked table metadata because this test only validates timeout result handling.
     private OlapInsertExecutor createExecutor(ConnectContext ctx) {
         Database database = Mockito.mock(Database.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Mockito.when(database.getFullName()).thenReturn("test_db");
         Mockito.when(database.getId()).thenReturn(1L);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(3L);
+        Mockito.when(catalog.getName()).thenReturn("internal");
 
         // Mock OlapTable because the master-side executor now casts the target table to OlapTable.
         OlapTable table = Mockito.mock(OlapTable.class);
         Mockito.when(table.getDatabase()).thenReturn(database);
         Mockito.when(table.getName()).thenReturn("test_tbl");
         Mockito.when(table.getId()).thenReturn(2L);
+        Mockito.when(table.getBaseIndexId()).thenReturn(101L);
+        Mockito.when(table.getRowCountForIndex(101L, true)).thenReturn(-1L);
+        Mockito.when(table.getRowCount()).thenReturn(0L);
 
         return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
                 Optional.empty(), false, 0L);

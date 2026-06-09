@@ -17,7 +17,9 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -57,5 +59,29 @@ class TableStatsMetaTest {
         Assertions.assertEquals(-1, meta.getRowCount(2));
         Assertions.assertEquals(-1, meta.getRowCount(3));
         Assertions.assertEquals(-1, meta.getRowCount(4));
+    }
+
+    @Test
+    void testNewBootstrapStatsSeedsBaseIndexRowCount() {
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getId()).thenReturn(10L);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getBaseIndexId()).thenReturn(100L);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getId()).thenReturn(20L);
+        Mockito.when(database.getFullName()).thenReturn("db1");
+        Mockito.when(catalog.getId()).thenReturn(30L);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+
+        TableStatsMeta meta = TableStatsMeta.newBootstrapStats(table, 123L, 123L);
+
+        Assertions.assertEquals(123L, meta.rowCount);
+        Assertions.assertEquals(123L, meta.updatedRows.get());
+        Assertions.assertEquals(123L, meta.getRowCount(100L));
+        Assertions.assertTrue(meta.isColumnsStatsEmpty());
+        Assertions.assertFalse(meta.userInjected);
     }
 }

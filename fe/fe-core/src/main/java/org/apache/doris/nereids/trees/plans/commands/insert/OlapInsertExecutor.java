@@ -261,6 +261,11 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
             }
         }
+        // Bootstrap table-level stats only after the target data is visible to keep row-count fallback aligned.
+        if (txnStatus == TransactionStatus.VISIBLE
+                && ctx.getSessionVariable().isEnableInsertSelectTableStatsBootstrap()) {
+            Env.getCurrentEnv().getAnalysisManager().bootstrapTableStatsIfAbsent(olapTable, loadedRows);
+        }
     }
 
     private void setTxnCallbackId() {

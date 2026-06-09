@@ -116,6 +116,16 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         idxId = 0;
     }
 
+    private TableStatsMeta(TableIf table) {
+        this.ctlId = table.getDatabase().getCatalog().getId();
+        this.ctlName = table.getDatabase().getCatalog().getName();
+        this.dbId = table.getDatabase().getId();
+        this.dbName = table.getDatabase().getFullName();
+        this.tblId = table.getId();
+        this.tblName = table.getName();
+        this.idxId = -1;
+    }
+
     // It's necessary to store these fields separately from AnalysisInfo, since the lifecycle between AnalysisInfo
     // and TableStats is quite different.
     public TableStatsMeta(long rowCount, AnalysisInfo analyzedJob, TableIf table) {
@@ -128,6 +138,15 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         this.idxId = -1;
         this.rowCount = rowCount;
         update(analyzedJob, table);
+    }
+
+    // Bootstrap metadata only seeds table-level row count so the optimizer can avoid the unknown-row fallback.
+    public static TableStatsMeta newBootstrapStats(OlapTable table, long rowCount, long updatedRows) {
+        TableStatsMeta tableStats = new TableStatsMeta(table);
+        tableStats.rowCount = rowCount;
+        tableStats.updatedRows.set(updatedRows);
+        tableStats.indexesRowCount.put(table.getBaseIndexId(), rowCount);
+        return tableStats;
     }
 
     @Override

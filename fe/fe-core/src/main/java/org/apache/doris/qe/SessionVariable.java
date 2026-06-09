@@ -446,6 +446,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
+    public static final String ENABLE_INSERT_SELECT_TABLE_STATS_BOOTSTRAP =
+            "enable_insert_select_table_stats_bootstrap";
+
     public static final String SHUFFLED_AGG_NODE_IDS = "shuffled_agg_node_ids";
 
     public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
@@ -2083,6 +2086,13 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
             needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_INSERT_SELECT_TABLE_STATS_BOOTSTRAP,
+            needForward = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
+                "是否为 CTAS 和 INSERT INTO SELECT 在写入可见后补建最小表级统计基线。",
+                "Whether to bootstrap minimal table-level stats after CTAS and INSERT INTO SELECT become visible."
+            })
+    private boolean enableInsertSelectTableStatsBootstrap = false;
 
     @VarAttrDef.VarAttr(name = SHUFFLED_AGG_NODE_IDS,
             needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
@@ -4883,6 +4893,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isInsertVisibleTimeoutReturnError() {
         return getInsertVisibleTimeoutReturnModeEnum() == InsertVisibleTimeoutReturnMode.ERROR;
+    }
+
+    public boolean isEnableInsertSelectTableStatsBootstrap() {
+        return enableInsertSelectTableStatsBootstrap;
+    }
+
+    public void setEnableInsertSelectTableStatsBootstrap(boolean enableInsertSelectTableStatsBootstrap) {
+        this.enableInsertSelectTableStatsBootstrap = enableInsertSelectTableStatsBootstrap;
     }
 
     public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
