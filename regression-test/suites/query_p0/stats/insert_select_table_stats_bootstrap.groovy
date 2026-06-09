@@ -18,6 +18,7 @@
 suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
+    GetDebugPoint().clearDebugPointsForAllFEs()
 
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
@@ -60,28 +61,35 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
         """
     }
 
-    createBigATable(false)
+    // Delay FE row count publication so the non-bootstrap branch still sees unknown scan row count.
+    GetDebugPoint().enableDebugPointForAllFEs("TabletStatMgr.delay_row_count_report",
+            [db: db, table: "biga", sleep_ms: "5000"])
+    try {
+        createBigATable(false)
 
-    def tableStatsWithoutBootstrap = sql "show table stats biga"
-    assertEquals(1, tableStatsWithoutBootstrap.size())
-    assertEquals("", tableStatsWithoutBootstrap[0][0])
-    assertEquals("", tableStatsWithoutBootstrap[0][3])
-    assertEquals("", tableStatsWithoutBootstrap[0][5])
+        def tableStatsWithoutBootstrap = sql "show table stats biga"
+        assertEquals(1, tableStatsWithoutBootstrap.size())
+        assertEquals("", tableStatsWithoutBootstrap[0][0])
+        assertEquals("", tableStatsWithoutBootstrap[0][3])
+        assertEquals("", tableStatsWithoutBootstrap[0][5])
 
-    explain {
-        sql """
-            physical plan
-            select a.k, b.v
-            from smallb b
-            join biga a
-            on cast(a.k as bigint) = cast(b.k1 + b.k2 as bigint)
-        """
-        contains("PhysicalOlapScan[biga]")
-        contains("distributionSpec=DistributionSpecReplicated")
-        check { explainStr ->
-            assertTrue((explainStr =~ /PhysicalOlapScan\[biga\][^\n]*stats=1(?![,\d.])/).find())
-            assertTrue((explainStr =~ /DistributionSpecReplicated[\s\S]*PhysicalOlapScan\[biga\]/).find())
+        explain {
+            sql """
+                physical plan
+                select a.k, b.v
+                from smallb b
+                join biga a
+                on cast(a.k as bigint) = cast(b.k1 + b.k2 as bigint)
+            """
+            contains("PhysicalOlapScan[biga]")
+            contains("distributionSpec=DistributionSpecReplicated")
+            check { explainStr ->
+                assertTrue((explainStr =~ /PhysicalOlapScan\[biga\][^\n]*stats=1(?![,\d.])/).find())
+                assertTrue((explainStr =~ /DistributionSpecReplicated[\s\S]*PhysicalOlapScan\[biga\]/).find())
+            }
         }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs("TabletStatMgr.delay_row_count_report")
     }
 
     createBigATable(true)
