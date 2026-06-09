@@ -609,6 +609,16 @@ static bool is_struct_element_expr(const VExprSPtr& expr) {
            expr->fn().name.function_name == "struct_element";
 }
 
+// Transitional nested predicate extraction for file-layer pruning.
+//
+// Doris does not have a DuckDB-style TableFilter/StructFilter tree today, and ColumnPredicate
+// still represents predicates on one primitive column rather than a nested target. Until that is
+// refactored, keep the nested extension in the mapper: recognize struct_element(...) chains,
+// resolve them through split-local ColumnMapping, and attach the resulting primitive
+// ColumnPredicate to FileColumnPredicateFilter::file_child_id_path.
+//
+// This path is intentionally STRUCT-only. Do not add LIST/MAP/repeated predicate pushdown here;
+// those need an explicit nested target/quantifier model after the ColumnPredicate refactor.
 static bool parse_struct_child_selector(const VExprSPtr& expr, StructChildSelector* selector) {
     DORIS_CHECK(selector != nullptr);
     if (expr == nullptr || !expr->is_literal()) {
