@@ -5,6 +5,64 @@
 
 ---
 
+# 🔥 第 17 次 handoff（2026-06-09，覆盖）— 🎉 老 MaxCompute 代码移除 DONE（3 commit，全门绿）
+
+> **本 session**：用户确认 🅰 live ODPS e2e 绿后执行 Batch-D 删除。**基于最新 upstream `9ed49571b20`(#64253) 新建分支 `catalog-spi-06`**（upstream 已含全部 cutover+gap-fix 代码，与旧 `catalog-spi-05` tree 字节一致，已核：`git diff` 0 文件差）。**2 code commit + 1 doc commit，全部守门绿。**
+
+## ✅ 本 session 已完成
+- **删 legacy（`7a4db351100`）**：删 20 fe-core 文件（`datasource/maxcompute/*` 含 MCTransaction/MaxComputeScanNode|Split + 写/事务 plumbing + 2 测）；清 21 反向引用文件（删 import + 死 instanceof/visitor/rule 分支，**保留**全部 PluginDriven/connector 兄弟分支 + §3 KEEP 集枚举/GsonUtils 串/block-id thrift）；3 测 trim/rewire——**FrontendServiceImplTest** block-id RPC 测改用 generic `Transaction` mock（`getMaxComputeBlockIdRange` 现读 `PluginDrivenTransaction`，非 MCTransaction）；**ExternalMetaCacheRouteResolverTest** 删 legacy `max_compute` engine 断言（插件路经 `ENGINE_DEFAULT`，已核 resolver fallback）；**CommitDataSerializerTest** 删 MCTransaction 等价测。守门：test-compile(main+test) + checkstyle **0** + import-gate + grep-empty（`com.aliyun.odps` fe-core/src=∅、无非注释 code ref；`MaxComputeExternal|MCTransaction|MCInsert` 仅剩 GsonUtils 串 + 注释）全绿。
+- **依赖树彻底无 odps（`409300a75b8`，落实用户 Q2）**：删 fe-core/pom 两 odps 块；MCUtils 下沉 fe-common→be-java-extensions（`org.apache.doris.maxcompute`，删 legacy 后唯一消费者），JNI scanner/writer 删同包 import，MCProperties（odps-free 常量）留 fe-common；删 fe-common/pom 的 odps-sdk-core。**⚠️ 发现（DV-022）**：odps-sdk-core 此前**传递**给 fe-common 自身 `DorisHttpException`(netty)/`GsonUtilsBase`(protobuf)——删后编译暴露，fe-common 显式补 `netty-all`+`protobuf-java`。验收 `mvn -pl :fe-core dependency:tree | grep odps`=∅；fe-common+be-java-ext(max-compute)+fe-core 全编译。
+- **doc commit**：PROGRESS（P4 80%/maxcompute kanban 95%）+ deviations（DV-021 T3 四接受项 / DV-022 netty-protobuf）+ Batch-D 设计 §5「✅ EXECUTED」+ 本 HANDOFF。
+
+## 🎯 下一步
+- **删除已完成**；剩 **push/PR**（用户定）。🅰 live e2e 用户已确认绿（本 session 解锁前提）；静态分发审计（任务0 `reviews/P4-cutover-completeness-audit-2026-06-08.md` PASS）+ UT 层守门均绿。
+- 若日后要「fe-core 零 maxcompute 词元」= 另起 full-purge（泛化 block-id thrift / MC 枚举 / session var），用户当前**不取**（设计 §7.2 已评估升级兼容下限：GsonUtils 3 兼容串 + InitCatalogLog.Type.MAX_COMPUTE + 已持久化 TransactionType.MAXCOMPUTE 须留）。
+
+## ⚙️ 操作须知
+- 分支 `catalog-spi-06`（off upstream/branch-catalog-spi，tracking 已设）；本地 3 commit 未 push。未跟踪 `.audit-scratch/`/`conf.cmy/`/`*.bak`/`scheduled_tasks.lock`（勿提交）。
+- **删多模块 dep 时核传递依赖**（DV-022 教训：模块自身代码可能白拿被删 dep 的传递 jar，删前 `dependency:tree` + 删后编译验）。maven 绝对 `-f fe/pom.xml -pl :<art> -am`，读真实 BUILD（[[doris-build-verify-gotchas]]）。
+
+---
+
+<details><summary>📅 历史：第 16 次 handoff（2026-06-09）— Batch-D 移除方案 finalize（design-only）</summary>
+
+# 🔥 第 16 次 handoff（2026-06-09，覆盖）— Batch-D 移除方案 finalize + @HEAD 校验（design-only）
+
+> **本 session 主题**：用户要求「完整移除 fe-core 下老的 maxcompute（零代码 + 零依赖）」。本 session **只分析 + finalize 方案 + 查前置，不动代码**（用户定：实际删除放下个 session）。**结论**：移除方案 = 既有 **Batch-D**（`tasks/designs/P4-batchD-maxcompute-removal-design.md`，本 session 已 @HEAD 校验 + finalize + 扩 §7/§8）；唯一硬门 = 🅰 用户 live e2e。
+
+## ✅ 本 session 已完成（design-only，0 代码）
+- **完整分析**（3 轴，多 Agent + 亲核）：① 翻闸状态——`max_compute` 已全走 SPI（`CatalogFactory.SPI_READY_TYPES`），legacy 运行时零可达，2026-06-07 评审的写/分区/DDL blocker 已全在代码修复；② fe-core footprint——20 删除文件 + ~84 反向引用（§2）；③ maven——fe-core 直接 odps 仅 `pom.xml:364/379`，余经 fe-common 传递。
+- **Batch-D @HEAD 校验**（全过）：20 文件全在；**linchpin** = fe-core 内 8 个 import odps 文件全在删除单元、单元外 residual=∅（pom drop 编译安全）；近 commit `effd8edbfdb`/`2b8a732682c` 只动 `PluginDrivenScanNode`（KEEP 集），footprint 未变；**任务 0 静态分发审计已 DONE**（`reviews/P4-cutover-completeness-audit-2026-06-08.md` PASS，零 legacy 回退）。
+- **finalize Batch-D design**：① 删除集计数 **21→20** 就地修正；② §1 红线补 **LIMIT-split 第 3 行为副本**（等价物 P3-9 / `MaxComputeScanPlanProvider` `952b08e0cc8`）= 原 DOC task 交付；③ 新增 **§7**（范围定夺 + @HEAD 校验 + 前置门 + 验收基线）+ **§8**（fe-common odps 解耦方案 A）。
+
+## 👤 用户定夺（2026-06-09）
+- **Q1 = 只删老实现（Batch-D），非 full-purge**：保留 live SPI 插件路径在用的 `max_compute` 胶水词元（§3 KEEP 集）。
+- **Q2 = fe-core 依赖树彻底无 odps（升级，覆盖 [D-027] 决定2）**：经**方案 A**——把唯一用 odps 的 `MCUtils` 下沉到 be-java-extensions（其删 legacy 后唯一消费者）、`MCProperties`（odps-free 常量）留 fe-common、删 `fe-common/pom.xml` 的 odps。故不再「接受 fe-common 传递 odps」。详见 design §8。
+- **后果（by design）**：删后 `grep com.aliyun.odps fe-core/src`=∅ **且** `dependency:tree|grep odps`=∅；但 `grep maxcompute|max_compute|odps fe-core/src/main` 仍 >0（703→低百，SPI 胶水保留，非缺陷）。真正零词元 = 另起 full-purge（用户当前不取）。
+
+## 🎯 下一 session = 执行 Batch-D 删除（gated on 🅰 live e2e）
+- **Runbook = design §5**（T07+T08+T09 + §2 edits 作 **one compiling unit** → 守门 test-compile+checkstyle+import-gate → grep-empty 验收 → commit → §4 fe-core pom drop **+ §8 fe-common 解耦** → doc-sync）。**执行前按符号 re-grep**（§2 行号已漂移 +5~+43）。
+- **前置门**：
+  1. 🅰 **live ODPS e2e 绿（用户跑，硬门，OPEN）**：`OdpsLiveConnectivityTest`（4 个 `MC_*` env）+ 手测 smoke（读/写/DDL/元数据全覆盖）。[D-027]：删 legacy 前 flip 须保持独立可 revert。
+  2. ⬜ **T3**（登记 4 条 Tier-3 DV，doc-only，可同批）。
+- **验收基线**（§7.4）：`MaxComputeExternal|MCTransaction|MCInsert` 151→仅 §3 KEEP；`com.aliyun.odps` fe-core/src→∅；`dependency:tree|grep odps`→**∅**（含 §8）。
+
+## ⚙️ 操作须知（复用）
+- maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<artifact> -am -Dmaven.build.cache.enabled=false`；读真实 `BUILD`/`Tests run:`，勿信后台 task exit code。改 fe-core=`:fe-core`、改 fe-common=`:fe-common`、改 BE 扩展=`be-java-extensions/max-compute-connector`。
+- 删除 + 反向引用须 **one compiling unit**（Java 不 dead-strip 源符号引用）；§3 KEEP 集勿删（GsonUtils 3 字面量、block-id thrift、各 MC 枚举、PluginDriven*）。§8 移 MCUtils 须在删 `MaxComputeExternalCatalog` 之后（否则 fe-core 仍需 MCUtils）。
+- 分支 `catalog-spi-05`，本地未 push。本 session **0 代码 commit**（仅 plan-doc：design §1/§5/§7/§8 + HANDOFF + PROGRESS + tracker DOC✅）。未跟踪 `.audit-scratch/`/`conf.cmy/`/`regression-conf.groovy.bak`（勿提交）。
+
+## 🧠 给下一个 agent 的 meta
+- **🅰 live e2e（真实 ODPS）仍是翻闸 + 删除的真正完成门**；静态分发面（任务 0）已绿。
+- 范围已定：Batch-D / **fe-core 依赖树彻底无 odps（方案 A 下沉 MCUtils）**，勿擅自扩成 full-purge、也勿退回 [D-027] 的「接受传递」。
+- auto-memory：连接器禁 import fe-core（[[catalog-spi-connector-session-tz-gotcha]]）；FE 分发缺口史（[[catalog-spi-cutover-fe-dispatch-gap]]，任务0已复核 PASS）；构建坑（[[doris-build-verify-gotchas]]）。
+
+</details>
+
+---
+
+<details><summary>📅 历史：第 15 次 handoff（2026-06-08）— G2 + GC1 完成</summary>
+
 # 🔥 第 15 次 handoff（2026-06-08，覆盖）— G2 + GC1 完成
 
 > **本 session 主题**：完成 Batch-D 红线扩充 gap campaign 的 **G2 + GC1**（两者逻辑独立、触不同区：G2=读谓词路径连接器局部 / GC1=写事务路径 + fe-core session 透传）。各走 recon 核码（Rule 8）→ 独立 design doc →（Ultracode off，沿用前 4 issue 的 skip 设计验证 workflow 默认）→ 实现 → 守门（编译+UT+checkstyle+import-gate+mutation）→ 单 Agent 对抗 impl-review → 独立 `[P4-T06e]` commit + hash 回填。**两 issue 全 DONE，4 commit。**
@@ -63,6 +121,8 @@
 ## 🧠 给下一个 agent 的 meta
 - **live e2e（真实 ODPS）仍是翻闸真正完成门**——本批为静态/UT 层判定。
 - auto-memory：连接器禁 import fe-core（[[catalog-spi-connector-session-tz-gotcha]]）；测基建无 fe-core/无 mockito、child-first loader（[[catalog-spi-fe-core-test-infra]]）；clean-room 对抗偏好（[[clean-room-adversarial-review-pref]]）；构建/守门坑（[[doris-build-verify-gotchas]]，本 session 已补 maven `-am` 必带 / ${revision} 负缓存坑）。
+
+</details>
 
 ---
 

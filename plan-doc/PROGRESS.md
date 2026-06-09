@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-06-07** | 当前阶段：**P4 maxcompute·scope=C（翻闸完成）**——写/事务 SPI RFC 已批准；**W-phase（W1–W7）全部落地** ✅；**P4 adopter 设计已批准**（[D-023]，5 批/11 task）；**Batch A+B 全完成**（T01–T04，gate 关 dormant）；**Batch C 翻闸完成**（T05 image-compat + T06a 写接线/UT + **T06b flip ✅** `CatalogFactory.SPI_READY_TYPES += "max_compute"`，gate 全绿 [D-027]）；下一步 = **Batch D**（清 ~30 反向引用 + 删 legacy 子系统 + drop fe-core odps 依赖，**待用户 live ODPS 验证后做**——设计 [Batch D 移除](./tasks/designs/P4-batchD-maxcompute-removal-design.md)）。P3 hybrid 已 **#64143 合入** `branch-catalog-spi`（`5c240dc7a34`）| 项目总进度：**38%**
+> 最后更新：**2026-06-09** | 当前阶段：**P4 maxcompute·scope=C（翻闸完成）**——写/事务 SPI RFC 已批准；**W-phase（W1–W7）全部落地** ✅；**P4 adopter 设计已批准**（[D-023]，5 批/11 task）；**Batch A+B 全完成**（T01–T04，gate 关 dormant）；**Batch C 翻闸完成**（T05 image-compat + T06a 写接线/UT + **T06b flip ✅** `CatalogFactory.SPI_READY_TYPES += "max_compute"`，gate 全绿 [D-027]）；**Batch D 删除完成 ✅**（2026-06-09，分支 `catalog-spi-06` off upstream `9ed49571b20`/#64253：删 20 fe-core 文件 + 21 反向引用清理 + MCUtils 下沉 be-java-ext，fe-core 依赖树**彻底无 odps**；`7a4db351100`+`409300a75b8`，test-compile/checkstyle 0/import-gate/grep-empty/dependency:tree 全绿——设计 [Batch D 移除](./tasks/designs/P4-batchD-maxcompute-removal-design.md)）。P3 hybrid 已 **#64143 合入** `branch-catalog-spi`（`5c240dc7a34`）| 项目总进度：**38%**
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -13,7 +13,7 @@
 | **P1** | scan-node 收口 + 重复清理 | 1 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成（PR [#63641](https://github.com/apache/doris/pull/63641) squash-merged `778c5dd610f`；T1 推迟 P8；T2 推迟 P4/P5）| [tasks/P1](./tasks/P1-scan-node-cleanup.md) |
 | **P2** | trino-connector 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 已合入 `branch-catalog-spi`（#64096，squash `0793f032662`；T12 回归推迟 DV-003）| [tasks/P2](./tasks/P2-trino-connector-migration.md) |
 | P3 | hudi 迁移 | 2 周 | ▰▰▰▰▰▱▱▱▱▱ 45% | ✅ hybrid（D-019）批 A–D 已合入 `branch-catalog-spi`（**#64143** squash `5c240dc7a34`）；批 E（live cutover）并入 P7 | [tasks/P3](./tasks/P3-hudi-migration.md) |
-| P4 | maxcompute 迁移 | 2 周 | ▰▰▰▰▰▰▱▱▱▱ 55% | 🚧 **W-phase 全落地** ✅；**adopter 设计已批准**（[D-023]，5 批/11 task）；**Batch A+B 全完成**（T01–T04 dormant）；**Batch C 翻闸完成**（T05 + T06a + **T06b flip ✅**，gate 全绿 [D-027]），下一 = **Batch D**（删 legacy + drop odps 依赖，待 live 验证）| [tasks/P4](./tasks/P4-maxcompute-migration.md) |
+| P4 | maxcompute 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▱▱ 80% | 🚧 **W-phase 全落地** ✅；**Batch A+B 完成**（T01–T04 dormant）；**Batch C 翻闸完成**（T05 + T06a + **T06b flip ✅** [D-027]）；**Batch D 删除完成 ✅**（legacy 删 + odps 依赖彻底移除，`7a4db351100`+`409300a75b8`，全门绿）；剩 push/PR | [tasks/P4](./tasks/P4-maxcompute-migration.md) |
 | P5 | paimon 迁移 | 3 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P6 | iceberg 迁移 | 5 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P7 | hive (+HMS) 迁移 | 6 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
@@ -33,7 +33,7 @@
 | **es** | ✅ | ✅ 100% | ✅ | ✅ | ✅ | **100%** | [详情](./connectors/es.md) |
 | trino-connector | ✅ | ✅ 100% | ✅ | ✅ | ✅ | **100%** | [详情](./connectors/trino-connector.md) |
 | hudi | 🟡（D-005 区分符 + D-020 模型 dispatch 已设计；实现批 E）| 🟨 55%（读路径 dormant + 批 C 测试基线）| ❌（gate 关）| ❌ | 0/0（寄生 hms）| **25%** | [详情](./connectors/hudi.md) |
-| maxcompute | 🟡 | 🟨 85%（DDL+分区+写事务+写计划+**翻闸 ✅**；剩 legacy 删除）| ✅ **翻闸 T06b** | ❌（Batch D 删，待 live 验证）| 0/~30（Batch D 闭包已 verify）| **60%** | [详情](./connectors/maxcompute.md) |
+| maxcompute | 🟡 | ✅ 100%（翻闸 + legacy 删除完成）| ✅ **翻闸 T06b** | ✅（Batch D 已删）| ✅ 0/0（已清）| **95%** | [详情](./connectors/maxcompute.md) |
 | paimon | 🟡 | 🟨 50% | ❌ | ❌ | 0/10 | **20%** | [详情](./connectors/paimon.md) |
 | iceberg | 🟡 | 🟥 10% | ❌ | ❌ | 0/19 | **5%** | [详情](./connectors/iceberg.md) |
 | hive (+hms) | 🟡 | 🟥 20% | ❌ | ❌ | 0/31 | **10%** | [详情](./connectors/hive.md) |
@@ -53,7 +53,7 @@
 | A | 连接器 DDL + 分区 parity | 🔒 关 | P4-T01 ✅ / T02 ✅ | ✅ T01 DDL + T02 分区 listing 完成（gate 全绿：compile + checkstyle 0 + import-gate）|
 | B | 写/事务 SPI（`ConnectorTransaction`/`WriteOps` + `WritePlanProvider`→`TMaxComputeTableSink`）| 🔒 关 | P4-T03 ✅ / T04 ✅ | ✅ T03 写/事务 SPI（`MaxComputeConnectorTransaction`+`beginTransaction`）+ T04 写计划（`MaxComputeWritePlanProvider.planWrite`，OQ-2=Approach A）完成，gate 全绿 |
 | C | 翻闸（`SPI_READY_TYPES` + GSON + `getEngine`；含 R-004 防御测）| 🔓 **live** | P4-T05/T06 | ✅ **翻闸完成**（T05 image-compat + T06a 写接线/UT + **T06b flip**，gate 全绿 [D-027]）；R-004 part-2 live 待用户跑 |
-| D | 清 ~30 反向引用 + 删 legacy 子系统（21 文件，收口 P1-T02）+ **drop fe-core odps 依赖** | 🔓 live | P4-T07/T08/T09 | ⏳ 闭包已 verify（[Batch D 移除设计](./tasks/designs/P4-batchD-maxcompute-removal-design.md)）；**执行待用户 live ODPS 验证后**（[D-027]）|
+| D | 清 ~30 反向引用 + 删 legacy 子系统（20 文件，收口 P1-T02）+ **drop fe-core odps 依赖** + **下沉 MCUtils／删 fe-common odps**（方案A §8）| 🔓 live | P4-T07/T08/T09 | ⏳ 方案已 finalize + @HEAD 校验（20 文件全在、linchpin residual=∅，2026-06-09）；执行后 fe-core 依赖树**彻底无 odps**；**执行待用户 live ODPS 验证后**（[D-027]，[设计](./tasks/designs/P4-batchD-maxcompute-removal-design.md)）|
 | E | 连接器测试基线 + PR | — | P4-T10/T11 | ⏳ |
 
 ### P3 — hudi 迁移（🚧 hybrid，批 A–D 全部 in-scope 完成：T02/T04/T05/T07 ✅ + T06/T08 决策；T03→批 E；剩批 E→P7，**P3 已合入 #64143 `5c240dc7a34`**；批 E live cutover 并入 P7）
