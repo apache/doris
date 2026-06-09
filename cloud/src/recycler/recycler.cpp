@@ -2879,135 +2879,125 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                 .tag("num_recycled", num_recycled);
     };
 
-    // The first string_view represents the tablet key which has been recycled
-    // The second bool represents whether the following fdb's tablet key deletion could be done using range move or not
-    using TabletKeyPair = std::pair<std::string_view, bool>;
-    SyncExecutor<TabletKeyPair> sync_executor(
+    // The tablet key and id which have been recycled.
+    struct TabletInfo {
+        std::string_view tablet_meta_key;
+        int64_t tablet_id;
+    };
+    SyncExecutor<TabletInfo> sync_executor(
             _thread_pool_group.recycle_tablet_pool,
             fmt::format("recycle tablets, tablet id {}, index id {}, partition id {}", table_id,
                         index_id, partition_id),
-            [](const TabletKeyPair& k) { return k.first.empty(); });
+            [](const TabletInfo& k) { return k.tablet_meta_key.empty(); });
 
-    // Elements in `tablet_keys` has the same lifetime as `it` in `scan_and_recycle`
-    std::vector<std::string> tablet_idx_keys;
-    std::vector<std::string> restore_job_keys;
+    // Elements in `tablets_info` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string> init_rs_keys;
-    std::vector<std::string> tablet_compact_stats_keys;
-    std::vector<std::string> tablet_load_stats_keys;
-    std::vector<std::string> versioned_meta_tablet_keys;
+    bool has_failure = false;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
-        bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
         if (!tablet_meta_pb.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed tablet meta").tag("key", hex(k));
-            use_range_remove = false;
+            has_failure = true;
             return -1;
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
 
-        if (!check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
+        if (config::enable_recycler_check_lazy_txn_finished &&
+            !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
             LOG(WARNING) << "lazy txn not finished tablet_id=" << tablet_meta_pb.tablet_id();
+            has_failure = true;
             return -1;
         }
 
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
-        restore_job_keys.push_back(job_restore_tablet_key({instance_id_, tablet_id}));
-        if (is_multi_version) {
-            // The tablet index/inverted index are recycled in recycle_versioned_tablet.
-            tablet_compact_stats_keys.push_back(
-                    versioned::tablet_compact_stats_key({instance_id_, tablet_id}));
-            tablet_load_stats_keys.push_back(
-                    versioned::tablet_load_stats_key({instance_id_, tablet_id}));
-            versioned_meta_tablet_keys.push_back(
-                    versioned::meta_tablet_key({instance_id_, tablet_id}));
-        }
         TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::bypass_check", false);
-        sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
-                           &metrics_context, k]() mutable -> TabletKeyPair {
-            if (recycle_tablet(tid, metrics_context) != 0) {
-                LOG_WARNING("failed to recycle tablet")
-                        .tag("instance_id", instance_id_)
-                        .tag("tablet_id", tid);
-                range_move = false;
-                return {std::string_view(), range_move};
-            }
-            ++num_recycled;
-            LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
-            return {k, range_move};
-        });
+        sync_executor.add(
+                [this, &num_recycled, tid = tablet_id, &metrics_context, k]() -> TabletInfo {
+                    if (recycle_tablet(tid, metrics_context) != 0) {
+                        LOG_WARNING("failed to recycle tablet")
+                                .tag("instance_id", instance_id_)
+                                .tag("tablet_id", tid);
+                        return {.tablet_meta_key = std::string_view(), .tablet_id = tid};
+                    }
+                    ++num_recycled;
+                    LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
+                    return {.tablet_meta_key = k, .tablet_id = tid};
+                });
         return 0;
     };
 
-    // TODO(AlexYue): Add one ut to cover use_range_remove = false
     auto loop_done = [&, this]() -> int {
+        int ret = 0;
         bool finished = true;
-        auto tablet_keys = sync_executor.when_all(&finished);
+        bool has_empty_key = false;
+        DORIS_CLOUD_DEFER {
+            init_rs_keys.clear();
+            has_failure = false;
+        };
+        auto tablets_info = sync_executor.when_all(&finished);
         if (!finished) {
             LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
             return -1;
         }
-        if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
-        if (!tablet_keys.empty() &&
-            std::ranges::all_of(tablet_keys, [](const auto& k) { return k.first.empty(); })) {
-            return -1;
+
+        size_t size_before_erase = tablets_info.size();
+        std::erase_if(tablets_info, [](const TabletInfo& t) { return t.tablet_meta_key.empty(); });
+        if (tablets_info.empty()) {
+            return size_before_erase == 0 ? 0 : -1;
+        } else if (size_before_erase != tablets_info.size()) {
+            has_empty_key = true;
         }
+
+        ret = has_empty_key ? -1 : 0;
         // sort the vector using key's order
-        std::sort(tablet_keys.begin(), tablet_keys.end(),
-                  [](const auto& prev, const auto& last) { return prev.first < last.first; });
-        bool use_range_remove = true;
-        for (auto& [_, remove] : tablet_keys) {
-            if (!remove) {
-                use_range_remove = remove;
-                break;
-            }
-        }
-        DORIS_CLOUD_DEFER {
-            tablet_idx_keys.clear();
-            restore_job_keys.clear();
-            init_rs_keys.clear();
-            tablet_compact_stats_keys.clear();
-            tablet_load_stats_keys.clear();
-            versioned_meta_tablet_keys.clear();
-        };
+        std::ranges::sort(tablets_info, [](const auto& prev, const auto& last) {
+            return prev.tablet_meta_key < last.tablet_meta_key;
+        });
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to delete tablet meta kv, instance_id=" << instance_id_;
             return -1;
         }
         std::string tablet_key_end;
-        if (!tablet_keys.empty()) {
-            if (use_range_remove) {
-                tablet_key_end = std::string(tablet_keys.back().first) + '\x00';
-                txn->remove(tablet_keys.front().first, tablet_key_end);
+        if (!tablets_info.empty()) {
+            if (!has_empty_key && !has_failure) {
+                tablet_key_end = std::string(tablets_info.back().tablet_meta_key) + '\x00';
+                txn->remove(tablets_info.front().tablet_meta_key, tablet_key_end);
             } else {
-                for (auto& [k, _] : tablet_keys) {
-                    txn->remove(k);
+                for (auto& tablet_info : tablets_info) {
+                    txn->remove(tablet_info.tablet_meta_key);
                 }
             }
         }
         if (is_multi_version) {
-            for (auto& k : tablet_compact_stats_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of tablet compact stats for recycled tablet
+                auto k = versioned::tablet_compact_stats_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned tablet compact stats key")
                         .tag("compact_stats_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
-            for (auto& k : tablet_load_stats_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of tablet load stats for recycled tablet
+                auto k = versioned::tablet_load_stats_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned tablet load stats key").tag("load_stats_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
-            for (auto& k : versioned_meta_tablet_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of meta tablet for recycled tablet
+                auto k = versioned::meta_tablet_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned meta tablet key").tag("meta_tablet_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
         }
-        for (auto& k : tablet_idx_keys) {
+        for (auto& tablet_info : tablets_info) {
+            std::string k;
+            meta_tablet_idx_key({instance_id_, tablet_info.tablet_id}, &k);
             txn->remove(k);
         }
-        for (auto& k : restore_job_keys) {
+        for (auto& tablet_info : tablets_info) {
+            std::string k;
+            job_restore_tablet_key({instance_id_, tablet_info.tablet_id}, &k);
             txn->remove(k);
         }
         for (auto& k : init_rs_keys) {
@@ -3018,7 +3008,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                          << ", err=" << err;
             return -1;
         }
-        return 0;
+        return ret;
     };
 
     int ret = scan_and_recycle(tablet_key_begin, tablet_key_end, std::move(recycle_func),
@@ -4118,7 +4108,8 @@ int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t inde
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
 
-        if (!check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
+        if (config::enable_recycler_check_lazy_txn_finished &&
+            !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
             return 0;
         }
 
