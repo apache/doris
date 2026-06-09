@@ -24,16 +24,24 @@
 #include <unicode/ustream.h>
 
 #include <bitset>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
+#include <string>
 #include <string_view>
 
 #include "common/cast_set.h"
+#include "common/check.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/pod_array_fwd.h"
 #include "core/string_ref.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function_reverse.h"
 #include "exprs/function/function_string_concat.h"
 #include "exprs/function/function_string_format.h"
@@ -1341,8 +1349,93 @@ using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
 using FunctionIsValidUTF8 = FunctionUnaryToType<IsValidUTF8Impl, NameIsValidUTF8>;
-using FunctionStringStartsWith =
-        FunctionBinaryToType<DataTypeString, DataTypeString, StringStartsWithImpl, NameStartsWith>;
+
+class FunctionStringStartsWith : public FunctionBinaryToType<DataTypeString, DataTypeString,
+                                                             StringStartsWithImpl, NameStartsWith> {
+public:
+    static FunctionPtr create() { return std::make_shared<FunctionStringStartsWith>(); }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                const VExprSPtrs& arguments) const override {
+        auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+        DORIS_CHECK(slot_literal.has_value());
+        DORIS_CHECK(!slot_literal->literal_on_left);
+        DORIS_CHECK(!slot_literal->literal.is_null());
+        DORIS_CHECK(slot_literal->slot_type != nullptr);
+        DORIS_CHECK(slot_literal->literal_type != nullptr);
+        DORIS_CHECK(is_string_type(remove_nullable(slot_literal->slot_type)->get_primitive_type()));
+        DORIS_CHECK(
+                is_string_type(remove_nullable(slot_literal->literal_type)->get_primitive_type()));
+
+        auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
+                                                                  slot_literal->slot_type);
+        if (slot_type == nullptr) {
+            return ZoneMapFilterResult::kUnsupported;
+        }
+        const auto* zone_map_ref = expr_zonemap::fetch_zone_map(ctx, slot_literal->slot_index);
+        if (zone_map_ref == nullptr) {
+            return ZoneMapFilterResult::kUnsupported;
+        }
+        const auto& zone_map = *zone_map_ref;
+        if (!zone_map.has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        if (!expr_zonemap::range_stats_usable_for_zonemap(zone_map, slot_type)) {
+            return unsupported_zonemap_filter(ctx);
+        }
+
+        const auto prefix = slot_literal->literal.as_string_view();
+        if (prefix.empty()) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        auto lower = _string_field_for_starts_with_zonemap(prefix);
+        if (expr_zonemap::field_less(zone_map.max_value, lower)) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        auto upper_prefix = _next_prefix_for_starts_with_zonemap(prefix);
+        if (upper_prefix.has_value() &&
+            !expr_zonemap::field_less(zone_map.min_value,
+                                      _string_field_for_starts_with_zonemap(*upper_prefix))) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return ZoneMapFilterResult::kMayMatch;
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
+        auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+        if (!slot_literal.has_value() || slot_literal->literal_on_left) {
+            return false;
+        }
+
+        // A NULL prefix makes starts_with(slot, NULL) evaluate to NULL instead of a byte range
+        // predicate on the slot. This zonemap evaluator only derives prefix bounds from non-NULL
+        // literals, and evaluate_zonemap_filter asserts that precondition with DORIS_CHECK.
+        return !slot_literal->literal.is_null();
+    }
+
+private:
+    static Field _string_field_for_starts_with_zonemap(std::string_view value) {
+        return Field::create_field<TYPE_STRING>(std::string(value));
+    }
+
+    static std::optional<std::string> _next_prefix_for_starts_with_zonemap(
+            std::string_view prefix) {
+        // ZoneMap string bounds are compared by bytewise Field ordering. For starts_with(s, p),
+        // the safe upper bound is the next byte string after p: p <= s < next_prefix(p).
+        // For example, starts_with(s, "ab") can use the range "ab" <= s < "ac".
+        std::string upper(prefix);
+        for (auto i = static_cast<int64_t>(upper.size()) - 1; i >= 0; --i) {
+            auto byte = static_cast<unsigned char>(upper[i]);
+            if (byte != std::numeric_limits<unsigned char>::max()) {
+                upper[i] = static_cast<char>(byte + 1);
+                upper.resize(i + 1);
+                return upper;
+            }
+        }
+        return std::nullopt;
+    }
+};
+
 using FunctionStringEndsWith =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringEndsWithImpl, NameEndsWith>;
 using FunctionStringInstr =

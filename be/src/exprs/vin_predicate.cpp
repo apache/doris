@@ -25,11 +25,13 @@
 #include <cstddef>
 #include <ostream>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -82,6 +84,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (state->query_options().__isset.in_list_value_count_threshold) {
         _in_list_value_count_threshold = state->query_options().in_list_value_count_threshold;
     }
+    RETURN_IF_ERROR(_materialize_for_zonemap_filter());
     return Status::OK();
 }
 
@@ -110,6 +113,55 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
 Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_GE(get_num_children(), 2);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
+Status VInPredicate::_materialize_for_zonemap_filter() {
+    _seg_filter_values.clear();
+    _seg_filter_contains_null = false;
+    _zonemap_materialized = false;
+    if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
+        return Status::OK();
+    }
+    for (int i = 1; i < _children.size(); ++i) {
+        auto literal = std::dynamic_pointer_cast<VLiteral>(_children[i]);
+        if (literal == nullptr) {
+            return Status::OK();
+        }
+        Field field;
+        literal->get_column_ptr()->get(0, field);
+        if (field.is_null()) {
+            _seg_filter_contains_null = true;
+            continue;
+        }
+        _seg_filter_values.emplace_back(std::move(field));
+    }
+    if (_seg_filter_values.empty()) {
+        _zonemap_materialized = true;
+        return Status::OK();
+    }
+    try {
+        auto minmax = std::ranges::minmax_element(_seg_filter_values, expr_zonemap::field_less);
+        _seg_filter_min = *minmax.min;
+        _seg_filter_max = *minmax.max;
+        _zonemap_materialized = true;
+    } catch (const Exception&) {
+        _zonemap_materialized = false;
+    }
+    return Status::OK();
+}
+
+ZoneMapFilterResult VInPredicate::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    if (_is_not_in && _seg_filter_contains_null) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    return expr_zonemap::eval_in_zonemap(ctx, get_child(0), _is_not_in, _seg_filter_values,
+                                         _seg_filter_min, _seg_filter_max);
+}
+
+bool VInPredicate::can_evaluate_zonemap_filter() const {
+    return _zonemap_materialized &&
+           expr_zonemap::can_eval_in_zonemap(get_child(0), _seg_filter_values, _seg_filter_min,
+                                             _seg_filter_max);
 }
 
 Status VInPredicate::execute_column_impl(VExprContext* context, const Block* block,

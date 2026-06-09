@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <utility>
@@ -59,7 +60,9 @@
 #include "core/string_ref.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/array/function_array_index.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
@@ -90,6 +93,7 @@
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
 #include "storage/index/zone_map/zone_map_index.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
@@ -190,6 +194,8 @@ Status rebind_storage_expr_to_reader_schema(
     return Status::OK();
 }
 
+} // namespace
+
 Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, const Schema& schema,
                                              const VExprContextSPtrs& common_exprs,
                                              std::map<ColumnId, VExprContextSPtr>& virtual_exprs) {
@@ -227,6 +233,24 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
         RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(opts, ctx->root(), cid_to_pos));
     }
     return Status::OK();
+}
+
+namespace {
+
+std::optional<int> single_slot_zonemap_index(const VExprContextSPtr& ctx) {
+    if (ctx == nullptr || ctx->root() == nullptr) {
+        return std::nullopt;
+    }
+    std::set<int> slot_indexes;
+    ctx->root()->collect_slot_column_ids(slot_indexes);
+    if (slot_indexes.size() != 1) {
+        return std::nullopt;
+    }
+    const int slot_index = *slot_indexes.begin();
+    if (slot_index < 0) {
+        return std::nullopt;
+    }
+    return slot_index;
 }
 
 } // namespace
@@ -721,7 +745,8 @@ void SegmentIterator::_init_segment_prefetchers() {
     bool enable_prefetch = is_query ? config::enable_query_segment_file_cache_prefetch
                                     : config::enable_compaction_segment_file_cache_prefetch;
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
-            "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, enable_prefetch={}, "
+            "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, "
+            "enable_prefetch={}, "
             "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, tablet={}, rowset={}, "
             "segment={}, predicate_column_ids={}, common_expr_column_ids={}",
             is_query, enable_prefetch, _row_bitmap.isEmpty(), _row_bitmap.cardinality(),
@@ -962,7 +987,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
-         _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
+         _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
+         !_common_expr_ctxs_push_down.empty())) {
         RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
@@ -1038,7 +1064,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 
     if (ann_index_reader->get_metric_type() != _ann_topn_runtime->get_metric_type()) {
         VLOG_DEBUG << fmt::format(
-                "Ann topn metric type {} not match index metric type {}, can not be evaluated by "
+                "Ann topn metric type {} not match index metric type {}, can not be evaluated "
+                "by "
                 "ann index",
                 metric_to_string(_ann_topn_runtime->get_metric_type()),
                 metric_to_string(ann_index_reader->get_metric_type()));
@@ -1242,6 +1269,17 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                        condition_row_ranges);
         _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+    }
+
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
+        if (!_common_expr_ctxs_push_down.empty()) {
+            const auto pre_expr_zonemap_size = condition_row_ranges->count();
+            RETURN_IF_ERROR(_apply_expr_zonemap_to_row_ranges(_common_expr_ctxs_push_down, 0,
+                                                              condition_row_ranges));
+            _opts.stats->rows_stats_filtered +=
+                    (pre_expr_zonemap_size - condition_row_ranges->count());
+        }
     }
 
     return Status::OK();
@@ -2371,7 +2409,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
-            "nrows_read from range iterator: {}, is_continus {}, _cols_read_by_column_predicate "
+            "nrows_read from range iterator: {}, is_continus {}, "
+            "_cols_read_by_column_predicate "
             "[{}]",
             nrows_read, is_continuous, fmt::join(_predicate_column_ids, ","));
 
@@ -3400,6 +3439,100 @@ Status SegmentIterator::_construct_compound_expr_context() {
     return Status::OK();
 }
 
+Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
+                                                          rowid_t min_rowid,
+                                                          RowRanges* row_ranges) {
+    DORIS_CHECK(row_ranges != nullptr);
+    if (!expr_zonemap::is_expr_zonemap_filter_enabled(_opts.runtime_state) || conjuncts.empty() ||
+        row_ranges->is_empty()) {
+        return Status::OK();
+    }
+
+    std::unordered_map<int, VExprContextSPtrs> ctxs_by_slot;
+    for (const auto& conjunct : conjuncts) {
+        auto slot_index = single_slot_zonemap_index(conjunct);
+        if (slot_index.has_value() && conjunct->root()->can_evaluate_zonemap_filter()) {
+            ctxs_by_slot[*slot_index].emplace_back(conjunct);
+        }
+    }
+    // Page zone maps are stored per column. Multi-slot expressions need page alignment across
+    // multiple column readers and are therefore left to segment-level pruning for now.
+    if (ctxs_by_slot.empty()) {
+        return Status::OK();
+    }
+
+    ColumnIteratorOptions iter_opts {
+            .use_page_cache = _opts.use_page_cache,
+            .file_reader = _file_reader.get(),
+            .stats = _opts.stats,
+            .io_ctx = _opts.io_ctx,
+    };
+    for (const auto& [slot_index, slot_conjuncts] : ctxs_by_slot) {
+        if (cast_set<size_t>(slot_index) >= _schema->num_column_ids()) {
+            continue;
+        }
+        const auto cid = _schema->column_id(cast_set<size_t>(slot_index));
+        if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                  _opts.target_cast_type_for_variants, _opts)) {
+            continue;
+        }
+        const auto* field = _schema->column(cid);
+        if (field == nullptr) {
+            continue;
+        }
+        std::shared_ptr<ColumnReader> reader;
+        Status st = _segment->get_column_reader(*field, &reader, _opts.stats);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        if (reader == nullptr || !reader->has_zone_map()) {
+            continue;
+        }
+        const std::vector<ZoneMapPB>* page_zone_maps = nullptr;
+        RETURN_IF_ERROR(reader->get_page_zone_maps(iter_opts, &page_zone_maps));
+        if (page_zone_maps == nullptr || page_zone_maps->empty()) {
+            continue;
+        }
+        auto data_type = _segment->get_data_type_of(*field, _opts);
+        if (data_type == nullptr) {
+            continue;
+        }
+
+        RowRanges column_ranges;
+        ZoneMapEvalStats page_stats;
+        for (uint32_t page_index = 0; page_index < page_zone_maps->size(); ++page_index) {
+            RowRange page_range;
+            RETURN_IF_ERROR(reader->get_row_range_for_page(page_index, iter_opts, &page_range));
+            if (!page_range.is_valid() || page_range.to() <= min_rowid) {
+                continue;
+            }
+            ZoneMapEvalContext ctx;
+            ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+            slot_zone_map.data_type = data_type;
+            ZoneMap zone_map;
+            RETURN_IF_ERROR(
+                    ZoneMap::from_proto((*page_zone_maps)[page_index], data_type, zone_map));
+            slot_zone_map.zone_map = std::move(zone_map);
+            ctx.slots.emplace(slot_index, std::move(slot_zone_map));
+            const auto result = VExprContext::evaluate_zonemap_filter(slot_conjuncts, ctx);
+            page_stats.merge_page_eval_stats(ctx.stats);
+            if (result != ZoneMapFilterResult::kNoMatch) {
+                column_ranges.add(
+                        RowRange(std::max<int64_t>(page_range.from(), min_rowid), page_range.to()));
+            } else {
+                ++_opts.stats->expr_zonemap_filtered_pages;
+            }
+        }
+        page_stats.accumulate_to(_opts.stats);
+        RowRanges::ranges_intersection(*row_ranges, column_ranges, row_ranges);
+        if (row_ranges->is_empty()) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 void SegmentIterator::_calculate_common_expr_index_exec_status() {
     for (const auto& root_expr_ctx : _common_expr_ctxs_push_down) {
         const auto& root_expr = root_expr_ctx->root();
@@ -3586,7 +3719,8 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
                     column_expr->root()->debug_string());
         } else if (block->get_by_position(idx_in_block).column.get() == nullptr) {
             return Status::InternalError(
-                    "Virtual column index {} is null, block columns {}, virtual columns size {}, "
+                    "Virtual column index {} is null, block columns {}, virtual columns size "
+                    "{}, "
                     "virtual column expr {}",
                     idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
                     column_expr->root()->debug_string());

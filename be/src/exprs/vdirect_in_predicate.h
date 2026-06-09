@@ -17,7 +17,12 @@
 
 #pragma once
 
+#include <mutex>
+#include <vector>
+
+#include "common/logging.h"
 #include "common/status.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/vexpr.h"
 #include "exprs/vin_predicate.h"
@@ -30,8 +35,12 @@ class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
 
 public:
-    VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter)
-            : VExpr(node), _filter(filter), _expr_name("direct_in_predicate") {}
+    VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter,
+                       bool set_values_match_child_type = true)
+            : VExpr(node),
+              _filter(filter),
+              _set_values_match_child_type(set_values_match_child_type),
+              _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
 
 #ifdef BE_TEST
@@ -41,6 +50,7 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
+        RETURN_IF_ERROR(_materialize_for_zonemap_filter());
         _prepare_finished = true;
         return Status::OK();
     }
@@ -68,7 +78,21 @@ public:
 
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        return expr_zonemap::eval_in_zonemap(ctx, get_child(0), false, _seg_filter_values,
+                                             _seg_filter_min, _seg_filter_max);
+    }
+
+    bool can_evaluate_zonemap_filter() const override {
+        return _zonemap_materialized &&
+               expr_zonemap::can_eval_in_zonemap(get_child(0), _seg_filter_values, _seg_filter_min,
+                                                 _seg_filter_max);
+    }
+
     bool get_slot_in_expr(VExprSPtr& new_root) const {
+        if (!_set_values_match_child_type) {
+            return false;
+        }
         if (!get_child(0)->is_slot_ref()) {
             return false;
         }
@@ -96,9 +120,9 @@ public:
                 DCHECK(iter->get_value() != nullptr);
                 const void* value = iter->get_value();
 
-                TExprNode node = create_texpr_node_from(value, slot_data_type->get_primitive_type(),
-                                                        slot_data_type->get_precision(),
-                                                        slot_data_type->get_scale());
+                TExprNode node = create_texpr_node_from_hybrid_set_value(
+                        value, slot_data_type->get_primitive_type(),
+                        slot_data_type->get_precision(), slot_data_type->get_scale());
                 new_root->add_child(VLiteral::create_shared(node));
                 iter->next();
             }
@@ -148,8 +172,50 @@ private:
         return Status::OK();
     }
 
+    Status _materialize_for_zonemap_filter() {
+        if (!_set_values_match_child_type) {
+            _zonemap_materialized = false;
+            return Status::OK();
+        }
+        DORIS_CHECK(_filter != nullptr);
+        auto& filter = *_filter;
+        const auto& data_type = remove_nullable(get_child(0)->data_type());
+        _seg_filter_values.clear();
+        auto* iterator = filter.begin();
+        while (iterator->has_next()) {
+            const void* value = iterator->get_value();
+            if (value != nullptr) {
+                TExprNode literal_node = create_texpr_node_from_hybrid_set_value(
+                        value, remove_nullable(data_type)->get_primitive_type(),
+                        remove_nullable(data_type)->get_precision(),
+                        remove_nullable(data_type)->get_scale());
+                auto literal = VLiteral::create_shared(literal_node);
+                Field field;
+                literal->get_column_ptr()->get(0, field);
+                _seg_filter_values.emplace_back(std::move(field));
+            }
+            iterator->next();
+        }
+        if (_seg_filter_values.empty()) {
+            _zonemap_materialized = true;
+            return Status::OK();
+        }
+        auto minmax = std::ranges::minmax_element(_seg_filter_values, expr_zonemap::field_less);
+        _seg_filter_min = *minmax.min;
+        _seg_filter_max = *minmax.max;
+        _zonemap_materialized = true;
+        return Status::OK();
+    }
+
     std::shared_ptr<HybridSetBase> _filter;
+    bool _set_values_match_child_type = true;
     std::string _expr_name;
+    std::once_flag _zonemap_materialize_once;
+    Status _zonemap_materialize_status;
+    bool _zonemap_materialized = false;
+    std::vector<Field> _seg_filter_values;
+    Field _seg_filter_min;
+    Field _seg_filter_max;
 };
 
 } // namespace doris

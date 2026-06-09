@@ -21,6 +21,7 @@
 
 #include <cstddef>
 
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
@@ -61,7 +62,9 @@ RuntimeFilterExpr::RuntimeFilterExpr(const TExprNode& node, VExprSPtr impl, doub
           _ignore_thredhold(ignore_thredhold),
           _null_aware(null_aware),
           _filter_id(filter_id),
-          _sampling_frequency(sampling_frequency) {}
+          _sampling_frequency(sampling_frequency) {
+    DORIS_CHECK(_impl != nullptr);
+}
 
 Status RuntimeFilterExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
                                   VExprContext* context) {
@@ -188,6 +191,19 @@ Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* blo
         }
     }
     return Status::OK();
+}
+
+ZoneMapFilterResult RuntimeFilterExpr::evaluate_zonemap_filter(
+        const ZoneMapEvalContext& ctx) const {
+    return _impl->evaluate_zonemap_filter(ctx);
+}
+
+bool RuntimeFilterExpr::can_evaluate_zonemap_filter() const {
+    return !_null_aware && _impl->can_evaluate_zonemap_filter();
+}
+
+void RuntimeFilterExpr::collect_slot_column_ids(std::set<int>& column_ids) const {
+    _impl->collect_slot_column_ids(column_ids);
 }
 
 } // namespace doris

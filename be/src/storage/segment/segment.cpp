@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <utility>
 
@@ -42,6 +43,8 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "cpp/sync_point.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -56,6 +59,7 @@
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/iterators.h"
 #include "storage/key_coder.h"
@@ -84,6 +88,72 @@
 namespace doris::segment_v2 {
 
 class InvertedIndexIterator;
+
+namespace {
+
+Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
+                                     const StorageReadOptions& read_options,
+                                     const VExprContextSPtrs& conjuncts, ZoneMapEvalContext* ctx) {
+    DORIS_CHECK(segment != nullptr);
+    DORIS_CHECK(ctx != nullptr);
+    std::set<int> slot_indexes;
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        auto root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_zonemap_filter()) {
+            continue;
+        }
+        std::set<int> expr_slot_indexes;
+        root->collect_slot_column_ids(expr_slot_indexes);
+
+        if (expr_slot_indexes.size() != 1) {
+            continue;
+        }
+        slot_indexes.insert(expr_slot_indexes.begin(), expr_slot_indexes.end());
+    }
+    for (const int slot_index : slot_indexes) {
+        if (slot_index < 0 || cast_set<size_t>(slot_index) >= schema.num_column_ids()) {
+            continue;
+        }
+        const auto column_id = schema.column_id(cast_set<size_t>(slot_index));
+        const auto* field = schema.column(column_id);
+        DORIS_CHECK(field != nullptr);
+        if (!segment->can_apply_predicate_safely(
+                    column_id, schema, read_options.target_cast_type_for_variants, read_options)) {
+            continue;
+        }
+        auto data_type = segment->get_data_type_of(*field, read_options);
+        if (data_type == nullptr) {
+            continue;
+        }
+        ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+        slot_zone_map.data_type = data_type;
+        std::shared_ptr<ColumnReader> reader;
+        Status st = segment->get_column_reader(*field, &reader, read_options.stats);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        if (reader != nullptr && reader->has_zone_map()) {
+            ZoneMap zone_map;
+            RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+            slot_zone_map.zone_map = std::move(zone_map);
+        }
+        ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+    }
+    return Status::OK();
+}
+
+bool storage_expr_slots_match_reader_schema(const StorageReadOptions& read_options) {
+    DORIS_CHECK(read_options.tablet_schema != nullptr);
+    const auto keys_type = read_options.tablet_schema->keys_type();
+    return keys_type == KeysType::DUP_KEYS ||
+           (keys_type == KeysType::UNIQUE_KEYS && read_options.enable_unique_key_merge_on_write);
+}
+
+} // namespace
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -323,6 +393,25 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 read_options.stats->filtered_segment_number++;
                 return Status::OK();
             }
+        }
+    }
+
+    // Segment-level expr-zonemap runs before SegmentIterator can rebind storage expressions to
+    // the reader schema. Only apply it when scan tuple slot ordinals already match this schema.
+    if (expr_zonemap::is_expr_zonemap_filter_enabled(read_options.runtime_state) &&
+        !read_options.common_expr_ctxs_push_down.empty() &&
+        storage_expr_slots_match_reader_schema(read_options)) {
+        ZoneMapEvalContext ctx;
+        RETURN_IF_ERROR(build_segment_zonemap_context(
+                this, *schema, read_options, read_options.common_expr_ctxs_push_down, &ctx));
+        const auto result =
+                VExprContext::evaluate_zonemap_filter(read_options.common_expr_ctxs_push_down, ctx);
+        ctx.stats.accumulate_to(read_options.stats);
+        if (result == ZoneMapFilterResult::kNoMatch) {
+            *iter = std::make_unique<EmptySegmentIterator>(*schema);
+            read_options.stats->filtered_segment_number++;
+            read_options.stats->expr_zonemap_filtered_segments++;
+            return Status::OK();
         }
     }
 

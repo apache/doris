@@ -43,6 +43,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "core/string_ref.h"
 #include "core/value/timestamptz_value.h"
 #include "exec/common/util.hpp"
 #include "exec/pipeline/pipeline_task.h"
@@ -70,12 +71,17 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 
 class RowDescriptor;
 class RuntimeState;
+
+ZoneMapFilterResult VExpr::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    return unsupported_zonemap_filter(ctx);
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
@@ -335,6 +341,16 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
                         int(type));
     }
     return node;
+}
+
+TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
+                                                  int precision, int scale) {
+    if (is_string_type(type)) {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        auto field = Field::create_field<TYPE_STRING>(String(value->data, value->size));
+        return create_texpr_node_from(field, type, precision, scale);
+    }
+    return create_texpr_node_from(data, type, precision, scale);
 }
 
 // NOLINTEND(readability-function-size)

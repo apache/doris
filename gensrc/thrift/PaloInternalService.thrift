@@ -498,6 +498,9 @@ struct TQueryOptions {
   221: optional i64 ann_index_candidate_rows_threshold = 0
   // Candidate row ratio threshold against segment rows. Existing default is 0.3.
   222: optional double ann_index_candidate_rows_percent_threshold = 0.3
+
+  223: optional bool enable_expr_zonemap_filter = true
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

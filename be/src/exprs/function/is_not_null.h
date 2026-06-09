@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
 
 namespace doris {
@@ -59,6 +60,15 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
     DataTypePtr get_return_type_impl(const DataTypes&) const override {
         return std::make_shared<DataTypeUInt8>();
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                const VExprSPtrs& arguments) const override {
+        return expr_zonemap::eval_null_zonemap(ctx, arguments, false);
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
+        return expr_zonemap::can_eval_null_zonemap(arguments);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

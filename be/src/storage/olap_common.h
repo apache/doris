@@ -349,6 +349,11 @@ struct OlapReaderStatistics {
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
+    int64_t expr_zonemap_filtered_segments = 0;
+    int64_t expr_zonemap_filtered_pages = 0;
+    int64_t expr_zonemap_unsupported_exprs = 0;
+    int64_t in_zonemap_point_check_count = 0;
+    int64_t in_zonemap_range_only_count = 0;
     int64_t rows_bf_filtered = 0;
     int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
