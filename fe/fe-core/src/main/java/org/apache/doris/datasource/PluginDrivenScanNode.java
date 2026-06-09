@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
@@ -38,6 +39,7 @@ import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -61,6 +63,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -100,6 +106,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Set during filter pushdown; may be updated from the original table handle.
     private ConnectorTableHandle currentHandle;
 
+    // Nereids partition-pruning result, injected by the translator. Defaults to NOT_PRUNED
+    // so that connectors / non-partitioned tables read all partitions unless pruning applies.
+    private SelectedPartitions selectedPartitions = SelectedPartitions.NOT_PRUNED;
+
+    // Cached isBatchMode() result. isBatchMode is read on both the dispatch (FileQueryScanNode)
+    // and explain (FileScanNode) paths and num_partitions_in_batch_mode is fuzzy, so cache it to
+    // keep the decision stable across reads (mirrors IcebergScanNode).
+    private Boolean isBatchModeCache;
+
     // Populated from ConnectorScanPlanProvider.getScanNodePropertiesResult()
     private ScanNodePropertiesResult cachedPropertiesResult;
     private Map<String, String> scanNodeProperties;
@@ -136,6 +151,57 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 scanContext, connector, session, handle);
     }
 
+    /**
+     * Injects the Nereids partition-pruning result. Called by the translator so the pruned
+     * partition set can be pushed down to the connector's scan plan (see {@link #getSplits}).
+     */
+    public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
+        this.selectedPartitions = selectedPartitions;
+    }
+
+    /**
+     * Resolves the pruned partition spec strings to push to the connector SPI.
+     *
+     * <p>Mirrors legacy {@code MaxComputeScanNode.getSplits()} three-state handling:</p>
+     * <ul>
+     *   <li>not pruned (NOT_PRUNED / non-partitioned) &rarr; {@code null}: scan all partitions;</li>
+     *   <li>pruned to a non-empty set &rarr; that set's partition names;</li>
+     *   <li>pruned to zero partitions &rarr; empty list: caller short-circuits with no splits.</li>
+     * </ul>
+     */
+    static List<String> resolveRequiredPartitions(SelectedPartitions selectedPartitions) {
+        if (selectedPartitions == null || !selectedPartitions.isPruned) {
+            return null;
+        }
+        return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
+    }
+
+    /**
+     * Partition counts to surface on this scan node — {@code {selectedPartitionNum, totalPartitionNum}}
+     * — or {@code null} to leave the fields at their default (nothing to show). Drives the EXPLAIN
+     * {@code partition=N/M} line and SQL-block-rule enforcement (via {@code getSelectedPartitionNum()}).
+     *
+     * <p>Mirrors legacy {@code MaxComputeScanNode}'s display gate: any <em>real</em> partition selection
+     * reports {@code size/total}, whereas the {@link SelectedPartitions#NOT_PRUNED} sentinel
+     * (non-partitioned table, or one not supporting internal pruning) reports nothing.</p>
+     *
+     * <p>The gate is {@code != NOT_PRUNED}, deliberately <b>not</b> {@code isPruned}: a partitioned table
+     * queried without a partition predicate keeps the initial all-partitions selection from
+     * {@link ExternalTable#initSelectedPartitions} ({@code isPruned=false} but a full, non-{@code
+     * NOT_PRUNED} map; {@code PruneFileScanPartition} only runs under a {@code LogicalFilter}), and must
+     * still report {@code partition=total/total} (e.g. {@code SELECT *} over a 2-partition table &rarr;
+     * {@code 2/2}). An {@code isPruned} gate wrongly shows {@code 0/0}. This differs from the connector
+     * pushdown gate ({@link #resolveRequiredPartitions}, which stays {@code isPruned}): an unpruned scan
+     * must read ALL partitions, so it pushes no partition restriction.</p>
+     */
+    static long[] displayPartitionCounts(SelectedPartitions selectedPartitions) {
+        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
+            return null;
+        }
+        return new long[] {
+                selectedPartitions.selectedPartitions.size(), selectedPartitions.totalPartitionNum};
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -148,6 +214,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             String query = props.get("query");
             output.append(prefix).append("TABLE: ")
                     .append(desc.getTable().getNameWithFullQualifiers()).append("\n");
+            // Surface the backing connector/catalog type (e.g. es, jdbc, max_compute) so the
+            // generic node name does not hide which connector this scan delegates to. Reuses the
+            // same getDatabase().getCatalog() chain getNameWithFullQualifiers() already walks here.
+            output.append(prefix).append("CONNECTOR: ")
+                    .append(desc.getTable().getDatabase().getCatalog().getType()).append("\n");
             if (query != null) {
                 output.append(prefix).append("QUERY: ").append(query).append("\n");
             }
@@ -157,6 +228,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
                         .append("\n");
             }
+            // Partition-pruning summary (selected/total), mirroring the parent
+            // FileScanNode.getNodeExplainString()'s `partition=N/M` line. This override replaces the
+            // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
+            // line itself; the counts are populated from the Nereids pruning result in
+            // getSplits()/startSplit() (see setSelectedPartitions).
+            output.append(prefix).append("partition=").append(selectedPartitionNum)
+                    .append("/").append(totalPartitionNum).append("\n");
             // Delegate connector-specific EXPLAIN info to the SPI
             ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
             if (scanProvider != null) {
@@ -363,18 +441,201 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return Collections.emptyList();
         }
 
+        // Push the Nereids partition-pruning result down to the connector so the read session
+        // covers only the surviving partitions. A pruned-to-zero set means no data to read,
+        // mirroring legacy MaxComputeScanNode.getSplits()'s empty-selection short-circuit.
+        List<String> requiredPartitions = resolveRequiredPartitions(selectedPartitions);
+        // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
+        // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
+        // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
+        // part=<absent value>). Batch mode populates these in startSplit() instead. See
+        // displayPartitionCounts for why the gate covers the no-predicate all-partitions case.
+        long[] partitionCounts = displayPartitionCounts(selectedPartitions);
+        if (partitionCounts != null) {
+            this.selectedPartitionNum = partitionCounts[0];
+            this.totalPartitionNum = partitionCounts[1];
+        }
+        if (requiredPartitions != null && requiredPartitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         List<ConnectorColumnHandle> columns = buildColumnHandles();
         tryPushDownProjection(columns);
         Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
 
+        // If buildRemainingFilter stripped non-pushable (CAST) conjuncts (filteredToOriginalIndex
+        // != null), suppress source-side LIMIT pushdown: the connector now sees a filter that no
+        // longer reflects those predicates and could apply a LIMIT (e.g. MaxCompute's row-offset
+        // limit-split optimization, which fires on an empty/partition-only filter) over rows the
+        // stripped predicate has NOT filtered. Since BE re-evaluates the stripped predicate only on
+        // the rows the source returns, that would under-return. Legacy disabled limit-split whenever
+        // a non-partition-equality (incl. CAST) predicate was present; this mirrors it.
+        long sourceLimit = effectiveSourceLimit(limit, filteredToOriginalIndex != null);
         List<ConnectorScanRange> ranges = scanProvider.planScan(
-                connectorSession, currentHandle, columns, remainingFilter, limit);
+                connectorSession, currentHandle, columns, remainingFilter, sourceLimit, requiredPartitions);
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
             splits.add(new PluginDrivenSplit(range));
         }
         return splits;
+    }
+
+    /**
+     * Source-side LIMIT to pass to {@code planScan}: the real limit normally, but {@code -1}
+     * (no source limit) when non-pushable conjuncts were stripped from the filter. A source LIMIT
+     * applied before a stripped (BE-only) predicate would return too few rows (BE can only filter
+     * the returned rows down, not recover rows the source never returned). Extracted as a pure
+     * static so the correctness-critical decision is unit-testable without a {@link FileQueryScanNode}.
+     */
+    static long effectiveSourceLimit(long limit, boolean nonPushableConjunctsStripped) {
+        return nonPushableConjunctsStripped ? -1L : limit;
+    }
+
+    /**
+     * Enables batched / streaming split generation for large partitioned scans, mirroring legacy
+     * {@code MaxComputeScanNode.isBatchMode()}. Three gates are evaluated generically from state the
+     * node already holds (partition pruning + slots + the {@code num_partitions_in_batch_mode}
+     * threshold); the connector-specific gate (legacy {@code odpsTable.getFileNum() > 0}) is
+     * delegated to {@link ConnectorScanPlanProvider#supportsBatchScan}.
+     */
+    @Override
+    public boolean isBatchMode() {
+        if (isBatchModeCache == null) {
+            isBatchModeCache = computeBatchMode();
+        }
+        return isBatchModeCache;
+    }
+
+    private boolean computeBatchMode() {
+        // getScanPlanProvider() may be null for connectors without scan capability; mirror the
+        // null-guard in getSplits() so isBatchMode (run on the dispatch + explain paths) never NPEs.
+        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        boolean supportsBatchScan = scanProvider != null
+                && scanProvider.supportsBatchScan(connectorSession, currentHandle);
+        return shouldUseBatchMode(selectedPartitions, !desc.getSlots().isEmpty(),
+                supportsBatchScan, sessionVariable.getNumPartitionsInBatchMode());
+    }
+
+    /**
+     * Pure batch-mode gate, mirroring legacy {@code MaxComputeScanNode.isBatchMode()} (its connector
+     * {@code odpsTable.getFileNum() > 0} check is folded into {@code supportsBatchScan}). Extracted
+     * as a static helper so the four-input decision is unit-testable without constructing a
+     * {@link FileQueryScanNode} (the async/wiring half is covered by live e2e — see DV-019).
+     *
+     * <ul>
+     *   <li>not partitioned / not pruned ({@code selectedPartitions} null or {@code !isPruned}) &rarr; false;</li>
+     *   <li>no required slots &rarr; false;</li>
+     *   <li>connector does not support batch scan (incl. no scan provider) &rarr; false;</li>
+     *   <li>otherwise batch iff {@code numPartitionsInBatchMode > 0} and the pruned partition count
+     *       reaches that threshold.</li>
+     * </ul>
+     *
+     * <p>The {@code !isPruned} check subsumes BOTH legacy gates ({@code getPartitionColumns().isEmpty()}
+     * and the reference check {@code != NOT_PRUNED}): a non-partitioned external table always carries
+     * {@code NOT_PRUNED} (which has {@code isPruned=false}), so collapsing them is not a dropped gate —
+     * it is in fact marginally stronger than legacy's reference identity check.</p>
+     */
+    static boolean shouldUseBatchMode(SelectedPartitions selectedPartitions, boolean hasSlots,
+            boolean supportsBatchScan, int numPartitionsInBatchMode) {
+        if (selectedPartitions == null || !selectedPartitions.isPruned) {
+            return false;
+        }
+        if (!hasSlots) {
+            return false;
+        }
+        if (!supportsBatchScan) {
+            return false;
+        }
+        return numPartitionsInBatchMode > 0
+                && selectedPartitions.selectedPartitions.size() >= numPartitionsInBatchMode;
+    }
+
+    @Override
+    public int numApproximateSplits() {
+        // Number of pruned partitions; must be non-negative in batch mode (FileQueryScanNode rejects
+        // negative). Under the isBatchMode gate this is >= num_partitions_in_batch_mode >= 1.
+        return selectedPartitions == null ? -1 : selectedPartitions.selectedPartitions.size();
+    }
+
+    /**
+     * Asynchronously generates splits in batches of {@code num_partitions_in_batch_mode} partitions,
+     * streaming each batch into {@link #splitAssignment}. Mirrors legacy
+     * {@code MaxComputeScanNode.startSplit}: one read session per partition batch (built by the
+     * connector via {@link ConnectorScanPlanProvider#planScanForPartitionBatch}) on the shared
+     * schedule executor, with the same completion/error protocol against {@code SplitAssignment}.
+     *
+     * <p>Batch mode deliberately does NOT push the limit (passes {@code -1}): legacy's batch path
+     * ignores limit, and the LIMIT-split optimization stays on the non-batch {@link #getSplits}
+     * path only (the two are mutually exclusive).</p>
+     */
+    @Override
+    public void startSplit(int numBackends) {
+        long[] partitionCounts = displayPartitionCounts(selectedPartitions);
+        if (partitionCounts != null) {
+            this.selectedPartitionNum = partitionCounts[0];
+            this.totalPartitionNum = partitionCounts[1];
+        }
+        if (selectedPartitions.selectedPartitions.isEmpty()) {
+            // Unreachable under the isBatchMode gate (size >= num_partitions_in_batch_mode >= 1);
+            // kept for fidelity with legacy MaxComputeScanNode.startSplit's empty short-circuit.
+            return;
+        }
+
+        // Mirror getSplits()'s projection + filter pushdown (but NOT the limit) before going async.
+        // tryPushDownProjection mutates currentHandle, so capture the resolved handle afterwards.
+        final List<ConnectorColumnHandle> columns = buildColumnHandles();
+        tryPushDownProjection(columns);
+        final Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        final ConnectorTableHandle handle = currentHandle;
+        final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        final List<String> allPartitions =
+                new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
+        final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
+
+        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        AtomicReference<UserException> batchException = new AtomicReference<>(null);
+        AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+
+        CompletableFuture.runAsync(() -> {
+            for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
+                int end = Math.min(begin + batchSize, allPartitions.size());
+                if (batchException.get() != null || splitAssignment.isStop()) {
+                    break;
+                }
+                List<String> batch = allPartitions.subList(begin, end);
+                int curBatchSize = end - begin;
+                try {
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            List<ConnectorScanRange> ranges = scanProvider.planScanForPartitionBatch(
+                                    connectorSession, handle, columns, remainingFilter, -1L, batch);
+                            List<Split> batchSplits = new ArrayList<>(ranges.size());
+                            for (ConnectorScanRange range : ranges) {
+                                batchSplits.add(new PluginDrivenSplit(range));
+                            }
+                            if (splitAssignment.needMoreSplit()) {
+                                splitAssignment.addToQueue(batchSplits);
+                            }
+                        } catch (Exception e) {
+                            batchException.set(new UserException(e.getMessage(), e));
+                        } finally {
+                            if (batchException.get() != null) {
+                                splitAssignment.setException(batchException.get());
+                            }
+                            if (numFinishedPartitions.addAndGet(curBatchSize) == allPartitions.size()) {
+                                splitAssignment.finishSchedule();
+                            }
+                        }
+                    }, scheduleExecutor);
+                } catch (Exception e) {
+                    batchException.set(new UserException(e.getMessage(), e));
+                }
+                if (batchException.get() != null) {
+                    splitAssignment.setException(batchException.get());
+                }
+            }
+        }, scheduleExecutor);
     }
 
     @Override
