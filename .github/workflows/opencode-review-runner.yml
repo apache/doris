@@ -32,16 +32,16 @@ jobs:
         with:
           ref: ${{ inputs.head_sha }}
 
-      - name: Install runner utilities
+      - name: Install ripgrep
         run: |
           sudo apt-get update
-          sudo apt-get install -y ripgrep unzip
+          sudo apt-get install -y ripgrep
 
-      - name: Install OpenCode
+      - name: Install Codex
         run: |
           for attempt in 1 2 3; do
-            if curl -fsSL https://opencode.ai/install | bash; then
-              echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+            if npm install -g @openai/codex; then
+              codex --version
               exit 0
             fi
             echo "Install attempt $attempt failed, retrying in 10s..."
@@ -58,18 +58,42 @@ jobs:
           unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
-      - name: Configure OpenCode auth
-        id: configure-auth
+      - name: Configure Codex auth
+        run: |
+          install -m 700 -d "$RUNNER_TEMP/codex-home"
+          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_AUTH_OBJECT" "$RUNNER_TEMP/codex-home/auth.json"
+          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
+          test -s "$RUNNER_TEMP/codex-home/auth.json"
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
+
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
+          cli_auth_credentials_store = "file"
+          approval_policy = "never"
+
+          [shell_environment_policy]
+          inherit = "all"
+
+          [sandbox_workspace_write]
+          network_access = true
+
+          [otel]
+          environment = "github-actions"
+          exporter = "none"
+          metrics_exporter = "none"
+          trace_exporter = "none"
+          EOF
+          chmod 600 "$RUNNER_TEMP/codex-home/config.toml"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
-        run: |
-          mkdir -p ~/.local/share/opencode
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_AUTH_OBJECT" ~/.local/share/opencode/auth.json
-          chmod 600 ~/.local/share/opencode/auth.json
-          test -s ~/.local/share/opencode/auth.json
+          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Prepare review context directory
         run: |
@@ -204,24 +228,38 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REASONING_EFFORT: xhigh
         run: |
           PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
 
           set +e
-          opencode run "$PROMPT" -m "openai/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
-          status=${PIPESTATUS[0]}
+          codex exec "$PROMPT" \
+            --cd "$GITHUB_WORKSPACE" \
+            --model "gpt-5.5" \
+            --config "model_reasoning_effort=\"${REASONING_EFFORT}\"" \
+            --sandbox workspace-write \
+            --color never \
+            --json \
+            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
+          status=$?
           set -e
 
-          last_log_line=$(
-            awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log" \
-              | perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g'
-          )
-
           failure_reason=""
-          if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then
-            failure_reason="$last_log_line"
-          elif [ "$status" -ne 0 ]; then
-            failure_reason="OpenCode exited with status $status"
+          if [ "$status" -ne 0 ]; then
+            if [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+              failure_reason="$(jq -r 'select(.type == "turn.failed") | .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              if [ -z "$failure_reason" ]; then
+                failure_reason="$(jq -r 'select(.type == "error") | .message // .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              fi
+            fi
+            if [ -z "$failure_reason" ] && [ -s "$REVIEW_CONTEXT_DIR/codex-stderr.log" ]; then
+              failure_reason="$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/codex-stderr.log")"
+            fi
+            if [ -z "$failure_reason" ]; then
+              failure_reason="Codex exited with status $status"
+            fi
           fi
 
           if [ -n "$failure_reason" ]; then
@@ -233,22 +271,71 @@ jobs:
             exit 1
           fi
 
-      - name: Persist OpenCode auth
-        if: ${{ always() && steps.configure-auth.outcome == 'success' }}
+      - name: Record review I/O to Litefuse
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+          REASONING_EFFORT: xhigh
+        run: |
+          if [ ! -s "$REVIEW_CONTEXT_DIR/review_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+            echo "Review prompt or Codex JSONL event stream is missing; skipping Litefuse I/O recording."
+            exit 0
+          fi
+
+          helper="$RUNNER_TEMP/emit_litefuse_otel_io.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/emit_litefuse_otel_io.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --input-file "$REVIEW_CONTEXT_DIR/review_prompt.txt" \
+            --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            --output-file "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            --trace-name "doris-ai-review" \
+            --session-id "$GITHUB_RUN_ID" \
+            --repository "$REPO" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --model "gpt-5.5" \
+            --reasoning-effort "$REASONING_EFFORT" \
+            --environment "github-actions" \
+            --min-observations 4 \
+            --min-step-observations 2 \
+            --verify-attempts 24 \
+            --verify-sleep-seconds 5 \
+            --verify
+
+      - name: Sync Codex auth back to OSS
+        if: ${{ always() }}
+        run: |
+          if [ ! -s "$CODEX_HOME/auth.json" ]; then
+            echo "No Codex auth file found; skipping OSS auth sync."
+            exit 0
+          fi
+
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$CODEX_HOME/auth.json" >/dev/null
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$OSS_CODEX_AUTH_OBJECT"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
-        run: |
-          if [ ! -s ~/.local/share/opencode/auth.json ]; then
-            echo "::warning::OpenCode auth file is missing or empty; skip OSS auth persistence."
-            exit 0
-          fi
-
-          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f ~/.local/share/opencode/auth.json "$OSS_AUTH_OBJECT"; then
-            echo "::warning::Failed to persist OpenCode auth to OSS; continue because review already finished."
-          fi
+          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Comment PR on review failure
         if: ${{ always() && steps.review.outcome != 'success' }}
@@ -260,7 +347,7 @@ jobs:
         run: |
           error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
           gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
-          OpenCode automated review failed and did not complete.
+          Codex automated review failed and did not complete.
 
           Error: ${error_msg}
           Workflow run: ${RUN_URL}
@@ -276,5 +363,5 @@ jobs:
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
           error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
-          echo "OpenCode automated review failed: ${error_msg}"
+          echo "Codex automated review failed: ${error_msg}"
           exit 1
