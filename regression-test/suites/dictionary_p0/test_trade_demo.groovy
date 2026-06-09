@@ -230,10 +230,10 @@ suite('test_trade_demo') {
     )
     SELECT 
         date_hour,
-        struct_element(advertiser_info, 'advertiser_name'),
-        struct_element(advertiser_info, 'industry_type'),
-        struct_element(advertiser_info, 'account_type'),
-        struct_element(advertiser_info, 'sales_owner'),
+        element_at(advertiser_info, 'advertiser_name'),
+        element_at(advertiser_info, 'industry_type'),
+        element_at(advertiser_info, 'account_type'),
+        element_at(advertiser_info, 'sales_owner'),
         total_impression,
         total_click,
         total_cost,
@@ -290,8 +290,8 @@ suite('test_trade_demo') {
         GROUP BY l.creative_id, l.advertiser_id
     )
     SELECT 
-        struct_element(creative_info, 'creative_type'),
-        struct_element(creative_info, 'material_size'),
+        element_at(creative_info, 'creative_type'),
+        element_at(creative_info, 'material_size'),
         industry_type,
         COUNT(DISTINCT creative_id) as creative_count,
         SUM(total_impression) as total_impression,
@@ -301,8 +301,8 @@ suite('test_trade_demo') {
         ROUND(SUM(total_cost) * 1000.0 / NULLIF(SUM(total_impression), 0), 2) as cpm
     FROM creative_metrics
     GROUP BY 
-        struct_element(creative_info, 'creative_type'),
-        struct_element(creative_info, 'material_size'),
+        element_at(creative_info, 'creative_type'),
+        element_at(creative_info, 'material_size'),
         industry_type
     HAVING total_impression > 10000
     ORDER BY total_cost DESC;
