@@ -80,11 +80,16 @@ public class TabletStatMgr extends MasterDaemon {
         if (dbName.isEmpty() || tableName.isEmpty() || sleepMs <= 0) {
             return;
         }
-        if (!db.getFullName().equals(dbName) || !olapTable.getName().equals(tableName)) {
+        // Accept both the display db name and the fully qualified db name so regression cases
+        // can target the same table across different FE naming conventions.
+        if ((!db.getFullName().equals(dbName) && !db.getName().equals(dbName))
+                || !olapTable.getName().equals(tableName)) {
             return;
         }
         // Delay FE row count publication for the target table so tests can reproduce the unknown-row window.
         try {
+            LOG.info("Delay row count report for {}.{} (full db name: {}) by {} ms",
+                    db.getName(), tableName, db.getFullName(), sleepMs);
             Thread.sleep(sleepMs);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

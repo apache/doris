@@ -15,10 +15,54 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.net.HttpURLConnection
+import java.net.URLEncoder
+import java.net.URL
+import java.util.Base64
+
 suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
     String db = context.config.getDbNameByFile(context.file)
+    // TabletStatMgr currently matches Database.getFullName(), which uses the legacy cluster-qualified name.
+    String debugPointDb = "default_cluster:${db}"
     sql "use ${db}"
-    GetDebugPoint().clearDebugPointsForAllFEs()
+    String feDebugPointEndpoint = "http://${context.config.feHttpAddress}"
+    String feDebugPointAuth = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":"
+            + (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+
+    // Access the FE debug point endpoint from the regression config so remote tests do not depend on show frontends.
+    def postToFeDebugPoint = { String path ->
+        HttpURLConnection conn = (HttpURLConnection) new URL(feDebugPointEndpoint + path).openConnection()
+        conn.setRequestMethod("POST")
+        conn.setRequestProperty("Authorization", "Basic ${feDebugPointAuth}")
+        conn.setDoOutput(true)
+        int responseCode = conn.getResponseCode()
+        assertTrue(responseCode >= 200 && responseCode < 300)
+        conn.getInputStream().close()
+    }
+
+    // Build the query string locally so this case can target the deployed FE address from regression-conf.
+    def encodeDebugPointParams = { Map<String, String> params ->
+        params.collect { key, value ->
+            URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8")
+        }.join("&")
+    }
+
+    // Use the configured FE HTTP endpoint directly because the remote FE may advertise a loopback host in show frontends.
+    def enableFeDebugPoint = { String name, Map<String, String> params ->
+        postToFeDebugPoint("/api/debug_point/add/${name}?${encodeDebugPointParams(params)}")
+    }
+
+    // Remove the case-specific debug point explicitly so later suites are not affected by the injected delay.
+    def disableFeDebugPoint = { String name ->
+        postToFeDebugPoint("/api/debug_point/remove/${name}")
+    }
+
+    // Clear residual FE debug points before the case starts because previous runs may fail before the cleanup path.
+    def clearFeDebugPoints = {
+        postToFeDebugPoint("/api/debug_point/clear")
+    }
+
+    clearFeDebugPoints()
 
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
@@ -62,8 +106,8 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
     }
 
     // Delay FE row count publication so the non-bootstrap branch still sees unknown scan row count.
-    GetDebugPoint().enableDebugPointForAllFEs("TabletStatMgr.delay_row_count_report",
-            [db: db, table: "biga", sleep_ms: "5000"])
+    enableFeDebugPoint("TabletStatMgr.delay_row_count_report",
+            [db: debugPointDb, table: "biga", sleep_ms: "15000"])
     try {
         createBigATable(false)
 
@@ -89,7 +133,7 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
             }
         }
     } finally {
-        GetDebugPoint().disableDebugPointForAllFEs("TabletStatMgr.delay_row_count_report")
+        disableFeDebugPoint("TabletStatMgr.delay_row_count_report")
     }
 
     createBigATable(true)
