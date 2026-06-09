@@ -4850,6 +4850,131 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
     ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
 }
 
+TEST(CheckerTest, delete_bitmap_inverted_check_unexpired_tmp_rowset) {
+    auto retention_seconds = config::retention_seconds;
+    auto force_immediate_recycle = config::force_immediate_recycle;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+        config::force_immediate_recycle = force_immediate_recycle;
+    };
+    config::retention_seconds = 3600;
+    config::force_immediate_recycle = false;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t table_id = 10000;
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t partition_id = 10002;
+    constexpr int64_t tablet_id = 600011;
+    ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto tmp_rowset = create_rowset("1", tablet_id, index_id, 1, schema, 100001);
+    tmp_rowset.set_creation_time(current_time);
+    tmp_rowset.set_txn_expiration(current_time);
+    tmp_rowset.set_start_version(10);
+    tmp_rowset.set_end_version(10);
+    tmp_rowset.set_job_id("compaction-job-1");
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, false));
+    ASSERT_EQ(0, create_delete_bitmaps_v1(txn_kv.get(), tablet_id, tmp_rowset.rowset_id_v2()));
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_unexpired_non_job_tmp_rowset) {
+    auto retention_seconds = config::retention_seconds;
+    auto force_immediate_recycle = config::force_immediate_recycle;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+        config::force_immediate_recycle = force_immediate_recycle;
+    };
+    config::retention_seconds = 3600;
+    config::force_immediate_recycle = false;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t table_id = 10000;
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t partition_id = 10002;
+    constexpr int64_t tablet_id = 600013;
+    ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto tmp_rowset = create_rowset("1", tablet_id, index_id, 1, schema, 100003);
+    tmp_rowset.set_creation_time(current_time);
+    tmp_rowset.set_txn_expiration(current_time);
+    tmp_rowset.set_start_version(10);
+    tmp_rowset.set_end_version(10);
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, false));
+    ASSERT_EQ(0, create_delete_bitmaps_v1(txn_kv.get(), tablet_id, tmp_rowset.rowset_id_v2()));
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_expired_tmp_rowset) {
+    auto retention_seconds = config::retention_seconds;
+    auto force_immediate_recycle = config::force_immediate_recycle;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+        config::force_immediate_recycle = force_immediate_recycle;
+    };
+    config::retention_seconds = 3600;
+    config::force_immediate_recycle = false;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t table_id = 10000;
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t partition_id = 10002;
+    constexpr int64_t tablet_id = 600012;
+    ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto tmp_rowset = create_rowset("1", tablet_id, index_id, 1, schema, 100002);
+    tmp_rowset.set_creation_time(current_time - config::retention_seconds - 10);
+    tmp_rowset.set_txn_expiration(current_time - config::retention_seconds - 10);
+    tmp_rowset.set_start_version(10);
+    tmp_rowset.set_end_version(10);
+    tmp_rowset.set_job_id("compaction-job-2");
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, false));
+    ASSERT_EQ(0, create_delete_bitmaps_v1(txn_kv.get(), tablet_id, tmp_rowset.rowset_id_v2()));
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
+}
+
 TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
     // abnormal case, some delete bitmaps arem leaked
     auto txn_kv = std::make_shared<MemTxnKv>();
