@@ -139,7 +139,8 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         if (isCorrelated) {
             if (analyzedSubqueryPlan instanceof LogicalLimit) {
                 LogicalLimit limit = (LogicalLimit) analyzedSubqueryPlan;
-                if (limit.child() instanceof LogicalSort) {
+                if (limit.child() instanceof LogicalSort || (limit.child() instanceof LogicalProject
+                        && limit.child().child(0) instanceof LogicalSort)) {
                     throw new AnalysisException("sort with limit is not supported in correlated scalar subquery\n"
                             + analyzedResult.getLogicalPlan().treeString());
                 }

@@ -249,6 +249,13 @@ suite("correlated_scalar_subquery") {
         exception "sort with limit is not supported in correlated scalar subquery"
     }
 
+    test {
+        sql """
+              select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select c1 + 1 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 order by 1 limit 1);
+        """
+        exception "sort with limit is not supported in correlated scalar subquery"
+    }
+
     qt_select_agg_project1 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(count(c1) = 0, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_agg_project2 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 = (select if(sum(c1) is null, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_2_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) - min(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
