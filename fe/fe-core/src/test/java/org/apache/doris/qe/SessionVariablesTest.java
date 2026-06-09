@@ -20,8 +20,10 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
@@ -32,6 +34,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.Map;
 
 public class SessionVariablesTest extends TestWithFeService {
@@ -44,8 +47,7 @@ public class SessionVariablesTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         createDatabase("test_d");
         useDatabase("test_d");
-        createTable("create table test_t1 \n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\" = \"1\");");
+        // Skip creating an OLAP table because these cases only validate session-variable behavior and parsing.
 
         sessionVariable = new SessionVariable();
         Field[] fields = SessionVariable.class.getDeclaredFields();
@@ -66,8 +68,13 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertEquals(numOfForwardVars, vars.size());
 
         vars.put(SessionVariable.ENABLE_PROFILE, "true");
+        vars.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
         sessionVariable.setForwardedSessionVariables(vars);
         Assertions.assertTrue(sessionVariable.enableProfile);
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                sessionVariable.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                sessionVariable.getInsertVisibleTimeoutReturnModeEnum());
     }
 
     @Test
@@ -80,6 +87,83 @@ public class SessionVariablesTest extends TestWithFeService {
 
         Assertions.assertEquals("test",
                 sessionVariableClone.getSessionOriginValue().get(txIsolationSessionVariableField));
+    }
+
+    @Test
+    public void testInsertVisibleTimeoutReturnMode() throws Exception {
+        connectContext.setThreadLocalInfo();
+        SessionVariable sessionVar = connectContext.getSessionVariable();
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, new StringLiteral("ERROR")));
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                sessionVar.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                sessionVar.getInsertVisibleTimeoutReturnModeEnum());
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                sessionVar.getForwardVariables().get(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE));
+
+        SessionVariable restored = new SessionVariable();
+        restored.readFromJson("{\"insert_visible_timeout_return_mode\":\"ERROR\"}");
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                restored.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                restored.getInsertVisibleTimeoutReturnModeEnum());
+
+        // Verify map restore keeps accepting canonical string tokens without extra normalization hooks.
+        Map<String, String> restoredMap = new HashMap<>();
+        restoredMap.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
+        restored.readFromMap(restoredMap);
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                restored.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                restored.getInsertVisibleTimeoutReturnModeEnum());
+
+        Map<String, String> forwardVars = sessionVar.getForwardVariables();
+        forwardVars.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
+        restored.setForwardedSessionVariables(forwardVars);
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                restored.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                restored.getInsertVisibleTimeoutReturnModeEnum());
+
+        Field field = SessionVariable.class.getDeclaredField("insertVisibleTimeoutReturnMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertArrayEquals(new String[] {
+                "控制普通内表 INSERT 在 publish timeout 时返回给客户端的状态。",
+                "Controls the status returned to the client when a normal internal-table INSERT times out "
+                        + "while waiting for publish visibility."
+        }, varAttr.description());
+        Assertions.assertArrayEquals(new String[] {
+                SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED,
+                SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR
+        }, varAttr.options());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "insertVisibleTimeoutReturnMode value is invalid",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, new StringLiteral("unexpected"))));
+    }
+
+    @Test
+    public void testInsertVisibleTimeoutReturnModeDefaultsAndCheckerBranches() {
+        // Cover the default branch and the helper methods used by setter/checker paths.
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED,
+                sessionVar.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertFalse(sessionVar.isInsertVisibleTimeoutReturnError());
+
+        // Verify setter normalization is case-insensitive and stores the canonical lowercase value.
+        sessionVar.setInsertVisibleTimeoutReturnMode("ErRoR");
+        Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
+                sessionVar.getInsertVisibleTimeoutReturnMode());
+        Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
+                sessionVar.getInsertVisibleTimeoutReturnModeEnum());
+        Assertions.assertTrue(sessionVar.isInsertVisibleTimeoutReturnError());
+
+        ExceptionChecker.expectThrowsWithMsg(UnsupportedOperationException.class,
+                "insertVisibleTimeoutReturnMode value is empty",
+                () -> sessionVar.checkInsertVisibleTimeoutReturnMode(""));
     }
 
     @Test
@@ -192,5 +276,17 @@ public class SessionVariablesTest extends TestWithFeService {
             sv.enableStrictConsistencyDml = false;
             Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
         }
+    }
+
+    @Test
+    public void testEnablePreloadExternalMetadata() throws DdlException {
+        Assertions.assertFalse(sessionVariable.isEnablePreloadExternalMetadata());
+
+        // Verify the new preload switch can be changed through the standard session variable path.
+        VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_PRELOAD_EXTERNAL_METADATA,
+                new StringLiteral("true")));
+
+        Assertions.assertTrue(sessionVariable.isEnablePreloadExternalMetadata());
     }
 }

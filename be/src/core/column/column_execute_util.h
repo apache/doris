@@ -39,6 +39,7 @@ struct ColumnElementView {
     using ElementType = typename ColumnType::value_type;
     const typename ColumnType::Container& data;
     ElementType get_element(size_t idx) const { return data[idx]; }
+    const ElementType* get_data() const { return data.data(); }
 
     ColumnElementView(const IColumn& column)
             : data(assert_cast<const ColumnType&>(column).get_data()) {}

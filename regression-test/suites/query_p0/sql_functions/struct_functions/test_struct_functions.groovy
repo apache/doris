@@ -43,10 +43,31 @@ suite("test_struct_functions") {
 
     qt_select_all "SELECT * FROM ${tableName} ORDER BY k1"
 
-    qt_select_struct_element_1 "SELECT element_at(k2,'f1'),element_at(k2,'f2'),element_at(k2,'f3'),element_at(k2,'f4'),element_at(k2,'f5') FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_2 "SELECT element_at(k3,'f1'),element_at(k3,'f2'),element_at(k3,'f3') FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_3 "SELECT element_at(k4,1),element_at(k4,2),element_at(k4,3),element_at(k4,4) FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_4 "SELECT element_at(k5,1),element_at(k5,2),element_at(k5,3) FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_1 "SELECT element_at(k2,'f1'),element_at(k2,'f2'),element_at(k2,'f3'),element_at(k2,'f4'),element_at(k2,'f5') FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_2 "SELECT element_at(k3,'f1'),element_at(k3,'f2'),element_at(k3,'f3') FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_3 "SELECT element_at(k4,1),element_at(k4,2),element_at(k4,3),element_at(k4,4) FROM ${tableName} ORDER BY k1"
+    qt_select_element_at_4 "SELECT element_at(k5,1),element_at(k5,2),element_at(k5,3) FROM ${tableName} ORDER BY k1"
+
+    // DORIS-26105: subscript syntax `s['field']` / `s[index]` on STRUCT should work the same as
+    // element_at and must not crash the BE (especially for NULL struct rows).
+    qt_select_struct_subscript_1 "SELECT k2['f1'],k2['f2'],k2['f3'],k2['f4'],k2['f5'] FROM ${tableName} ORDER BY k1"
+    qt_select_struct_subscript_2 "SELECT k3['f1'],k3['f2'],k3['f3'] FROM ${tableName} ORDER BY k1"
+    qt_select_struct_subscript_3 "SELECT k4[1],k4[2],k4[3],k4[4] FROM ${tableName} ORDER BY k1"
+    qt_select_struct_subscript_4 "SELECT k5[1],k5[2],k5[3] FROM ${tableName} ORDER BY k1"
+
+    // exact repro from DORIS-26105: subscript on a struct column whose value is NULL
+    sql """ DROP TABLE IF EXISTS tbl_struct_subscript_null """
+    sql """
+            CREATE TABLE IF NOT EXISTS tbl_struct_subscript_null (
+              id int,
+              profile STRUCT<flag:BOOLEAN,score:INT> NULL
+            )
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+    sql """ INSERT INTO tbl_struct_subscript_null VALUES(1, null) """
+    qt_select_struct_subscript_null "SELECT profile['score'] FROM tbl_struct_subscript_null"
 
     //The precision of the decimal type in the test select is inconsistent with the precision of the function named_struct containing the decimal type.
     sql """ drop table if exists t01 --force """;

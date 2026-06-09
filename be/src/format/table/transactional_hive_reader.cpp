@@ -19,6 +19,8 @@
 
 #include <re2/re2.h>
 
+#include <utility>
+
 #include "core/data_type/data_type_factory.hpp"
 #include "format/orc/vorc_reader.h"
 #include "format/table/table_schema_change_helper.h"
@@ -40,6 +42,21 @@ TransactionalHiveReader::TransactionalHiveReader(RuntimeProfile* profile, Runtim
                                                  const std::string& ctz, io::IOContext* io_ctx,
                                                  FileMetaCache* meta_cache)
         : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache, false) {
+    _init_transactional_hive_profile();
+}
+
+TransactionalHiveReader::TransactionalHiveReader(RuntimeProfile* profile, RuntimeState* state,
+                                                 const TFileScanRangeParams& params,
+                                                 const TFileRangeDesc& range, size_t batch_size,
+                                                 const std::string& ctz,
+                                                 std::shared_ptr<io::IOContext> io_ctx_holder,
+                                                 FileMetaCache* meta_cache)
+        : OrcReader(profile, state, params, range, batch_size, ctz, std::move(io_ctx_holder),
+                    meta_cache, false) {
+    _init_transactional_hive_profile();
+}
+
+void TransactionalHiveReader::_init_transactional_hive_profile() {
     static const char* transactional_hive_profile = "TransactionalHiveProfile";
     ADD_TIMER(get_profile(), transactional_hive_profile);
     _transactional_orc_profile.num_delete_files = ADD_CHILD_COUNTER(
@@ -56,9 +73,10 @@ TransactionalHiveReader::TransactionalHiveReader(RuntimeProfile* profile, Runtim
 Status TransactionalHiveReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
-    RETURN_IF_ERROR(
-            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
-    for (auto& desc : *ctx->column_descs) {
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
             _col_names.push_back(desc.name);

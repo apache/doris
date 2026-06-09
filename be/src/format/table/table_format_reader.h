@@ -29,6 +29,7 @@
 #include "core/column/column_nullable.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/generic_reader.h"
+#include "format/table/partition_column_filler.h"
 
 namespace doris {
 class TFileRangeDesc;
@@ -61,30 +62,19 @@ public:
     /// Fill partition columns from metadata values.
     virtual Status on_fill_partition_columns(Block* block, size_t rows,
                                              const std::vector<std::string>& cols) {
-        DataTypeSerDe::FormatOptions text_format_options;
         for (const auto& col_name : cols) {
             auto it = _fill_partition_values.find(col_name);
             if (it == _fill_partition_values.end()) {
                 continue;
             }
-            auto col_ptr = block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
-                                   .column->assume_mutable();
+            auto column_guard =
+                    block->mutate_column_scoped((*_fill_col_name_to_block_idx)[col_name]);
+            auto& col_ptr = column_guard.mutable_column();
             const auto& [value, slot_desc] = it->second;
-            auto text_serde = slot_desc->get_data_type_ptr()->get_serde();
-            Slice slice(value.data(), value.size());
-            uint64_t num_deserialized = 0;
-            if (text_serde->deserialize_column_from_fixed_json(
-                        *col_ptr, slice, rows, &num_deserialized, text_format_options) !=
-                Status::OK()) {
-                return Status::InternalError("Failed to fill partition column: {}={}",
-                                             slot_desc->col_name(), value);
-            }
-            if (num_deserialized != rows) {
-                return Status::InternalError(
-                        "Failed to fill partition column: {}={}. "
-                        "Expected rows: {}, actual: {}",
-                        slot_desc->col_name(), value, num_deserialized, rows);
-            }
+            auto null_it = _fill_partition_value_is_null.find(col_name);
+            DORIS_CHECK(null_it != _fill_partition_value_is_null.end());
+            RETURN_IF_ERROR(fill_partition_column_from_path_value(*col_ptr, *slot_desc, value, rows,
+                                                                  null_it->second));
         }
         return Status::OK();
     }
@@ -101,16 +91,16 @@ public:
             VExprContextSPtr ctx = (it != _fill_missing_defaults.end()) ? it->second : nullptr;
 
             if (ctx == nullptr) {
-                auto mutable_column =
-                        block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
-                                .column->assume_mutable();
+                auto column_guard =
+                        block->mutate_column_scoped((*_fill_col_name_to_block_idx)[col_name]);
+                auto& mutable_column = column_guard.mutable_column();
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
                 nullable_column->insert_many_defaults(rows);
             } else {
                 ColumnPtr result_column_ptr;
                 RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
                 if (result_column_ptr->use_count() == 1) {
-                    auto mutable_column = result_column_ptr->assume_mutable();
+                    auto mutable_column = result_column_ptr->assert_mutable();
                     mutable_column->resize(rows);
                     result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                     auto origin_column_type =
@@ -147,7 +137,7 @@ public:
             if (col_pos < 0) {
                 continue;
             }
-            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+            block->clear_column_data(std::vector<uint32_t> {static_cast<uint32_t>(col_pos)});
         }
         return Status::OK();
     }
@@ -212,7 +202,7 @@ public:
             if (col_pos < 0) {
                 continue;
             }
-            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+            block->clear_column_data(std::vector<uint32_t> {static_cast<uint32_t>(col_pos)});
         }
         return Status::OK();
     }
@@ -266,11 +256,13 @@ protected:
     static Status _extract_partition_values(
             const TFileRangeDesc& range, const TupleDescriptor* tuple_descriptor,
             std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_values);
+                    partition_values,
+            std::unordered_map<std::string, bool>* partition_value_is_null = nullptr);
 
     // ---- Fill column data (set by on_before_init_reader / _do_init_reader) ----
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _fill_partition_values;
+    std::unordered_map<std::string, bool> _fill_partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> _fill_missing_defaults;
     std::unordered_map<std::string, uint32_t>* _fill_col_name_to_block_idx = nullptr;
     std::unordered_set<std::string> _fill_missing_cols;

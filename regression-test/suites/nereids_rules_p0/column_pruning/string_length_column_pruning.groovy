@@ -82,14 +82,14 @@ suite("string_length_column_pruning") {
     }
     sql "select if(length(str_col) >= 5, true, false) a from slcp_str_tbl order by id"
 
-    // Struct string field: length(struct_element) is the only use
+    // Struct string field: length(element_at) is the only use
     explain {
-        sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
+        sql "select length(element_at(struct_col, 'f3')) from slcp_str_tbl"
         contains "nested columns"
         contains "OFFSET"
         notContains "type=bigint"
     }
-    sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
+    sql "select length(element_at(struct_col, 'f3')) from slcp_str_tbl"
     // length() in both SELECT and WHERE: predicate must remain length(str_col) > 1,
     // never be rewritten to CAST(str_col AS int) > 1. Slot type must stay varchar.
     explain {
@@ -409,7 +409,7 @@ suite("string_length_column_pruning") {
     // The struct's nested-columns entry still appears (partial struct pruning),
     // but the pruned field type must remain text (not bigint).
     explain {
-        sql "select length(struct_element(struct_col, 'f3')), struct_element(struct_col, 'f3') from slcp_str_tbl"
+        sql "select length(element_at(struct_col, 'f3')), element_at(struct_col, 'f3') from slcp_str_tbl"
         contains "nested columns"
         notContains "bigint"
     }
@@ -471,8 +471,8 @@ suite("string_length_column_pruning") {
     // The OFFSET path for str_field must NOT be stripped by the non-OFFSET path for int_field.
     order_qt_arr_struct_mixed """
         SELECT id,
-               array_match_all(x -> length(struct_element(x, 'str_field')) > 0, arr_struct),
-               struct_element(element_at(arr_struct, 1), 'int_field')
+               array_match_all(x -> length(element_at(x, 'str_field')) > 0, arr_struct),
+               element_at(element_at(arr_struct, 1), 'int_field')
         FROM slcp_arr_struct_tbl ORDER BY id
     """
 
@@ -480,8 +480,8 @@ suite("string_length_column_pruning") {
     explain {
         sql """
             SELECT id,
-                   array_match_all(x -> length(struct_element(x, 'str_field')) > 0, arr_struct),
-                   struct_element(element_at(arr_struct, 1), 'int_field')
+                   array_match_all(x -> length(element_at(x, 'str_field')) > 0, arr_struct),
+                   element_at(element_at(arr_struct, 1), 'int_field')
             FROM slcp_arr_struct_tbl
         """
         contains "OFFSET"
@@ -517,8 +517,8 @@ suite("string_length_column_pruning") {
 
     explain {
         sql """
-            SELECT cardinality(struct_element(s, 'arr')),
-                   struct_element(element_at(struct_element(s, 'arr'), 1), 'int_field')
+            SELECT cardinality(element_at(s, 'arr')),
+                   element_at(element_at(element_at(s, 'arr'), 1), 'int_field')
             FROM slcp_struct_root_tbl
         """
         contains "s.arr.*.int_field"
@@ -527,8 +527,8 @@ suite("string_length_column_pruning") {
 
     explain {
         sql """
-            SELECT length(element_at(struct_element(s, 'm'), 'a')),
-                   element_at(map_values(struct_element(s, 'm')), 1)
+            SELECT length(element_at(element_at(s, 'm'), 'a')),
+                   element_at(map_values(element_at(s, 'm')), 1)
             FROM slcp_struct_root_tbl
         """
         contains "s.m.KEYS"
@@ -618,11 +618,11 @@ suite("string_length_column_pruning") {
 
     // Nested CHAR inside a STRUCT: length(struct.char_field) must also skip OFFSET.
     explain {
-        sql "select length(struct_element(struct_col, 'f3')) from slcp_char_tbl"
+        sql "select length(element_at(struct_col, 'f3')) from slcp_char_tbl"
         notContains "OFFSET"
     }
     order_qt_length_struct_char """
-        select length(struct_element(struct_col, 'f3')) from slcp_char_tbl
+        select length(element_at(struct_col, 'f3')) from slcp_char_tbl
     """
 
     // Nested CHAR as MAP value: length(map<X, char>['k']) must also skip OFFSET.

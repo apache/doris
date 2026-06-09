@@ -118,7 +118,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
@@ -231,7 +231,7 @@ struct ProcessHashTableBuild {
 
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_build_raw_ptrs.size() == 1 && null_map && *has_null_key) {
-            _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
+            const_cast<IColumn*>(_build_raw_ptrs[0])->replace_column_null_data(null_map->data());
         }
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,

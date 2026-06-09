@@ -884,9 +884,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             }
 
 
+            List<String> subColLables = slot.getSubColLables();
             if (prunedType == null
                     && displayAllAccessPathsString == null
-                    && displayPredicateAccessPathsString == null) {
+                    && displayPredicateAccessPathsString == null
+                    && (subColLables == null || subColLables.isEmpty())) {
                 continue;
             }
 
@@ -898,6 +900,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             output.append(prefix).append("    origin type: ").append(slot.getColumn().getType()).append("\n");
             if (prunedType != null) {
                 output.append(prefix).append("    pruned type: ").append(prunedType).append("\n");
+            }
+            if (subColLables != null && !subColLables.isEmpty()) {
+                output.append(prefix).append("    sub path: [")
+                        .append(String.join(".", subColLables)).append("]\n");
             }
             if (displayAllAccessPathsString != null) {
                 output.append(prefix).append("    all access paths: [")

@@ -18,7 +18,7 @@ under the License.
 =end
 Gem::Specification.new do |s|
   s.name            = 'logstash-output-doris'
-  s.version         = '1.2.0'
+  s.version         = '1.2.1'
   s.author          = 'Apache Doris'
   s.email           = 'dev@doris.apache.org'
   s.homepage        = 'http://doris.apache.org'
@@ -46,5 +46,5 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'sinatra', '~> 1.4'
   s.add_development_dependency 'webrick', '~> 1.9'
 
-  s.requirements << 'jar org.apache.httpcomponents.client5, httpclient5, 5.4.2'
+  s.requirements << 'jar org.apache.httpcomponents, httpclient, 4.5.13'
 end

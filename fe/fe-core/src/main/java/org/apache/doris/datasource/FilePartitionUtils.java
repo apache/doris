@@ -17,12 +17,12 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -37,6 +37,24 @@ public final class FilePartitionUtils {
 
     private FilePartitionUtils() {}
 
+    public static final class ParsedColumnsFromPath {
+        private final List<String> values;
+        private final List<Boolean> isNull;
+
+        private ParsedColumnsFromPath(List<String> values, List<Boolean> isNull) {
+            this.values = values;
+            this.isNull = isNull;
+        }
+
+        public List<String> getValues() {
+            return values;
+        }
+
+        public List<Boolean> getIsNull() {
+            return isNull;
+        }
+    }
+
     /**
      * Parses partition column values from a Hive-style file path using case-sensitive matching.
      *
@@ -47,7 +65,7 @@ public final class FilePartitionUtils {
      */
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
-        return parseColumnsFromPath(filePath, columnsFromPath, true, false);
+        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, true, false).getValues();
     }
 
     /**
@@ -67,23 +85,35 @@ public final class FilePartitionUtils {
             boolean caseSensitive,
             boolean isACID)
             throws UserException {
+        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, caseSensitive, isACID)
+                .getValues();
+    }
+
+    public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfo(
+            String filePath,
+            List<String> columnsFromPath,
+            boolean caseSensitive,
+            boolean isACID)
+            throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
-            return Collections.emptyList();
+            return new ParsedColumnsFromPath(Collections.emptyList(), Collections.emptyList());
         }
         // ACID paths have one extra level: table/par=val/delta_xxx/file → pathCount = 3
         int pathCount = isACID ? 3 : 2;
+        List<String> expectedColumns = columnsFromPath;
         if (!caseSensitive) {
-            for (int i = 0; i < columnsFromPath.size(); i++) {
-                String path = columnsFromPath.remove(i);
-                columnsFromPath.add(i, path.toLowerCase());
+            expectedColumns = new ArrayList<>(columnsFromPath.size());
+            for (String path : columnsFromPath) {
+                expectedColumns.add(path.toLowerCase());
             }
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
             throw new UserException("Fail to parse columnsFromPath, expected: "
-                    + columnsFromPath + ", filePath: " + filePath);
+                    + expectedColumns + ", filePath: " + filePath);
         }
-        String[] columns = new String[columnsFromPath.size()];
+        String[] columns = new String[expectedColumns.size()];
+        Boolean[] columnValueIsNull = new Boolean[expectedColumns.size()];
         int size = 0;
         boolean skipOnce = true;
         for (int i = strings.length - pathCount; i >= 0; i--) {
@@ -97,30 +127,45 @@ public final class FilePartitionUtils {
                     continue;
                 }
                 throw new UserException("Fail to parse columnsFromPath, expected: "
-                        + columnsFromPath + ", filePath: " + filePath);
+                        + expectedColumns + ", filePath: " + filePath);
             }
             skipOnce = false;
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
-                        + columnsFromPath + ", filePath: " + filePath);
+                        + expectedColumns + ", filePath: " + filePath);
             }
             String parsedColumnName = caseSensitive ? pair[0] : pair[0].toLowerCase();
-            int index = columnsFromPath.indexOf(parsedColumnName);
+            int index = expectedColumns.indexOf(parsedColumnName);
             if (index == -1) {
                 continue;
             }
-            columns[index] = HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
-                ? FeConstants.null_string : pair[1];
+            boolean isNull = HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(pair[1]);
+            columns[index] = isNull ? "" : pair[1];
+            columnValueIsNull[index] = isNull;
             size++;
-            if (size >= columnsFromPath.size()) {
+            if (size >= expectedColumns.size()) {
                 break;
             }
         }
-        if (size != columnsFromPath.size()) {
+        if (size != expectedColumns.size()) {
             throw new UserException("Fail to parse columnsFromPath, expected: "
-                    + columnsFromPath + ", filePath: " + filePath);
+                    + expectedColumns + ", filePath: " + filePath);
         }
-        return Lists.newArrayList(columns);
+        return new ParsedColumnsFromPath(Lists.newArrayList(columns), Lists.newArrayList(columnValueIsNull));
+    }
+
+    public static ParsedColumnsFromPath normalizeColumnsFromPath(List<String> columnsFromPath) {
+        if (columnsFromPath == null || columnsFromPath.isEmpty()) {
+            return new ParsedColumnsFromPath(Collections.emptyList(), Collections.emptyList());
+        }
+        List<String> values = new ArrayList<>(columnsFromPath.size());
+        List<Boolean> isNull = new ArrayList<>(columnsFromPath.size());
+        for (String value : columnsFromPath) {
+            boolean nullValue = value == null || HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(value);
+            values.add(nullValue ? "" : value);
+            isNull.add(nullValue);
+        }
+        return new ParsedColumnsFromPath(values, isNull);
     }
 }

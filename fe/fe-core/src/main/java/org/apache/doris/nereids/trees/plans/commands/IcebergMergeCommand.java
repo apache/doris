@@ -139,6 +139,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                     + "Table " + Util.getTempTableDisplayName(table.getName()) + " is not an Iceberg table.");
         }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        IcebergDmlCommandUtils.checkMergeMode(icebergTable);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
@@ -156,10 +157,12 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             throw new AnalysisException("MERGE INTO can only be used on Iceberg tables. "
                     + "Table " + Util.getTempTableDisplayName(table.getName()) + " is not an Iceberg table.");
         }
+        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        IcebergDmlCommandUtils.checkMergeMode(icebergTable);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
-        ctx.setIcebergRowIdTargetTableId(((IcebergExternalTable) table).getId());
+        ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
-            return buildMergePlan(ctx, (IcebergExternalTable) table);
+            return buildMergePlan(ctx, icebergTable);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
         }

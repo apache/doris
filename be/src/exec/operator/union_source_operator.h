@@ -68,7 +68,7 @@ public:
 #ifdef BE_TEST
     UnionSourceOperatorX(int child_size) : _child_size(child_size) {}
 #endif
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

@@ -27,6 +27,7 @@
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
@@ -181,6 +182,28 @@ private:
     std::thread _thread;
 };
 
+namespace {
+MutableColumnPtr create_string_array_column(const std::vector<std::vector<std::string>>& rows) {
+    auto nested_column = ColumnString::create();
+    auto null_map_column = ColumnUInt8::create();
+    auto offsets_column = ColumnOffset64::create();
+
+    IColumn::Offset offset = 0;
+    for (const auto& row : rows) {
+        for (const auto& value : row) {
+            nested_column->insert_data(value.data(), value.size());
+            null_map_column->insert_value(0);
+        }
+        offset += row.size();
+        offsets_column->insert_value(offset);
+    }
+
+    return ColumnArray::create(
+            ColumnNullable::create(std::move(nested_column), std::move(null_map_column)),
+            std::move(offsets_column));
+}
+} // namespace
+
 TEST(AIFunctionTest, AISummarizeTest) {
     FunctionAISummarize function;
 
@@ -233,20 +256,7 @@ TEST(AIFunctionTest, AIMaskTest) {
 
     auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
     auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
-
-    auto nested_column = ColumnString::create();
-    auto offsets_column = ColumnOffset64::create();
-
-    IColumn::Offset offset = 0;
-    for (const auto& row : labels) {
-        for (const auto& value : row) {
-            nested_column->insert_data(value.data(), value.size());
-        }
-        offset += row.size();
-        offsets_column->insert_value(offset);
-    }
-
-    auto array_column = ColumnArray::create(std::move(nested_column), std::move(offsets_column));
+    auto array_column = create_string_array_column(labels);
 
     Block block;
     block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
@@ -315,20 +325,7 @@ TEST(AIFunctionTest, AIExtractTest) {
 
     auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
     auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
-
-    auto nested_column = ColumnString::create();
-    auto offsets_column = ColumnOffset64::create();
-
-    IColumn::Offset offset = 0;
-    for (const auto& row : labels) {
-        for (const auto& value : row) {
-            nested_column->insert_data(value.data(), value.size());
-        }
-        offset += row.size();
-        offsets_column->insert_value(offset);
-    }
-
-    auto array_column = ColumnArray::create(std::move(nested_column), std::move(offsets_column));
+    auto array_column = create_string_array_column(labels);
 
     Block block;
     block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
@@ -355,20 +352,7 @@ TEST(AIFunctionTest, AIClassifyTest) {
 
     auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
     auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
-
-    auto nested_column = ColumnString::create();
-    auto offsets_column = ColumnOffset64::create();
-
-    IColumn::Offset offset = 0;
-    for (const auto& row : labels) {
-        for (const auto& value : row) {
-            nested_column->insert_data(value.data(), value.size());
-        }
-        offset += row.size();
-        offsets_column->insert_value(offset);
-    }
-
-    auto array_column = ColumnArray::create(std::move(nested_column), std::move(offsets_column));
+    auto array_column = create_string_array_column(labels);
 
     Block block;
     block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});

@@ -166,7 +166,6 @@ public:
         std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-        std::vector<VExprSPtr> remaining_conjunct_roots;
         VExprContextSPtrs common_expr_ctxs_push_down;
 
         // used for compaction to record row ids
@@ -178,6 +177,9 @@ public:
         bool read_orderby_key = false;
         // used for special optimization for query : ORDER BY key DESC LIMIT n
         bool read_orderby_key_reverse = false;
+        // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+        // For example, use lower rowset version / segment id first.
+        bool use_insert_order_when_same = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
         // limit of rows for read_orderby_key

@@ -89,7 +89,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .rs_splits {},
                                  .return_columns {},
                                  .output_columns {},
-                                 .remaining_conjunct_roots {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
                                  .key_group_cluster_key_idxes {},
@@ -128,6 +127,26 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     }
     read_columns_string += "]";
     return read_columns_string;
+}
+
+static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
+    return stats.num_local_io_total != 0 || stats.num_remote_io_total != 0 ||
+           stats.num_peer_io_total != 0 || stats.local_io_timer != 0 ||
+           stats.bytes_read_from_local != 0 || stats.bytes_read_from_remote != 0 ||
+           stats.bytes_read_from_peer != 0 || stats.remote_io_timer != 0 ||
+           stats.peer_io_timer != 0 || stats.remote_wait_timer != 0 ||
+           stats.write_cache_io_timer != 0 || stats.bytes_write_into_cache != 0 ||
+           stats.num_skip_cache_io_total != 0 || stats.read_cache_file_directly_timer != 0 ||
+           stats.cache_get_or_set_timer != 0 || stats.lock_wait_timer != 0 ||
+           stats.get_timer != 0 || stats.set_timer != 0 ||
+           stats.inverted_index_num_local_io_total != 0 ||
+           stats.inverted_index_num_remote_io_total != 0 ||
+           stats.inverted_index_num_peer_io_total != 0 ||
+           stats.inverted_index_bytes_read_from_local != 0 ||
+           stats.inverted_index_bytes_read_from_remote != 0 ||
+           stats.inverted_index_bytes_read_from_peer != 0 ||
+           stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
+           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
 }
 
 Status OlapScanner::_prepare_impl() {
@@ -315,17 +334,6 @@ Status OlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
-
-    // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,
-    if (_common_expr_ctxs_push_down.empty()) {
-        for (auto& conjunct : _conjuncts) {
-            _tablet_reader_params.remaining_conjunct_roots.emplace_back(conjunct->root());
-        }
-    } else {
-        for (auto& ctx : _common_expr_ctxs_push_down) {
-            _tablet_reader_params.remaining_conjunct_roots.emplace_back(ctx->root());
-        }
-    }
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
@@ -638,6 +646,13 @@ Status OlapScanner::_init_return_columns() {
     return Status::OK();
 }
 
+bool OlapScanner::check_partition_pruned() const {
+    if (!_local_state) {
+        return false;
+    }
+    return _local_state->is_partition_pruned(_tablet_reader_params.tablet->partition_id());
+}
+
 doris::TabletStorageType OlapScanner::get_storage_type() {
     if (config::is_cloud_mode()) {
         // we don't have cold storage in cloud mode, all storage is treated as local
@@ -712,25 +727,30 @@ void OlapScanner::update_realtime_counters() {
                 stats.compressed_bytes_read);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
                 ->update_scan_bytes_from_remote_storage(
-                        stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+                        stats.file_cache_stats.bytes_read_from_remote);
 
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
+
+    if (has_file_cache_statistics(stats.file_cache_stats)) {
+        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                stats.file_cache_stats.bytes_write_into_cache);
     }
 
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
-
-    _bytes_read_from_local = _tablet_reader->stats().file_cache_stats.bytes_read_from_local;
-    _bytes_read_from_remote = _tablet_reader->stats().file_cache_stats.bytes_read_from_remote;
+    _tablet_reader->mutable_stats()->file_cache_stats = {};
 }
 
 void OlapScanner::_collect_profile_before_close() {
@@ -860,8 +880,7 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    // only cloud deploy mode will use file cache.
-    if (config::is_cloud_mode() && config::enable_file_cache) {
+    if (has_file_cache_statistics(stats.file_cache_stats)) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(

@@ -84,12 +84,13 @@ private:
 class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
-                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns,
-                          SchemaSPtr output_schema)
+                          bool is_reverse, bool use_insert_order_when_same,
+                          std::vector<uint32_t>* read_orderby_key_columns, SchemaSPtr output_schema)
             : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
+              _use_insert_order_when_same(use_insert_order_when_same),
               _output_schema(std::move(output_schema)),
               _num_key_columns(cast_set<int>(_output_schema->num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
@@ -187,6 +188,7 @@ private:
     int _sequence_id_idx = -1;
     bool _is_unique = false;
     bool _is_reverse = false;
+    bool _use_insert_order_when_same = false;
     bool _valid = false;
     mutable bool _skip = false;
     mutable bool _same = false;

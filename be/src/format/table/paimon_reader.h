@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "format/orc/vorc_reader.h"
@@ -39,6 +40,16 @@ public:
                     bool enable_lazy_mat = true)
             : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache,
                         enable_lazy_mat),
+              _kv_cache(kv_cache) {
+        _init_paimon_profile();
+    }
+    PaimonOrcReader(RuntimeProfile* profile, RuntimeState* state,
+                    const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                    size_t batch_size, const std::string& ctz, ShardedKVCache* kv_cache,
+                    std::shared_ptr<io::IOContext> io_ctx_holder,
+                    FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
+            : OrcReader(profile, state, params, range, batch_size, ctz, std::move(io_ctx_holder),
+                        meta_cache, enable_lazy_mat),
               _kv_cache(kv_cache) {
         _init_paimon_profile();
     }
@@ -74,6 +85,16 @@ public:
                         FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
             : ParquetReader(profile, params, range, batch_size, ctz, io_ctx, state, meta_cache,
                             enable_lazy_mat),
+              _kv_cache(kv_cache) {
+        _init_paimon_profile();
+    }
+    PaimonParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                        const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                        ShardedKVCache* kv_cache, std::shared_ptr<io::IOContext> io_ctx_holder,
+                        RuntimeState* state, FileMetaCache* meta_cache = nullptr,
+                        bool enable_lazy_mat = true)
+            : ParquetReader(profile, params, range, batch_size, ctz, std::move(io_ctx_holder),
+                            state, meta_cache, enable_lazy_mat),
               _kv_cache(kv_cache) {
         _init_paimon_profile();
     }

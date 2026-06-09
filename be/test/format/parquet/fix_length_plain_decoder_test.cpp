@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_number.h"
 #include "util/slice.h"
 
@@ -33,6 +35,11 @@ protected:
     Slice _data_slice;
     size_t _type_length;
 };
+
+static std::string fixed_length_value(const ColumnFixedLengthObject& column, size_t row) {
+    const auto& value = column.get_data_at(row);
+    return std::string(value.data, value.size);
+}
 
 // Test basic decoding functionality
 TEST_F(FixLengthPlainDecoderTest, test_basic_decode) {
@@ -74,6 +81,39 @@ TEST_F(FixLengthPlainDecoderTest, test_basic_decode) {
     EXPECT_EQ(result_column->get_data()[2], 789);
 }
 
+TEST_F(FixLengthPlainDecoderTest, test_decode_with_column_fixed_length_object) {
+    std::string values = "abcdefghijkl";
+    _data = std::make_unique<uint8_t[]>(values.size());
+    memcpy(_data.get(), values.data(), values.size());
+
+    _data_slice = Slice(_data.get(), values.size());
+    _type_length = 4;
+
+    FixLengthPlainDecoder decoder;
+    decoder.set_type_length(_type_length);
+    ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
+
+    MutableColumnPtr column = ColumnFixedLengthObject::create(_type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    size_t num_values = 3;
+    std::vector<uint16_t> run_length_null_map(1, num_values);
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_TRUE(decoder.decode_values(column, data_type, select_vector, false).ok());
+
+    ASSERT_EQ(column->size(), num_values);
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    EXPECT_EQ(result_column->item_size(), _type_length);
+    EXPECT_EQ(fixed_length_value(*result_column, 0), "abcd");
+    EXPECT_EQ(fixed_length_value(*result_column, 1), "efgh");
+    EXPECT_EQ(fixed_length_value(*result_column, 2), "ijkl");
+}
+
 // Test decoding with filter
 TEST_F(FixLengthPlainDecoderTest, test_decode_with_filter) {
     // Prepare test data: create fixed-length integer values
@@ -111,6 +151,42 @@ TEST_F(FixLengthPlainDecoderTest, test_decode_with_filter) {
 
     EXPECT_EQ(result_column->get_data()[0], 123);
     EXPECT_EQ(result_column->get_data()[1], 789);
+}
+
+TEST_F(FixLengthPlainDecoderTest, test_decode_fixed_length_object_with_filter_and_null) {
+    std::string values = "abcdefgh";
+    _data = std::make_unique<uint8_t[]>(values.size());
+    memcpy(_data.get(), values.data(), values.size());
+
+    _data_slice = Slice(_data.get(), values.size());
+    _type_length = 4;
+
+    FixLengthPlainDecoder decoder;
+    decoder.set_type_length(_type_length);
+    ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
+
+    MutableColumnPtr column = ColumnFixedLengthObject::create(_type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    size_t num_values = 3;
+    std::vector<uint16_t> run_length_null_map = {1, 1, 1}; // data: [abcd, null, efgh]
+    std::vector<uint8_t> filter_data = {0, 1, 1};          // output: [null, efgh]
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    NullMap null_map;
+    ASSERT_TRUE(
+            select_vector.init(run_length_null_map, num_values, &null_map, &filter_map, 0).ok());
+
+    ASSERT_TRUE(decoder.decode_values(column, data_type, select_vector, false).ok());
+
+    ASSERT_EQ(column->size(), 2);
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    EXPECT_EQ(result_column->item_size(), _type_length);
+    EXPECT_EQ(fixed_length_value(*result_column, 1), "efgh");
+    EXPECT_EQ(null_map.size(), 2);
+    EXPECT_TRUE(null_map[0]);
+    EXPECT_FALSE(null_map[1]);
 }
 
 // Test decoding with filter and null

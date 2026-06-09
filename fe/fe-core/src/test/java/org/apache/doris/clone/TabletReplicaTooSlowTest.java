@@ -17,10 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.LocalTabletInvertedIndex;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
@@ -161,6 +166,98 @@ public class TabletReplicaTooSlowTest {
         List<List<String>> result = Diagnoser.diagnoseTablet(tabletId);
         Assert.assertEquals(12, result.size());
         Assert.assertTrue(result.get(11).get(1).contains("version count is too high"));
+    }
+
+    private static String getDiagnosisInfo(List<List<String>> rows, String item) {
+        for (List<String> row : rows) {
+            if (item.equals(row.get(0))) {
+                return row.get(1);
+            }
+        }
+        return "";
+    }
+
+    private static Map<String, TDisk> copyBackendDisks(Backend backend) {
+        Map<String, TDisk> disks = Maps.newHashMap();
+        for (DiskInfo diskInfo : backend.getDisks().values()) {
+            TDisk tDisk = new TDisk();
+            tDisk.setRootPath(diskInfo.getRootPath());
+            tDisk.setDiskTotalCapacity(diskInfo.getTotalCapacityB());
+            tDisk.setDataUsedCapacity(diskInfo.getDataUsedCapacityB());
+            tDisk.setTrashUsedCapacity(diskInfo.getTrashUsedCapacityB());
+            tDisk.setDiskAvailableCapacity(diskInfo.getAvailableCapacityB());
+            tDisk.setUsed(diskInfo.getState() == DiskInfo.DiskState.ONLINE);
+            tDisk.setPathHash(diskInfo.getPathHash());
+            tDisk.setStorageMedium(diskInfo.getStorageMedium());
+            disks.put(tDisk.getRootPath(), tDisk);
+        }
+        return disks;
+    }
+
+    private static Map<String, TDisk> buildExceedLimitDisks(Backend backend) {
+        Map<String, TDisk> disks = Maps.newHashMap();
+        for (DiskInfo diskInfo : backend.getDisks().values()) {
+            TDisk tDisk = new TDisk();
+            tDisk.setRootPath(diskInfo.getRootPath());
+            tDisk.setDiskTotalCapacity(1L);
+            tDisk.setDataUsedCapacity(1L);
+            tDisk.setTrashUsedCapacity(0L);
+            tDisk.setDiskAvailableCapacity(0L);
+            tDisk.setUsed(true);
+            tDisk.setPathHash(diskInfo.getPathHash());
+            tDisk.setStorageMedium(diskInfo.getStorageMedium());
+            disks.put(tDisk.getRootPath(), tDisk);
+        }
+        return disks;
+    }
+
+    @Test
+    public void testDiagnoseTabletCloudModeSkipDiskAndVersionCheck() throws Exception {
+        String tableName = "tbl_diag_cloud_" + Math.abs(random.nextInt());
+        String createStr = "create table test." + tableName + "\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_num\" = \"3\"\n"
+                + ")";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
+
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
+        Assert.assertNotNull(db);
+        OlapTable table = (OlapTable) db.getTableNullable(tableName);
+        Assert.assertNotNull(table);
+        Partition partition = table.getAllPartitions().iterator().next();
+        MaterializedIndex index = partition.getBaseIndex();
+        Tablet tablet = index.getTablets().get(0);
+        Replica replica = tablet.getReplicas().get(0);
+        long tabletId = tablet.getId();
+        long visibleVersion = partition.getCachedVisibleVersion();
+        Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+        Assert.assertNotNull(backend);
+
+        Map<String, TDisk> originalDisks = copyBackendDisks(backend);
+        String originCloudUniqueId = Config.cloud_unique_id;
+        long originalVersion = replica.getVersion();
+
+        try {
+            backend.updateDisks(buildExceedLimitDisks(backend));
+            long mismatchVersion = visibleVersion == Long.MAX_VALUE ? visibleVersion - 1 : visibleVersion + 1;
+            replica.adminUpdateVersionInfo(mismatchVersion, null, null, System.currentTimeMillis());
+
+            List<List<String>> localResult = Diagnoser.diagnoseTablet(tabletId);
+            Assert.assertTrue(getDiagnosisInfo(localResult, "ReplicaBackendStatus").contains("has no space left"));
+            Assert.assertTrue(getDiagnosisInfo(localResult, "ReplicaVersionStatus").contains("does not equal"));
+
+            Config.cloud_unique_id = "diagnose-tablet-cloud-mode-ut";
+            List<List<String>> cloudResult = Diagnoser.diagnoseTablet(tabletId);
+            Assert.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaBackendStatus"));
+            Assert.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaVersionStatus"));
+        } finally {
+            Config.cloud_unique_id = originCloudUniqueId;
+            backend.updateDisks(originalDisks);
+            replica.adminUpdateVersionInfo(originalVersion, null, null, System.currentTimeMillis());
+        }
     }
 
     @Test

@@ -70,7 +70,7 @@ struct ReaderInitContext {
     virtual ~ReaderInitContext() = default;
 
     // ---- Owned by FileScanner, shared by all readers ----
-    std::vector<ColumnDescriptor>* column_descs = nullptr;
+    const std::vector<ColumnDescriptor>* column_descs = nullptr;
     std::unordered_map<std::string, uint32_t>* col_name_to_block_idx = nullptr;
     RuntimeState* state = nullptr;
     const TupleDescriptor* tuple_descriptor = nullptr;

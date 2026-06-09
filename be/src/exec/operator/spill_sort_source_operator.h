@@ -81,7 +81,7 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

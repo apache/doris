@@ -2308,6 +2308,11 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void testExpectNoResult(String testSql) {
+        def result = sql(testSql)
+        assertEquals(result.size(), 0)
+    }
+
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
         def sqlCacheOrigValue = sql("select @@enable_sql_cache")
@@ -2431,8 +2436,21 @@ class Suite implements GroovyInterceptable {
                 origin.put(key, rows[0].Value as String)
             }
         }
+
         try {
             tempVars.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+        } catch (Exception e) {
+            def err = e.getMessage()
+            log.warn("skip this case ${context.suiteName}, because ${err}")
+            if (err.toUpperCase().contains("ADMIN")) {
+                return
+            }
+
+            origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+            throw e
+        }
+
+        try {
             actionSupplier()
         } finally {
             origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }

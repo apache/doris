@@ -78,18 +78,14 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
-            if (!fn.isUDTFunction()) {
-                sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
-            }
+            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
         } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             appendFileIfPresent(sb, fn, true);
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
             sb.append(",\n  \"RUNTIME_VERSION\"=").append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\"");
             appendExpirationTimeIfNeeded(sb, fn);
-            if (!fn.isUDTFunction()) {
-                sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
-            }
+            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
         } else {
             sb.append(",\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
@@ -167,6 +163,7 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
+            sb.append("\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\",");
         } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             appendFileIfPresent(sb, fn, false);
             if (fn.getLocation() != null) {
@@ -179,6 +176,7 @@ public class FunctionToSqlConverter {
             if (fn.getExpirationTime() != DEFAULT_EXPIRATION_TIME) {
                 sb.append("\n  \"EXPIRATION_TIME\"=").append("\"" + fn.getExpirationTime() + "\",");
             }
+            sb.append("\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\",");
         } else {
             sb.append("\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");

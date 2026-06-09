@@ -328,12 +328,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
     MutableColumnPtr data_column;
     std::vector<uint16_t> null_map;
     NullMap* map_data_column = nullptr;
+    doris_column = IColumn::mutate(std::move(doris_column));
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        // doris_column either originates from a mutable block in vparquet_group_reader
-        // or is a newly created ColumnPtr, and therefore can be modified.
-        auto* nullable_column =
-                assert_cast<ColumnNullable*>(const_cast<IColumn*>(doris_column.get()));
+        auto mutable_column = doris_column->assert_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
 
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
@@ -375,7 +374,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
         if (_chunk_reader->max_def_level() > 0) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        data_column = doris_column->assume_mutable();
+        data_column = doris_column->assert_mutable();
     }
     if (null_map.size() == 0) {
         size_t remaining = num_values;
@@ -411,19 +410,18 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
     // Handle nullable columns
     MutableColumnPtr data_column;
     NullMap* map_data_column = nullptr;
+    doris_column = IColumn::mutate(std::move(doris_column));
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        // doris_column either originates from a mutable block in vparquet_group_reader
-        // or is a newly created ColumnPtr, and therefore can be modified.
-        auto* nullable_column =
-                const_cast<ColumnNullable*>(assert_cast<const ColumnNullable*>(doris_column.get()));
+        auto mutable_column = doris_column->assert_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
     } else {
         if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        data_column = doris_column->assume_mutable();
+        data_column = doris_column->assert_mutable();
     }
 
     std::vector<uint16_t> null_map;
@@ -550,6 +548,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     ColumnPtr resolved_column =
             _converter->get_physical_column(_field_schema->physical_type, _field_schema->data_type,
                                             doris_column, type, is_dict_filter);
+    if (_converter->read_directly_into_dst_logical_column()) {
+        DCHECK_EQ(resolved_column.get(), doris_column.get());
+        resolved_column = std::move(doris_column);
+    }
     DataTypePtr& resolved_type = _converter->get_physical_type();
 
     _def_levels.clear();
@@ -658,8 +660,9 @@ Status ArrayColumnReader::read_column_data(
         int64_t real_column_size) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
+    doris_column = IColumn::mutate(std::move(doris_column));
     if (doris_column->is_nullable()) {
-        auto mutable_column = doris_column->assume_mutable();
+        auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
@@ -667,7 +670,7 @@ Status ArrayColumnReader::read_column_data(
         if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        data_column = doris_column->assume_mutable();
+        data_column = doris_column->assert_mutable();
     }
     if (type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
         return Status::Corruption(
@@ -713,8 +716,9 @@ Status MapColumnReader::read_column_data(
         int64_t real_column_size) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
+    doris_column = IColumn::mutate(std::move(doris_column));
     if (doris_column->is_nullable()) {
-        auto mutable_column = doris_column->assume_mutable();
+        auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
@@ -722,7 +726,7 @@ Status MapColumnReader::read_column_data(
         if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        data_column = doris_column->assume_mutable();
+        data_column = doris_column->assert_mutable();
     }
     if (remove_nullable(type)->get_primitive_type() != PrimitiveType::TYPE_MAP) {
         return Status::Corruption(
@@ -789,8 +793,9 @@ Status StructColumnReader::read_column_data(
         int64_t real_column_size) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
+    doris_column = IColumn::mutate(std::move(doris_column));
     if (doris_column->is_nullable()) {
-        auto mutable_column = doris_column->assume_mutable();
+        auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
@@ -798,7 +803,7 @@ Status StructColumnReader::read_column_data(
         if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        data_column = doris_column->assume_mutable();
+        data_column = doris_column->assert_mutable();
     }
     if (type->get_primitive_type() != PrimitiveType::TYPE_STRUCT) {
         return Status::Corruption(
@@ -986,7 +991,8 @@ Status StructColumnReader::read_column_data(
         auto& doris_field = doris_struct.get_column_ptr(idx);
         auto& doris_type = doris_struct_type->get_element(idx);
         DCHECK(doris_type->is_nullable());
-        auto mutable_column = doris_field->assume_mutable();
+        doris_field = IColumn::mutate(std::move(doris_field));
+        auto mutable_column = doris_field->assert_mutable();
         auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
         nullable_column->insert_many_defaults(missing_column_sz);
     }

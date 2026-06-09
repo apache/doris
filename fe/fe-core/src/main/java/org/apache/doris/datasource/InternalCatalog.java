@@ -1564,10 +1564,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
-                        olapTable.enableSingleReplicaCompaction().toString());
-            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
                         olapTable.enableTso().toString());
@@ -2180,7 +2176,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             indexes, tbl.isInMemory(), tabletType,
                             tbl.getDataSortInfo(), tbl.getCompressionType(),
                             tbl.getEnableUniqueKeyMergeOnWrite(), storagePolicy, tbl.disableAutoCompaction(),
-                            tbl.enableSingleReplicaCompaction(), tbl.skipWriteIndexOnLoad(),
+                            tbl.skipWriteIndexOnLoad(),
                             tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             tbl.getTimeSeriesCompactionFileCountThreshold(),
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -2695,18 +2691,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 + " property is only supported for unique merge-on-write table");
         }
         olapTable.setEnableMowLightDelete(enableDeleteOnDeletePredicate);
-
-        boolean enableSingleReplicaCompaction = false;
-        try {
-            enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        if (enableUniqueKeyMergeOnWrite && enableSingleReplicaCompaction) {
-            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
-                + " property is not supported for merge-on-write table");
-        }
-        olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
         boolean enableTso = false;
         try {
@@ -3434,12 +3418,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
+        // tablets list in a single copy-on-write after the loop (O(bucketNum) instead
+        // of O(bucketNum^2)). TabletInvertedIndex registration stays per-iteration
+        // because Tablet.addReplica(...) below needs the tablet present in the
+        // inverted index.
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
             Tablet tablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
 
-            // add tablet to inverted index first
-            index.addTablet(tablet, tabletMeta);
+            invertedIndex.addTablet(tablet.getId(), tabletMeta);
+            bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
             // get BackendIds
@@ -3478,6 +3469,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum(),
                     totalReplicaNum + " vs. " + replicaAlloc.getTotalReplicaNum());
         }
+
+        // Publish all bucket tablets to the materialized index in one batch.
+        index.appendTablets(bucketTablets);
 
         if (groupId != null && chooseBackendsArbitrary) {
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);

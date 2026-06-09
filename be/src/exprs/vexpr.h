@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/extended_types.h"
+#include "core/string_view.h"
 #include "core/types.h"
 #include "core/value/large_int_value.h"
 #include "core/value/timestamptz_value.h"
@@ -51,6 +52,7 @@
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "util/date_func.h"
+#include "util/unaligned.h"
 
 namespace doris {
 class BitmapFilterFuncBase;
@@ -78,6 +80,15 @@ struct AnnRangeSearchRuntime;
 // the relatioinship between threads and classes.
 
 using Selector = IColumn::Selector;
+
+struct AnnRangeSearchEvaluationResult {
+    // Indicates whether the expr row_bitmap has been updated.
+    bool executed = false;
+    // Indicates whether the virtual column is fulfilled.
+    // NOTE, if there is no virtual column in the expr tree, and expr
+    // is evaluated by ann index, this flag is still true.
+    bool dist_fulfilled = false;
+};
 
 class VExpr {
 public:
@@ -346,7 +357,7 @@ public:
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool enable_result_cache);
+            bool enable_result_cache, AnnRangeSearchEvaluationResult& result);
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
@@ -355,10 +366,6 @@ public:
     virtual void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
                                           segment_v2::AnnRangeSearchRuntime& range_search_runtime,
                                           bool& suitable_for_ann_index);
-
-    bool ann_range_search_executedd();
-
-    bool ann_dist_is_fulfilled() const;
 
     virtual uint64_t get_digest(uint64_t seed) const;
 
@@ -442,13 +449,6 @@ protected:
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
-
-    // Indicates whether the expr row_bitmap has been updated.
-    bool _has_been_executed = false;
-    // Indicates whether the virtual column is fulfilled.
-    // NOTE, if there is no virtual column in the expr tree, and expr
-    // is evaluated by ann index, this flag is still true.
-    bool _virtual_column_is_fulfilled = false;
 };
 
 // NOLINTBEGIN(readability-function-size)
@@ -491,10 +491,11 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_int_literal(intLiteral);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
     } else if constexpr (T == TYPE_LARGEINT) {
-        const auto* origin_value = reinterpret_cast<const int128_t*>(data);
+        // data may not be 16-byte aligned; use unaligned_load to avoid UB.
+        auto origin_value = unaligned_load<int128_t>(data);
         (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
         TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
+        large_int_literal.__set_value(LargeIntValue::to_string(origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
     } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME)) {
@@ -538,10 +539,12 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMESTAMPTZ, precision, scale));
     } else if constexpr (T == TYPE_DECIMALV2) {
-        const auto* origin_value = reinterpret_cast<const DecimalV2Value*>(data);
+        // data may not be 16-byte aligned (DecimalV2Value stores int128_t);
+        // use unaligned_load to avoid UB.
+        auto origin_value = unaligned_load<DecimalV2Value>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string());
+        decimal_literal.__set_value(origin_value.to_string());
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL32) {
@@ -559,7 +562,8 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL128I) {
-        const auto* origin_value = reinterpret_cast<const Decimal<int128_t>*>(data);
+        // data may not be 16-byte aligned; use unaligned_load to avoid UB.
+        auto origin_value = unaligned_load<Decimal<int128_t>>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         // e.g. For a decimal(26,6) column, the initial value of the _min of the MinMax RF
@@ -569,7 +573,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         // error when casting string back to decimal later.
         // TODO: this is a temporary solution, the best solution is to produce the
         // right min max value at the producer side.
-        decimal_literal.__set_value(origin_value->to_string(precision, scale));
+        decimal_literal.__set_value(origin_value.to_string(precision, scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL256) {
@@ -624,10 +628,10 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_node_type(TExprNodeType::TIMEV2_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));
     } else if constexpr (T == TYPE_VARBINARY) {
-        const auto* origin_value = reinterpret_cast<const std::string*>(data);
+        const auto* origin_value = reinterpret_cast<const StringView*>(data);
         (*node).__set_node_type(TExprNodeType::VARBINARY_LITERAL);
         TVarBinaryLiteral varbinary_literal;
-        varbinary_literal.__set_value(*origin_value);
+        varbinary_literal.__set_value(std::string(origin_value->data(), origin_value->size()));
         (*node).__set_varbinary_literal(varbinary_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_VARBINARY));
     } else {

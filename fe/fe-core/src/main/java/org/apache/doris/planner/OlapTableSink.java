@@ -48,7 +48,9 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -246,7 +248,7 @@ public class OlapTableSink extends DataSink {
                 partition.setTabletVersionGapBackends(gapBackends);
             }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -304,7 +306,7 @@ public class OlapTableSink extends DataSink {
                 partition.setTabletVersionGapBackends(gapBackends);
             }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -1038,6 +1040,15 @@ public class OlapTableSink extends DataSink {
         }
     }
 
+    // Hook for subclasses to control how the tablet location params are populated.
+    // Default behavior computes the full tablet -> backend mapping via createLocation,
+    // which under high-concurrency stream load on large tables is the dominant FE CPU
+    // cost. Subclasses whose BE counterpart does not consume TOlapTableSink.location
+    // (e.g. GroupCommitBlockSink) can override this hook to skip that work.
+    protected List<TOlapTableLocationParam> initLocationParams(TOlapTableSink tSink) throws UserException {
+        return createLocation(tSink.getDbId(), dstTable);
+    }
+
     public List<TOlapTableLocationParam> createDummyLocation(OlapTable table) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
@@ -1081,6 +1092,8 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
+        // Lazy: resolved on the first CloudTablet that needs it.
+        String cachedClusterId = null;
         for (long partitionId : partitionIds) {
             Partition partition = table.getPartition(partitionId);
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
@@ -1091,7 +1104,16 @@ public class OlapTableSink extends DataSink {
                     StringBuilder errMsgBuilder = new StringBuilder();
                     Multimap<Long, Long> bePathsMap = HashMultimap.create();
                     try {
-                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        if (tablet instanceof CloudTablet) {
+                            if (cachedClusterId == null) {
+                                cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                        .getCurrentClusterId();
+                            }
+                            bePathsMap = ((CloudTablet) tablet)
+                                    .getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                        } else {
+                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        }
                         if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                             errMsgBuilder.append("tablet ").append(tablet.getId())
                                     .append(" alive replica num ").append(bePathsMap.keySet().size())
@@ -1117,7 +1139,7 @@ public class OlapTableSink extends DataSink {
                     } catch (ComputeGroupException e) {
                         LOG.warn("failed to get replica backend path for tablet " + tablet.getId(), e);
                         errMsgBuilder.append(", ").append(e.toString());
-                        throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsgBuilder.toString());
+                        throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsgBuilder.toString(), e);
                     }
                     if (!Config.isCloudMode()) {
                         debugWriteRandomChooseSink(tablet, partition.getVisibleVersion(), bePathsMap);

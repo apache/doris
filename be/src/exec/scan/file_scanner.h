@@ -190,7 +190,7 @@ protected:
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
-    std::unique_ptr<io::IOContext> _io_ctx;
+    std::shared_ptr<io::IOContext> _io_ctx;
 
     // Whether to fill partition columns from path, default is true.
     bool _fill_partition_from_path = true;
@@ -273,6 +273,7 @@ private:
     Status _generate_partition_columns();
 
     bool _check_partition_prune_expr(const VExprSPtr& expr);
+    bool _contains_runtime_filter(const VExprContextSPtrs& conjuncts) const;
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
@@ -294,7 +295,7 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx.reset(new io::IOContext());
+        _io_ctx = std::make_shared<io::IOContext>();
         _io_ctx->query_id = &_state->query_id();
         return Status::OK();
     };

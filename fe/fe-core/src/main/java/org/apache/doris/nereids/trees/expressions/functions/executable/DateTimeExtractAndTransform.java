@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -695,7 +696,7 @@ public class DateTimeExtractAndTransform {
     // While BE/MySQL consider year 0 common, so:
     // TO_DAYS('0000-02-28') == 59 and TO_DAYS('0000-02-29') == NULL. After
     // 0000-03-01 the two implementations naturally align again.
-    private static long calcDayNumber(long year, long month, long day) {
+    static long calcDayNumber(long year, long month, long day) {
         if (year == 0 && month == 0) {
             return 0;
         }
@@ -814,8 +815,9 @@ public class DateTimeExtractAndTransform {
         ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
 
         LocalDateTime localDateTime = datetime.toJavaDateType();
-        ZonedDateTime resultDateTime = localDateTime.atZone(fromZone).withZoneSameInstant(toZone);
-        return DateTimeV2Literal.fromJavaDateType(resultDateTime.toLocalDateTime(), datetime.getDataType().getScale());
+        Instant instant = DateTimeLiteral.convertLocalToInstant(localDateTime, fromZone);
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.ofInstant(instant, toZone),
+                datetime.getDataType().getScale());
     }
 
     private static void validateTimezoneOffset(String timezone) {

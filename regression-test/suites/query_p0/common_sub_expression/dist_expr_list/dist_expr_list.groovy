@@ -20,6 +20,7 @@
 // and modified by Doris.
 
 suite("dist_expr_list") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
     drop table if exists agg_cse_shuffle;
     create table agg_cse_shuffle(

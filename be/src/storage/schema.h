@@ -32,7 +32,6 @@
 #include "io/io_common.h"
 #include "runtime/thread_context.h"
 #include "storage/binlog.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -50,51 +49,9 @@ class Schema;
 using SchemaSPtr = std::shared_ptr<const Schema>;
 class Schema {
 public:
-    Schema(TabletSchemaSPtr tablet_schema) {
-        size_t num_columns = tablet_schema->num_columns();
-        // ignore this column
-        if (tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
-            --num_columns;
-        }
-        std::vector<ColumnId> col_ids(num_columns);
-        _unique_ids.resize(num_columns);
-        std::vector<TabletColumnPtr> columns;
-        columns.reserve(num_columns);
-
-        size_t num_key_columns = 0;
-        for (uint32_t cid = 0; cid < num_columns; ++cid) {
-            col_ids[cid] = cid;
-            const TabletColumn& column = tablet_schema->column(cid);
-            _unique_ids[cid] = column.unique_id();
-            if (column.is_key()) {
-                ++num_key_columns;
-            }
-            if (column.name() == BeConsts::ROWID_COL ||
-                column.name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-                _rowid_col_idx = cid;
-            }
-            if (column.name() == VERSION_COL) {
-                _version_col_idx = cid;
-            }
-            if (column.name() == std::string(kRowBinlogLsnColName)) {
-                _lsn_col_idx = cid;
-            }
-            if (column.name() == std::string(kRowBinlogTimestampColName)) {
-                _tso_col_idx = cid;
-            }
-            columns.push_back(std::make_shared<TabletColumn>(column));
-        }
-        _delete_sign_idx = tablet_schema->delete_sign_idx();
-        if (tablet_schema->has_sequence_col() || tablet_schema->has_seq_map()) {
-            _has_sequence_col = true;
-        }
-        _init(columns, col_ids, num_key_columns);
-    }
-
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
     Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
-        _unique_ids.resize(columns.size());
         for (int i = 0; i < columns.size(); ++i) {
             if (columns[i]->is_key()) {
                 ++num_key_columns;
@@ -115,20 +72,7 @@ public:
             if (columns[i]->name() == std::string(kRowBinlogTimestampColName)) {
                 _tso_col_idx = i;
             }
-            _unique_ids[i] = columns[i]->unique_id();
         }
-        _init(columns, col_ids, num_key_columns);
-    }
-
-    // Only for UT
-    Schema(const std::vector<TabletColumnPtr>& columns, size_t num_key_columns) {
-        std::vector<ColumnId> col_ids(columns.size());
-        _unique_ids.resize(columns.size());
-        for (uint32_t cid = 0; cid < columns.size(); ++cid) {
-            col_ids[cid] = cid;
-            _unique_ids[cid] = columns[cid]->unique_id();
-        }
-
         _init(columns, col_ids, num_key_columns);
     }
 
@@ -137,16 +81,14 @@ public:
 
     ~Schema();
 
-    static DataTypePtr get_data_type_ptr(const doris::StorageField& field);
-
-    static IColumn::MutablePtr get_column_by_field(const doris::StorageField& field);
+    static DataTypePtr get_data_type_ptr(const TabletColumn& column);
 
     static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type, bool is_nullable,
                                                         const ReaderType reader_type);
 
-    const std::vector<doris::StorageField*>& columns() const { return _cols; }
+    const std::vector<TabletColumnPtr>& columns() const { return _cols; }
 
-    const doris::StorageField* column(ColumnId cid) const { return _cols[cid]; }
+    const TabletColumn* column(ColumnId cid) const { return _cols[cid].get(); }
 
     size_t num_key_columns() const { return _num_key_columns; }
 
@@ -154,7 +96,6 @@ public:
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
     ColumnId column_id(size_t index) const { return _col_ids[index]; }
-    int32_t unique_id(size_t index) const { return _unique_ids[index]; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
@@ -175,10 +116,9 @@ private:
     // NOTE: The ColumnId here represents the sequential index number (starting from 0) of
     // a column in current row, not the unique id-identifier of each column
     std::vector<ColumnId> _col_ids;
-    std::vector<int32_t> _unique_ids;
     // NOTE: _cols[cid] can only be accessed when the cid is
     // contained in _col_ids
-    std::vector<doris::StorageField*> _cols;
+    std::vector<TabletColumnPtr> _cols;
 
     size_t _num_key_columns;
     int32_t _delete_sign_idx = -1;

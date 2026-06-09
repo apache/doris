@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -494,10 +495,6 @@ public:
     bool deprecated_variant_flatten_nested() const {
         return _deprecated_enable_variant_flatten_nested;
     }
-    void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
-        _enable_single_replica_compaction = enable_single_replica_compaction;
-    }
-    bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     // indicate if full row store column(all the columns encodes as row) exists
     bool has_row_store_for_all_columns() const {
         return _store_row_column && row_columns_uids().empty();
@@ -753,30 +750,8 @@ public:
 
     bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
 
-    // Whether new segments use externalized ColumnMetaPB layout (CMO) by default
-    bool is_external_segment_column_meta_used() const {
-        return _is_external_segment_column_meta_used;
-    }
-
-    void set_external_segment_meta_used_default(bool v) {
-        _is_external_segment_column_meta_used = v;
-    }
-
-    bool integer_type_default_use_plain_encoding() const {
-        return _integer_type_default_use_plain_encoding;
-    }
-
-    void set_integer_type_default_use_plain_encoding(bool v) {
-        _integer_type_default_use_plain_encoding = v;
-    }
-
-    BinaryPlainEncodingTypePB binary_plain_encoding_default_impl() const {
-        return _binary_plain_encoding_default_impl;
-    }
-
-    void set_binary_plain_encoding_default_impl(BinaryPlainEncodingTypePB impl) {
-        _binary_plain_encoding_default_impl = impl;
-    }
+    TabletStorageFormatPB storage_format() const { return _storage_format; }
+    void set_storage_format(TabletStorageFormatPB v) { _storage_format = v; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -836,7 +811,6 @@ private:
     int64_t _table_id = -1;
     int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
-    bool _enable_single_replica_compaction = false;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
@@ -858,11 +832,10 @@ private:
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 
     // Default behavior for new segments: use external ColumnMeta region + CMO table if true
-    bool _is_external_segment_column_meta_used = false;
-
-    bool _integer_type_default_use_plain_encoding {false};
-    BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
+    // Persisted tablet storage format. Authoritative source for "is this tablet V3?"
+    // decisions in the segment write paths. Old PBs without this field are upgraded in
+    // init_from_pb() by deriving V3 from any of the three legacy V3-flavor flags.
+    TabletStorageFormatPB _storage_format {TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2};
     // Sequence column unique id mapping to value columns unique id
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_col_uid_to_value_cols_uid;
     // Value column unique id mapping to sequence column unique id(also map sequence column it self)

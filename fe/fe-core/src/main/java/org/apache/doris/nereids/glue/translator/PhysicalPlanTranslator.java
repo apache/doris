@@ -1157,9 +1157,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                         aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
                             }
                         }
-                        // no need to traverse children, because AggregateExpression
-                        // should not have a AggregateExpression child
-                        return true;
+                        // Continue through transparent guards unless this guard directly wraps
+                        // the aggregate expression already processed above.
+                        return guardExpr.child() instanceof AggregateExpression;
                     }
                     if (c instanceof AggregateExpression) {
                         AggregateExpression aggregateExpression = (AggregateExpression) c;
