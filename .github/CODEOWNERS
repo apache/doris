@@ -58,7 +58,7 @@ be/src/storage/iterator                                      @yiguolei @gavincho
 be/src/storage/predicate                                     @yiguolei @gavinchou
 be/src/storage/rowset                                        @gavinchou
 be/src/storage/schema_change                                 @luwei16 @gavinchou
-be/src/storage/segment                                       @yiguolei @liaoxin01 @gavinchou
+be/src/storage/segment                                       @yiguolei @liaoxin01 @gavinchou @eldenmoon @csun5285 @airborne12
 be/src/storage/snapshot                                      @deardeng @luwei16 @gavinchou
 be/src/storage/tablet                                        @gavinchou
 be/src/storage/task                                          @deardeng @gavinchou
@@ -83,7 +83,7 @@ be/test/storage/iterator                                     @yiguolei @gavincho
 be/test/storage/predicate                                    @yiguolei @gavinchou
 be/test/storage/rowset                                       @gavinchou
 be/test/storage/schema_change                                @luwei16 @gavinchou
-be/test/storage/segment                                      @yiguolei @gavinchou
+be/test/storage/segment                                      @yiguolei @gavinchou @eldenmoon @csun5285 @airborne12
 be/test/storage/snapshot                                     @deardeng @luwei16 @gavinchou
 be/test/storage/tablet                                       @gavinchou
 be/test/storage/txn                                          @liaoxin01 @gavinchou
@@ -156,4 +156,4 @@ cloud/test                                                   @liaoxin01 @luwei16
 gensrc/proto/cloud.proto                                     @luwei16 @gavinchou
 gensrc/proto/file_cache.proto                                @liaoxin01 @gavinchou
 gensrc/proto/olap_file.proto                                 @yiguolei @liaoxin01 @gavinchou
-gensrc/proto/segment_v2.proto                                @yiguolei @liaoxin01 @gavinchou
+gensrc/proto/segment_v2.proto                                @yiguolei @liaoxin01 @gavinchou @eldenmoon @csun5285 @airborne12
