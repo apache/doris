@@ -432,6 +432,18 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "* FROM rf_prune_list_int f JOIN rf_prune_dim_region d ON f.region_id = d.dim_region",
         "IN_OR_BLOOM_FILTER", 5, 3)
 
+    // Test 6b: List partition (INT) - Bloom filter prune.
+    // Regions {1, 3} keep two LIST partitions and prune the other three.
+    assertPruningProfile(
+        "* FROM rf_prune_list_int f JOIN rf_prune_dim_region d ON f.region_id = d.dim_region",
+        "BLOOM_FILTER", 5, 3)
+
+    // Test 6c: Range partition (INT) - Bloom filter must not prune.
+    // A Bloom filter can disprove individual values, not an arbitrary [a, b) range.
+    assertPruningProfile(
+        "* FROM rf_prune_range_int f JOIN rf_prune_dim_int d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER", 4, 0)
+
     // Test 7: No pruning - dim matches all partitions
     sql "drop table if exists rf_prune_dim_all"
     sql """
@@ -1060,6 +1072,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_five d ON f.part_col = d.dim_key",
         "IN_OR_BLOOM_FILTER", 3, 2)
+    assertPruningProfile(
+        "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_five d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER", 3, 2)
 
     // Test 31: Mixed partition {NULL,5} + RF {7} (no value match, RF non-null-aware)
     //   p_a still pruned (NULL row can't match non-null RF; concrete 5 != 7)
@@ -1086,6 +1101,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_seven d ON f.part_col = d.dim_key",
         "IN_OR_BLOOM_FILTER", 3, 3)
+    assertPruningProfile(
+        "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_seven d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER", 3, 3)
 
     // Test 32: Null-safe equal join (<=>) on mixed partition. RF is null_aware AND
     //   contains NULL (build side has NULL key), so p_a (which contains NULL) MUST
@@ -1107,6 +1125,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
         FROM rf_prune_list_mixed f
         JOIN rf_prune_dim_null d ON f.part_col <=> d.dim_key
     """
+    assertPruningProfile(
+        "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_null d ON f.part_col <=> d.dim_key",
+        "BLOOM_FILTER", 3, 2)
 
     // Test 32b: Nullable RANGE partition columns can store NULL rows in the
     // MINVALUE-side first partition. A null-aware RF containing only NULL must
@@ -1475,6 +1496,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_str f JOIN rf_prune_dim_str d ON f.part_col = d.dim_key",
         "IN_OR_BLOOM_FILTER", 4, 3)
+    assertPruningProfile(
+        "* FROM rf_prune_list_str f JOIN rf_prune_dim_str d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER", 4, 3)
 
     // ============================================================
     // Test 52: Grouped RF with multiple targets.
