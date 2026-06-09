@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.BigIntType;
@@ -73,6 +75,44 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                 .analyze("select count(null) as c, sum(id) from student")
                 .rewrite()
                 .matches(logicalAggregate().when(agg -> agg.getExpressions().stream().noneMatch(Count.class::isInstance)))
+                .printlnTree();
+    }
+
+    @Test
+    void testCountConstantExpression() {
+        PlanChecker.from(connectContext)
+                .analyze("select count(json_extract('{\"a\": 1}', '$.a')) as c from student")
+                .rewrite()
+                .matches(logicalProject(
+                        logicalAggregate().when(agg -> agg.getAggregateFunctions().stream()
+                                .allMatch(function -> function instanceof Count
+                                        && ((Count) function).isCountStar()))
+                ).when(project -> project.getProjects().stream()
+                        .anyMatch(expr -> expr.containsType(If.class)
+                                && expr.containsType(JsonbExtract.class))))
+                .printlnTree();
+
+        PlanChecker.from(connectContext)
+                .analyze("select id, count(json_extract('{\"a\": 1}', '$.a')) as c from student group by id")
+                .rewrite()
+                .matches(logicalProject(
+                        logicalAggregate().when(agg -> agg.getAggregateFunctions().stream()
+                                .allMatch(function -> function instanceof Count
+                                        && ((Count) function).isCountStar()))
+                ).when(project -> project.getProjects().stream()
+                        .anyMatch(expr -> expr.containsType(If.class)
+                                && expr.containsType(JsonbExtract.class))))
+                .printlnTree();
+    }
+
+    @Test
+    void testCountNonConstantExpressionNotRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select count(json_extract(cast(name as json), '$.a')) as c from student")
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> agg.getAggregateFunctions().stream()
+                        .anyMatch(function -> function instanceof Count
+                                && !((Count) function).isCountStar())))
                 .printlnTree();
     }
 

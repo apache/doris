@@ -58,6 +58,7 @@ import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
+import org.apache.doris.nereids.rules.rewrite.CountConstantRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
@@ -287,6 +288,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             // cannot be obtained,
                             // resulting in inconsistent output results and results in apply
                             topDown(
+                                    new CountConstantRewrite(),
                                     new NormalizeAggregate(),
                                     new CountLiteralRewrite(),
                                     new RewriteSimpleAggToConstantRule(),
@@ -501,6 +503,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(
                         // The later rule CHECK_PRIVILEGES which inherent from ColumnPruning only works
                         // if the aggregation node is normalized, so we need call NormalizeAggregate here
+                        new CountConstantRewrite(),
                         new NormalizeAggregate()
                     ),
                     // ReorderJoin expect no LogicalProject on the LogicalJoin,
@@ -526,6 +529,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
                 // resulting in inconsistent output results and results in apply
                 topDown(
+                        new CountConstantRewrite(),
                         new NormalizeAggregate(),
                         new CountLiteralRewrite(),
                         new RewriteSimpleAggToConstantRule(),
