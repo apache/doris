@@ -458,6 +458,10 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
     if (pos < src.data.size() && processed_rows < end) {
         size_t part_end = end - processed_rows;
         insert_from_part(src.data[pos], src.data_types[pos], 0, part_end);
+        processed_rows = end;
+    }
+    if (processed_rows < end) {
+        data.back()->insert_many_defaults(end - processed_rows);
     }
 }
 
@@ -839,7 +843,7 @@ void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {
-    const auto* src_v = assert_cast<const ColumnVariant*>(&src);
+    const auto* src_v = check_and_get_column<ColumnVariant>(src);
     ENABLE_CHECK_CONSISTENCY(src_v);
     ENABLE_CHECK_CONSISTENCY(this);
     // Preserve the original root-only copy path for ordinary variant columns.
@@ -855,7 +859,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
         serialized_doc_value_column->insert_from(*src_v->get_doc_value_column(), n);
         num_rows++;
     } else {
-        try_insert((*src_v)[n]);
+        insert_range_from(*src_v, n, 1);
     }
     ENABLE_CHECK_CONSISTENCY(this);
 }

@@ -1066,6 +1066,61 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     }
 }
 
+TEST_F(ColumnVariantTest, insert_range_from_materializes_pending_default_suffix) {
+    auto nested = ColumnInt64::create();
+    nested->insert_value(7);
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+
+    auto root_type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto root_column = ColumnNullable::create(std::move(nested), std::move(null_map));
+    ColumnVariant::Subcolumn root(std::move(root_column), root_type, true, true);
+    root.increment_default_counter();
+
+    ColumnVariant::Subcolumns subcolumns;
+    subcolumns.create_root(std::move(root));
+    auto src = ColumnVariant::create(0, false, std::move(subcolumns));
+    EXPECT_EQ(src->size(), 2);
+
+    auto dst = ColumnVariant::create(0, false);
+    dst->insert_range_from(*src, 0, 2);
+    dst->finalize();
+
+    const auto& copied_root =
+            assert_cast<const ColumnNullable&>(*static_cast<const ColumnVariant&>(*dst).get_root());
+    EXPECT_EQ(copied_root.size(), 2);
+    EXPECT_EQ(copied_root.get_null_map_data()[0], 0);
+    EXPECT_EQ(copied_root.get_null_map_data()[1], 1);
+}
+
+TEST_F(ColumnVariantTest, insert_from_preserves_sparse_limit_for_object_rows) {
+    auto src = ColumnVariant::create(0, false);
+    auto row = VariantUtil::construct_variant_map({
+            {"v.a", VariantUtil::get_field("int")},
+            {"v.b", VariantUtil::get_field("string")},
+            {"v.c", VariantUtil::get_field("array_str")},
+    });
+    src->try_insert(row);
+
+    auto dst = ColumnVariant::create(1, false);
+    dst->insert_from(*src, 0);
+
+    EXPECT_EQ(dst->size(), 1);
+    EXPECT_EQ(dst->get_subcolumns().size(), 2);
+    const auto& [sparse_paths, sparse_values] = dst->get_sparse_data_paths_and_values();
+    EXPECT_EQ(sparse_paths->size(), 2);
+    EXPECT_EQ(sparse_values->size(), 2);
+
+    Field copied;
+    dst->get(0, copied);
+    ASSERT_EQ(copied.get_type(), PrimitiveType::TYPE_VARIANT);
+    const auto& copied_object = copied.get<TYPE_VARIANT>();
+    EXPECT_EQ(copied_object.size(), 3);
+    EXPECT_NE(copied_object.find(PathInData("v.a")), copied_object.end());
+    EXPECT_NE(copied_object.find(PathInData("v.b")), copied_object.end());
+    EXPECT_NE(copied_object.find(PathInData("v.c")), copied_object.end());
+}
+
 TEST_F(ColumnVariantTest, is_variable_length) {
     EXPECT_TRUE(column_variant->is_variable_length());
 }
