@@ -80,7 +80,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalI
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
-import org.apache.doris.nereids.rules.implementation.LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOdbcScanToPhysicalOdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
@@ -230,7 +229,6 @@ public class RuleSet {
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
             .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
-            .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
             .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
             .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
             .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
@@ -278,7 +276,6 @@ public class RuleSet {
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
             .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
-            .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
             .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
             .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
             .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())

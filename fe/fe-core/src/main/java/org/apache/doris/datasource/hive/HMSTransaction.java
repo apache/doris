@@ -59,6 +59,9 @@ import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -385,11 +388,23 @@ public class HMSTransaction implements Transaction {
         }
     }
 
+    @Override
+    public void addCommitData(byte[] commitFragment) {
+        THivePartitionUpdate pu = new THivePartitionUpdate();
+        try {
+            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(pu, commitFragment);
+        } catch (TException e) {
+            throw new RuntimeException("failed to deserialize Hive partition update", e);
+        }
+        updateHivePartitionUpdates(Collections.singletonList(pu));
+    }
+
     // for test
     public void setHivePartitionUpdates(List<THivePartitionUpdate> hivePartitionUpdates) {
         this.hivePartitionUpdates = hivePartitionUpdates;
     }
 
+    @Override
     public long getUpdateCnt() {
         return hivePartitionUpdates.stream().mapToLong(THivePartitionUpdate::getRowCount).sum();
     }
