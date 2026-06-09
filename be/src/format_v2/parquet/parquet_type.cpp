@@ -61,6 +61,11 @@ void mark_decimal(const ::parquet::ColumnDescriptor* column, int precision, int 
     }
 }
 
+void mark_integer(int bit_width, bool is_signed, ParquetTypeDescriptor* result) {
+    result->integer_bit_width = bit_width;
+    result->is_unsigned_integer = !is_signed;
+}
+
 DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* column,
                                          ParquetTypeDescriptor* result) {
     const bool nullable = column->max_definition_level() > 0;
@@ -94,18 +99,33 @@ DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* colu
         result->time_unit = ParquetTimeUnit::MICROS;
         result->extra_type_info = ParquetExtraTypeInfo::UNIT_MICROS;
         return create_type(TYPE_DATETIMEV2, nullable, 0, 6);
+    // Parquet stores signed and unsigned integer logical annotations on signed physical carriers:
+    // INT_8/UINT_8/INT_16/UINT_16/INT_32/UINT_32 use physical INT32, and
+    // INT_64/UINT_64 use physical INT64. Doris maps unsigned integers to the next wider
+    // signed type so all values in the unsigned range can be represented.
     case ::parquet::ConvertedType::INT_8:
+        mark_integer(8, true, result);
         return create_type(TYPE_TINYINT, nullable);
     case ::parquet::ConvertedType::UINT_8:
+        mark_integer(8, false, result);
+        return create_type(TYPE_SMALLINT, nullable);
     case ::parquet::ConvertedType::INT_16:
+        mark_integer(16, true, result);
         return create_type(TYPE_SMALLINT, nullable);
     case ::parquet::ConvertedType::UINT_16:
+        mark_integer(16, false, result);
+        return create_type(TYPE_INT, nullable);
     case ::parquet::ConvertedType::INT_32:
+        mark_integer(32, true, result);
         return create_type(TYPE_INT, nullable);
     case ::parquet::ConvertedType::UINT_32:
+        mark_integer(32, false, result);
+        return create_type(TYPE_BIGINT, nullable);
     case ::parquet::ConvertedType::INT_64:
+        mark_integer(64, true, result);
         return create_type(TYPE_BIGINT, nullable);
     case ::parquet::ConvertedType::UINT_64:
+        mark_integer(64, false, result);
         return create_type(TYPE_LARGEINT, nullable);
     case ::parquet::ConvertedType::NONE:
     default:
@@ -169,6 +189,7 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
     }
     if (logical_type->is_int()) {
         const auto& int_type = static_cast<const ::parquet::IntLogicalType&>(*logical_type);
+        mark_integer(int_type.bit_width(), int_type.is_signed(), result);
         switch (int_type.bit_width()) {
         case 8:
             return create_type(int_type.is_signed() ? TYPE_TINYINT : TYPE_SMALLINT, nullable);

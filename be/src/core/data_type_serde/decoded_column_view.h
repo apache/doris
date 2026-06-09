@@ -33,7 +33,9 @@ class IColumn;
 enum class DecodedValueKind {
     BOOL,
     INT32,
+    UINT32,
     INT64,
+    UINT64,
     INT96,
     FLOAT,
     DOUBLE,

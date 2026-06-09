@@ -59,9 +59,11 @@ struct ParquetTypeDescriptor {
     ParquetTimeUnit time_unit = ParquetTimeUnit::UNKNOWN;
     ::parquet::Type::type physical_type = ::parquet::Type::UNDEFINED;
     ::parquet::ConvertedType::type converted_type = ::parquet::ConvertedType::UNDEFINED;
+    int integer_bit_width = -1;
     int decimal_precision = -1;
     int decimal_scale = -1;
     int fixed_length = -1;
+    bool is_unsigned_integer = false;
     bool is_decimal = false;
     bool is_timestamp = false;
     bool is_string_like = false;

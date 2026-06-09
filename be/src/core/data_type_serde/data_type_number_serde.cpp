@@ -197,8 +197,14 @@ Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
         if (view.value_kind == DecodedValueKind::INT32) {
             return read_number_decoded_values<T, int32_t>(column, view);
         }
+        if (view.value_kind == DecodedValueKind::UINT32) {
+            return read_number_decoded_values<T, uint32_t>(column, view);
+        }
         if (view.value_kind == DecodedValueKind::INT64) {
             return read_number_decoded_values<T, int64_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::UINT64) {
+            return read_number_decoded_values<T, uint64_t>(column, view);
         }
     } else if constexpr (T == TYPE_FLOAT) {
         if (view.value_kind == DecodedValueKind::FLOAT) {

@@ -58,8 +58,14 @@ DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor
     case ::parquet::Type::BOOLEAN:
         return DecodedValueKind::BOOL;
     case ::parquet::Type::INT32:
+        if (type_descriptor.is_unsigned_integer && type_descriptor.integer_bit_width == 32) {
+            return DecodedValueKind::UINT32;
+        }
         return DecodedValueKind::INT32;
     case ::parquet::Type::INT64:
+        if (type_descriptor.is_unsigned_integer && type_descriptor.integer_bit_width == 64) {
+            return DecodedValueKind::UINT64;
+        }
         return DecodedValueKind::INT64;
     case ::parquet::Type::INT96:
         return DecodedValueKind::INT96;
@@ -84,8 +90,14 @@ Status decoded_fixed_value_size(const ArrowLeafReaderContext& context, DecodedVa
     case DecodedValueKind::INT32:
         *value_size = sizeof(int32_t);
         return Status::OK();
+    case DecodedValueKind::UINT32:
+        *value_size = sizeof(uint32_t);
+        return Status::OK();
     case DecodedValueKind::INT64:
         *value_size = sizeof(int64_t);
+        return Status::OK();
+    case DecodedValueKind::UINT64:
+        *value_size = sizeof(uint64_t);
         return Status::OK();
     case DecodedValueKind::INT96:
         *value_size = 12;

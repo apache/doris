@@ -23,6 +23,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -584,6 +585,32 @@ protected:
                       const auto& values = assert_cast<const ColumnInt64&>(column);
                       EXPECT_EQ(values.get_element(0), 10000000000L);
                       EXPECT_EQ(values.get_element(1), -9L);
+                  });
+        add_field(arrow::field("uint32_col", arrow::uint32(), false),
+                  build_required_array<arrow::UInt32Builder, uint32_t>(
+                          {0U, 1U, 1U << 31, std::numeric_limits<uint32_t>::max(), 42U}),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT32);
+                      EXPECT_TRUE(schema.type_descriptor.is_unsigned_integer);
+                      EXPECT_EQ(schema.type_descriptor.integer_bit_width, 32);
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_BIGINT);
+                      const auto& values = assert_cast<const ColumnInt64&>(column);
+                      EXPECT_EQ(values.get_element(2), 2147483648L);
+                      EXPECT_EQ(values.get_element(3),
+                                static_cast<int64_t>(std::numeric_limits<uint32_t>::max()));
+                  });
+        add_field(arrow::field("uint64_col", arrow::uint64(), false),
+                  build_required_array<arrow::UInt64Builder, uint64_t>(
+                          {0ULL, 1ULL, 1ULL << 63, std::numeric_limits<uint64_t>::max(), 42ULL}),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT64);
+                      EXPECT_TRUE(schema.type_descriptor.is_unsigned_integer);
+                      EXPECT_EQ(schema.type_descriptor.integer_bit_width, 64);
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_LARGEINT);
+                      const auto& values = assert_cast<const ColumnInt128&>(column);
+                      EXPECT_EQ(values.get_element(2), static_cast<int128_t>(1) << 63);
+                      EXPECT_EQ(values.get_element(3),
+                                static_cast<int128_t>(std::numeric_limits<uint64_t>::max()));
                   });
         add_field(
                 arrow::field("float_col", arrow::float32(), false),
@@ -2574,6 +2601,9 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
             ::parquet::schema::PrimitiveNode::Make("int64_int64", ::parquet::Repetition::REQUIRED,
                                                    ::parquet::Type::INT64,
                                                    ::parquet::ConvertedType::INT_64),
+            ::parquet::schema::PrimitiveNode::Make("uint64_int64", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT64,
+                                                   ::parquet::ConvertedType::UINT_64),
     };
 
     auto schema =
@@ -2652,9 +2682,6 @@ TEST_F(ParquetColumnReaderTest, RejectUnsupportedPhysicalAndLogicalTypes) {
                             ::parquet::Type::FIXED_LEN_BYTE_ARRAY,
                             ::parquet::ConvertedType::DECIMAL, 20, 39, 6),
                     ::parquet::schema::PrimitiveNode::Make(
-                            "uint64_col", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64,
-                            ::parquet::ConvertedType::UINT_64),
-                    ::parquet::schema::PrimitiveNode::Make(
                             "time_nanos_col", ::parquet::Repetition::REQUIRED,
                             ::parquet::LogicalType::Time(false,
                                                          ::parquet::LogicalType::TimeUnit::NANOS),
@@ -2671,7 +2698,7 @@ TEST_F(ParquetColumnReaderTest, RejectUnsupportedPhysicalAndLogicalTypes) {
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     auto st = build_parquet_column_schema(descriptor, &fields);
     ASSERT_TRUE(st.ok()) << st;
-    ASSERT_EQ(fields.size(), 5);
+    ASSERT_EQ(fields.size(), 4);
 
     for (const auto& field : fields) {
         SCOPED_TRACE(field->name);
