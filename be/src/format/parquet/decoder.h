@@ -152,6 +152,20 @@ protected:
         return Status::OK();
     }
 
+    // The index bit width is read from the data page and is fully attacker controlled,
+    // so a decoded index may point past the dictionary. Reject it before it is used to
+    // look up _dict_items.
+    Status _check_dict_indexes(size_t dict_size) {
+        for (uint32_t index : _indexes) {
+            if (UNLIKELY(index >= dict_size)) {
+                return Status::Corruption(
+                        "Parquet dictionary index {} out of bounds, dictionary size {}", index,
+                        dict_size);
+            }
+        }
+        return Status::OK();
+    }
+
     // For dictionary encoding
     DorisUniqueBufferPtr<uint8_t> _dict;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
