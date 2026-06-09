@@ -34,6 +34,7 @@ enum class DecodedValueKind {
     BOOL,
     INT32,
     INT64,
+    INT96,
     FLOAT,
     DOUBLE,
     BINARY,

@@ -2551,6 +2551,8 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
             ::parquet::schema::PrimitiveNode::Make(
                     "timestamp_micros_int64", ::parquet::Repetition::REQUIRED,
                     ::parquet::Type::INT64, ::parquet::ConvertedType::TIMESTAMP_MICROS),
+            ::parquet::schema::PrimitiveNode::Make(
+                    "int96_timestamp", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT96),
             ::parquet::schema::PrimitiveNode::Make("int8_int32", ::parquet::Repetition::REQUIRED,
                                                    ::parquet::Type::INT32,
                                                    ::parquet::ConvertedType::INT_8),
@@ -2588,15 +2590,60 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
         SCOPED_TRACE(field->name);
         ASSERT_TRUE(supports_record_reader(field->type_descriptor));
         ASSERT_NE(field->type, nullptr);
+        if (field->name == "int96_timestamp") {
+            ASSERT_EQ(remove_nullable(field->type)->get_primitive_type(), TYPE_DATETIMEV2);
+        }
     }
+}
+
+TEST_F(ParquetColumnReaderTest, ReadInt96TimestampAsDateTimeV2) {
+    const auto file_path = (_test_dir / "int96_timestamp.parquet").string();
+    auto field = arrow::field("col_datetime", arrow::timestamp(arrow::TimeUnit::MICRO), false);
+    auto array = build_timestamp_array(arrow::timestamp(arrow::TimeUnit::MICRO),
+                                       {0, 1234567, 1609459200000000, 1609459201000000, -1});
+    auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(
+            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *file_result,
+                                         ROW_COUNT, writer_builder.build(), arrow_builder.build()));
+
+    auto file_reader = ::parquet::ParquetFileReader::OpenFile(file_path, false);
+    ASSERT_NE(file_reader, nullptr);
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(*file_reader->metadata()->schema(), &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_EQ(fields[0]->type_descriptor.physical_type, ::parquet::Type::INT96);
+    EXPECT_EQ(fields[0]->type_descriptor.extra_type_info, ParquetExtraTypeInfo::IMPALA_TIMESTAMP);
+    ASSERT_TRUE(supports_record_reader(fields[0]->type_descriptor));
+    ASSERT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_DATETIMEV2);
+
+    auto row_group = file_reader->RowGroup(0);
+    ASSERT_NE(row_group, nullptr);
+    ParquetColumnReaderFactory factory(row_group, file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    ASSERT_TRUE(factory.create(*fields[0], &reader).ok());
+    auto column = fields[0]->type->create_column();
+    int64_t rows_read = 0;
+    ASSERT_TRUE(reader->read(ROW_COUNT, column, &rows_read).ok());
+    ASSERT_EQ(rows_read, ROW_COUNT);
+    EXPECT_EQ(fields[0]->type->to_string(*column, 0), "1970-01-01 00:00:00.000000");
+    EXPECT_EQ(fields[0]->type->to_string(*column, 1), "1970-01-01 00:00:01.234567");
+    EXPECT_EQ(fields[0]->type->to_string(*column, 2), "2021-01-01 00:00:00.000000");
+    EXPECT_EQ(fields[0]->type->to_string(*column, 4), "1969-12-31 23:59:59.999999");
 }
 
 TEST_F(ParquetColumnReaderTest, RejectUnsupportedPhysicalAndLogicalTypes) {
     auto schema = ::parquet::schema::GroupNode::Make(
             "schema", ::parquet::Repetition::REQUIRED,
             {
-                    ::parquet::schema::PrimitiveNode::Make(
-                            "int96_col", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT96),
                     ::parquet::schema::PrimitiveNode::Make("repeated_int32_col",
                                                            ::parquet::Repetition::REPEATED,
                                                            ::parquet::Type::INT32),
@@ -2624,7 +2671,7 @@ TEST_F(ParquetColumnReaderTest, RejectUnsupportedPhysicalAndLogicalTypes) {
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     auto st = build_parquet_column_schema(descriptor, &fields);
     ASSERT_TRUE(st.ok()) << st;
-    ASSERT_EQ(fields.size(), 6);
+    ASSERT_EQ(fields.size(), 5);
 
     for (const auto& field : fields) {
         SCOPED_TRACE(field->name);

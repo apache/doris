@@ -218,7 +218,7 @@ DataTypePtr physical_type_to_doris_type(const ::parquet::ColumnDescriptor* colum
         type = std::make_shared<DataTypeString>();
         break;
     case ::parquet::Type::INT96:
-        type = std::make_shared<DataTypeString>();
+        type = create_type(TYPE_DATETIMEV2, nullable, 0, 6);
         break;
     default:
         return nullptr;
@@ -254,6 +254,7 @@ bool record_reader_physical_type_supported(::parquet::Type::type physical_type) 
     case ::parquet::Type::BOOLEAN:
     case ::parquet::Type::INT32:
     case ::parquet::Type::INT64:
+    case ::parquet::Type::INT96:
     case ::parquet::Type::FLOAT:
     case ::parquet::Type::DOUBLE:
     case ::parquet::Type::BYTE_ARRAY:
@@ -325,15 +326,9 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
 
     if (!record_reader_physical_type_supported(result.physical_type)) {
         result.supports_record_reader = false;
-        return result;
-    }
-    if (direct_flat_primitive_doris_type(column) != nullptr || result.is_string_like ||
-        (result.is_decimal && result.decimal_precision <= 38) ||
-        (result.is_timestamp && result.physical_type == ::parquet::Type::INT64) ||
-        record_reader_integer_annotation_supported(column, result.doris_type) ||
-        remove_nullable(result.doris_type)->get_primitive_type() == TYPE_DATEV2 ||
-        remove_nullable(result.doris_type)->get_primitive_type() == TYPE_TIMEV2) {
-        result.supports_record_reader = true;
+    } else if (result.is_decimal && result.decimal_precision > 38) {
+        result.reason = "Decimal precision " + std::to_string(result.decimal_precision) +
+                        " exceeds max supported 38";
     }
     return result;
 }
