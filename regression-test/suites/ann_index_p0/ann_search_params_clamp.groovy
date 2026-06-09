@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// VEC-08 / VEC-09: Verify that search params are guarded correctly:
+// Verify that ANN search params are guarded correctly:
 //   1. FE checker rejects ivf_nprobe=0 and hnsw_ef_search=0
-//   2. BE clamps nprobe > nlist down to nlist (no FAISS assertion failure)
+//   2. BE clamps nprobe to [1, nlist]: nprobe < 1 would crash FAISS (asserts nprobe > 0),
+//      while nprobe > nlist is harmless (FAISS caps at nlist) and is only normalized
 //   3. BE boosts efSearch to max(ef_search, k) so LIMIT k always returns k results
 
 suite("ann_search_params_clamp", "nonConcurrent") {
@@ -38,9 +39,12 @@ suite("ann_search_params_clamp", "nonConcurrent") {
     }
 
     // -----------------------------------------------------------------------
-    // 2. nprobe > nlist must be clamped, not cause a FAISS error
+    // 2. nprobe > nlist is safe in FAISS itself (it caps nprobe at nlist), so this
+    //    case passes with or without the clamp; it guards that normalizing to nlist
+    //    does not break results. (The real crash case, nprobe < 1, is rejected by the
+    //    FE checker above, so it never reaches BE here; BE UT covers the BE-side clamp.)
     //    Table: IVF nlist=8, 400 rows (>= 39*nlist training threshold)
-    //    Query: nprobe=99999 -> clamped to 8 -> returns results normally
+    //    Query: nprobe=99999 -> capped to 8 -> returns results normally
     // -----------------------------------------------------------------------
     sql "drop table if exists tbl_ann_nprobe_clamp"
     sql """
@@ -66,7 +70,7 @@ suite("ann_search_params_clamp", "nonConcurrent") {
     sql "sync"
 
     sql "set ivf_nprobe=99999;"
-    // Clamped to nlist=8; query must succeed and return exactly 10 rows
+    // Capped to nlist=8 (FAISS-safe even without the clamp); must return 10 rows
     qt_nprobe_clamped_returns_10 """
         SELECT count(*) FROM (
             SELECT id FROM tbl_ann_nprobe_clamp

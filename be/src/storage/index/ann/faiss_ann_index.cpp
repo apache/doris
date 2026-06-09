@@ -705,7 +705,9 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                     "IVF search parameters should not be null for IVF index");
         }
         faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
-        // nprobe must be in [1, nlist]; exceeding nlist causes FAISS errors
+        // FAISS asserts nprobe > 0, so the lower bound guards against a crash on
+        // nprobe < 1. nprobe > nlist is harmless (FAISS caps it at nlist internally);
+        // we clamp the upper bound only to keep the value semantically meaningful.
         param->nprobe = std::clamp(ivf_params->nprobe, 1, _params.ivf_nlist);
         param->sel = id_sel.get();
         search_param.reset(param);
@@ -795,7 +797,9 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         {
             // Engine prepare: set search parameters and bind selector
             SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-            // nprobe must be in [1, nlist]; exceeding nlist causes FAISS errors
+            // FAISS asserts nprobe > 0, so the lower bound guards against a crash on
+            // nprobe < 1. nprobe > nlist is harmless (FAISS caps it at nlist
+            // internally); we clamp the upper bound only for a well-defined value.
             param->nprobe = std::clamp(ivf_params->nprobe, 1, _params.ivf_nlist);
         }
         search_param.reset(param);

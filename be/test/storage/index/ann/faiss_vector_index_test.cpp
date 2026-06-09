@@ -1543,8 +1543,10 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
     EXPECT_GT(total_misses, 0) << "Expected cache misses from first-thread disk reads";
 }
 
-// VEC-08: nprobe > nlist must be clamped rather than forwarded raw to FAISS
-// (raw nprobe > nlist causes a FAISS assertion failure / wrong results)
+// nprobe is clamped to [1, nlist] before reaching FAISS.
+// The real crash is the lower bound: FAISS asserts nprobe > 0, so nprobe < 1 (e.g. 0)
+// throws "nprobe > 0 failed". nprobe > nlist is harmless (FAISS caps it at nlist
+// internally), so the upper-bound clamp only keeps the value well-defined.
 TEST_F(VectorSearchTest, NprobeClampedToNlist) {
     const int dim = 32;
     const int nlist = 4;
@@ -1578,22 +1580,24 @@ TEST_F(VectorSearchTest, NprobeClampedToNlist) {
     auto query = vector_search_utils::generate_random_vector(dim);
     IndexSearchResult result;
 
-    // nprobe way above nlist — must be clamped, not crash
+    // nprobe way above nlist: FAISS caps this at nlist on its own, so it already
+    // succeeds even without our clamp — kept as a regression guard for results.
     IVFSearchParameters search_params;
     search_params.roaring = roaring.get();
     search_params.rows_of_segment = num_vectors;
     search_params.nprobe = 9999;
     EXPECT_TRUE(loaded->ann_topn_search(query.data(), 5, search_params, result).ok())
-            << "nprobe > nlist should succeed after clamping";
+            << "nprobe > nlist is safe (FAISS caps at nlist) and must return results";
 
-    // nprobe = 0 — must be clamped to 1, not crash
+    // nprobe = 0 — THIS is the real bug: FAISS asserts nprobe > 0, so without the
+    // lower-bound clamp this would throw "nprobe > 0 failed".
     IndexSearchResult result2;
     search_params.nprobe = 0;
     EXPECT_TRUE(loaded->ann_topn_search(query.data(), 5, search_params, result2).ok())
             << "nprobe = 0 should succeed after clamping to 1";
 }
 
-// VEC-09: efSearch < k silently returns fewer results; after fix efSearch is
+// efSearch < k silently returns fewer results; after fix efSearch is
 // boosted to max(ef_search, k) so we always get k valid results.
 TEST_F(VectorSearchTest, EfSearchLinkedToK) {
     const int dim = 16;
