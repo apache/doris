@@ -2723,15 +2723,15 @@ TEST_F(BlockColumnPredicateTest, tso_whole_segment_prune_by_commit_tso) {
     };
 
     auto make_gt = [](int64_t value) {
-        std::shared_ptr<ColumnPredicate> pred(new ComparisonPredicateBase<TYPE_BIGINT,
-                                                                          PredicateType::GT>(
-                0, "", Field::create_field<TYPE_BIGINT>(value)));
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
+                        0, "", Field::create_field<TYPE_BIGINT>(value)));
         return SingleColumnBlockPredicate::create_unique(pred);
     };
     auto make_le = [](int64_t value) {
-        std::shared_ptr<ColumnPredicate> pred(new ComparisonPredicateBase<TYPE_BIGINT,
-                                                                          PredicateType::LE>(
-                0, "", Field::create_field<TYPE_BIGINT>(value)));
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::LE>(
+                        0, "", Field::create_field<TYPE_BIGINT>(value)));
         return SingleColumnBlockPredicate::create_unique(pred);
     };
 
