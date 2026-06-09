@@ -300,6 +300,8 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
+// Whether to retry on S3 SlowDown (429/503) errors
+CONF_Bool(s3_client_retry_slow_down, "false");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
