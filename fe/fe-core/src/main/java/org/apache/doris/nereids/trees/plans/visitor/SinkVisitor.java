@@ -22,7 +22,6 @@ import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -35,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -49,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
@@ -101,10 +98,6 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundBlackholeSink, context);
     }
 
-    default R visitUnboundMaxComputeTableSink(UnboundMaxComputeTableSink<? extends Plan> unboundTableSink, C context) {
-        return visitLogicalSink(unboundTableSink, context);
-    }
-
     default R visitUnboundTVFTableSink(UnboundTVFTableSink<? extends Plan> unboundTVFTableSink, C context) {
         return visitLogicalSink(unboundTVFTableSink, context);
     }
@@ -131,10 +124,6 @@ public interface SinkVisitor<R, C> {
 
     default R visitLogicalIcebergTableSink(LogicalIcebergTableSink<? extends Plan> icebergTableSink, C context) {
         return visitLogicalTableSink(icebergTableSink, context);
-    }
-
-    default R visitLogicalMaxComputeTableSink(LogicalMaxComputeTableSink<? extends Plan> mcTableSink, C context) {
-        return visitLogicalTableSink(mcTableSink, context);
     }
 
     default R visitLogicalIcebergDeleteSink(LogicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {
@@ -195,10 +184,6 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalIcebergTableSink(PhysicalIcebergTableSink<? extends Plan> icebergTableSink, C context) {
         return visitPhysicalTableSink(icebergTableSink, context);
-    }
-
-    default R visitPhysicalMaxComputeTableSink(PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, C context) {
-        return visitPhysicalTableSink(mcTableSink, context);
     }
 
     default R visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {

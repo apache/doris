@@ -19,7 +19,6 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
-import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.THivePartitionUpdate;
@@ -156,24 +155,4 @@ public class CommitDataSerializerTest {
         Assert.assertEquals(2, viaFeed.getHivePartitionUpdates().size());
     }
 
-    /**
-     * MaxCompute: MCTransaction exposes no list getter, so equivalence is checked
-     * through {@link MCTransaction#getUpdateCnt()} (row-count accumulation). Full
-     * per-field fidelity is covered by {@link #binaryProtocolRoundTripIsLossless()}.
-     */
-    @Test
-    public void mcFeedEqualsLegacyUpdate() {
-        List<TMCCommitData> input = Arrays.asList(
-                mcData("session-1", 42L, "bXNn"),
-                mcData("session-1", 58L, "bXNnMg=="));
-
-        MCTransaction legacy = new MCTransaction(null);
-        legacy.updateMCCommitData(input);
-
-        MCTransaction viaFeed = new MCTransaction(null);
-        CommitDataSerializer.feed(viaFeed, input);
-
-        Assert.assertEquals(legacy.getUpdateCnt(), viaFeed.getUpdateCnt());
-        Assert.assertEquals(100L, viaFeed.getUpdateCnt());
-    }
 }

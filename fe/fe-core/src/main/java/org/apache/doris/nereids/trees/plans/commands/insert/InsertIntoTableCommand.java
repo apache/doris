@@ -39,7 +39,6 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -48,7 +47,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -77,7 +75,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -556,37 +553,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                                 Optional.of(icebergInsertCtx),
-                                emptyInsert, jobId
-                        )
-                );
-            } else if (physicalSink instanceof PhysicalMaxComputeTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                MaxComputeExternalTable mcExternalTable = (MaxComputeExternalTable) targetTableIf;
-                MCInsertCommandContext mcInsertCtx = insertCtx
-                        .map(insertCommandContext -> (MCInsertCommandContext) insertCommandContext)
-                        .orElseGet(MCInsertCommandContext::new);
-                if (mcInsertCtx.getStaticPartitionSpec() == null
-                        && originLogicalQuery instanceof UnboundMaxComputeTableSink) {
-                    UnboundMaxComputeTableSink<?> mcSink =
-                            (UnboundMaxComputeTableSink<?>) originLogicalQuery;
-                    if (mcSink.hasStaticPartition()) {
-                        Map<String, String> staticSpec = Maps.newHashMap();
-                        for (Map.Entry<String, Expression> e
-                                : mcSink.getStaticPartitionKeyValues().entrySet()) {
-                            if (e.getValue() instanceof Literal) {
-                                staticSpec.put(e.getKey(),
-                                        ((Literal) e.getValue()).getStringValue());
-                            }
-                        }
-                        mcInsertCtx.setStaticPartitionSpec(staticSpec);
-                    }
-                }
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new MCInsertExecutor(ctx, mcExternalTable, label, planner,
-                                Optional.of(mcInsertCtx),
                                 emptyInsert, jobId
                         )
                 );

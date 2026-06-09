@@ -32,7 +32,6 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.insertoverwrite.AbstractInsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.insertoverwrite.RemoteInsertOverwriteManager;
@@ -44,7 +43,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -321,7 +319,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         } else {
             return targetTable instanceof HMSExternalTable
                     || targetTable instanceof IcebergExternalTable
-                    || targetTable instanceof MaxComputeExternalTable
                     || (targetTable instanceof PluginDrivenExternalTable
                             && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable));
         }
@@ -414,27 +411,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
             setStaticPartitionToContext(sink, (IcebergInsertCommandContext) insertCtx);
             branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
-        } else if (logicalQuery instanceof UnboundMaxComputeTableSink) {
-            UnboundMaxComputeTableSink<?> sink = (UnboundMaxComputeTableSink<?>) logicalQuery;
-            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
-                    sink.getNameParts(), sink.getColNames(), sink.getHints(),
-                    false, sink.getPartitions(), false,
-                    TPartialUpdateNewRowPolicy.APPEND,
-                    sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)),
-                    sink.getStaticPartitionKeyValues());
-            MCInsertCommandContext mcCtx = new MCInsertCommandContext();
-            mcCtx.setOverwrite(true);
-            if (sink.hasStaticPartition()) {
-                Map<String, String> staticSpec = Maps.newHashMap();
-                for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {
-                    if (e.getValue() instanceof Literal) {
-                        staticSpec.put(e.getKey(), ((Literal) e.getValue()).getStringValue());
-                    }
-                }
-                mcCtx.setStaticPartitionSpec(staticSpec);
-            }
-            insertCtx = mcCtx;
         } else if (logicalQuery instanceof UnboundConnectorTableSink) {
             UnboundConnectorTableSink<?> sink = (UnboundConnectorTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(

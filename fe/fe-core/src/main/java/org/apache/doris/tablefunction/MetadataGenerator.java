@@ -71,7 +71,6 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
@@ -1312,8 +1311,6 @@ public class MetadataGenerator {
 
         if (catalog instanceof InternalCatalog) {
             return dealInternalCatalog((Database) db, table);
-        } else if (catalog instanceof MaxComputeExternalCatalog) {
-            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, (ExternalTable) table);
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             return dealPluginDrivenCatalog((PluginDrivenExternalCatalog) catalog, (ExternalTable) table);
         } else if (catalog instanceof HMSExternalCatalog) {
@@ -1330,21 +1327,6 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         List<String> partitionNames = catalog.getClient()
                 .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
-        for (String partition : partitionNames) {
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(partition));
-            dataBatch.add(trow);
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
-    }
-
-    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog,
-            ExternalTable table) {
-        List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
         for (String partition : partitionNames) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));

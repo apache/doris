@@ -41,7 +41,6 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -377,8 +376,6 @@ public class InsertUtils {
         Map<String, Expression> staticPartitions = null;
         if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
             staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
-        } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
-            staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         } else if (unboundLogicalSink instanceof UnboundConnectorTableSink) {
             staticPartitions = ((UnboundConnectorTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         }
@@ -606,8 +603,6 @@ public class InsertUtils {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else if (plan instanceof UnboundBlackholeSink) {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundMaxComputeTableSink) {
-            unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundConnectorTableSink) {
             unboundTableSink = (UnboundConnectorTableSink<? extends Plan>) plan;
         } else {
