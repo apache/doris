@@ -29,6 +29,7 @@ import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskProgress;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
@@ -54,6 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils.SCHEMA_HEARTBEAT_EVENT_KEY_NAME;
 
@@ -80,6 +82,7 @@ public class PipelineCoordinator {
             new ConcurrentHashMap<>();
     // taskId -> writeFailReason
     private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
+    private final Map<String, AtomicLong> taskProgressMap = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
     private static final int QUEUE_CAPACITY = 128;
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -406,6 +409,7 @@ public class PipelineCoordinator {
                         closeJobStreamLoad(writeRecordRequest.getJobId());
                         String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
                         taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
+                        taskProgressMap.remove(writeRecordRequest.getTaskId());
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -579,6 +583,10 @@ public class PipelineCoordinator {
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;
+                        taskProgressMap
+                                .computeIfAbsent(
+                                        writeRecordRequest.getTaskId(), k -> new AtomicLong())
+                                .set(scannedRows);
                     }
                 }
             }
@@ -620,6 +628,7 @@ public class PipelineCoordinator {
                 scannedRows,
                 batchStreamLoad.getLoadStatistic(),
                 tableSchemas);
+        taskProgressMap.remove(currentTaskId);
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
@@ -731,6 +740,11 @@ public class PipelineCoordinator {
     public String getTaskFailReason(String taskId) {
         String taskReason = taskErrorMaps.remove(taskId);
         return taskReason == null ? "" : taskReason;
+    }
+
+    public StreamingTaskProgress getTaskProgress(String taskId) {
+        AtomicLong scannedRows = taskProgressMap.get(taskId);
+        return scannedRows == null ? null : new StreamingTaskProgress(scannedRows.get());
     }
 
     /**

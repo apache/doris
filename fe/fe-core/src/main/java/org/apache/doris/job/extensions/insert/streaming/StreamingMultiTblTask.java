@@ -20,6 +20,7 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.job.cdc.StreamingTaskProgress;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
@@ -84,6 +85,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long filteredRows = 0L;
     private long loadedRows = 0L;
     private long runningBackendId;
+    transient long lastScannedRows = -1;
+    transient long lastProgressMs = 0;
 
     public StreamingMultiTblTask(Long jobId,
             long taskId,
@@ -113,6 +116,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         }
         this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
+        this.lastProgressMs = this.startTimeMs;
         this.runningOffset = offsetProvider.getNextOffset(null, sourceProperties);
         log.info("streaming multi task {} get running offset: {}", taskId, runningOffset.toString());
     }
@@ -362,14 +366,25 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     public boolean isTimeout() {
+        return isTimeout(fetchProgress());
+    }
+
+    // package-private: tests feed progress directly to avoid mocking the backend RPC.
+    boolean isTimeout(StreamingTaskProgress progress) {
         if (startTimeMs == null) {
             // It's still pending, waiting for scheduling.
             return false;
         }
+        long now = System.currentTimeMillis();
+        if (progress != null && progress.getScannedRows() > lastScannedRows) {
+            lastScannedRows = progress.getScannedRows();
+            lastProgressMs = now;
+        }
         long timeoutMs = getTaskTimeoutMs();
-        long elapsed = System.currentTimeMillis() - startTimeMs;
+        long elapsed = now - lastProgressMs;
         if (elapsed > timeoutMs) {
-            log.info("Task {} timeout detected: elapsed={}ms, timeoutMs={}ms", taskId, elapsed, timeoutMs);
+            log.info("Task {} timeout detected: no progress for {}ms, timeoutMs={}ms",
+                    taskId, elapsed, timeoutMs);
             return true;
         }
         return false;
@@ -377,7 +392,39 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     // Read multiplier live so config changes affect already-running tasks.
     private long getTaskTimeoutMs() {
-        return Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L;
+        return Math.max(
+                Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L,
+                Config.streaming_task_min_timeout_sec * 1000L);
+    }
+
+    private StreamingTaskProgress fetchProgress() {
+        if (runningBackendId <= 0) {
+            return null;
+        }
+        Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
+        if (backend == null) {
+            return null;
+        }
+        try {
+            InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                    .setApi("/api/getProgress/" + getTaskId())
+                    .build();
+            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            PRequestCdcClientResult result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
+            if (TStatusCode.findByValue(result.getStatus().getStatusCode()) != TStatusCode.OK) {
+                return null;
+            }
+            ResponseBody<StreamingTaskProgress> body = objectMapper.readValue(
+                    result.getResponse(),
+                    new TypeReference<ResponseBody<StreamingTaskProgress>>() {
+                    });
+            return body.getCode() == RestApiStatusCode.OK.code ? body.getData() : null;
+        } catch (Exception e) {
+            log.warn("fetch progress failed, job {} task {}", getJobId(), getTaskId(), e);
+            return null;
+        }
     }
 
     /**
