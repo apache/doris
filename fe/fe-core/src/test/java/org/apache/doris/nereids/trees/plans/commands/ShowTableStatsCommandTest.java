@@ -26,14 +26,14 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
