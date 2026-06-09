@@ -1725,12 +1725,10 @@ DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
 // Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
 DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
-
-// Chunk size for ANN/vector index building per training/adding batch
-// 1M By default.
-DEFINE_mInt64(ann_index_build_chunk_size, "1000000");
-DEFINE_Validator(ann_index_build_chunk_size,
-                 [](const int64_t config) -> bool { return config > 0; });
+// Minimum segment rows required to persist an ANN index. 0 keeps the default behavior.
+DEFINE_mInt64(ann_index_build_min_segment_rows, "0");
+DEFINE_Validator(ann_index_build_min_segment_rows,
+                 [](const int64_t config) -> bool { return config >= 0; });
 
 DEFINE_mBool(enable_wal_tde, "false");
 
