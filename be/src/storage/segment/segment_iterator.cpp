@@ -3495,17 +3495,16 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
 
     Block project_block;
     Block* materialize_block = _build_project_block(block, &project_block);
+    const bool materialize_on_project_block = _project_schema != _schema;
     for (const auto& cid_and_expr : _virtual_column_exprs) {
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;
-        auto vir_it = _vir_cid_to_idx_in_block.find(cid);
-        DORIS_CHECK(vir_it != _vir_cid_to_idx_in_block.end());
-        auto idx_in_block = _schema_block_id_map[cid];
-        auto materialized_pos = _project_schema == _schema ? idx_in_block : vir_it->second;
+        auto materialized_pos = materialize_on_project_block ? _vir_cid_to_idx_in_block.at(cid)
+                                                             : _schema_block_id_map[cid];
         auto& column = materialize_block->get_by_position(materialized_pos).column;
         if (check_and_get_column<const ColumnNothing>(column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
-                                      cid, idx_in_block);
+                                      cid, materialized_pos);
             ColumnPtr result_column;
             Status st;
             RETURN_IF_CATCH_EXCEPTION({
@@ -3517,16 +3516,15 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
             materialize_block->replace_by_position(materialized_pos, std::move(result_column));
         }
     }
-    if (materialize_block == block) {
-        return Status::OK();
-    }
-    for (const auto& cid_and_expr : _virtual_column_exprs) {
-        auto cid = cid_and_expr.first;
-        auto idx_in_block = _schema_block_id_map[cid];
-        auto materialized_pos = _vir_cid_to_idx_in_block.at(cid);
-        const auto& column = project_block.get_by_position(materialized_pos).column;
-        DORIS_CHECK(!check_and_get_column<const ColumnNothing>(column.get()));
-        block->replace_by_position(idx_in_block, column);
+    if (materialize_block != block) {
+        for (const auto& cid_and_expr : _virtual_column_exprs) {
+            auto cid = cid_and_expr.first;
+            auto idx_in_block = _schema_block_id_map[cid];
+            auto materialized_pos = _vir_cid_to_idx_in_block.at(cid);
+            const auto& column = project_block.get_by_position(materialized_pos).column;
+            DORIS_CHECK(!check_and_get_column<const ColumnNothing>(column.get()));
+            block->replace_by_position(idx_in_block, column);
+        }
     }
     return Status::OK();
 }
