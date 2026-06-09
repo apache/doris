@@ -69,6 +69,7 @@ import io.debezium.time.NanoTime;
 import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Time;
 import io.debezium.time.Timestamp;
+import io.debezium.time.ZonedTime;
 import io.debezium.time.ZonedTimestamp;
 import lombok.Getter;
 import lombok.Setter;
@@ -255,6 +256,8 @@ public class DebeziumJsonDeserializer
                     return convertTimestamp(name, dbzObj);
                 case ZonedTimestamp.SCHEMA_NAME:
                     return convertZoneTimestamp(dbzObj);
+                case ZonedTime.SCHEMA_NAME:
+                    return convertZoneTime(dbzObj);
                 case Decimal.LOGICAL_NAME:
                     return convertDecimal(dbzObj, fieldSchema);
                 case Bits.LOGICAL_NAME:
@@ -314,6 +317,18 @@ public class DebeziumJsonDeserializer
                     .toString();
         }
         LOG.warn("Unable to convert to zone timestamp, default {}", dbzObj);
+        return dbzObj.toString();
+    }
+
+    private Object convertZoneTime(Object dbzObj) {
+        // timetz has no date, so a named zone's DST offset cannot be resolved. Following
+        // Debezium/PostgreSQL semantics, keep Debezium's UTC-normalized ZonedTime string as-is
+        // (offset preserved) rather than shifting it into serverTimeZone, which would drop the
+        // offset and mishandle DST.
+        if (dbzObj instanceof String) {
+            return dbzObj;
+        }
+        LOG.warn("Unable to convert to zone time, default {}", dbzObj);
         return dbzObj.toString();
     }
 
