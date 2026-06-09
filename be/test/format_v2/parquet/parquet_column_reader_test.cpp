@@ -658,6 +658,8 @@ protected:
         EXPECT_TRUE(nested_map_builder->Append().ok());
         EXPECT_TRUE(nested_key_builder->Append(401).ok());
         EXPECT_TRUE(nested_value_builder->AppendNull().ok());
+
+        EXPECT_TRUE(builder.AppendEmptyValue().ok());
         return finish_array(&builder);
     }
 
