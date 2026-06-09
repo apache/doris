@@ -70,6 +70,12 @@ public class RuntimeFilterTypeHelperTest {
     }
 
     @Test(expected = DdlException.class)
+    public void testInvalidBitmapDecode() throws DdlException {
+        RuntimeFilterTypeHelper.decode(16L);
+        Assert.fail("No exception throws");
+    }
+
+    @Test(expected = DdlException.class)
     public void testInvalidSqlMode2() throws DdlException {
         RuntimeFilterTypeHelper.encode("BLOOM_FILTER,IN");
         Assert.fail("No exception throws");
@@ -84,6 +90,12 @@ public class RuntimeFilterTypeHelperTest {
     @Test(expected = DdlException.class)
     public void testInvalidSqlMode4() throws DdlException {
         RuntimeFilterTypeHelper.encode("IN,IN_OR_BLOOM_FILTER");
+        Assert.fail("No exception throws");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidBitmapSqlMode() throws DdlException {
+        RuntimeFilterTypeHelper.encode("BITMAP_FILTER");
         Assert.fail("No exception throws");
     }
 }

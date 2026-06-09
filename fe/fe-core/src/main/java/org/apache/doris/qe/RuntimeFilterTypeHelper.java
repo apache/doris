@@ -42,8 +42,7 @@ public class RuntimeFilterTypeHelper {
     public static final long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue()
             | TRuntimeFilterType.BLOOM.getValue()
             | TRuntimeFilterType.MIN_MAX.getValue()
-            | TRuntimeFilterType.IN_OR_BLOOM.getValue()
-            | TRuntimeFilterType.BITMAP.getValue());
+            | TRuntimeFilterType.IN_OR_BLOOM.getValue());
 
     private static final Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
@@ -52,7 +51,6 @@ public class RuntimeFilterTypeHelper {
         varValueSet.put("BLOOM_FILTER", (long) TRuntimeFilterType.BLOOM.getValue());
         varValueSet.put("MIN_MAX", (long) TRuntimeFilterType.MIN_MAX.getValue());
         varValueSet.put("IN_OR_BLOOM_FILTER", (long) TRuntimeFilterType.IN_OR_BLOOM.getValue());
-        varValueSet.put("BITMAP_FILTER", (long) TRuntimeFilterType.BITMAP.getValue());
     }
 
     public static boolean allowedRuntimeFilterType(long runtimeFilterType, TRuntimeFilterType type) {

@@ -19,7 +19,6 @@
 
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
 #include "exprs/minmax_predicate.h"
-#include "exprs/vbitmap_predicate.h"
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "runtime/runtime_profile.h"
@@ -195,26 +194,6 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<RuntimeFilterExprPtr>&
         auto wrapper = RuntimeFilterExpr::create_shared(
                 node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware,
                 _wrapper->filter_id(), sampling_frequency);
-        container.push_back(wrapper);
-        break;
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        // create a bitmap filter
-        TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-        type_desc.__set_is_nullable(false);
-        TExprNode node;
-        node.__set_type(type_desc);
-        node.__set_node_type(TExprNodeType::BITMAP_PRED);
-        node.__set_opcode(TExprOpcode::RT_FILTER);
-        node.__set_is_nullable(false);
-        auto bitmap_pred = VBitmapPredicate::create_shared(node);
-        bitmap_pred->set_filter(_wrapper->bitmap_filter_func());
-        bitmap_pred->add_child(probe_ctx->root());
-        if (null_aware) {
-            return Status::InternalError("bitmap predicate do not support null aware");
-        }
-        auto wrapper = RuntimeFilterExpr::create_shared(node, bitmap_pred, 0, null_aware,
-                                                        _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
         break;
     }

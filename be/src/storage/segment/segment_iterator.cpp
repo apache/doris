@@ -1442,7 +1442,7 @@ bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
-    return type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
+    return type == PredicateType::BF;
 }
 
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
