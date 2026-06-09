@@ -3514,7 +3514,7 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
             materialize_block->replace_by_position(materialized_pos, std::move(result_column));
         }
     }
-    if (materialize_block != block) {
+    if (materialize_on_project_block) {
         for (const auto& cid_and_expr : _virtual_column_exprs) {
             auto cid = cid_and_expr.first;
             auto materialized_pos = _vir_cid_to_idx_in_block.at(cid);
