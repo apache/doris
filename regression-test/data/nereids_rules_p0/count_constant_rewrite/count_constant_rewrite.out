@@ -14,3 +14,6 @@
 
 -- !count_non_constant_json_extract --
 2
+
+-- !count_constant_invalid_json_path_empty --
+0

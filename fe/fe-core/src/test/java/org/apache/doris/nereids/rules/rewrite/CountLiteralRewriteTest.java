@@ -106,6 +106,19 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
     }
 
     @Test
+    void testCountConstantExpressionOnEmptyInputNotEvaluateArgument() {
+        PlanChecker.from(connectContext)
+                .analyze("select count(json_extract('{\"id\":123}', '$.')) as c from student where false")
+                .rewrite()
+                .matches(logicalProject(
+                        logicalAggregate(logicalEmptyRelation())
+                ).when(project -> project.getProjects().stream()
+                        .anyMatch(expr -> expr.containsType(BigIntLiteral.class)
+                                && !expr.containsType(JsonbExtract.class))))
+                .printlnTree();
+    }
+
+    @Test
     void testCountNonConstantExpressionNotRewrite() {
         PlanChecker.from(connectContext)
                 .analyze("select count(json_extract(cast(name as json), '$.a')) as c from student")

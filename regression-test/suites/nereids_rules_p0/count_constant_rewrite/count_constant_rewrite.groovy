@@ -38,6 +38,15 @@ suite("count_constant_rewrite") {
     """
     sql "sync"
 
+    sql "DROP TABLE IF EXISTS count_constant_rewrite_empty"
+    sql """
+        CREATE TABLE count_constant_rewrite_empty (
+            id INT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES('replication_num' = '1');
+    """
+
     // Non-null row-independent json_extract should be equivalent to count(*).
     qt_count_constant_json_extract_non_null '''
         SELECT count(json_extract('{"a": 1}', '$.a')) FROM count_constant_rewrite_test
@@ -70,6 +79,18 @@ suite("count_constant_rewrite") {
     qt_count_non_constant_json_extract '''
         SELECT count(json_extract(cast(js AS JSON), '$.a')) FROM count_constant_rewrite_test
     '''
+
+    // Empty input must preserve count(expr) semantics and not evaluate the expression once above aggregation.
+    qt_count_constant_invalid_json_path_empty '''
+        SELECT count(json_extract('{"id":123}', '$.')) FROM count_constant_rewrite_empty
+    '''
+
+    test {
+        sql '''
+            SELECT count(json_extract('{"id":123}', '$.')) FROM count_constant_rewrite_test
+        '''
+        exception "Invalid Json Path for value: \$."
+    }
 
     // Keep count(*) visible in explain, instead of folding it to a metadata constant.
     sql "SET disable_nereids_rules='REWRITE_SIMPLE_AGG_TO_CONSTANT'"
