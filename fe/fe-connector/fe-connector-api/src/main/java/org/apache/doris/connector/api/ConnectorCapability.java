@@ -50,6 +50,37 @@ public enum ConnectorCapability {
      */
     SUPPORTS_PARALLEL_WRITE,
     /**
+     * Indicates the connector requires dynamic-partition writes to be hash-distributed by
+     * partition columns and locally sorted by them before reaching the sink.
+     *
+     * <p>Streaming partition writers (e.g. the MaxCompute Storage API) close the previous
+     * partition writer as soon as a new partition value appears; un-grouped (unsorted)
+     * multi-partition rows therefore cause "writer has been closed" errors. The planner uses
+     * this capability to require a hash-by-partition distribution plus a mandatory local sort
+     * on the partition columns for dynamic-partition writes.</p>
+     *
+     * <p>A connector declaring this is expected to also declare
+     * {@link #SUPPORTS_PARALLEL_WRITE} (hash distribution is inherently parallel) and
+     * {@link #SINK_REQUIRE_FULL_SCHEMA_ORDER}: the sink distribution locates partition columns by their
+     * <b>full-schema</b> position in the child output, which only holds when the bind layer projects the
+     * write to full-schema order (the projection gated by {@code SINK_REQUIRE_FULL_SCHEMA_ORDER}). A
+     * connector declaring this without {@code SINK_REQUIRE_FULL_SCHEMA_ORDER} would shuffle/sort by the
+     * wrong column whenever cols order diverges from the full schema.</p>
+     */
+    SINK_REQUIRE_PARTITION_LOCAL_SORT,
+    /**
+     * Indicates the connector's write path maps data columns <b>positionally</b> against the full
+     * table schema (e.g. MaxCompute's columnar Storage API / JNI writer), rather than by column name.
+     *
+     * <p>For such connectors the sink's output rows must be projected to <b>full table schema order</b>
+     * with any unmentioned columns filled (NULL / default) — exactly like the legacy MaxCompute bind
+     * path — so that a reordered or partial explicit column list does not land values in the wrong
+     * remote columns. Name-mapped connectors (e.g. JDBC, which builds an {@code INSERT INTO t (cols)}
+     * statement) must NOT declare this capability: their data stays in user/cols order to match the
+     * generated column list.</p>
+     */
+    SINK_REQUIRE_FULL_SCHEMA_ORDER,
+    /**
      * Indicates the connector supports passthrough query via the {@code query()} TVF.
      *
      * <p>Connectors declaring this capability must implement

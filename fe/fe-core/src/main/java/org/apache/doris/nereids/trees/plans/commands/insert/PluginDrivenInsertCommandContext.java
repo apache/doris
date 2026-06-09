@@ -17,10 +17,29 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import java.util.Collections;
+import java.util.Map;
+
 /**
  * Insert command context for plugin-driven connector catalogs.
- * No additional fields — overwrite is inherited from BaseExternalTableInsertCommandContext.
- * Connector plugins provide write config through the ConnectorWriteOps SPI.
+ *
+ * <p>{@code overwrite} is inherited from {@link BaseExternalTableInsertCommandContext}.
+ * The static partition spec — a generic {@code col -> val} map — is carried here and
+ * handed to the connector via the write context of
+ * {@code ConnectorWritePlanProvider.planWrite}. It is populated during sink binding
+ * (wired at the connector cutover) and defaults to empty, so a write with no static
+ * partition contributes nothing to partition pinning.</p>
  */
 public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCommandContext {
+
+    private Map<String, String> staticPartitionSpec = Collections.emptyMap();
+
+    public Map<String, String> getStaticPartitionSpec() {
+        return staticPartitionSpec;
+    }
+
+    public void setStaticPartitionSpec(Map<String, String> staticPartitionSpec) {
+        this.staticPartitionSpec =
+                staticPartitionSpec == null ? Collections.emptyMap() : staticPartitionSpec;
+    }
 }

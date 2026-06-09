@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.ddl;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
@@ -84,12 +85,18 @@ public final class CreateTableInfoToConnectorRequestConverter {
             DataType nereidsType = d.getType();
             ConnectorType type = ConnectorColumnConverter.toConnectorType(
                     nereidsType.toCatalogDataType());
+            // Mirror Column.isAggregated(): a non-null, non-NONE aggregate type means the user
+            // wrote an aggregate column (e.g. SUM). The connector rejects these for engines that
+            // cannot store them (MaxCompute); see MaxComputeConnectorMetadata.validateColumns.
+            boolean isAggregated = d.getAggType() != null
+                    && d.getAggType() != AggregateType.NONE;
             // Default value is not exposed via a public getter on ColumnDefinition
             // (private Optional<DefaultValue>); pass null until the SPI gains a
             // typed default-value carrier. See HANDOFF open issues.
             out.add(new ConnectorColumn(
                     d.getName(), type, d.getComment(),
-                    d.isNullable(), null, d.isKey()));
+                    d.isNullable(), null, d.isKey(), d.getAutoIncInitValue() != -1,
+                    isAggregated));
         }
         return out;
     }

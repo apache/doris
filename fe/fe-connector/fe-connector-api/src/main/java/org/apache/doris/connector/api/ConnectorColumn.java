@@ -30,6 +30,8 @@ public final class ConnectorColumn {
     private final boolean nullable;
     private final String defaultValue;
     private final boolean isKey;
+    private final boolean isAutoInc;
+    private final boolean isAggregated;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -38,12 +40,25 @@ public final class ConnectorColumn {
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey) {
+        this(name, type, comment, nullable, defaultValue, isKey, false);
+    }
+
+    public ConnectorColumn(String name, ConnectorType type, String comment,
+            boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc) {
+        this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, false);
+    }
+
+    public ConnectorColumn(String name, ConnectorType type, String comment,
+            boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
+            boolean isAggregated) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
         this.nullable = nullable;
         this.defaultValue = defaultValue;
         this.isKey = isKey;
+        this.isAutoInc = isAutoInc;
+        this.isAggregated = isAggregated;
     }
 
     public String getName() {
@@ -70,6 +85,14 @@ public final class ConnectorColumn {
         return isKey;
     }
 
+    public boolean isAutoInc() {
+        return isAutoInc;
+    }
+
+    public boolean isAggregated() {
+        return isAggregated;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -81,6 +104,8 @@ public final class ConnectorColumn {
         ConnectorColumn that = (ConnectorColumn) o;
         return nullable == that.nullable
                 && isKey == that.isKey
+                && isAutoInc == that.isAutoInc
+                && isAggregated == that.isAggregated
                 && name.equals(that.name)
                 && type.equals(that.type)
                 && Objects.equals(comment, that.comment)
@@ -89,7 +114,7 @@ public final class ConnectorColumn {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, type, comment, nullable, defaultValue, isKey);
+        return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated);
     }
 
     @Override

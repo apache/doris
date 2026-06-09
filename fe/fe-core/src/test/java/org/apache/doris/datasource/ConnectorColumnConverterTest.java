@@ -139,4 +139,26 @@ class ConnectorColumnConverterTest {
         Assertions.assertEquals(18, ct.getPrecision());
         Assertions.assertEquals(6, ct.getScale());
     }
+
+    @Test
+    void testCharVarcharLengthPreserved() {
+        // Regression: CHAR/VARCHAR carry length in `len`, not `precision`; the
+        // converter must encode the length into the ConnectorType precision field
+        // so it survives the CREATE TABLE request path (previously emitted 0).
+        ScalarType charType = ScalarType.createCharType(20);
+        ConnectorType charCt = ConnectorColumnConverter.toConnectorType(charType);
+        Assertions.assertEquals("CHAR", charCt.getTypeName());
+        Assertions.assertEquals(20, charCt.getPrecision());
+        Type charBack = ConnectorColumnConverter.convertType(charCt);
+        Assertions.assertTrue(charBack instanceof ScalarType);
+        Assertions.assertEquals(20, ((ScalarType) charBack).getLength());
+
+        ScalarType varcharType = ScalarType.createVarcharType(255);
+        ConnectorType varcharCt = ConnectorColumnConverter.toConnectorType(varcharType);
+        Assertions.assertEquals("VARCHAR", varcharCt.getTypeName());
+        Assertions.assertEquals(255, varcharCt.getPrecision());
+        Type varcharBack = ConnectorColumnConverter.convertType(varcharCt);
+        Assertions.assertTrue(varcharBack instanceof ScalarType);
+        Assertions.assertEquals(255, ((ScalarType) varcharBack).getLength());
+    }
 }

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
@@ -59,7 +58,6 @@ public class ExternalMetaCacheRouteResolverTest {
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         Assert.assertEquals("hive", metaCacheMgr.engine("hms").engine());
         Assert.assertEquals("doris", metaCacheMgr.engine("External_Doris").engine());
-        Assert.assertEquals("maxcompute", metaCacheMgr.engine("max_compute").engine());
     }
 
     @Test
@@ -83,10 +81,6 @@ public class ExternalMetaCacheRouteResolverTest {
         List<String> paimonEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(
                 new PaimonExternalCatalog(3L, "paimon", null, Collections.emptyMap(), ""), 3L);
         Assert.assertEquals(java.util.Collections.singletonList("paimon"), paimonEngines);
-
-        List<String> maxComputeEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(
-                new MaxComputeExternalCatalog(4L, "maxcompute", null, Collections.emptyMap(), ""), 4L);
-        Assert.assertEquals(java.util.Collections.singletonList("maxcompute"), maxComputeEngines);
 
         List<String> dorisEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(
                 new RemoteDorisExternalCatalog(5L, "doris", null, Collections.emptyMap(), ""), 5L);

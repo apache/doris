@@ -52,4 +52,48 @@ public interface ConnectorTransaction extends ConnectorTransactionHandle, Closea
     /** Called by the engine after commit OR rollback to release connections etc. */
     @Override
     void close();
+
+    /**
+     * Receives one serialized commit fragment produced by BE after writing a
+     * data fragment. The connector deserializes its own Thrift payload (e.g.
+     * {@code TMCCommitData} / {@code THivePartitionUpdate} / {@code TIcebergCommitData})
+     * and accumulates it for {@link #commit()}.
+     *
+     * <p>Default is a no-op for read-only / non-writing connectors.</p>
+     *
+     * @param commitFragment the serialized connector-specific commit payload
+     */
+    default void addCommitData(byte[] commitFragment) {
+        // no-op: connectors that participate in writes override this
+    }
+
+    /**
+     * Whether this transaction allocates write block ranges through a write-time
+     * BE&rarr;FE callback. Only connectors with a stateful write session that
+     * hands out block ids (e.g. maxcompute) return {@code true}.
+     */
+    default boolean supportsWriteBlockAllocation() {
+        return false;
+    }
+
+    /**
+     * Allocates a contiguous range of write block ids for the given write
+     * session, returning the first allocated id. Called from the BE&rarr;FE RPC
+     * path during a write.
+     *
+     * <p>Only invoked when {@link #supportsWriteBlockAllocation()} returns
+     * {@code true}; the default throws.</p>
+     *
+     * @param writeSessionId opaque connector-defined write session identifier
+     * @param count          number of block ids to allocate
+     * @return the first allocated block id
+     */
+    default long allocateWriteBlockRange(String writeSessionId, long count) {
+        throw new UnsupportedOperationException("write block allocation not supported");
+    }
+
+    /** Returns the number of rows affected by the write(s) bound to this transaction. */
+    default long getUpdateCnt() {
+        return 0;
+    }
 }
