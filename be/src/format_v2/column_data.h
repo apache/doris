@@ -211,8 +211,8 @@ struct FilterEntry {
 };
 
 enum ColumnType {
-    DATA_COLUMN = 0, // normal data column
-    ROW_NUMBER = 1,  // row number in a file
+    DATA_COLUMN = 0,  // normal data column
+    ROW_NUMBER = 1,   // row number in a file
     GLOBAL_ROWID = 2, // global unique row id across files, used by TopN filter
 };
 
