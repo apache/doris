@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
@@ -42,6 +43,58 @@ enum {
 
 namespace doris {
 static const int64_t micro_to_nano_second = 1000;
+
+namespace {
+
+#pragma pack(1)
+struct DecodedInt96Timestamp {
+    int64_t nanos_of_day;
+    int32_t julian_day;
+
+    int64_t to_timestamp_micros() const {
+        static constexpr int32_t JULIAN_EPOCH_OFFSET_DAYS = 2440588;
+        static constexpr int64_t MICROS_IN_DAY = 86400000000;
+        static constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+        return (julian_day - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY +
+               nanos_of_day / NANOS_PER_MICROSECOND;
+    }
+};
+#pragma pack()
+static_assert(sizeof(DecodedInt96Timestamp) == 12);
+
+void append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
+                                         int64_t timestamp_micros) {
+    static constexpr int64_t MICROS_PER_SECOND = 1000000;
+    static constexpr int64_t MICROS_PER_MINUTE = MICROS_PER_SECOND * 60;
+    static constexpr int64_t MICROS_PER_HOUR = MICROS_PER_MINUTE * 60;
+    static constexpr int64_t MICROS_PER_DAY = MICROS_PER_HOUR * 24;
+    static const int64_t EPOCH_DAYNR = calc_daynr(1970, 1, 1);
+
+    int64_t days_since_epoch = timestamp_micros / MICROS_PER_DAY;
+    int64_t micros_of_day = timestamp_micros % MICROS_PER_DAY;
+    if (micros_of_day < 0) {
+        micros_of_day += MICROS_PER_DAY;
+        --days_since_epoch;
+    }
+
+    const int64_t daynr = EPOCH_DAYNR + days_since_epoch;
+    DORIS_CHECK(daynr > 0);
+
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    DORIS_CHECK(datetime_value.get_date_from_daynr(static_cast<uint64_t>(daynr)));
+
+    const auto hour = static_cast<uint8_t>(micros_of_day / MICROS_PER_HOUR);
+    micros_of_day %= MICROS_PER_HOUR;
+    const auto minute = static_cast<uint8_t>(micros_of_day / MICROS_PER_MINUTE);
+    micros_of_day %= MICROS_PER_MINUTE;
+    const auto second = static_cast<uint16_t>(micros_of_day / MICROS_PER_SECOND);
+    const auto microsecond = static_cast<uint32_t>(micros_of_day % MICROS_PER_SECOND);
+    datetime_value.unchecked_set_time(datetime_value.year(), datetime_value.month(),
+                                      datetime_value.day(), hour, minute, second, microsecond);
+    data.push_back(datetime_value);
+}
+
+} // namespace
 
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -447,6 +500,39 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                      << arrow_array->type()->id();
         return Status::InternalError("not support convert to datetimev2 from arrow type: {}",
                                      arrow_array->type()->id());
+    }
+    return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT64 && view.value_kind != DecodedValueKind::INT96) {
+        return Status::NotSupported("DATETIMEV2 decoded reader expects INT64 or INT96 source");
+    }
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnDateTimeV2&>(column).get_data();
+    if (view.value_kind == DecodedValueKind::INT96) {
+        const auto* values = reinterpret_cast<const DecodedInt96Timestamp*>(view.values);
+        for (int64_t row = 0; row < view.row_count; ++row) {
+            if (decoded_column_view_row_is_null(view, row)) {
+                data.push_back(DateV2Value<DateTimeV2ValueType>());
+                continue;
+            }
+            append_datetimev2_from_epoch_micros(data, values[row].to_timestamp_micros());
+        }
+        return Status::OK();
+    }
+
+    const auto* values = reinterpret_cast<const int64_t*>(view.values);
+    const int64_t second_mask = view.time_unit == DecodedTimeUnit::MILLIS ? 1000 : 1000000;
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DateV2Value<DateTimeV2ValueType>());
+            continue;
+        }
+        append_datetimev2_from_epoch_micros(data, values[row] * (1000000 / second_mask));
     }
     return Status::OK();
 }

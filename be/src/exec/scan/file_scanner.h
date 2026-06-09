@@ -133,8 +133,6 @@ protected:
     bool _cur_reader_eof = false;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
-    // col names from _file_slot_descs
-    std::vector<std::string> _file_col_names;
     // Unified column descriptors for init_reader (includes file, partition, missing, synthesized cols)
     std::vector<ColumnDescriptor> _column_descs;
 
@@ -147,6 +145,7 @@ protected:
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
     // col name to default value expr
+    // TODO: only used by json reader. Could we delete this?
     std::unordered_map<std::string, VExprContextSPtr> _col_default_value_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
@@ -193,7 +192,6 @@ protected:
     std::shared_ptr<io::IOContext> _io_ctx;
 
     // Whether to fill partition columns from path, default is true.
-    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
     std::unordered_map<std::string, bool> _partition_value_is_null;

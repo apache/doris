@@ -401,6 +401,15 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
+void VExpr::reset_prepare_state() {
+    _prepared = false;
+    _prepare_finished = false;
+    _open_finished = false;
+    for (auto& child : _children) {
+        child->reset_prepare_state();
+    }
+}
+
 void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     for (auto& i : _children) {
         i->close(context, scope);
@@ -751,8 +760,9 @@ Status VExpr::get_const_col(VExprContext* context,
         return Status::OK();
     }
 
-    if (_constant_col != nullptr) {
-        DCHECK(column_wrapper != nullptr);
+    if (_constant_col != nullptr && column_wrapper == nullptr) {
+        return Status::OK();
+    } else if (_constant_col != nullptr) {
         *column_wrapper = _constant_col;
         return Status::OK();
     }

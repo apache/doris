@@ -263,6 +263,7 @@ public:
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }
+    void reset_prepare_state();
     virtual std::string debug_string() const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
@@ -270,7 +271,7 @@ public:
     static ColumnPtr filter_column_with_selector(const ColumnPtr& origin_column,
                                                  const Selector* selector, size_t count) {
         if (selector == nullptr) {
-            DCHECK_EQ(origin_column->size(), count);
+            DCHECK_EQ(origin_column->size(), count) << origin_column->get_name();
             return origin_column;
         }
         DCHECK_EQ(count, selector->size());
