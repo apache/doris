@@ -30,8 +30,8 @@
 #include "exec/scan/scanner.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/vexpr_fwd.h"
-#include "format/reader/column_mapper.h"
-#include "format/reader/table_reader.h"
+#include "format_v2/column_mapper.h"
+#include "format_v2/table_reader.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
@@ -54,10 +54,10 @@ public:
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
     static Status TEST_build_nested_children_from_access_paths(
-            reader::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths);
+            format::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths);
     static Status TEST_build_nested_children_from_access_paths(
-            reader::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths,
-            const reader::ColumnDefinition* schema_column);
+            format::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths,
+            const format::ColumnDefinition* schema_column);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -90,10 +90,11 @@ private:
                                   bool is_null, Field* field) const;
     Status _build_projected_columns();
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
-    static reader::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
-    Status _build_table_column_predicates(reader::TableColumnPredicates* predicates) const;
+    static format::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
+    Status _build_table_column_predicates(format::TableColumnPredicates* predicates) const;
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
-    static Status _to_file_format(TFileFormatType::type format_type, reader::FileFormat* format);
+    static Status _to_file_format(TFileFormatType::type format_type,
+                                  format::FileFormat* file_format);
 
     const TFileScanRangeParams* _params = nullptr;
     std::shared_ptr<SplitSourceConnector> _split_source;
@@ -101,10 +102,10 @@ private:
     TFileRangeDesc _current_range;
     std::string _current_range_path;
 
-    std::unique_ptr<reader::TableReader> _table_reader;
-    std::vector<reader::ColumnDefinition> _projected_columns;
+    std::unique_ptr<format::TableReader> _table_reader;
+    std::vector<format::ColumnDefinition> _projected_columns;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
-    std::unordered_map<int32_t, reader::GlobalIndex> _slot_id_to_global_index;
+    std::unordered_map<int32_t, format::GlobalIndex> _slot_id_to_global_index;
     std::unordered_map<std::string, const SlotDescriptor*> _partition_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;

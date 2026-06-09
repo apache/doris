@@ -58,13 +58,13 @@ TableReader
 实际 API 文件：
 
 ```text
-be/src/format/reader/table_reader.h
+be/src/format_v2/table_reader.h
 ```
 
 实际命名空间：
 
 ```cpp
-namespace doris::reader
+namespace doris::format
 ```
 
 建议职责：
@@ -80,7 +80,7 @@ namespace doris::reader
 建议接口形状：
 
 ```cpp
-namespace doris::reader {
+namespace doris::format {
 
 class TableReader {
 public:
@@ -98,7 +98,7 @@ protected:
     virtual Status close_current_reader();
 };
 
-} // namespace doris::reader
+} // namespace doris::format
 ```
 
 接口约束：
@@ -118,7 +118,7 @@ table 语义输出。
 实际 API 文件：
 
 ```text
-be/src/format/table/iceberg_reader_v2.h
+be/src/format_v2/table/iceberg_reader.h
 ```
 
 实际命名空间：
@@ -140,7 +140,7 @@ namespace doris::iceberg
 ```cpp
 namespace doris::iceberg {
 
-class IcebergTableReader : public reader::TableReader {
+class IcebergTableReader : public format::TableReader {
 public:
     virtual ~IcebergTableReader() = default;
 
@@ -175,13 +175,13 @@ Iceberg-only 组件。
 实际 API 文件：
 
 ```text
-be/src/format/reader/table_reader.h
+be/src/format_v2/table_reader.h
 ```
 
 实际命名空间：
 
 ```cpp
-namespace doris::reader
+namespace doris::format
 ```
 
 建议职责：
@@ -196,7 +196,7 @@ namespace doris::reader
 建议接口形状：
 
 ```cpp
-namespace doris::reader {
+namespace doris::format {
 
 class TableColumnMapper {
 public:
@@ -211,7 +211,7 @@ public:
                                        FileScanRequest* file_request);
 };
 
-} // namespace doris::reader
+} // namespace doris::format
 ```
 
 接口约束：
@@ -228,13 +228,13 @@ public:
 实际 API 文件：
 
 ```text
-be/src/format/reader/file_reader.h
+be/src/format_v2/file_reader.h
 ```
 
 实际命名空间：
 
 ```cpp
-namespace doris::reader
+namespace doris::format
 ```
 
 建议职责：
@@ -248,7 +248,7 @@ namespace doris::reader
 建议接口形状：
 
 ```cpp
-namespace doris::reader {
+namespace doris::format {
 
 class FileReader {
 public:
@@ -261,7 +261,7 @@ public:
     virtual Status close();
 };
 
-} // namespace doris::reader
+} // namespace doris::format
 ```
 
 接口约束：
@@ -300,12 +300,12 @@ namespace doris::parquet
 ```cpp
 namespace doris::parquet {
 
-class ParquetReader : public reader::FileReader {
+class ParquetReader : public format::FileReader {
 public:
     virtual ~ParquetReader() = default;
 
     virtual Status open(io::FileReaderSPtr file, io::IOContext* io_ctx = nullptr);
-    virtual Status get_schema(std::vector<reader::SchemaField>* file_schema) const;
+    virtual Status get_schema(std::vector<format::SchemaField>* file_schema) const;
     virtual Status init(const ParquetScanRequest& request);
     virtual Status next(Block* file_block, size_t* rows, bool* eof);
     virtual Status close();

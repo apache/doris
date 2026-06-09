@@ -208,7 +208,7 @@ SELECT s.name FROM t WHERE s.id > 5;
 ```cpp
 const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const reader::FileColumnPredicateFilter& column_filter);
+        const format::FileColumnPredicateFilter& column_filter);
 ```
 
 解析规则：
