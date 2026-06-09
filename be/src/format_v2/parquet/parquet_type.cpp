@@ -39,15 +39,6 @@ PrimitiveType decimal_primitive_type(int precision) {
     return precision > 38 ? TYPE_DECIMAL256 : TYPE_DECIMAL128I;
 }
 
-bool has_non_physical_annotation(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr) {
-        return false;
-    }
-    const auto& logical_type = column->logical_type();
-    return column->converted_type() != ::parquet::ConvertedType::NONE ||
-           (logical_type != nullptr && logical_type->is_valid() && !logical_type->is_none());
-}
-
 void mark_decimal(const ::parquet::ColumnDescriptor* column, int precision, int scale,
                   ParquetTypeDescriptor* result) {
     result->is_decimal = true;
@@ -226,29 +217,6 @@ DataTypePtr physical_type_to_doris_type(const ::parquet::ColumnDescriptor* colum
     return nullable ? make_nullable(type) : type;
 }
 
-DataTypePtr direct_flat_primitive_doris_type(const ::parquet::ColumnDescriptor* column) {
-    if (column == nullptr || column->max_repetition_level() != 0 ||
-        column->max_definition_level() > 1 || has_non_physical_annotation(column)) {
-        return nullptr;
-    }
-
-    const bool nullable = column->max_definition_level() > 0;
-    switch (column->physical_type()) {
-    case ::parquet::Type::BOOLEAN:
-        return create_type(TYPE_BOOLEAN, nullable);
-    case ::parquet::Type::INT32:
-        return create_type(TYPE_INT, nullable);
-    case ::parquet::Type::INT64:
-        return create_type(TYPE_BIGINT, nullable);
-    case ::parquet::Type::FLOAT:
-        return create_type(TYPE_FLOAT, nullable);
-    case ::parquet::Type::DOUBLE:
-        return create_type(TYPE_DOUBLE, nullable);
-    default:
-        return nullptr;
-    }
-}
-
 bool record_reader_physical_type_supported(::parquet::Type::type physical_type) {
     switch (physical_type) {
     case ::parquet::Type::BOOLEAN:
@@ -263,26 +231,6 @@ bool record_reader_physical_type_supported(::parquet::Type::type physical_type) 
     default:
         return false;
     }
-}
-
-bool record_reader_integer_annotation_supported(const ::parquet::ColumnDescriptor* column,
-                                                const DataTypePtr& doris_type) {
-    const auto& logical_type = column->logical_type();
-    const bool has_int_logical_type =
-            logical_type != nullptr && logical_type->is_valid() && logical_type->is_int();
-    const bool has_int_converted_type =
-            column->converted_type() == ::parquet::ConvertedType::INT_8 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_8 ||
-            column->converted_type() == ::parquet::ConvertedType::INT_16 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_16 ||
-            column->converted_type() == ::parquet::ConvertedType::INT_32 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_32 ||
-            column->converted_type() == ::parquet::ConvertedType::INT_64 ||
-            column->converted_type() == ::parquet::ConvertedType::UINT_64;
-    auto primitive_type = remove_nullable(doris_type)->get_primitive_type();
-    return (has_int_logical_type || has_int_converted_type) &&
-           (primitive_type == TYPE_TINYINT || primitive_type == TYPE_SMALLINT ||
-            primitive_type == TYPE_INT || primitive_type == TYPE_BIGINT);
 }
 
 } // namespace
