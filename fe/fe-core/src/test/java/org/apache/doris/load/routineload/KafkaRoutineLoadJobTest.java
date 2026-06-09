@@ -247,14 +247,10 @@ public class KafkaRoutineLoadJobTest {
         partitionIdToOffset.put(1, 10L);
         Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
 
-        new Expectations(Env.class) {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-                env.getSmallFileMgr();
-                minTimes = 0;
-                result = null;
+        new MockUp<Env>() {
+            @Mock
+            public Env getCurrentEnv() {
+                return env;
             }
         };
         new MockUp<KafkaUtil>() {
