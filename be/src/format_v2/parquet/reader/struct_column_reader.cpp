@@ -29,6 +29,23 @@
 #include "format_v2/parquet/reader/scalar_column_reader.h"
 
 namespace doris::parquet {
+namespace {
+
+ParquetColumnReader* struct_shape_source_reader(const StructColumnReader& reader) {
+    for (size_t child_idx = 0; child_idx < reader.child_count(); ++child_idx) {
+        auto* child_reader = reader.child_reader(child_idx);
+        DORIS_CHECK(child_reader != nullptr);
+        if (!child_reader->is_or_has_repeated_child()) {
+            return child_reader;
+        }
+    }
+    if (reader.child_count() == 0) {
+        return nullptr;
+    }
+    return reader.child_reader(0);
+}
+
+} // namespace
 
 Status StructColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
                                          const std::vector<ParquetNullShapeSink>* ancestor_shapes) {
@@ -468,6 +485,104 @@ Status StructColumnReader::skip_non_scalar_children(int64_t rows) {
         RETURN_IF_ERROR(child_reader->skip(rows));
     }
     return Status::OK();
+}
+
+Status StructColumnReader::load_nested_batch(int64_t rows) {
+    for (auto& child_reader : _children) {
+        DORIS_CHECK(child_reader != nullptr);
+        RETURN_IF_ERROR(child_reader->load_nested_batch(rows));
+    }
+    return Status::OK();
+}
+
+Status StructColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                                               int64_t* values_read) {
+    if (column.get() == nullptr || values_read == nullptr) {
+        return Status::InvalidArgument("Invalid parquet struct build result pointer for column {}",
+                                       _name);
+    }
+    if (_children.empty()) {
+        column->resize(column->size() + static_cast<size_t>(length_upper_bound));
+        *values_read = length_upper_bound;
+        return Status::OK();
+    }
+    auto* struct_column = struct_column_from_output(column);
+    DORIS_CHECK(struct_column != nullptr);
+    auto* parent_null_map = null_map_from_nullable_output(column);
+    auto* shape_reader = struct_shape_source_reader(*this);
+    DORIS_CHECK(shape_reader != nullptr);
+    const auto& def_levels = shape_reader->nested_definition_levels();
+    const auto& rep_levels = shape_reader->nested_repetition_levels();
+    const int64_t levels_written = shape_reader->nested_levels_written();
+
+    NullMap parent_nulls;
+    *values_read = 0;
+    for (int64_t level_idx = 0; level_idx < levels_written && *values_read < length_upper_bound;
+         ++level_idx) {
+        const int16_t def_level = def_levels[level_idx];
+        const int16_t rep_level = rep_levels[level_idx];
+        if (def_level < _repeated_ancestor_definition_level) {
+            continue;
+        }
+        if (shape_reader->is_or_has_repeated_child() && rep_level > _repetition_level) {
+            continue;
+        }
+        const bool parent_is_null = def_level < _nullable_definition_level;
+        if (parent_is_null && !_type->is_nullable() && def_level >= _nullable_definition_level) {
+            return Status::Corruption(
+                    "Parquet STRUCT column {} contains null for non-nullable struct", _name);
+        }
+        parent_nulls.push_back(parent_is_null);
+        ++*values_read;
+    }
+
+    std::vector<MutableColumnPtr> child_columns;
+    child_columns.reserve(struct_column->get_columns().size());
+    for (size_t child_idx = 0; child_idx < struct_column->get_columns().size(); ++child_idx) {
+        child_columns.push_back(struct_column->get_column_ptr(child_idx)->assert_mutable());
+    }
+    for (size_t child_idx = 0; child_idx < _children.size(); ++child_idx) {
+        const int output_idx = _child_output_indices[child_idx];
+        if (output_idx < 0) {
+            continue;
+        }
+        int64_t child_values_read = 0;
+        RETURN_IF_ERROR(_children[child_idx]->build_nested_column(
+                *values_read, child_columns[output_idx], &child_values_read));
+        if (child_values_read != *values_read) {
+            return Status::Corruption(
+                    "Parquet STRUCT child {} built {} rows, expected {} for column {}",
+                    _children[child_idx]->name(), child_values_read, *values_read, _name);
+        }
+    }
+    for (size_t child_idx = 0; child_idx < child_columns.size(); ++child_idx) {
+        struct_column->get_column_ptr(child_idx) = std::move(child_columns[child_idx]);
+    }
+    append_parent_nulls(parent_null_map, parent_nulls);
+    return Status::OK();
+}
+
+const std::vector<int16_t>& StructColumnReader::nested_definition_levels() const {
+    auto* shape_reader = struct_shape_source_reader(*this);
+    DORIS_CHECK(shape_reader != nullptr);
+    return shape_reader->nested_definition_levels();
+}
+
+const std::vector<int16_t>& StructColumnReader::nested_repetition_levels() const {
+    auto* shape_reader = struct_shape_source_reader(*this);
+    DORIS_CHECK(shape_reader != nullptr);
+    return shape_reader->nested_repetition_levels();
+}
+
+int64_t StructColumnReader::nested_levels_written() const {
+    auto* shape_reader = struct_shape_source_reader(*this);
+    DORIS_CHECK(shape_reader != nullptr);
+    return shape_reader->nested_levels_written();
+}
+
+bool StructColumnReader::is_or_has_repeated_child() const {
+    auto* shape_reader = struct_shape_source_reader(*this);
+    return shape_reader != nullptr && shape_reader->is_or_has_repeated_child();
 }
 
 } // namespace doris::parquet

@@ -25,6 +25,7 @@
 
 #include "core/column/column.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/reader/nested_column_reader.h"
 #include "util/simd/bits.h"
 
 namespace doris::parquet {
@@ -40,7 +41,10 @@ ScalarColumnReader::ScalarColumnReader(
           _record_reader(std::move(record_reader)),
           _page_skip_plan(page_skip_plan),
           _timezone(timezone),
-          _enable_strict_mode(enable_strict_mode) {}
+          _enable_strict_mode(enable_strict_mode),
+          _nested_batch(std::make_unique<NestedScalarBatch>()) {}
+
+ScalarColumnReader::~ScalarColumnReader() = default;
 
 Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     if (column.get() == nullptr || rows_read == nullptr) {
@@ -158,6 +162,64 @@ Status ScalarColumnReader::skip(int64_t rows) {
     RETURN_IF_ERROR(skip_records(record_reader_skip_rows));
     advance_rows_read(rows);
     return Status::OK();
+}
+
+Status ScalarColumnReader::load_nested_batch(int64_t rows) {
+    DORIS_CHECK(_nested_batch != nullptr);
+    RETURN_IF_ERROR(read_nested_scalar_batch(*this, rows, _definition_level, _nested_batch.get(),
+                                             _repetition_level));
+    return Status::OK();
+}
+
+Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                                               int64_t* values_read) {
+    if (column.get() == nullptr || values_read == nullptr) {
+        return Status::InvalidArgument("Invalid parquet nested scalar build result for column {}",
+                                       _name);
+    }
+    DORIS_CHECK(_nested_batch != nullptr);
+    NestedScalarValueCursor value_cursor(_nested_batch.get());
+    *values_read = 0;
+    for (int64_t level_idx = 0;
+         level_idx < _nested_batch->levels_written && *values_read < length_upper_bound;
+         ++level_idx) {
+        const int16_t def_level = _nested_batch->def_levels[level_idx];
+        const int16_t rep_level = _nested_batch->rep_levels[level_idx];
+        if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
+            continue;
+        }
+        if (def_level == _definition_level) {
+            RETURN_IF_ERROR(append_scalar_batch_value(*this, *_nested_batch, level_idx,
+                                                      &value_cursor, column));
+        } else {
+            if (!_type->is_nullable() && def_level >= _nullable_definition_level) {
+                return Status::Corruption(
+                        "Parquet scalar column {} contains null for non-nullable field", _name);
+            }
+            column->insert_default();
+        }
+        ++*values_read;
+    }
+    return Status::OK();
+}
+
+const std::vector<int16_t>& ScalarColumnReader::nested_definition_levels() const {
+    DORIS_CHECK(_nested_batch != nullptr);
+    return _nested_batch->def_levels;
+}
+
+const std::vector<int16_t>& ScalarColumnReader::nested_repetition_levels() const {
+    DORIS_CHECK(_nested_batch != nullptr);
+    return _nested_batch->rep_levels;
+}
+
+int64_t ScalarColumnReader::nested_levels_written() const {
+    DORIS_CHECK(_nested_batch != nullptr);
+    return _nested_batch->levels_written;
+}
+
+bool ScalarColumnReader::is_or_has_repeated_child() const {
+    return _repetition_level > 0;
 }
 
 } // namespace doris::parquet

@@ -673,7 +673,8 @@ Status MapColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, in
 }
 
 Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
-    return read_internal(rows, column, rows_read, nullptr);
+    RETURN_IF_ERROR(load_nested_batch(rows));
+    return build_nested_column(rows, column, rows_read);
 }
 
 Status MapColumnReader::read_with_ancestor_shape(int64_t rows,
@@ -743,6 +744,109 @@ Status MapColumnReader::skip(int64_t rows) {
                                   _name, rows_read, rows);
     }
     return Status::OK();
+}
+
+Status MapColumnReader::load_nested_batch(int64_t rows) {
+    DORIS_CHECK(_key_reader != nullptr);
+    DORIS_CHECK(_value_reader != nullptr);
+    RETURN_IF_ERROR(_key_reader->load_nested_batch(rows));
+    return _value_reader->load_nested_batch(rows);
+}
+
+Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                                            int64_t* values_read) {
+    if (column.get() == nullptr || values_read == nullptr) {
+        return Status::InvalidArgument("Invalid parquet map build result pointer for column {}",
+                                       _name);
+    }
+    DORIS_CHECK(_key_reader != nullptr);
+    DORIS_CHECK(_value_reader != nullptr);
+    auto* map_column = map_column_from_output(column);
+    DORIS_CHECK(map_column != nullptr);
+    auto* parent_null_map = null_map_from_nullable_output(column);
+    auto key_column = map_column->get_keys_ptr()->assert_mutable();
+    auto value_column = map_column->get_values_ptr()->assert_mutable();
+    remove_nullable_wrapper_if_required(*_key_reader, &key_column);
+    remove_nullable_wrapper_if_required(*_value_reader, &value_column);
+
+    const auto& def_levels = _key_reader->nested_definition_levels();
+    const auto& rep_levels = _key_reader->nested_repetition_levels();
+    const int64_t levels_written = _key_reader->nested_levels_written();
+
+    std::vector<uint64_t> entry_counts;
+    NullMap parent_nulls;
+    *values_read = 0;
+    for (int64_t level_idx = 0; level_idx < levels_written && *values_read < length_upper_bound;
+         ++level_idx) {
+        const int16_t def_level = def_levels[level_idx];
+        const int16_t rep_level = rep_levels[level_idx];
+        if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
+            continue;
+        }
+        if (rep_level == _repetition_level) {
+            if (entry_counts.empty()) {
+                return Status::Corruption("Invalid repeated level for parquet MAP column {}",
+                                          _name);
+            }
+            if (def_level >= _definition_level) {
+                ++entry_counts.back();
+            }
+            continue;
+        }
+
+        const bool parent_is_null = def_level < _definition_level - 1;
+        if (parent_is_null && !_type->is_nullable() && def_level >= _nullable_definition_level) {
+            return Status::Corruption("Parquet MAP column {} contains null for non-nullable MAP",
+                                      _name);
+        }
+        parent_nulls.push_back(parent_is_null);
+        entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
+        ++*values_read;
+    }
+
+    uint64_t total_entries = 0;
+    for (const auto entry_count : entry_counts) {
+        total_entries += entry_count;
+    }
+    int64_t key_value_count = 0;
+    RETURN_IF_ERROR(_key_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                     key_column, &key_value_count));
+    if (key_value_count != static_cast<int64_t>(total_entries)) {
+        return Status::Corruption("Parquet MAP column {} built {} keys, expected {}", _name,
+                                  key_value_count, total_entries);
+    }
+    int64_t value_count = 0;
+    RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                       value_column, &value_count));
+    if (value_count != static_cast<int64_t>(total_entries)) {
+        return Status::Corruption("Parquet MAP column {} built {} values, expected {}", _name,
+                                  value_count, total_entries);
+    }
+
+    map_column->get_keys_ptr() = std::move(key_column);
+    map_column->get_values_ptr() = std::move(value_column);
+    append_offsets(map_column->get_offsets(), entry_counts);
+    append_parent_nulls(parent_null_map, parent_nulls);
+    return Status::OK();
+}
+
+const std::vector<int16_t>& MapColumnReader::nested_definition_levels() const {
+    DORIS_CHECK(_key_reader != nullptr);
+    return _key_reader->nested_definition_levels();
+}
+
+const std::vector<int16_t>& MapColumnReader::nested_repetition_levels() const {
+    DORIS_CHECK(_key_reader != nullptr);
+    return _key_reader->nested_repetition_levels();
+}
+
+int64_t MapColumnReader::nested_levels_written() const {
+    DORIS_CHECK(_key_reader != nullptr);
+    return _key_reader->nested_levels_written();
+}
+
+bool MapColumnReader::is_or_has_repeated_child() const {
+    return true;
 }
 
 } // namespace doris::parquet

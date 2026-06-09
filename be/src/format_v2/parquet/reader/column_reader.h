@@ -113,6 +113,14 @@ public:
     virtual Status select(const SelectionVector& sel, uint16_t selected_rows, int64_t batch_rows,
                           MutableColumnPtr& column);
 
+    virtual Status load_nested_batch(int64_t rows);
+    virtual Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                                       int64_t* values_read);
+    virtual const std::vector<int16_t>& nested_definition_levels() const;
+    virtual const std::vector<int16_t>& nested_repetition_levels() const;
+    virtual int64_t nested_levels_written() const;
+    virtual bool is_or_has_repeated_child() const;
+
 protected:
     ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type,
                         ParquetColumnReaderProfile profile = {});
@@ -125,6 +133,9 @@ protected:
     const int _leaf_column_id = -1;
     const int16_t _nullable_definition_level = 0;
     const int16_t _repeated_repetition_level = 0;
+    const int16_t _definition_level = 0;
+    const int16_t _repetition_level = 0;
+    const int16_t _repeated_ancestor_definition_level = 0;
     const DataTypePtr _type;
     const std::string _name;
 };

@@ -412,7 +412,8 @@ Status ListColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, i
 }
 
 Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
-    return read_internal(rows, column, rows_read, nullptr);
+    RETURN_IF_ERROR(load_nested_batch(rows));
+    return build_nested_column(rows, column, rows_read);
 }
 
 Status ListColumnReader::read_with_ancestor_shape(int64_t rows,
@@ -483,6 +484,94 @@ Status ListColumnReader::skip(int64_t rows) {
                                   _name, rows_read, rows);
     }
     return Status::OK();
+}
+
+Status ListColumnReader::load_nested_batch(int64_t rows) {
+    DORIS_CHECK(_element_reader != nullptr);
+    return _element_reader->load_nested_batch(rows);
+}
+
+Status ListColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                                             int64_t* values_read) {
+    if (column.get() == nullptr || values_read == nullptr) {
+        return Status::InvalidArgument("Invalid parquet list build result pointer for column {}",
+                                       _name);
+    }
+    DORIS_CHECK(_element_reader != nullptr);
+    auto* array_column = array_column_from_output(column);
+    DORIS_CHECK(array_column != nullptr);
+    auto* parent_null_map = null_map_from_nullable_output(column);
+    auto nested_column = array_column->get_data_ptr()->assert_mutable();
+    remove_nullable_wrapper_if_required(*_element_reader, &nested_column);
+
+    const auto& def_levels = _element_reader->nested_definition_levels();
+    const auto& rep_levels = _element_reader->nested_repetition_levels();
+    const int64_t levels_written = _element_reader->nested_levels_written();
+    std::vector<uint64_t> entry_counts;
+    NullMap parent_nulls;
+    *values_read = 0;
+    for (int64_t level_idx = 0; level_idx < levels_written && *values_read < length_upper_bound;
+         ++level_idx) {
+        const int16_t def_level = def_levels[level_idx];
+        const int16_t rep_level = rep_levels[level_idx];
+        if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
+            continue;
+        }
+        if (rep_level == _repetition_level) {
+            if (entry_counts.empty()) {
+                return Status::Corruption("Invalid repeated level for parquet LIST column {}",
+                                          _name);
+            }
+            if (def_level >= _definition_level) {
+                ++entry_counts.back();
+            }
+            continue;
+        }
+
+        const bool parent_is_null = def_level < _definition_level - 1;
+        if (parent_is_null && !_type->is_nullable() && def_level >= _nullable_definition_level) {
+            return Status::Corruption("Parquet LIST column {} contains null for non-nullable LIST",
+                                      _name);
+        }
+        parent_nulls.push_back(parent_is_null);
+        entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
+        ++*values_read;
+    }
+
+    int64_t child_value_count = 0;
+    uint64_t total_entries = 0;
+    for (const auto entry_count : entry_counts) {
+        total_entries += entry_count;
+    }
+    RETURN_IF_ERROR(_element_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                         nested_column, &child_value_count));
+    if (child_value_count != static_cast<int64_t>(total_entries)) {
+        return Status::Corruption("Parquet LIST column {} built {} child values, expected {}",
+                                  _name, child_value_count, total_entries);
+    }
+    array_column->get_data_ptr() = std::move(nested_column);
+    append_offsets(array_column->get_offsets(), entry_counts);
+    append_parent_nulls(parent_null_map, parent_nulls);
+    return Status::OK();
+}
+
+const std::vector<int16_t>& ListColumnReader::nested_definition_levels() const {
+    DORIS_CHECK(_element_reader != nullptr);
+    return _element_reader->nested_definition_levels();
+}
+
+const std::vector<int16_t>& ListColumnReader::nested_repetition_levels() const {
+    DORIS_CHECK(_element_reader != nullptr);
+    return _element_reader->nested_repetition_levels();
+}
+
+int64_t ListColumnReader::nested_levels_written() const {
+    DORIS_CHECK(_element_reader != nullptr);
+    return _element_reader->nested_levels_written();
+}
+
+bool ListColumnReader::is_or_has_repeated_child() const {
+    return true;
 }
 
 } // namespace doris::parquet

@@ -44,6 +44,13 @@ public:
                                      const std::vector<ParquetNullShapeSink>& ancestor_shapes,
                                      MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
+    Status load_nested_batch(int64_t rows) override;
+    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                               int64_t* values_read) override;
+    const std::vector<int16_t>& nested_definition_levels() const override;
+    const std::vector<int16_t>& nested_repetition_levels() const override;
+    int64_t nested_levels_written() const override;
+    bool is_or_has_repeated_child() const override;
     ParquetColumnReader* element_reader() const { return _element_reader.get(); }
 
 private:
@@ -53,6 +60,9 @@ private:
     std::unique_ptr<ParquetColumnReader> _element_reader;
     NestedScalarOverflow _element_overflow;
     NestedStructOverflow _struct_element_overflow;
+    NestedScalarOverflow _map_key_overflow;
+    NestedScalarOverflow _map_value_overflow;
+    NestedStructOverflow _map_struct_value_overflow;
 };
 
 } // namespace doris::parquet

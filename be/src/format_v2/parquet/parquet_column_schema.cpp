@@ -40,6 +40,7 @@ struct SchemaBuildContext {
     int16_t repetition_level = 0;
     int16_t nullable_definition_level = 0;
     int16_t repeated_repetition_level = 0;
+    int16_t repeated_ancestor_definition_level = 0;
 };
 
 bool is_list_node(const ::parquet::schema::Node& node) {
@@ -69,6 +70,9 @@ void inherit_common_schema_state(const ::parquet::schema::Node& node,
     column_schema->max_definition_level = context.definition_level;
     column_schema->max_repetition_level = context.repetition_level;
     column_schema->nullable_definition_level = context.nullable_definition_level;
+    column_schema->definition_level = context.definition_level;
+    column_schema->repetition_level = context.repetition_level;
+    column_schema->repeated_ancestor_definition_level = context.repeated_ancestor_definition_level;
     column_schema->repeated_repetition_level = context.repeated_repetition_level;
 }
 
@@ -76,13 +80,15 @@ SchemaBuildContext child_context(const SchemaBuildContext& parent,
                                  const ::parquet::schema::Node& child_node, int32_t child_idx) {
     SchemaBuildContext result = parent;
     result.local_id = child_idx;
-    if (child_node.repetition() != ::parquet::Repetition::REQUIRED) {
+    if (child_node.repetition() == ::parquet::Repetition::OPTIONAL) {
         result.definition_level++;
         result.nullable_definition_level = result.definition_level;
     }
     if (child_node.is_repeated()) {
         result.repetition_level++;
+        result.definition_level++;
         result.repeated_repetition_level = result.repetition_level;
+        result.repeated_ancestor_definition_level = result.definition_level;
     }
     return result;
 }
@@ -152,6 +158,8 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
                                         node.name());
         }
         auto repeated_context = child_context(context, repeated_node, 0);
+        column_schema->definition_level = repeated_context.definition_level;
+        column_schema->repetition_level = repeated_context.repetition_level;
         column_schema->repeated_repetition_level = repeated_context.repeated_repetition_level;
         std::unique_ptr<ParquetColumnSchema> child;
         RETURN_IF_ERROR(build_node_schema(
@@ -177,6 +185,8 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
                                         node.name());
         }
         auto key_value_context = child_context(context, key_value_node, 0);
+        column_schema->definition_level = key_value_context.definition_level;
+        column_schema->repetition_level = key_value_context.repetition_level;
         column_schema->repeated_repetition_level = key_value_context.repeated_repetition_level;
         if (key_value_node.is_primitive()) {
             return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",

@@ -38,6 +38,8 @@ class time_zone;
 
 namespace doris::parquet {
 
+struct NestedScalarBatch;
+
 class ScalarColumnReader final : public ParquetColumnReader {
 public:
     ScalarColumnReader(const ParquetColumnSchema& column_schema,
@@ -45,9 +47,17 @@ public:
                        const ParquetPageSkipPlan* page_skip_plan = nullptr,
                        const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false,
                        ParquetColumnReaderProfile profile = {});
+    ~ScalarColumnReader() override;
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
+    Status load_nested_batch(int64_t rows) override;
+    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                               int64_t* values_read) override;
+    const std::vector<int16_t>& nested_definition_levels() const override;
+    const std::vector<int16_t>& nested_repetition_levels() const override;
+    int64_t nested_levels_written() const override;
+    bool is_or_has_repeated_child() const override;
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
     ArrowLeafReaderContext leaf_context() const {
@@ -68,6 +78,7 @@ private:
     const cctz::time_zone* _timezone = nullptr;
     bool _enable_strict_mode = false;
     int64_t _row_group_rows_read = 0;
+    std::unique_ptr<NestedScalarBatch> _nested_batch;
 };
 
 } // namespace doris::parquet
