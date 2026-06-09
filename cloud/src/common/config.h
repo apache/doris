@@ -359,6 +359,7 @@ CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
 // This reduces contention during transaction commit by extending delete bitmap locks.
 CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
+CONF_mBool(enable_recycler_check_lazy_txn_finished, "true");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
