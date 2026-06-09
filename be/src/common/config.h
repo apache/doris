@@ -807,6 +807,8 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 DECLARE_mBool(enable_adaptive_write_buffer_size);
+// Whether random bucket load rotates to the next local bucket when memtable flushes.
+DECLARE_mBool(enable_adaptive_random_bucket_load_bucket_rotation);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
 
@@ -912,6 +914,11 @@ DECLARE_mDouble(min_flush_thread_num_per_cpu);
 
 // Whether to enable adaptive flush thread adjustment
 DECLARE_mBool(enable_adaptive_flush_threads);
+
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DECLARE_mBool(enable_table_memtable_flush_backpressure);
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DECLARE_mInt32(table_memtable_flush_pending_count_limit);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);

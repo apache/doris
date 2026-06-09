@@ -41,22 +41,13 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "cloud/config.h"
-#include "common/config.h"
-#include "core/data_type/data_type.h"
-#include "cpp/sync_point.h"
-#include "exec/sink/vrow_distribution.h"
-#include "exprs/vexpr_fwd.h"
-#include "runtime/runtime_profile.h"
-
-#ifdef DEBUG
-#include <unordered_set>
-#endif
-
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/object_pool.h"
@@ -65,14 +56,19 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
+#include "cpp/sync_point.h"
+#include "exec/sink/vrow_distribution.h"
 #include "exec/sink/vtablet_block_convertor.h"
 #include "exec/sink/vtablet_finder.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_fwd.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_reclamation.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -133,6 +129,21 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 channel = it->second;
             }
             channel->add_tablet(tablet);
+            if (_parent->_tablet_finder->is_adaptive_random_bucket() && config::is_cloud_mode()) {
+                for (const auto* part : _parent->_vpartition->get_partitions()) {
+                    if (part->id != tablet.partition_id) {
+                        continue;
+                    }
+                    const auto bucket_be_id = part->bucket_be_id > 0
+                                                      ? part->bucket_be_id
+                                                      : BackendOptions::get_backend_id();
+                    if (bucket_be_id != replica_node_id) {
+                        continue;
+                    }
+                    _channels_by_partition.emplace(tablet.partition_id, channel);
+                    break;
+                }
+            }
             if (_parent->_write_single_replica) {
                 auto* slave_location = _parent->_slave_location->find_tablet(tablet.tablet_id);
                 if (slave_location != nullptr) {
@@ -573,6 +584,8 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_sender_id(_parent->_sender_id);
     _cur_add_block_request->set_backend_id(_node_id);
     _cur_add_block_request->set_eos(false);
+    _cur_add_block_request->set_is_receiver_side_random_bucket(
+            _parent->_tablet_finder->is_adaptive_random_bucket());
 
     // add block closure
     // Has to using value to capture _task_exec_ctx because tablet writer may destroyed during callback.
@@ -632,6 +645,8 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
         request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
     }
+    request->set_is_receiver_side_random_bucket(
+            _parent->_tablet_finder->is_adaptive_random_bucket());
     std::set<int64_t> deduper;
     for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {
@@ -656,6 +671,79 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
     request->set_write_file_cache(_parent->_write_file_cache);
+
+    if (_parent->_tablet_finder->is_adaptive_random_bucket()) {
+        std::unordered_map<int64_t, std::vector<int64_t>> partition_to_ordered_tablets;
+        std::unordered_map<int64_t, std::unordered_set<int64_t>> partition_to_local_tablets;
+        for (const auto& tablet : _all_tablets) {
+            partition_to_ordered_tablets[tablet.partition_id].push_back(tablet.tablet_id);
+            partition_to_local_tablets[tablet.partition_id].insert(tablet.tablet_id);
+        }
+        std::unordered_map<int64_t, const VOlapTablePartition*> id_to_partition;
+        for (const auto* part : _parent->_vpartition->get_partitions()) {
+            id_to_partition.emplace(part->id, part);
+        }
+        for (const auto& [partition_id, ordered_tablets] : partition_to_ordered_tablets) {
+            auto partition_it = id_to_partition.find(partition_id);
+            if (partition_it == id_to_partition.end()) {
+                LOG(WARNING) << "unknown partition for adaptive random bucket, load_id="
+                             << _parent->_load_id << ", partition_id=" << partition_id;
+                continue;
+            }
+            std::vector<int64_t> selected_ordered_tablets;
+            const auto& local_bucket_seqs = partition_it->second->local_bucket_seqs;
+            if (!local_bucket_seqs.empty()) {
+                const std::vector<int64_t>* full_ordered_tablets = nullptr;
+                for (const auto& index : partition_it->second->indexes) {
+                    if (index.index_id == _index_channel->_index_id) {
+                        full_ordered_tablets = &index.tablets;
+                        break;
+                    }
+                }
+                if (full_ordered_tablets == nullptr) {
+                    LOG(WARNING) << "unknown index for adaptive random bucket, load_id="
+                                 << _parent->_load_id << ", partition_id=" << partition_id
+                                 << ", index_id=" << _index_channel->_index_id;
+                    continue;
+                }
+                for (auto bucket_seq : local_bucket_seqs) {
+                    if (bucket_seq < 0 ||
+                        bucket_seq >= cast_set<int32_t>(full_ordered_tablets->size())) {
+                        LOG(WARNING)
+                                << "invalid local bucket seq, load_id=" << _parent->_load_id
+                                << ", partition_id=" << partition_id
+                                << ", bucket_seq=" << bucket_seq
+                                << ", full_ordered_tablets_size=" << full_ordered_tablets->size();
+                        continue;
+                    }
+                    auto tablet_id = (*full_ordered_tablets)[bucket_seq];
+                    if (!partition_to_local_tablets[partition_id].contains(tablet_id)) {
+                        LOG(WARNING)
+                                << "skip non-local tablet selected by local bucket seq, load_id="
+                                << _parent->_load_id << ", partition_id=" << partition_id
+                                << ", bucket_seq=" << bucket_seq << ", tablet_id=" << tablet_id
+                                << ", node_id=" << _node_id;
+                        continue;
+                    }
+                    selected_ordered_tablets.push_back(tablet_id);
+                }
+            } else {
+                selected_ordered_tablets = ordered_tablets;
+            }
+            if (selected_ordered_tablets.empty()) {
+                VLOG_DEBUG << "skip adaptive random bucket partition without selected local "
+                              "tablet, load_id="
+                           << _parent->_load_id << ", partition_id=" << partition_id
+                           << ", node_id=" << _node_id;
+                continue;
+            }
+            auto* random_bucket_partition = request->add_random_bucket_partitions();
+            random_bucket_partition->set_partition_id(partition_id);
+            for (auto tablet_id : selected_ordered_tablets) {
+                random_bucket_partition->add_ordered_tablet_ids(tablet_id);
+            }
+        }
+    }
 
     if (_wg_id > 0) {
         request->set_workload_group_id(_wg_id);
@@ -728,9 +816,11 @@ Status VNodeChannel::open_wait() {
 
 Status VNodeChannel::add_block(Block* block, const Payload* payload) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    if (payload->second.empty()) {
+    if (payload->row_part_tablet_ids == nullptr || payload->row_ids == nullptr ||
+        payload->row_ids->empty()) {
         return Status::OK();
     }
+    DCHECK_EQ(payload->row_ids->size(), payload->route_idxs.size());
     // If add_block() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -777,13 +867,17 @@ Status VNodeChannel::add_block(Block* block, const Payload* payload) {
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
-    st = block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+    st = block->append_to_block_by_selector(_cur_mutable_block.get(), *payload->row_ids);
     if (!st.ok()) {
         _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
         return st;
     }
-    for (auto tablet_id : payload->second) {
-        _cur_add_block_request->add_tablet_ids(tablet_id);
+    auto* row_part_tablet_ids = payload->row_part_tablet_ids;
+    for (uint32_t route_idx : payload->route_idxs) {
+        _cur_add_block_request->add_partition_ids(row_part_tablet_ids->partition_ids[route_idx]);
+        if (!_parent->_tablet_finder->is_adaptive_random_bucket()) {
+            _cur_add_block_request->add_tablet_ids(row_part_tablet_ids->tablet_ids[route_idx]);
+        }
     }
     _write_bytes.fetch_add(_cur_mutable_block->bytes());
 
@@ -808,6 +902,7 @@ Status VNodeChannel::add_block(Block* block, const Payload* payload) {
         }
         _cur_mutable_block = MutableBlock::create_unique(block->clone_empty());
         _cur_add_block_request->clear_tablet_ids();
+        _cur_add_block_request->clear_partition_ids();
     }
 
     return Status::OK();
@@ -930,9 +1025,18 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     // tablet_ids has already set when add row
     request->set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
-    CHECK(block.rows() == request->tablet_ids_size())
-            << "block rows: " << block.rows()
-            << ", tablet_ids_size: " << request->tablet_ids_size();
+    int request_rows = request->is_receiver_side_random_bucket() && !request->eos()
+                               ? request->partition_ids_size()
+                               : request->tablet_ids_size();
+    if (block.rows() != request_rows) {
+        cancel(
+                fmt::format("{}, err: invalid add block request row count, block rows: {}, "
+                            "request rows: {}, receiver_side_random_bucket: {}, eos: {}",
+                            channel_info(), block.rows(), request_rows,
+                            request->is_receiver_side_random_bucket(), request->eos()));
+        _send_block_callback->clear_in_flight();
+        return;
+    }
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
@@ -973,8 +1077,10 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     }
 
     if (request->eos()) {
-        for (auto pid : _parent->_tablet_finder->partition_ids()) {
-            request->add_partition_ids(pid);
+        if (!request->is_receiver_side_random_bucket() || !request->has_block()) {
+            for (auto pid : _parent->_tablet_finder->partition_ids()) {
+                request->add_partition_ids(pid);
+            }
         }
 
         request->set_write_single_replica(_parent->_write_single_replica);
@@ -1322,14 +1428,25 @@ void VNodeChannel::mark_close(bool hang_wait) {
         return;
     }
 
-    _cur_add_block_request->set_eos(true);
-    _cur_add_block_request->set_hang_wait(hang_wait);
+    bool need_receiver_side_random_bucket_eos =
+            _cur_add_block_request->is_receiver_side_random_bucket();
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) [[unlikely]] {
             // never had a block arrived. add a dummy block
             _cur_mutable_block = MutableBlock::create_unique();
         }
+        if (need_receiver_side_random_bucket_eos && _cur_mutable_block->rows() > 0) {
+            _cur_add_block_request->set_eos(false);
+            auto tmp_add_block_request =
+                    std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
+            _pending_blocks.emplace(std::move(_cur_mutable_block), tmp_add_block_request);
+            _pending_batches_num++;
+            _cur_add_block_request->clear_partition_ids();
+            _cur_mutable_block = MutableBlock::create_unique();
+        }
+        _cur_add_block_request->set_eos(true);
+        _cur_add_block_request->set_hang_wait(hang_wait);
         auto tmp_add_block_request =
                 std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
         // when prepare to close, add block to queue so that try_send_pending_block thread will send it.
@@ -1535,13 +1652,21 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     if (table_sink.__isset.send_batch_parallelism && table_sink.send_batch_parallelism > 1) {
         _send_batch_parallelism = table_sink.send_batch_parallelism;
     }
-    // if distributed column list is empty, we can ensure that tablet is with random distribution info
-    // and if load_to_single_tablet is set and set to true, we should find only one tablet in one partition
-    // for the whole olap table sink
+    // If distributed column list is empty, the table uses random distribution.
+    // Mode priority (highest to lowest):
+    //   1. FIND_TABLET_EVERY_SINK: load_to_single_tablet=true (legacy single-tablet mode).
+    //   2. FIND_TABLET_RANDOM_BUCKET: FE set enable_adaptive_random_bucket on the sink,
+    //      meaning enable_adaptive_random_bucket_load is ON. Using a sink-level flag (mirroring
+    //      load_to_single_tablet) ensures the mode is fixed correctly when the initial
+    //      partition list is empty (e.g. auto-partition tables on first load).
+    //   3. FIND_TABLET_EVERY_BATCH: default round-robin per batch.
     auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
     if (table_sink.partition.distributed_columns.empty()) {
         if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
             find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_SINK;
+        } else if (table_sink.__isset.enable_adaptive_random_bucket &&
+                   table_sink.enable_adaptive_random_bucket && config::is_cloud_mode()) {
+            find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_RANDOM_BUCKET;
         } else {
             find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_BATCH;
         }
@@ -2012,43 +2137,72 @@ Status VTabletWriter::close(Status exec_status) {
     return _close_status;
 }
 
-void VTabletWriter::_generate_one_index_channel_payload(
+Status VTabletWriter::_generate_one_index_channel_payload(
         RowPartTabletIds& row_part_tablet_id, int32_t index_idx,
         ChannelDistributionPayload& channel_payload) {
     auto& row_ids = row_part_tablet_id.row_ids;
+    auto& partition_ids = row_part_tablet_id.partition_ids;
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
 
     size_t row_cnt = row_ids.size();
 
     for (size_t i = 0; i < row_ids.size(); i++) {
+        if (_tablet_finder->is_adaptive_random_bucket() && config::is_cloud_mode()) {
+            auto partition_it = _channels[index_idx]->_channels_by_partition.find(partition_ids[i]);
+            if (partition_it == _channels[index_idx]->_channels_by_partition.end()) {
+                return Status::InternalError(
+                        "unknown partition channel, load_id={}, index_id={}, partition_id={}",
+                        print_id(_load_id), _channels[index_idx]->_index_id, partition_ids[i]);
+            }
+            auto payload_it =
+                    channel_payload.find(partition_it->second.get()); // <VNodeChannel*, Payload>
+            if (payload_it == channel_payload.end()) {
+                auto [tmp_it, _] = channel_payload.emplace(
+                        partition_it->second.get(),
+                        Payload {std::make_unique<IColumn::Selector>(), &row_part_tablet_id,
+                                 std::vector<uint32_t>()});
+                payload_it = tmp_it;
+                payload_it->second.row_ids->reserve(row_cnt);
+                payload_it->second.route_idxs.reserve(row_cnt);
+            }
+            payload_it->second.row_ids->push_back(row_ids[i]);
+            payload_it->second.route_idxs.push_back(cast_set<uint32_t>(i));
+            continue;
+        }
+
         // (tablet_id, VNodeChannel) where this tablet locate
         auto it = _channels[index_idx]->_channels_by_tablet.find(tablet_ids[i]);
-        DCHECK(it != _channels[index_idx]->_channels_by_tablet.end())
-                << "unknown tablet, tablet_id=" << tablet_ids[i];
+        if (it == _channels[index_idx]->_channels_by_tablet.end()) {
+            return Status::InternalError("unknown tablet, load_id={}, index_id={}, tablet_id={}",
+                                         print_id(_load_id), _channels[index_idx]->_index_id,
+                                         tablet_ids[i]);
+        }
 
         std::vector<std::shared_ptr<VNodeChannel>>& tablet_locations = it->second;
         for (const auto& locate_node : tablet_locations) {
             auto payload_it = channel_payload.find(locate_node.get()); // <VNodeChannel*, Payload>
             if (payload_it == channel_payload.end()) {
                 auto [tmp_it, _] = channel_payload.emplace(
-                        locate_node.get(),
-                        Payload {std::make_unique<IColumn::Selector>(), std::vector<int64_t>()});
+                        locate_node.get(), Payload {std::make_unique<IColumn::Selector>(),
+                                                    &row_part_tablet_id, std::vector<uint32_t>()});
                 payload_it = tmp_it;
-                payload_it->second.first->reserve(row_cnt);
-                payload_it->second.second.reserve(row_cnt);
+                payload_it->second.row_ids->reserve(row_cnt);
+                payload_it->second.route_idxs.reserve(row_cnt);
             }
-            payload_it->second.first->push_back(row_ids[i]);
-            payload_it->second.second.push_back(tablet_ids[i]);
+            payload_it->second.row_ids->push_back(row_ids[i]);
+            payload_it->second.route_idxs.push_back(cast_set<uint32_t>(i));
         }
     }
+    return Status::OK();
 }
 
-void VTabletWriter::_generate_index_channels_payloads(
+Status VTabletWriter::_generate_index_channels_payloads(
         std::vector<RowPartTabletIds>& row_part_tablet_ids,
         ChannelDistributionPayloadVec& payload) {
     for (int i = 0; i < _schema->indexes().size(); i++) {
-        _generate_one_index_channel_payload(row_part_tablet_ids[i], i, payload[i]);
+        RETURN_IF_ERROR(_generate_one_index_channel_payload(row_part_tablet_ids[i], i, payload[i]));
     }
+    return Status::OK();
 }
 
 Status VTabletWriter::write(RuntimeState* state, doris::Block& input_block) {
@@ -2091,8 +2245,10 @@ Status VTabletWriter::write(RuntimeState* state, doris::Block& input_block) {
     ChannelDistributionPayloadVec channel_to_payload;
 
     channel_to_payload.resize(_channels.size());
-    _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
+    Status generate_payload_status =
+            _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
     _row_distribution_watch.stop();
+    RETURN_IF_ERROR(generate_payload_status);
 
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {

@@ -31,6 +31,7 @@
 
 #include "common/status.h"
 #include "core/custom_allocator.h"
+#include "exec/sink/vtablet_finder.h"
 #include "runtime/runtime_profile.h"
 #include "util/bitmap.h"
 #include "util/uid_util.h"
@@ -121,9 +122,22 @@ public:
     bool is_finished() const { return _state == kFinished; }
 
 protected:
+    struct RandomBucketPartitionParam {
+        std::vector<int64_t> ordered_tablet_ids;
+    };
+
+    Status _init_receiver_side_random_bucket_state(const PTabletWriterOpenRequest& request);
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
                              std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
                              PTabletWriterAddBlockResult* response);
+    Status _write_block_data_for_receiver_side_random_bucket(
+            const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
+            std::unordered_map<int64_t, DorisVector<uint32_t>>& partition_to_rowidxs,
+            PTabletWriterAddBlockResult* response);
+    Status _build_partition_to_rowidxs_for_receiver_side_random_bucket(
+            const PTabletWriterAddBlockRequest& request,
+            std::unordered_map<int64_t, DorisVector<uint32_t>>* partition_to_rowidxs);
+    std::shared_ptr<std::mutex> _get_partition_route_lock(int64_t partition_id);
 
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
 
@@ -185,6 +199,10 @@ protected:
     std::unordered_set<int64_t> _reducing_tablets;
 
     std::unordered_set<int64_t> _partition_ids;
+    std::unordered_map<int64_t, RandomBucketPartitionParam> _random_bucket_partition_params;
+    std::shared_ptr<AdaptiveRandomBucketState> _adaptive_random_bucket_state;
+    std::mutex _partition_route_locks_lock;
+    std::unordered_map<int64_t, std::shared_ptr<std::mutex>> _partition_route_locks;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
 

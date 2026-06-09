@@ -34,6 +34,7 @@ import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -111,6 +112,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
+import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
@@ -353,6 +356,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -4535,6 +4539,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
+        Backend requestBackend = request.isSetBeEndpoint() ? resolveBeEndpoint(request.getBeEndpoint()) : null;
+        long adaptiveBucketBeId = requestBackend != null ? requestBackend.getId() : -1L;
+        TUniqueId queryId = request.isSetQueryId() ? request.getQueryId() : null;
+        boolean enableAdaptiveRandomBucket = request.isSetEnableAdaptiveRandomBucket()
+                && request.isEnableAdaptiveRandomBucket();
         final boolean hasBeEndpoint = request.isSetBeEndpoint();
         // Lazy: resolved on the first CloudTablet that needs it (skipped on cache-hit).
         String cachedClusterId = null;
@@ -4561,12 +4570,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tPartition.setNumBuckets(index.getTablets().size());
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+            if (partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM) {
+                try {
+                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                            .getCurrentTabletLoadIndex(dbId, olapTable.getId(), partition);
+                    tPartition.setLoadTabletIdx(tabletIndex);
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send create partition error status: {}", result);
+                    return result;
+                }
+            }
             partitions.add(tPartition);
             // tablet
             if (needUseCache
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                     partitionSlaveTablets)) {
+                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+                        enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
@@ -4641,6 +4664,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
             }
+
+            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+                    enableAdaptiveRandomBucket);
 
             if (needUseCache) {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
@@ -4863,6 +4889,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        Backend requestBackend = request.isSetBeEndpoint() ? resolveBeEndpoint(request.getBeEndpoint()) : null;
+        long adaptiveBucketBeId = requestBackend != null ? requestBackend.getId() : -1L;
+        TUniqueId queryId = request.isSetQueryId() ? request.getQueryId() : null;
+        boolean enableAdaptiveRandomBucket = request.isSetEnableAdaptiveRandomBucket()
+                && request.isEnableAdaptiveRandomBucket();
         final boolean replaceHasBeEndpoint = request.isSetBeEndpoint();
         // Lazy: resolved on the first CloudTablet that needs it.
         String replaceCachedClusterId = null;
@@ -4891,12 +4922,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tPartition.setNumBuckets(index.getTablets().size());
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+            if (partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM) {
+                try {
+                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                            .getCurrentTabletLoadIndex(dbId, olapTable.getId(), partition);
+                    tPartition.setLoadTabletIdx(tabletIndex);
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send replace partition error status: {}", result);
+                    return result;
+                }
+            }
             partitions.add(tPartition);
             // tablet
             if (needUseCache && txnId != 0
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                     partitionSlaveTablets)) {
+                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+                        enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
@@ -4972,6 +5017,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
             }
+
+            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+                    enableAdaptiveRandomBucket);
 
             if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
                 needUseCache = false;
@@ -5695,4 +5743,129 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         return status;
     }
+
+    private static final class AdaptiveBucketSinkContext {
+        private final boolean enableAdaptiveRandomBucket;
+        private final List<Long> sinkBackendIds;
+        private final int planFragmentNum;
+
+        private AdaptiveBucketSinkContext(boolean enableAdaptiveRandomBucket, List<Long> sinkBackendIds,
+                int planFragmentNum) {
+            this.enableAdaptiveRandomBucket = enableAdaptiveRandomBucket;
+            this.sinkBackendIds = sinkBackendIds;
+            this.planFragmentNum = planFragmentNum;
+        }
+    }
+
+    private static AdaptiveBucketSinkContext disabledAdaptiveBucketSinkContext() {
+        return new AdaptiveBucketSinkContext(false, Lists.newArrayList(), 1);
+    }
+
+    private static AdaptiveBucketSinkContext collectAdaptiveBucketSinkContext(TUniqueId queryId) {
+        if (queryId == null) {
+            return disabledAdaptiveBucketSinkContext();
+        }
+        Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
+        if (coordinator == null) {
+            return disabledAdaptiveBucketSinkContext();
+        }
+        if (!(coordinator instanceof NereidsCoordinator)) {
+            Optional<Coordinator.AdaptiveRandomBucketSinkContext> context =
+                    coordinator.getAdaptiveRandomBucketSinkContext();
+            if (context.isPresent()) {
+                return new AdaptiveBucketSinkContext(
+                        true, context.get().getSinkBackendIds(), context.get().getPlanFragmentNum());
+            }
+            return disabledAdaptiveBucketSinkContext();
+        }
+        Set<Long> sinkBackendIds = new TreeSet<>();
+        int planFragmentNum = 0;
+        for (PipelineDistributedPlan distributedPlan :
+                ((NereidsCoordinator) coordinator).getCoordinatorContext().distributedPlans) {
+            if (!(distributedPlan.getFragmentJob().getFragment().getSink() instanceof OlapTableSink)) {
+                continue;
+            }
+            OlapTableSink sink = (OlapTableSink) distributedPlan.getFragmentJob().getFragment().getSink();
+            if (!sink.shouldAssignAdaptiveRandomBucket()) {
+                continue;
+            }
+            planFragmentNum += distributedPlan.getInstanceJobs().size();
+            for (AssignedJob assignedJob : distributedPlan.getInstanceJobs()) {
+                sinkBackendIds.add(assignedJob.getAssignedWorker().id());
+            }
+        }
+        if (sinkBackendIds.isEmpty()) {
+            return disabledAdaptiveBucketSinkContext();
+        }
+        return new AdaptiveBucketSinkContext(true, new ArrayList<>(sinkBackendIds), Math.max(planFragmentNum, 1));
+    }
+
+    private static void assignAdaptiveBucketToPartition(TOlapTablePartition partition,
+            List<TTabletLocation> partitionTablets, long currentBeId, TUniqueId queryId,
+            boolean enableAdaptiveRandomBucket) {
+        if (!enableAdaptiveRandomBucket || !Config.enable_adaptive_random_bucket_load
+                || !partition.isSetLoadTabletIdx() || currentBeId <= 0) {
+            return;
+        }
+        AdaptiveBucketSinkContext sinkContext = collectAdaptiveBucketSinkContext(queryId);
+        if (!sinkContext.enableAdaptiveRandomBucket) {
+            sinkContext = new AdaptiveBucketSinkContext(true, Lists.newArrayList(currentBeId), 1);
+            LOG.warn("Adaptive random bucket sink context not found for runtime partition {}, "
+                            + "fallback to currentBeId={}, queryId={}",
+                    partition.getId(), currentBeId, queryId);
+        }
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Adaptive random bucket replanning partition={}, currentBeId={}, queryId={}, "
+                            + "sinkBackendIds={}, planFragmentNum={}",
+                    partition.getId(), currentBeId, queryId, sinkContext.sinkBackendIds,
+                    sinkContext.planFragmentNum);
+        }
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(
+                        sinkContext.sinkBackendIds, Lists.newArrayList(partition), partitionTablets,
+                        sinkContext.planFragmentNum);
+        Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments = assignments.get(currentBeId);
+        if (partitionAssignments == null || !partitionAssignments.containsKey(partition.getId())) {
+            LOG.warn("Adaptive random bucket found no partition assignment for partition {}, currentBeId={}, "
+                            + "queryId={}, sinkBackendIds={}, fallback to current BE only",
+                    partition.getId(), currentBeId, queryId, sinkContext.sinkBackendIds);
+            assignments = OlapTableSink.computeAdaptiveRandomBucketAssignments(
+                    Lists.newArrayList(currentBeId), Lists.newArrayList(partition), partitionTablets, 1);
+            partitionAssignments = assignments.get(currentBeId);
+        }
+        if (partitionAssignments != null && partitionAssignments.containsKey(partition.getId())) {
+            OlapTableSink.AdaptiveBucketAssignment assignment = partitionAssignments.get(partition.getId());
+            if (LOG.isInfoEnabled()) {
+                LOG.info("Adaptive random bucket replan result partition={}, currentBeId={}, bucketBeId={}, "
+                                + "loadTabletIdx={}, localBucketSeqs={}",
+                        partition.getId(), currentBeId, assignment.getBucketBeId(),
+                        assignment.getLoadTabletIdx(), assignment.getLocalBucketSeqs());
+            }
+            OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                    Lists.newArrayList(partition), partitionAssignments);
+        } else {
+            LOG.warn("Adaptive random bucket fallback still found no partition assignment for partition {}, "
+                            + "currentBeId={}, queryId={}",
+                    partition.getId(), currentBeId, queryId);
+        }
+    }
+
+    /**
+     * Resolves a BE endpoint string ("host:heartbeat_port") to a Backend object.
+     * Returns null if the endpoint is malformed or the backend cannot be found.
+     */
+    private static Backend resolveBeEndpoint(String beEndpoint) {
+        int colonIdx = beEndpoint.lastIndexOf(':');
+        if (colonIdx < 0) {
+            return null;
+        }
+        String host = beEndpoint.substring(0, colonIdx);
+        try {
+            int port = Integer.parseInt(beEndpoint.substring(colonIdx + 1));
+            return Env.getCurrentSystemInfo().getBackendWithHeartbeatPort(host, port);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
 }

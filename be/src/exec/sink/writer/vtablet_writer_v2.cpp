@@ -158,9 +158,10 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
 
-    // if distributed column list is empty, we can ensure that tablet is with random distribution info
-    // and if load_to_single_tablet is set and set to true, we should find only one tablet in one partition
-    // for the whole olap table sink
+    // If distributed column list is empty, the table uses random distribution.
+    // Mode priority (highest to lowest):
+    //   1. FIND_TABLET_EVERY_SINK: load_to_single_tablet=true (legacy single-tablet mode).
+    //   2. FIND_TABLET_EVERY_BATCH: default round-robin per batch.
     auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
     if (table_sink.partition.distributed_columns.empty()) {
         if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
@@ -559,6 +560,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
                 .storage_vault_id {},
+                .enable_table_memtable_backpressure = _tablet_finder->is_adaptive_random_bucket(),
         };
         bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {
@@ -587,13 +589,15 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(
-                [state = _state]() { return state->is_cancelled(); });
+                [state = _state]() { return state->is_cancelled(); },
+                _state->workload_group().get());
         if (_state->is_cancelled()) {
             return _state->cancel_reason();
         }
     }
     SCOPED_TIMER(_write_memtable_timer);
-    st = delta_writer->write(block.get(), rows.row_idxes);
+    bool memtable_flushed = false;
+    st = delta_writer->write(block.get(), rows.row_idxes, &memtable_flushed);
     return st;
 }
 

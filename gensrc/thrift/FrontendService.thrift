@@ -1405,6 +1405,8 @@ struct TCreatePartitionRequest {
     6: optional bool write_single_replica = false
     // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using receiver-side adaptive random bucket routing.
+    8: optional bool enable_adaptive_random_bucket = false
 }
 
 struct TCreatePartitionResult {
@@ -1425,6 +1427,8 @@ struct TReplacePartitionRequest {
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using receiver-side adaptive random bucket routing.
+    8: optional bool enable_adaptive_random_bucket = false
 }
 
 struct TReplacePartitionResult {
