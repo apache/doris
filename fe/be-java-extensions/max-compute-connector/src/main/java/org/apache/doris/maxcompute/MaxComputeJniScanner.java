@@ -19,7 +19,6 @@ package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.maxcompute.MCUtils;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.table.configuration.CompressionCodec;
