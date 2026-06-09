@@ -443,7 +443,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Optional<String> tableLocation = shouldCleanupManagedLocation()
                 ? loadTableLocation(tableIdentifier) : Optional.empty();
         catalog.dropTable(tableIdentifier, true);
-        tableLocation.ifPresent(location -> cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName));
+        tableLocation.ifPresent(location ->
+                cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName));
     }
 
     private Optional<String> loadNamespaceLocation(Namespace namespace) {
@@ -476,6 +477,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private boolean shouldCleanupManagedLocation() {
+        // Only cleanup HMS-Iceberg location
         return dorisCatalog instanceof IcebergExternalCatalog
                 && IcebergExternalCatalog.ICEBERG_HMS.equals(
                         ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType());
