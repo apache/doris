@@ -161,8 +161,8 @@ private:
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
-    Status _append_row_store_column(const vectorized::Block& block, size_t row_pos,
-                                    size_t num_rows, uint32_t cid);
+    Status _append_row_store_column(const vectorized::Block& block, size_t row_pos, size_t num_rows,
+                                    uint32_t cid);
     Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                               bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
