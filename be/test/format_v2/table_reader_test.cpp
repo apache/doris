@@ -1818,6 +1818,25 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     EXPECT_EQ(localized_slot->column_id(), 1);
 }
 
+TEST(TableColumnMapperMatcherTest, ByNameModeUsesNameMappingForRenamedColumn) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto table_column = make_table_column(10, "current_id", int_type);
+    table_column.name_mapping = {"legacy_id"};
+    const std::vector<ColumnDefinition> projected_columns = {table_column};
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "legacy_id", int_type),
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 1);
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 0);
+    EXPECT_EQ(mappings[0].file_column_name, "legacy_id");
+}
+
 TEST(TableColumnMapperMatcherTest, FieldIdModeDoesNotFallbackToName) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::vector<ColumnDefinition> projected_columns = {
@@ -3291,6 +3310,29 @@ TEST(TableColumnMapperByIndexTest, PartitionColumnsTakeConstantAndDoNotConsumeFi
     ASSERT_TRUE(mappings[2].file_local_id.has_value());
     EXPECT_EQ(*mappings[2].file_local_id, 1);
     EXPECT_EQ(mappings[2].file_column_name, "_col1");
+}
+
+TEST(TableColumnMapperByIndexTest, PartitionColumnUsesNameMappingValueAfterRename) {
+    const auto str_type = std::make_shared<DataTypeString>();
+
+    auto pt_col = make_table_column(/*id=*/-1, "current_dt", str_type);
+    pt_col.is_partition_key = true;
+    pt_col.name_mapping = {"legacy_dt"};
+    const std::vector<ColumnDefinition> projected_columns = {pt_col};
+
+    std::map<std::string, Field> partition_values;
+    partition_values.emplace("legacy_dt", Field::create_field<TYPE_STRING>("2025-06-01"));
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, partition_values, {}).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 1);
+    EXPECT_TRUE(mappings[0].constant_index.has_value());
+    EXPECT_FALSE(mappings[0].file_local_id.has_value());
+    ASSERT_EQ(mapper.constant_map().size(), 1);
+    EXPECT_EQ(mapper.constant_map().get(*mappings[0].constant_index).global_index, GlobalIndex(0));
+    EXPECT_TRUE(mapper.constant_map().get(*mappings[0].constant_index).type->equals(*str_type));
 }
 
 TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissing) {

@@ -64,6 +64,29 @@ std::string mapping_mode_to_string(TableColumnMappingMode mode) {
     return "UNKNOWN";
 }
 
+bool column_has_name(const ColumnDefinition& column, const std::string& name) {
+    if (to_lower(column.name) == to_lower(name)) {
+        return true;
+    }
+    if (column.has_identifier_name() && to_lower(column.get_identifier_name()) == to_lower(name)) {
+        return true;
+    }
+    return std::ranges::any_of(column.name_mapping, [&](const std::string& alias) {
+        return to_lower(alias) == to_lower(name);
+    });
+}
+
+bool column_names_match(const ColumnDefinition& lhs, const ColumnDefinition& rhs) {
+    if (column_has_name(rhs, lhs.name)) {
+        return true;
+    }
+    if (lhs.has_identifier_name() && column_has_name(rhs, lhs.get_identifier_name())) {
+        return true;
+    }
+    return std::ranges::any_of(lhs.name_mapping,
+                               [&](const std::string& alias) { return column_has_name(rhs, alias); });
+}
+
 class ColumnMatcher {
 public:
     virtual ~ColumnMatcher() = default;
@@ -91,9 +114,8 @@ class NameMatcher final : public ColumnMatcher {
 public:
     const ColumnDefinition* find(const ColumnDefinition& table_column,
                                  const std::vector<ColumnDefinition>& file_schema) const override {
-        const auto match_name = to_lower(table_column.get_identifier_name());
         const auto field_it = std::ranges::find_if(file_schema, [&](const ColumnDefinition& field) {
-            return to_lower(field.name) == match_name;
+            return column_names_match(table_column, field);
         });
         return field_it == file_schema.end() ? nullptr : &*field_it;
     }
@@ -159,6 +181,28 @@ std::string filter_conversion_type_to_string(FilterConversionType type) {
 
 std::string data_type_debug_string(const DataTypePtr& type) {
     return type == nullptr ? "null" : type->get_name();
+}
+
+const Field* find_partition_value(const ColumnDefinition& table_column,
+                                  const std::map<std::string, Field>& partition_values) {
+    const auto find_by_name = [&](const std::string& name) -> const Field* {
+        const auto value_it = partition_values.find(name);
+        return value_it == partition_values.end() ? nullptr : &value_it->second;
+    };
+    if (const auto* value = find_by_name(table_column.name); value != nullptr) {
+        return value;
+    }
+    if (table_column.has_identifier_name()) {
+        if (const auto* value = find_by_name(table_column.get_identifier_name()); value != nullptr) {
+            return value;
+        }
+    }
+    for (const auto& alias : table_column.name_mapping) {
+        if (const auto* value = find_by_name(alias); value != nullptr) {
+            return value;
+        }
+    }
+    return nullptr;
 }
 
 std::string field_debug_string(const Field& field) {
@@ -310,6 +354,8 @@ std::string TableColumnMapperOptions::debug_string() const {
 std::string ColumnDefinition::debug_string() const {
     std::ostringstream out;
     out << "ColumnDefinition{name=" << name << ", identifier=" << field_debug_string(identifier)
+        << ", name_mapping="
+        << join_debug_strings(name_mapping, [](const std::string& name) { return name; })
         << ", local_id=" << local_id << ", type=" << data_type_debug_string(type) << ", children="
         << join_debug_strings(children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
@@ -1676,11 +1722,12 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
         mapping.global_index = GlobalIndex(column_idx);
         mapping.table_column_name = table_column.name;
         mapping.table_type = table_column.type;
-        if (table_column.is_partition_key && partition_values.contains(table_column.name)) {
+        if (const auto* partition_value = find_partition_value(table_column, partition_values);
+            table_column.is_partition_key && partition_value != nullptr) {
             // 1. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
             _set_constant_mapping(
                     &mapping, VExprContext::create_shared(TableLiteral::create_shared(
-                                      mapping.table_type, partition_values.at(table_column.name))));
+                                      mapping.table_type, *partition_value)));
         } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
                    !table_column.is_partition_key) {
             // 2. BY_INDEX mapping, use the file column at the position specified by `ColumnDefinition::identifier` as a direct mapping. This mode is only used by Hive.

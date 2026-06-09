@@ -128,6 +128,16 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
     return field_ptr.field_ptr.get();
 }
 
+bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
+    if (field.__isset.name && to_lower(field.name) == to_lower(name)) {
+        return true;
+    }
+    return field.__isset.name_mapping &&
+           std::ranges::any_of(field.name_mapping, [&](const std::string& alias) {
+               return to_lower(alias) == to_lower(name);
+           });
+}
+
 DataTypePtr find_struct_child_type_by_name(const DataTypeStruct& struct_type,
                                            const std::string& field_name) {
     for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
@@ -143,6 +153,8 @@ format::ColumnDefinition build_schema_column_from_external_field(
     format::ColumnDefinition column {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
+            .name_mapping = field.__isset.name_mapping ? field.name_mapping
+                                                       : std::vector<std::string> {},
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -228,7 +240,12 @@ const format::ColumnDefinition* find_schema_child_by_path(
         return child_it == schema_column->children.end() ? nullptr : &*child_it;
     }
     const auto child_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
-        return to_lower(child.name) == to_lower(child_path);
+        if (to_lower(child.name) == to_lower(child_path)) {
+            return true;
+        }
+        return std::ranges::any_of(child.name_mapping, [&](const std::string& alias) {
+            return to_lower(alias) == to_lower(child_path);
+        });
     });
     return child_it == schema_column->children.end() ? nullptr : &*child_it;
 }
@@ -264,7 +281,7 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
         if (field == nullptr) {
             continue;
         }
-        if (field->__isset.name && to_lower(field->name) == to_lower(column.name)) {
+        if (external_field_matches_name(*field, column.name)) {
             return field;
         }
     }
@@ -751,8 +768,9 @@ Status FileScannerV2::_generate_partition_values(
                              idx < range.columns_from_path_is_null.size() &&
                              range.columns_from_path_is_null[idx];
         Field field;
-        RETURN_IF_ERROR(_parse_partition_value(it->second, value, is_null, &field));
-        partition_values->emplace(key, std::move(field));
+        DORIS_CHECK(it->second.slot_desc != nullptr);
+        RETURN_IF_ERROR(_parse_partition_value(it->second.slot_desc, value, is_null, &field));
+        partition_values->emplace(it->second.canonical_name, std::move(field));
     }
     return Status::OK();
 }
@@ -809,6 +827,7 @@ Status FileScannerV2::_build_projected_columns() {
             // NOTICE: The nested `schema_column` is completed without projection.
             schema_column = build_schema_column_from_external_field(*schema_field, column.type);
             column.identifier = schema_column->identifier;
+            column.name_mapping = schema_column->name_mapping;
         }
         // Build the column's nested children based on the column's access paths and the schema column (if exists).
         // The access paths are generated from the slot's access path expressions which means a projected column can have a subset of the schema column's nested children.
@@ -816,7 +835,14 @@ Status FileScannerV2::_build_projected_columns() {
                 &column, it->second, schema_column.has_value() ? &*schema_column : nullptr));
         if (is_partition_slot(slot_info)) {
             column.is_partition_key = true;
-            _partition_slot_descs.emplace(column.name, it->second);
+            _partition_slot_descs.emplace(
+                    column.name, PartitionSlotInfo {.slot_desc = it->second,
+                                                    .canonical_name = column.name});
+            for (const auto& alias : column.name_mapping) {
+                _partition_slot_descs.emplace(
+                        alias, PartitionSlotInfo {.slot_desc = it->second,
+                                                  .canonical_name = column.name});
+            }
         }
         const auto global_index = format::GlobalIndex(slot_idx);
         _slot_id_to_global_index.emplace(slot_info.slot_id, global_index);
