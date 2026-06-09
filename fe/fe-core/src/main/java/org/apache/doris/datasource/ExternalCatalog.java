@@ -48,7 +48,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
@@ -950,8 +949,6 @@ public abstract class ExternalCatalog
                 return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ICEBERG:
                 return new IcebergExternalDatabase(this, dbId, localDbName, remoteDbName);
-            case MAX_COMPUTE:
-                return new MaxComputeExternalDatabase(this, dbId, localDbName, remoteDbName);
             case LAKESOUL:
                 return new LakeSoulExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TEST:
@@ -1035,6 +1032,10 @@ public abstract class ExternalCatalog
     public void replayCreateDb(String dbName) {
         if (metadataOps != null) {
             metadataOps.afterCreateDb();
+        } else {
+            // Plugin-driven catalogs have no metadataOps; invalidate the FE cache directly so
+            // follower FEs reflect the create on edit-log replay, matching the master path.
+            resetMetaCacheNames();
         }
     }
 
@@ -1057,6 +1058,9 @@ public abstract class ExternalCatalog
     public void replayDropDb(String dbName) {
         if (metadataOps != null) {
             metadataOps.afterDropDb(dbName);
+        } else {
+            // Plugin-driven path (no metadataOps): drop the db from the cache on replay.
+            unregisterDatabase(dbName);
         }
     }
 
@@ -1090,6 +1094,9 @@ public abstract class ExternalCatalog
     public void replayCreateTable(String dbName, String tblName) {
         if (metadataOps != null) {
             metadataOps.afterCreateTable(dbName, tblName);
+        } else {
+            // Plugin-driven path (no metadataOps): refresh the db's table-name cache on replay.
+            getDbForReplay(dbName).ifPresent(db -> db.resetMetaCacheNames());
         }
     }
 
@@ -1145,6 +1152,9 @@ public abstract class ExternalCatalog
     public void replayDropTable(String dbName, String tblName) {
         if (metadataOps != null) {
             metadataOps.afterDropTable(dbName, tblName);
+        } else {
+            // Plugin-driven path (no metadataOps): remove the table from the cache on replay.
+            getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tblName));
         }
     }
 
