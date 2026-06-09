@@ -125,7 +125,7 @@ public class ExternalRowCountCacheTest {
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         ExternalRowCountCache rowCountCache = Mockito.spy(
                 new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
-        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        metaCacheMgr.setRowCountCache(rowCountCache);
 
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);

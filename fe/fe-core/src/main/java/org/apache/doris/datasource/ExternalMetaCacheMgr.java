@@ -430,7 +430,8 @@ public class ExternalMetaCacheMgr {
         cacheRegistry.resetForTest(caches);
     }
 
-    void replaceRowCountCacheForTest(ExternalRowCountCache rowCountCache) {
+    // Only used by tests to replace the row count cache with a mock or spy.
+    void setRowCountCache(ExternalRowCountCache rowCountCache) {
         this.rowCountCache = rowCountCache;
     }
 
