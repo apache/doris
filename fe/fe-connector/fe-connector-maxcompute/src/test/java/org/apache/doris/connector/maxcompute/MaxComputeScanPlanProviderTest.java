@@ -18,6 +18,7 @@
 package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
@@ -305,5 +306,40 @@ public class MaxComputeScanPlanProviderTest {
                 Collections.emptyList(), false);
         Assertions.assertTrue(
                 MaxComputeScanPlanProvider.checkOnlyPartitionEquality(filter, PART_COLS));
+    }
+
+    // ---- reject reading ODPS external tables / logical views ----
+    // Migrated from MaxComputeScanNode.getSplits / MaxComputeScanNodeTest (PR apache/doris#64119).
+    // planScan now gates via MaxComputeTableHandle.checkOperationSupported("Reading") before any
+    // split generation; the ODPS Storage API cannot scan external tables or logical views. The guard
+    // is exercised directly here (the connector test module has no Mockito to fake an ODPS Table).
+
+    @Test
+    public void testReadRejectsOdpsExternalTable() {
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> MaxComputeTableHandle.checkOperationSupported(
+                        true, false, "Reading", "default", "mc_external_table"));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Reading MaxCompute external table or logical view is not supported: "
+                        + "default.mc_external_table"),
+                "got: " + ex.getMessage());
+    }
+
+    @Test
+    public void testReadRejectsOdpsLogicalView() {
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> MaxComputeTableHandle.checkOperationSupported(
+                        false, true, "Reading", "default", "mc_logical_view"));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Reading MaxCompute external table or logical view is not supported: "
+                        + "default.mc_logical_view"),
+                "got: " + ex.getMessage());
+    }
+
+    @Test
+    public void testReadAllowsManagedTable() {
+        // a normal (non-external, non-view) table must not be rejected (guards against over-rejection)
+        Assertions.assertDoesNotThrow(() -> MaxComputeTableHandle.checkOperationSupported(
+                false, false, "Reading", "default", "mc_managed_table"));
     }
 }

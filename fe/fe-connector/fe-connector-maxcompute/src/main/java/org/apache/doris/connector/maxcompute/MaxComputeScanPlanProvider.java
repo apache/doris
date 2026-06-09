@@ -182,6 +182,10 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
         Table odpsTable = mcHandle.getOdpsTable();
 
+        // Reject external tables / logical views before any read planning (mirrors legacy
+        // MaxComputeScanNode.getSplits): the ODPS Storage API cannot scan them.
+        mcHandle.checkOperationSupported("Reading");
+
         if (odpsTable.getFileNum() <= 0 || columns.isEmpty()) {
             return Collections.emptyList();
         }

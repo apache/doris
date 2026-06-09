@@ -98,4 +98,40 @@ public class MaxComputeConnectorTransactionTest {
         Assertions.assertEquals(MaxComputeConnectorTransaction.DEFAULT_MAX_BLOCK_COUNT,
                 MaxComputeConnectorMetadata.resolveMaxBlockCount(props));
     }
+
+    // ---- reject writing to ODPS external tables / logical views ----
+    // Migrated from MCTransaction.beginInsert / MCTransactionTest (PR apache/doris#64119). The write
+    // path now gates in MaxComputeWritePlanProvider.planWrite via
+    // MaxComputeTableHandle.checkOperationSupported("Writing") before opening a write session; the
+    // ODPS Storage API cannot write to external tables or logical views. The guard is exercised
+    // directly here (the connector test module has no Mockito to fake an ODPS Table).
+
+    @Test
+    public void testWriteRejectsOdpsExternalTable() {
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> MaxComputeTableHandle.checkOperationSupported(
+                        true, false, "Writing", "default", "mc_external_table"));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Writing MaxCompute external table or logical view is not supported: "
+                        + "default.mc_external_table"),
+                "got: " + ex.getMessage());
+    }
+
+    @Test
+    public void testWriteRejectsOdpsLogicalView() {
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> MaxComputeTableHandle.checkOperationSupported(
+                        false, true, "Writing", "default", "mc_logical_view"));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Writing MaxCompute external table or logical view is not supported: "
+                        + "default.mc_logical_view"),
+                "got: " + ex.getMessage());
+    }
+
+    @Test
+    public void testWriteAllowsManagedTable() {
+        // a normal (non-external, non-view) table must not be rejected (guards against over-rejection)
+        Assertions.assertDoesNotThrow(() -> MaxComputeTableHandle.checkOperationSupported(
+                false, false, "Writing", "default", "mc_managed_table"));
+    }
 }
