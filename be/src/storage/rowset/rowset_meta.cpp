@@ -26,6 +26,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/lru_cache.h"
 #include "cpp/sync_point.h"
 #include "exec/common/variant_util.h"
 #include "google/protobuf/util/message_differencer.h"
@@ -44,7 +45,6 @@
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_cache.h"
-#include "util/lru_cache.h"
 
 namespace doris {
 

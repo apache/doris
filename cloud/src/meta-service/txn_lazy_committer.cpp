@@ -161,6 +161,9 @@ static std::pair<MetaServiceCode, std::string> get_tablet_index(
     if (!is_versioned_read) {
         std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
         std::string tablet_idx_val;
+        if (get_tablet_idx_from_ms_cache(instance_id, tablet_id, tablet_idx)) {
+            return {code, msg};
+        }
         TxnErrorCode err = txn->get(tablet_idx_key, &tablet_idx_val, true);
         if (TxnErrorCode::TXN_OK != err) {
             code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
@@ -179,6 +182,7 @@ static std::pair<MetaServiceCode, std::string> get_tablet_index(
             msg = ss.str();
             return {code, msg};
         }
+        put_tablet_idx_to_ms_cache(instance_id, tablet_id, *tablet_idx);
     } else {
         TxnErrorCode err = meta_reader.get_tablet_index(txn, tablet_id, tablet_idx);
         if (err != TxnErrorCode::TXN_OK) {

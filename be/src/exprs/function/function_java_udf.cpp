@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
 #include "format/jni/jni_data_bridge.h"
 #include "jni.h"

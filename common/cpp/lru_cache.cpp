@@ -18,31 +18,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/lru_cache.h"
+#include "cpp/lru_cache.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <mutex>
 #include <new>
-#include <sstream>
-#include <string>
-
-#include "common/metrics/metrics.h"
-#include "util/time.h"
-
-using std::string;
-using std::stringstream;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_element_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage_ratio, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_miss_count, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_stampede_count, MetricUnit::OPERATIONS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_hit_ratio, MetricUnit::NOUNIT);
+namespace {
+
+int64_t unix_millis() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+            .count();
+}
+
+} // namespace
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
@@ -317,7 +310,7 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
         }
         e->refs++;
         ++_hit_count;
-        e->last_visit_time = UnixMillis();
+        e->last_visit_time = unix_millis();
     } else {
         ++_miss_count;
     }
@@ -476,7 +469,7 @@ bool LRUCache::_lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key
 }
 
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
-                                CachePriority priority) {
+                                CachePriority priority, CacheValueDeleter deleter) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
     auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
@@ -491,8 +484,9 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->in_cache = false;
     e->priority = priority;
     e->type = _type;
+    e->deleter = deleter;
     memcpy(e->key_data, key.data(), key.size());
-    e->last_visit_time = UnixMillis();
+    e->last_visit_time = unix_millis();
 
     LRUHandle* to_remove_head = nullptr;
     {
@@ -689,26 +683,6 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t capacity, LRUCa
         shards[s]->set_element_count_capacity(per_shard_element_count_capacity);
     }
     _shards = shards;
-
-    _entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            std::string("lru_cache:") + name, {{"name", name}});
-    _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
-    INT_GAUGE_METRIC_REGISTER(_entity, cache_capacity);
-    INT_GAUGE_METRIC_REGISTER(_entity, cache_usage);
-    INT_GAUGE_METRIC_REGISTER(_entity, cache_element_count);
-    DOUBLE_GAUGE_METRIC_REGISTER(_entity, cache_usage_ratio);
-    INT_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
-    INT_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
-    INT_COUNTER_METRIC_REGISTER(_entity, cache_stampede_count);
-    INT_COUNTER_METRIC_REGISTER(_entity, cache_miss_count);
-    DOUBLE_GAUGE_METRIC_REGISTER(_entity, cache_hit_ratio);
-
-    _hit_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
-    _hit_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>(
-            "doris_cache", _name + "_persecond", _hit_count_bvar.get(), 60));
-    _lookup_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
-    _lookup_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>(
-            "doris_cache", _name + "_persecond", _lookup_count_bvar.get(), 60));
 }
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
@@ -725,8 +699,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t capacity, LRUCa
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
-    _entity->deregister_hook(_name);
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+    _metrics_recorder.reset();
     if (_shards) {
         for (int s = 0; s < _num_shards; s++) {
             delete _shards[s];
@@ -754,9 +727,9 @@ size_t ShardedLRUCache::get_capacity() {
 }
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
-                                       CachePriority priority) {
+                                       CachePriority priority, CacheValueDeleter deleter) {
     const uint32_t hash = _hash_slice(key);
-    return _shards[_shard(hash)]->insert(key, hash, value, charge, priority);
+    return _shards[_shard(hash)]->insert(key, hash, value, charge, priority, deleter);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
@@ -824,41 +797,27 @@ size_t ShardedLRUCache::get_element_count() {
     return total_element_count;
 }
 
-void ShardedLRUCache::update_cache_metrics() const {
-    size_t capacity = 0;
-    size_t total_usage = 0;
-    size_t total_lookup_count = 0;
-    size_t total_hit_count = 0;
-    size_t total_element_count = 0;
-    size_t total_miss_count = 0;
-    size_t total_stampede_count = 0;
-
+ShardedLRUCache::MetricsSnapshot ShardedLRUCache::get_metrics_snapshot() const {
+    MetricsSnapshot snapshot;
     for (int i = 0; i < _num_shards; i++) {
-        capacity += _shards[i]->get_capacity();
-        total_usage += _shards[i]->get_usage();
-        total_lookup_count += _shards[i]->get_lookup_count();
-        total_hit_count += _shards[i]->get_hit_count();
-        total_element_count += _shards[i]->get_element_count();
-        total_miss_count += _shards[i]->get_miss_count();
-        total_stampede_count += _shards[i]->get_stampede_count();
+        snapshot.capacity += _shards[i]->get_capacity();
+        snapshot.usage += _shards[i]->get_usage();
+        snapshot.lookup_count += _shards[i]->get_lookup_count();
+        snapshot.hit_count += _shards[i]->get_hit_count();
+        snapshot.miss_count += _shards[i]->get_miss_count();
+        snapshot.stampede_count += _shards[i]->get_stampede_count();
+        snapshot.element_count += _shards[i]->get_element_count();
     }
+    return snapshot;
+}
 
-    cache_capacity->set_value(capacity);
-    cache_usage->set_value(total_usage);
-    cache_element_count->set_value(total_element_count);
-    cache_lookup_count->set_value(total_lookup_count);
-    cache_hit_count->set_value(total_hit_count);
-    cache_miss_count->set_value(total_miss_count);
-    cache_stampede_count->set_value(total_stampede_count);
-    cache_usage_ratio->set_value(
-            capacity == 0 ? 0 : (static_cast<double>(total_usage) / static_cast<double>(capacity)));
-    cache_hit_ratio->set_value(total_lookup_count == 0 ? 0
-                                                       : (static_cast<double>(total_hit_count) /
-                                                          static_cast<double>(total_lookup_count)));
+void ShardedLRUCache::set_metrics_recorder(std::unique_ptr<MetricsRecorder> metrics_recorder) {
+    std::lock_guard l(_mutex);
+    _metrics_recorder = std::move(metrics_recorder);
 }
 
 Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t charge,
-                                     CachePriority priority) {
+                                     CachePriority priority, CacheValueDeleter deleter) {
     size_t handle_size = sizeof(LRUHandle);
     auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
@@ -869,6 +828,7 @@ Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t ch
     e->refs = 1; // only one for the returned handle
     e->next = e->prev = nullptr;
     e->in_cache = false;
+    e->deleter = deleter;
     return reinterpret_cast<Cache::Handle*>(e);
 }
 

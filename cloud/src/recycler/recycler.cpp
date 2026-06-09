@@ -46,6 +46,7 @@
 #include <variant>
 
 #include "common/defer.h"
+#include "common/kv_cache.h"
 #include "common/stopwatch.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -441,6 +442,7 @@ void Recycler::check_recycle_tasks() {
 int Recycler::start(brpc::Server* server) {
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
     S3Environment::getInstance();
+    recycler_cache_manager();
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);
@@ -2417,19 +2419,22 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
 
     std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
     std::string tablet_idx_val;
-    err = txn->get(tablet_idx_key, &tablet_idx_val);
-    if (TxnErrorCode::TXN_OK != err) {
-        LOG(WARNING) << "failed to get tablet index, instance_id=" << instance_id
-                     << " tablet_id=" << tablet_id << " err=" << err
-                     << " key=" << hex(tablet_idx_key);
-        return false;
-    }
-
     TabletIndexPB tablet_idx_pb;
-    if (!tablet_idx_pb.ParseFromString(tablet_idx_val)) {
-        LOG(WARNING) << "failed to parse tablet_idx_pb, instance_id=" << instance_id
-                     << " tablet_id=" << tablet_id;
-        return false;
+    if (!get_tablet_idx_from_recycler_cache(instance_id, tablet_id, &tablet_idx_pb)) {
+        err = txn->get(tablet_idx_key, &tablet_idx_val);
+        if (TxnErrorCode::TXN_OK != err) {
+            LOG(WARNING) << "failed to get tablet index, instance_id=" << instance_id
+                         << " tablet_id=" << tablet_id << " err=" << err
+                         << " key=" << hex(tablet_idx_key);
+            return false;
+        }
+
+        if (!tablet_idx_pb.ParseFromString(tablet_idx_val)) {
+            LOG(WARNING) << "failed to parse tablet_idx_pb, instance_id=" << instance_id
+                         << " tablet_id=" << tablet_id;
+            return false;
+        }
+        put_tablet_idx_to_recycler_cache(instance_id, tablet_id, tablet_idx_pb);
     }
 
     if (!tablet_idx_pb.has_db_id()) {
@@ -3054,7 +3059,22 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         }
         for (auto& k : tablet_idx_keys) {
             txn->remove(k);
+            // Invalidate cache for removed tablet_idx_keys
+            TabletIndexCache* cache = recycler_cache_manager();
+            if (cache != nullptr) {
+                // Extract tablet_id from key: meta_tablet_idx_key({instance_id, tablet_id})
+                // The key format is known, we can parse tablet_id from it
+                std::string_view k1 = k;
+                k1.remove_prefix(1);
+                // 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                decode_key(&k1, &out);
+                DCHECK_EQ(out.size(), 4) << k1;
+                auto tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+                cache->invalidate(std::make_tuple(instance_id_, tablet_id));
+            }
         }
+
         for (auto& k : restore_job_keys) {
             txn->remove(k);
         }

@@ -24,6 +24,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "service/backend_options.h"

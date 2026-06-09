@@ -31,10 +31,10 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "cpp/lru_cache.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "storage/olap_common.h" // for rowset id
 #include "storage/segment/segment.h"
-#include "util/lru_cache.h"
 #include "util/time.h"
 
 namespace doris {

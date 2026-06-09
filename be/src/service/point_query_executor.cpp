@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
+#include "cpp/lru_cache.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -56,7 +57,6 @@
 #include "storage/utils.h"
 #include "util/defer_op.h"
 #include "util/jsonb/serialize.h"
-#include "util/lru_cache.h"
 #include "util/simd/bits.h"
 #include "util/thrift_util.h"
 

@@ -24,6 +24,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "core/value/vdatetime_value.h"
 #include "cpp/sync_point.h"
 #include "service/backend_options.h"

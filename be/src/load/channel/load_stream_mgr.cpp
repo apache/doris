@@ -19,6 +19,7 @@
 
 #include <brpc/stream.h>
 
+#include "cpp/lru_cache.h"
 #include "load/channel/load_channel.h"
 #include "load/channel/load_stream.h"
 #include "runtime/exec_env.h"
@@ -26,7 +27,6 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
-#include "util/lru_cache.h"
 #include "util/uid_util.h"
 
 namespace doris {

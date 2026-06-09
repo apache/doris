@@ -22,7 +22,6 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <bvar/bvar.h>
 #include <glog/logging.h>
 #include <gtest/gtest_prod.h>
 
@@ -32,14 +31,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <list>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
-
-#include "common/metrics/doris_metrics.h"
-#include "common/metrics/metrics.h"
-#include "runtime/memory/lru_cache_value_base.h"
 
 namespace doris {
 
@@ -145,6 +143,7 @@ private:
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
 using CachePrunePredicate = std::function<bool(const LRUHandle*)>;
+using CacheValueDeleter = void (*)(void*);
 // CacheValueTimeExtractor can extract timestamp
 // in cache value through the specified function,
 // such as last_visit_time in InvertedIndexSearcherCache::CacheValue
@@ -153,6 +152,11 @@ struct PrunedInfo {
     int64_t pruned_count = 0;
     int64_t pruned_size = 0;
 };
+
+template <typename T>
+void cache_value_deleter(void* value) {
+    delete static_cast<T*>(value);
+}
 
 class Cache {
 public:
@@ -179,7 +183,8 @@ public:
     //
     // Note: if is ShardedLRUCache, cache capacity = ShardedLRUCache_capacity / num_shards.
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           CachePriority priority = CachePriority::NORMAL) = 0;
+                           CachePriority priority = CachePriority::NORMAL,
+                           CacheValueDeleter deleter = nullptr) = 0;
 
     // If the cache has no mapping for "key", returns nullptr.
     //
@@ -254,7 +259,8 @@ struct LRUHandle {
     CachePriority priority = CachePriority::NORMAL;
     LRUCacheType type;
     int64_t last_visit_time; // Save the last visit time of this cache entry.
-    char key_data[1];        // Beginning of key
+    CacheValueDeleter deleter = nullptr;
+    char key_data[1]; // Beginning of key
     // Note! key_data must be at the end.
 
     CacheKey key() const {
@@ -268,8 +274,8 @@ struct LRUHandle {
     }
 
     void free() {
-        if (value != nullptr) { // value allows null pointer.
-            delete (LRUCacheValueBase*)value;
+        if (value != nullptr && deleter != nullptr) {
+            deleter(value);
         }
         ::free(this);
     }
@@ -345,7 +351,8 @@ public:
     // Like Cache methods, but with an extra "hash" parameter.
     // Must call release on the returned handle pointer.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL,
+                          CacheValueDeleter deleter = nullptr);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
@@ -415,9 +422,25 @@ private:
 
 class ShardedLRUCache : public Cache {
 public:
+    struct MetricsSnapshot {
+        size_t capacity = 0;
+        size_t usage = 0;
+        size_t lookup_count = 0;
+        size_t hit_count = 0;
+        size_t miss_count = 0;
+        size_t stampede_count = 0;
+        size_t element_count = 0;
+    };
+
+    class MetricsRecorder {
+    public:
+        virtual ~MetricsRecorder() = default;
+    };
+
     ~ShardedLRUCache() override;
     Handle* insert(const CacheKey& key, void* value, size_t charge,
-                   CachePriority priority = CachePriority::NORMAL) override;
+                   CachePriority priority = CachePriority::NORMAL,
+                   CacheValueDeleter deleter = nullptr) override;
     Handle* lookup(const CacheKey& key) override;
     void release(Handle* handle) override;
     void erase(const CacheKey& key) override;
@@ -430,10 +453,8 @@ public:
     size_t get_element_count() override;
     PrunedInfo set_capacity(size_t capacity) override;
     size_t get_capacity() override;
-
-private:
-    // LRUCache can only be created and managed with LRUCachePolicy.
-    friend class LRUCachePolicy;
+    MetricsSnapshot get_metrics_snapshot() const;
+    void set_metrics_recorder(std::unique_ptr<MetricsRecorder> metrics_recorder);
 
     explicit ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
                              uint32_t num_shards, uint32_t element_count_capacity, bool is_lru_k);
@@ -442,8 +463,6 @@ private:
                              CacheValueTimeExtractor cache_value_time_extractor,
                              bool cache_value_check_timestamp, uint32_t element_count_capacity,
                              bool is_lru_k);
-
-    void update_cache_metrics() const;
 
 private:
     static uint32_t _hash_slice(const CacheKey& s);
@@ -458,22 +477,7 @@ private:
     std::atomic<uint64_t> _last_id;
     std::mutex _mutex;
     size_t _capacity {0};
-
-    std::shared_ptr<MetricEntity> _entity;
-    IntGauge* cache_capacity = nullptr;
-    IntGauge* cache_usage = nullptr;
-    IntGauge* cache_element_count = nullptr;
-    DoubleGauge* cache_usage_ratio = nullptr;
-    IntCounter* cache_lookup_count = nullptr;
-    IntCounter* cache_hit_count = nullptr;
-    IntCounter* cache_miss_count = nullptr;
-    IntCounter* cache_stampede_count = nullptr;
-    DoubleGauge* cache_hit_ratio = nullptr;
-    // bvars
-    std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;
-    std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
+    std::unique_ptr<MetricsRecorder> _metrics_recorder;
 };
 
 // Compatible with ShardedLRUCache usage, but will not actually cache.
@@ -481,7 +485,8 @@ class DummyLRUCache : public Cache {
 public:
     // Must call release on the returned handle pointer.
     Handle* insert(const CacheKey& key, void* value, size_t charge,
-                   CachePriority priority = CachePriority::NORMAL) override;
+                   CachePriority priority = CachePriority::NORMAL,
+                   CacheValueDeleter deleter = nullptr) override;
     Handle* lookup(const CacheKey& key) override { return nullptr; };
     void release(Handle* handle) override;
     void erase(const CacheKey& key) override {};

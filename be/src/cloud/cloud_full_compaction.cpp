@@ -25,6 +25,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "cpp/sync_point.h"

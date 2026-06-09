@@ -28,9 +28,9 @@
 
 #include "core/allocator.h"
 #include "core/allocator_fwd.h"
+#include "cpp/lru_cache.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "util/lru_cache.h"
 #include "util/slice.h"
 
 namespace doris {

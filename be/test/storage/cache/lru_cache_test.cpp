@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/lru_cache.h"
+#include "cpp/lru_cache.h"
 
 #include <gen_cpp/Metrics_types.h>
 #include <gtest/gtest-message.h>
@@ -178,14 +178,24 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
                             CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
     auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
-    cache.release(cache.insert(key, hash, cache_value, value, priority));
+    cache.release(cache.insert(key, hash, cache_value, value, priority,
+                               cache_value_deleter<CacheTest::CacheValue>));
 }
 
 static void insert_number_LRUCache(LRUCache& cache, const CacheKey& key, int value, int charge,
                                    CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
     auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
-    cache.release(cache.insert(key, hash, cache_value, charge, priority));
+    cache.release(cache.insert(key, hash, cache_value, charge, priority,
+                               cache_value_deleter<CacheTest::CacheValue>));
+}
+
+static size_t lru_handle_usage(const CacheKey& key) {
+    return sizeof(LRUHandle) - 1 + key.size();
+}
+
+static size_t lru_entry_usage(const CacheKey& key, size_t charge) {
+    return lru_handle_usage(key) + charge;
 }
 
 // https://stackoverflow.com/questions/42756443/undefined-reference-with-gtest
@@ -302,40 +312,47 @@ TEST_F(CacheTest, Usage) {
     cache.set_capacity(1040);
 
     // The lru usage is handle_size + charge.
-    // handle_size = sizeof(handle) - 1 + key size = 96 - 1 + 3 = 98
     CacheKey key1("100");
+    const size_t usage1 = lru_entry_usage(key1, 100);
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(198, cache.get_usage()); // 100 + 98
+    ASSERT_EQ(usage1, cache.get_usage());
 
     CacheKey key2("200");
+    const size_t usage2 = lru_entry_usage(key2, 200);
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(496, cache.get_usage()); // 198 + 298(d), d = DURABLE
+    ASSERT_EQ(usage1 + usage2, cache.get_usage());
 
     CacheKey key3("300");
+    const size_t usage3 = lru_entry_usage(key3, 300);
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(894, cache.get_usage()); // 198 + 298(d) + 398
+    ASSERT_EQ(usage1 + usage2 + usage3, cache.get_usage());
 
     CacheKey key4("400");
+    const size_t usage4 = lru_entry_usage(key4, 400);
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(796, cache.get_usage()); // 298(d) + 498, evict 198 398
+    ASSERT_EQ(usage2 + usage4, cache.get_usage());
 
     CacheKey key5("500");
+    const size_t usage5 = lru_entry_usage(key5, 500);
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(896, cache.get_usage()); // 298(d) + 598, evict 498
+    ASSERT_EQ(usage2 + usage5, cache.get_usage());
 
     CacheKey key6("600");
+    const size_t usage6 = lru_entry_usage(key6, 600);
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(996, cache.get_usage()); // 298(d) + 698, evict 598
+    ASSERT_EQ(usage2 + usage6, cache.get_usage());
 
     CacheKey key7("950");
+    const size_t usage7 = lru_entry_usage(key7, 950);
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(
-            0,
-            cache.get_usage()); // evict 298 698, because 950 + 98 > 1040, data was freed when handle release.
+    ASSERT_EQ(0,
+              cache.get_usage()); // evict old entries, because usage7 exceeds cache capacity.
+    ASSERT_GT(usage7, cache.get_capacity());
 
     CacheKey key8("900");
+    const size_t usage8 = lru_entry_usage(key8, 900);
     insert_LRUCache(cache, key8, 900, CachePriority::NORMAL);
-    ASSERT_EQ(998, cache.get_usage()); // 900 + 98 < 1050
+    ASSERT_EQ(usage8, cache.get_usage());
 }
 
 TEST_F(CacheTest, UsageLRUK) {
@@ -343,60 +360,54 @@ TEST_F(CacheTest, UsageLRUK) {
     cache.set_capacity(1050);
 
     // The lru usage is handle_size + charge.
-    // handle_size = sizeof(handle) - 1 + key size = 96 - 1 + 3 = 98
     CacheKey key1("100");
+    const size_t usage1 = lru_entry_usage(key1, 100);
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(198, cache.get_usage()); // 100 + 98
+    ASSERT_EQ(usage1, cache.get_usage());
 
     CacheKey key2("200");
+    const size_t usage2 = lru_entry_usage(key2, 200);
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(496, cache.get_usage()); // 198 + 298(d), d = DURABLE
+    ASSERT_EQ(usage1 + usage2, cache.get_usage());
 
     CacheKey key3("300");
+    const size_t usage3 = lru_entry_usage(key3, 300);
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(894, cache.get_usage()); // 198 + 298(d) + 398
+    ASSERT_EQ(usage1 + usage2 + usage3, cache.get_usage());
 
     CacheKey key4("400");
+    const size_t usage4 = lru_entry_usage(key4, 400);
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    // Data cache is full, not insert, visits lru cache not exist key=498(400 + 98) and insert it.
-    ASSERT_EQ(894, cache.get_usage());
+    // Data cache is full, so the first insert only records the entry in the visits list.
+    ASSERT_EQ(usage1 + usage2 + usage3, cache.get_usage());
 
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    // Data cache 298(d) + 498, evict 198 398. visits lru cache exist key=498
-    // and erase from visits lru cache, insert to Data cache.
-    ASSERT_EQ(796, cache.get_usage());
+    // The second insert promotes the entry into data cache and evicts the normal entries.
+    ASSERT_EQ(usage2 + usage4, cache.get_usage());
 
     CacheKey key5("500");
+    const size_t usage5 = lru_entry_usage(key5, 500);
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    // Data cache is full, not insert, visits lru cache not exist key=598(500 + 98) and insert it.
-    ASSERT_EQ(796, cache.get_usage());
+    ASSERT_EQ(usage2 + usage4, cache.get_usage());
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    // Data cache is full, not insert, visits lru cache not exist key=698(600 + 98) and insert it,
-    // visits lru cache is full, evict key=598 from visits lru cache.
-    ASSERT_EQ(796, cache.get_usage());
+    ASSERT_EQ(usage2 + usage4, cache.get_usage());
 
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    // Data cache is full, not insert, visits lru cache not exist key=598 and insert it.
-    // visits lru cache is full, evict key=698 from visits lru cache.
-    ASSERT_EQ(796, cache.get_usage());
+    ASSERT_EQ(usage2 + usage4, cache.get_usage());
 
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    // Data cache 298(d) + 598, evict 498. visits lru cache exist key=598
-    // and erase from visits lru cache, insert to Data cache.
-    ASSERT_EQ(896, cache.get_usage());
+    ASSERT_EQ(usage2 + usage5, cache.get_usage());
 
     CacheKey key7("980");
+    const size_t usage7 = lru_entry_usage(key7, 980);
     insert_LRUCache(cache, key7, 980, CachePriority::DURABLE);
-    // Data cache is full, not insert, visits lru cache not exist key=1078(980 + 98)
-    // but 1078 > capacity(1050), not insert visits lru cache.
-    ASSERT_EQ(896, cache.get_usage());
+    ASSERT_EQ(usage2 + usage5, cache.get_usage());
+    ASSERT_GT(usage7, cache.get_capacity());
 
     insert_LRUCache(cache, key7, 980, CachePriority::DURABLE);
-    // Ssame as above, data cache is full, not insert, visits lru cache not exist key=1078(980 + 98)
-    // but 1078 > capacity(1050), not insert visits lru cache.
-    ASSERT_EQ(896, cache.get_usage());
+    ASSERT_EQ(usage2 + usage5, cache.get_usage());
 }
 
 TEST_F(CacheTest, Prune) {

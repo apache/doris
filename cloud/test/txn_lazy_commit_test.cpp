@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +58,12 @@ void repair_tablet_index(
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         bool is_versioned_write);
 };
+
+template <typename Predicate>
+void wait_for_condition(std::condition_variable& cv, std::unique_lock<std::mutex>& lock,
+                        Predicate predicate, const char* description) {
+    ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(30), std::move(predicate))) << description;
+}
 
 static std::shared_ptr<TxnKv> txn_kv;
 static doris::cloud::RecyclerThreadPoolGroup thread_group;
@@ -126,6 +133,7 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(std::shared_ptr<TxnKv> txn_kv
     EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->remove("\x00", "\xfe"); // This is dangerous if the fdb is not correctly set
     EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    clear_tablet_idx_ms_cache();
 
     auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
                                 : std::make_shared<ResourceManager>(txn_kv);
@@ -1423,6 +1431,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     std::atomic<int32_t> commit_txn_eventually_begin_count = {0};
     std::atomic<int32_t> last_pending_txn_id_count = {0};
     std::atomic<int32_t> txn_lazy_committer_wait_count = {0};
+    std::atomic<int32_t> commit_call_exit_count = {0};
     std::atomic<int32_t> finish_count = {0};
 
     auto sp = SyncPoint::get_instance();
@@ -1436,7 +1445,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
         }
         if (commit_txn_eventually_begin_count == 2) {
             {
-                go_cv.wait(_lock, [&] { return txn_lazy_committer_wait_count == 1; });
+                wait_for_condition(
+                        go_cv, _lock, [&] { return txn_lazy_committer_wait_count == 1; },
+                        "timed out waiting for the first lazy-commit waiter");
             }
         }
     });
@@ -1455,7 +1466,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
         txn_lazy_committer_wait_count++;
         if (txn_lazy_committer_wait_count == 1) {
             go_cv.notify_all();
-            go_cv.wait(_lock, [&] { return finish_count == 1; });
+            wait_for_condition(
+                    go_cv, _lock, [&] { return commit_call_exit_count == 1; },
+                    "timed out waiting for the peer commit_txn call to exit");
         }
     });
 
@@ -1491,9 +1504,15 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     int64_t txn_id1 = 0;
     int64_t txn1_table_version = 0;
     std::thread thread1([&] {
+        DORIS_CLOUD_DEFER {
+            std::unique_lock<std::mutex> _lock(go_mutex);
+            commit_call_exit_count++;
+            go_cv.notify_all();
+        };
         {
             std::unique_lock<std::mutex> _lock(go_mutex);
-            go_cv.wait(_lock, [&] { return go; });
+            wait_for_condition(
+                    go_cv, _lock, [&] { return go; }, "timed out waiting to start thread1");
         }
         {
             brpc::Controller cntl;
@@ -1535,7 +1554,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
-            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
             ASSERT_EQ(res.table_stats().size(), 1);
             txn1_table_version = res.table_stats()[0].table_version();
@@ -1545,9 +1564,15 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     int64_t txn_id2 = 0;
     int64_t txn2_table_version = 0;
     std::thread thread2([&] {
+        DORIS_CLOUD_DEFER {
+            std::unique_lock<std::mutex> _lock(go_mutex);
+            commit_call_exit_count++;
+            go_cv.notify_all();
+        };
         {
             std::unique_lock<std::mutex> _lock(go_mutex);
-            go_cv.wait(_lock, [&] { return go; });
+            wait_for_condition(
+                    go_cv, _lock, [&] { return go; }, "timed out waiting to start thread2");
         }
         {
             brpc::Controller cntl;
@@ -1589,7 +1614,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
-            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
             ASSERT_EQ(res.table_stats().size(), 1);
             txn2_table_version = res.table_stats()[0].table_version();

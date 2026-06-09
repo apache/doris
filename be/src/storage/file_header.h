@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "cpp/lru_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -31,7 +32,6 @@
 #include "storage/olap_define.h"
 #include "storage/utils.h"
 #include "util/debug_util.h"
-#include "util/lru_cache.h"
 
 namespace doris {
 

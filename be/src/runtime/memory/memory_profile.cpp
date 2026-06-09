@@ -18,6 +18,7 @@
 #include "runtime/memory/memory_profile.h"
 
 #include "bvar/reducer.h"
+#include "common/metrics/doris_metrics.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/jemalloc_control.h"

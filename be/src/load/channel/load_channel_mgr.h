@@ -30,13 +30,13 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "cpp/lru_cache.h"
 #include "load/channel/load_channel.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
-#include "util/lru_cache.h"
 #include "util/uid_util.h"
 
 namespace doris {

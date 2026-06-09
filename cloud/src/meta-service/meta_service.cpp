@@ -52,6 +52,7 @@
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
+#include "common/kv_cache.h"
 #include "common/logging.h"
 #include "common/stats.h"
 #include "common/stopwatch.h"
@@ -77,6 +78,20 @@
 using namespace std::chrono;
 
 namespace doris::cloud {
+
+namespace {
+
+TabletIndexCache* ms_cache_manager() {
+    if (!config::enable_tablet_index_cache) {
+        return nullptr;
+    }
+    static TabletIndexCache cache(config::ms_tablet_index_cache_capacity,
+                                  config::tablet_index_cache_ttl_seconds,
+                                  "meta_service_tablet_index_cache");
+    return &cache;
+}
+
+} // namespace
 
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
@@ -189,8 +204,42 @@ bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t
     return false;
 }
 
+bool get_tablet_idx_from_ms_cache(std::string_view instance_id, int64_t tablet_id,
+                                  TabletIndexPB* tablet_idx) {
+    TabletIndexCache* cache = ms_cache_manager();
+    if (cache == nullptr) {
+        return false;
+    }
+    auto cache_key = std::make_tuple(std::string(instance_id), tablet_id);
+    return cache->get(cache_key, tablet_idx);
+}
+
+void put_tablet_idx_to_ms_cache(std::string_view instance_id, int64_t tablet_id,
+                                const TabletIndexPB& tablet_idx) {
+    TabletIndexCache* cache = ms_cache_manager();
+    if (cache == nullptr || !tablet_idx.has_db_id()) {
+        return;
+    }
+    auto cache_key = std::make_tuple(std::string(instance_id), tablet_id);
+    cache->put(cache_key, tablet_idx);
+}
+
+void clear_tablet_idx_ms_cache() {
+    TabletIndexCache* cache = ms_cache_manager();
+    if (cache == nullptr) {
+        return;
+    }
+    cache->clear();
+}
+
 void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
                     const std::string& instance_id, int64_t tablet_id, TabletIndexPB& tablet_idx) {
+    // Cache lookup
+    if (get_tablet_idx_from_ms_cache(instance_id, tablet_id, &tablet_idx)) {
+        return;
+    }
+
+    // FDB read
     std::string key, val;
     meta_tablet_idx_key({instance_id, tablet_id}, &key);
     TxnErrorCode err = txn->get(key, &val);
@@ -216,6 +265,9 @@ void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
                      << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);
         return;
     }
+
+    // Cache put
+    put_tablet_idx_to_ms_cache(instance_id, tablet_id, tablet_idx);
 }
 
 void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
