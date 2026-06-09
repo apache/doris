@@ -256,69 +256,66 @@ Status ParquetScanScheduler::open_next_row_group(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, bool* has_row_group) {
     *has_row_group = false;
-    while (_next_row_group_plan_idx < _row_group_plans.size()) {
-        const RowGroupReadPlan& row_group_plan = _row_group_plans[_next_row_group_plan_idx++];
-        const int row_group_idx = row_group_plan.row_group_id;
-        try {
-            _current_row_group = file_context.file_reader->RowGroup(row_group_idx);
-        } catch (const ::parquet::ParquetException& e) {
-            return Status::Corruption("Failed to open parquet row group {}: {}", row_group_idx,
-                                      e.what());
-        } catch (const std::exception& e) {
-            return Status::InternalError("Failed to open parquet row group {}: {}", row_group_idx,
-                                         e.what());
-        }
-
-        auto row_group_metadata = file_context.metadata->RowGroup(row_group_idx);
-        DORIS_CHECK(row_group_metadata != nullptr);
-        _current_row_group_rows = row_group_metadata->num_rows();
-        DORIS_CHECK(_current_row_group_rows == row_group_plan.row_group_rows);
-        DORIS_CHECK(_current_row_group_rows > 0);
-        DORIS_CHECK(!row_group_plan.selected_ranges.empty());
-        _current_row_group_first_row = row_group_plan.first_file_row;
-        _current_row_group_rows_read = 0;
-        _current_selected_ranges = row_group_plan.selected_ranges;
-        _current_range_idx = 0;
-        _current_range_rows_read = 0;
-        _current_predicate_columns.clear();
-        _current_non_predicate_columns.clear();
-
-        ParquetColumnReaderFactory column_reader_factory(_current_row_group,
-                                                         file_context.schema->num_columns());
-        for (const auto& col : request.predicate_columns) {
-            const auto local_id = col.field_id();
-            if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
-                _current_predicate_columns[local_id] =
-                        column_reader_factory.create_row_position_column_reader(
-                                _current_row_group_first_row);
-                continue;
-            }
-
-            DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
-            const auto& column_schema = file_schema[local_id];
-            DORIS_CHECK(column_schema != nullptr);
-            std::unique_ptr<ParquetColumnReader> column_reader;
-            RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
-            _current_predicate_columns[local_id] = std::move(column_reader);
-        }
-        for (const auto& col : request.non_predicate_columns) {
-            const auto local_id = col.field_id();
-            if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
-                _current_non_predicate_columns[local_id] =
-                        column_reader_factory.create_row_position_column_reader(
-                                _current_row_group_first_row);
-                continue;
-            }
-            DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
-            const auto& column_schema = file_schema[local_id];
-            DORIS_CHECK(column_schema != nullptr);
-            std::unique_ptr<ParquetColumnReader> column_reader;
-            RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
-            _current_non_predicate_columns[local_id] = std::move(column_reader);
-        }
-        *has_row_group = true;
-        break;
+    const RowGroupReadPlan& row_group_plan = _row_group_plans[_next_row_group_plan_idx++];
+    const int row_group_idx = row_group_plan.row_group_id;
+    try {
+        _current_row_group = file_context.file_reader->RowGroup(row_group_idx);
+    } catch (const ::parquet::ParquetException& e) {
+        return Status::Corruption("Failed to open parquet row group {}: {}", row_group_idx,
+                                  e.what());
+    } catch (const std::exception& e) {
+        return Status::InternalError("Failed to open parquet row group {}: {}", row_group_idx,
+                                     e.what());
     }
+
+    auto row_group_metadata = file_context.metadata->RowGroup(row_group_idx);
+    DORIS_CHECK(row_group_metadata != nullptr);
+    _current_row_group_rows = row_group_metadata->num_rows();
+    DORIS_CHECK(_current_row_group_rows == row_group_plan.row_group_rows);
+    DORIS_CHECK(_current_row_group_rows > 0);
+    DORIS_CHECK(!row_group_plan.selected_ranges.empty());
+    _current_row_group_first_row = row_group_plan.first_file_row;
+    _current_row_group_rows_read = 0;
+    _current_selected_ranges = row_group_plan.selected_ranges;
+    _current_range_idx = 0;
+    _current_range_rows_read = 0;
+    _current_predicate_columns.clear();
+    _current_non_predicate_columns.clear();
+
+    ParquetColumnReaderFactory column_reader_factory(_current_row_group,
+                                                     file_context.schema->num_columns());
+    for (const auto& col : request.predicate_columns) {
+        const auto local_id = col.field_id();
+        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+            _current_predicate_columns[local_id] =
+                    column_reader_factory.create_row_position_column_reader(
+                            _current_row_group_first_row);
+            continue;
+        }
+
+        DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
+        const auto& column_schema = file_schema[local_id];
+        DORIS_CHECK(column_schema != nullptr);
+        std::unique_ptr<ParquetColumnReader> column_reader;
+        RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
+        _current_predicate_columns[local_id] = std::move(column_reader);
+    }
+    for (const auto& col : request.non_predicate_columns) {
+        const auto local_id = col.field_id();
+        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+            _current_non_predicate_columns[local_id] =
+                    column_reader_factory.create_row_position_column_reader(
+                            _current_row_group_first_row);
+            continue;
+        }
+        DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
+        const auto& column_schema = file_schema[local_id];
+        DORIS_CHECK(column_schema != nullptr);
+        std::unique_ptr<ParquetColumnReader> column_reader;
+        RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
+        _current_non_predicate_columns[local_id] = std::move(column_reader);
+    }
+    *has_row_group = true;
     return Status::OK();
 }
 
@@ -395,26 +392,31 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
         auto position_it = request.local_positions.find(format::LocalColumnId(fid));
         DORIS_CHECK(position_it != request.local_positions.end());
         const auto block_position = position_it->second.value();
-        auto col = column_reader->type()->create_column();
+        auto column = file_block->get_by_position(block_position).column->assert_mutable();
+        DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
+                  column_reader->type()->get_primitive_type())
+                << type_to_string(
+                           file_block->get_by_position(block_position).type->get_primitive_type())
+                << " " << type_to_string(column_reader->type()->get_primitive_type()) << " "
+                << column_reader->name() << " " << fid << " " << block_position;
         if (need_filter_output) {
-            [[maybe_unused]] auto old_size = col->size();
-            RETURN_IF_ERROR(column_reader->select(selection, selected_rows, batch_rows, col));
-            if (col->size() != old_size + selected_rows) {
+            [[maybe_unused]] auto old_size = column->size();
+            RETURN_IF_ERROR(column_reader->select(selection, selected_rows, batch_rows, column));
+            if (column->size() != old_size + selected_rows) {
                 return Status::Corruption(
                         "Parquet selected output column {} returned {} rows, expected {} rows",
-                        column_reader->name(), col->size(), old_size + selected_rows);
+                        column_reader->name(), column->size(), old_size + selected_rows);
             }
         } else {
             int64_t column_rows = 0;
-            RETURN_IF_ERROR(column_reader->read(batch_rows, col, &column_rows));
+            RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
             if (column_rows != batch_rows) {
                 return Status::Corruption(
                         "Parquet output column {} returned {} rows, expected {} rows",
                         column_reader->name(), column_rows, batch_rows);
             }
         }
-        file_block->get_by_position(block_position) = {std::move(col), column_reader->type(),
-                                                       column_reader->name()};
+        file_block->replace_by_position(block_position, std::move(column));
     }
     *rows = static_cast<size_t>(selected_rows);
     return Status::OK();
@@ -437,6 +439,7 @@ Status ParquetScanScheduler::read_next_batch(
         }
 
         if (_current_range_idx >= _current_selected_ranges.size()) {
+            // Current row group finished, try next row group.
             reset_current_row_group();
             continue;
         }
@@ -447,12 +450,14 @@ Status ParquetScanScheduler::read_next_batch(
         DORIS_CHECK(current_range.start + current_range.length <= _current_row_group_rows);
 
         if (_current_row_group_rows_read < current_range.start) {
+            // Skip filtered rows according to row group level pruning.
             RETURN_IF_ERROR(skip_current_row_group_rows(current_range.start -
                                                         _current_row_group_rows_read));
         }
         DORIS_CHECK(_current_row_group_rows_read == current_range.start + _current_range_rows_read);
         const int64_t remaining_rows = current_range.length - _current_range_rows_read;
         if (remaining_rows <= 0) {
+            // Current range finished, try next range in the same row group.
             ++_current_range_idx;
             _current_range_rows_read = 0;
             continue;
