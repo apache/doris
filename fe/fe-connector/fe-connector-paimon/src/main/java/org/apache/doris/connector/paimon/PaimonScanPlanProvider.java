@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.FileStoreTable;
@@ -67,6 +68,22 @@ import java.util.stream.Collectors;
  *   <li><b>COUNT pushdown</b>: When the query is COUNT(*) and the split has
  *       pre-computed merged row count.</li>
  * </ol>
+ *
+ * <p><b>Partition pruning (P5-T09): pure predicate pushdown.</b> Only the 4-arg
+ * {@link #planScan} is overridden; the engine's 6-arg {@code planScan(..., requiredPartitions)}
+ * (the Nereids-pruned partition set) is intentionally NOT overridden. Paimon prunes partitions
+ * <em>and</em> data files internally: the Doris filter is converted by
+ * {@link PaimonPredicateConverter} and pushed via {@code ReadBuilder.withFilter}, and the Paimon
+ * SDK's {@code newScan().plan().splits()} eliminates non-matching partitions/files from those
+ * predicates. Partition columns are ordinary columns in Paimon's {@code RowType}, so a partition
+ * predicate is just another pushed predicate. This differs from MaxCompute (whose ODPS read
+ * session needs explicit {@code PartitionSpec}s and therefore consumes {@code requiredPartitions});
+ * for Paimon the engine set would be redundant with the predicate it already pushes. The SPI
+ * default chain (6-arg &rarr; 5-arg &rarr; 4-arg) routes correctly with {@code requiredPartitions}
+ * dropped. Consequence: FE EXPLAIN shows {@code partition=0/0} (no engine-level partition count)
+ * because the FE currently treats Paimon tables as non-partitioned; that is a known display gap
+ * tracked with the {@code partition_columns} wiring deferred to a later batch (B5), and does not
+ * affect read-row correctness.
  */
 public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -79,9 +96,35 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             new TypeReference<Map<String, String>>() {};
 
     private final Map<String, String> properties;
+    private final PaimonCatalogOps catalogOps;
 
-    public PaimonScanPlanProvider(Map<String, String> properties) {
+    public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps) {
         this.properties = properties;
+        this.catalogOps = catalogOps;
+    }
+
+    /**
+     * Returns the handle's transient Paimon {@link Table}, reloading it from the catalog seam
+     * when the transient reference is null (e.g. after a serialization round-trip across the
+     * FE/BE boundary or plan reuse). Byte-identical to the reload fallback in
+     * {@link PaimonConnectorMetadata#getColumnHandles}. Package-private for direct unit testing.
+     *
+     * <p>NOTE: the reloaded Table may come from a different {@link org.apache.paimon.catalog.Catalog}
+     * instance than the one that produced the handle. That is acceptable for this fallback safety
+     * net (it is not snapshot-consistent with the handle's originating catalog).
+     */
+    Table resolveTable(PaimonTableHandle paimonHandle) {
+        Table table = paimonHandle.getPaimonTable();
+        if (table == null) {
+            Identifier id = Identifier.create(
+                    paimonHandle.getDatabaseName(), paimonHandle.getTableName());
+            try {
+                table = catalogOps.getTable(id);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to load Paimon table: " + id, e);
+            }
+        }
+        return table;
     }
 
     @Override
@@ -92,7 +135,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
-        Table table = paimonHandle.getPaimonTable();
+        Table table = resolveTable(paimonHandle);
 
         // Build predicates from filter expression
         RowType rowType = table.rowType();
@@ -201,7 +244,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
-        Table table = paimonHandle.getPaimonTable();
+        Table table = resolveTable(paimonHandle);
 
         Map<String, String> props = new LinkedHashMap<>();
 

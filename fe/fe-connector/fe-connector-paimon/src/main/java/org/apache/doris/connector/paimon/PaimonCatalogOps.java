@@ -20,12 +20,15 @@ package org.apache.doris.connector.paimon;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.partition.Partition;
+import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.Table;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * Injection seam over the remote Paimon {@link Catalog} read calls.
+ * Injection seam over the remote Paimon {@link Catalog} calls.
  *
  * <p>The default {@link CatalogBackedPaimonCatalogOps} simply delegates to a real
  * {@code Catalog}, which requires a live remote catalog (filesystem / HMS / DLF / REST /
@@ -34,7 +37,11 @@ import java.util.List;
  * recording fake (no Mockito) — mirroring the maxcompute connector's
  * {@link org.apache.doris.connector.maxcompute.McStructureHelper McStructureHelper} pattern.
  *
- * <p>B0 scope is strictly read-only; later batches grow this seam with DDL methods.
+ * <p>The read methods landed in B0. B3 added the four DDL methods
+ * ({@link #createDatabase}, {@link #dropDatabase}, {@link #createTable}, {@link #dropTable}),
+ * whose signatures (and checked exceptions) mirror the real Paimon {@code Catalog} exactly.
+ * Existence is probed via the existing {@link #getTable} / {@link #getDatabase} read methods
+ * (plus the caught not-exist exceptions); the seam intentionally has no separate probe methods.
  */
 public interface PaimonCatalogOps {
 
@@ -45,6 +52,20 @@ public interface PaimonCatalogOps {
     List<String> listTables(String databaseName) throws Catalog.DatabaseNotExistException;
 
     Table getTable(Identifier identifier) throws Catalog.TableNotExistException;
+
+    List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException;
+
+    void createDatabase(String name, boolean ignoreIfExists, Map<String, String> properties)
+            throws Catalog.DatabaseAlreadyExistException;
+
+    void dropDatabase(String name, boolean ignoreIfNotExists, boolean cascade)
+            throws Catalog.DatabaseNotExistException, Catalog.DatabaseNotEmptyException;
+
+    void createTable(Identifier identifier, Schema schema, boolean ignoreIfExists)
+            throws Catalog.TableAlreadyExistException, Catalog.DatabaseNotExistException;
+
+    void dropTable(Identifier identifier, boolean ignoreIfNotExists)
+            throws Catalog.TableNotExistException;
 
     void close() throws Exception;
 
@@ -77,6 +98,35 @@ public interface PaimonCatalogOps {
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
             return catalog.getTable(identifier);
+        }
+
+        @Override
+        public List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException {
+            return catalog.listPartitions(identifier);
+        }
+
+        @Override
+        public void createDatabase(String name, boolean ignoreIfExists, Map<String, String> properties)
+                throws Catalog.DatabaseAlreadyExistException {
+            catalog.createDatabase(name, ignoreIfExists, properties);
+        }
+
+        @Override
+        public void dropDatabase(String name, boolean ignoreIfNotExists, boolean cascade)
+                throws Catalog.DatabaseNotExistException, Catalog.DatabaseNotEmptyException {
+            catalog.dropDatabase(name, ignoreIfNotExists, cascade);
+        }
+
+        @Override
+        public void createTable(Identifier identifier, Schema schema, boolean ignoreIfExists)
+                throws Catalog.TableAlreadyExistException, Catalog.DatabaseNotExistException {
+            catalog.createTable(identifier, schema, ignoreIfExists);
+        }
+
+        @Override
+        public void dropTable(Identifier identifier, boolean ignoreIfNotExists)
+                throws Catalog.TableNotExistException {
+            catalog.dropTable(identifier, ignoreIfNotExists);
         }
 
         @Override

@@ -43,7 +43,8 @@ import java.util.Optional;
 public class PaimonConnectorMetadataTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap());
+        // Read-path tests ignore the context; a default RecordingConnectorContext is a no-op wrapper.
+        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
     }
 
     private static RowType rowType(String... columnNames) {
@@ -206,5 +207,23 @@ public class PaimonConnectorMetadataTest {
         Assertions.assertEquals(Arrays.asList("id", "name"), new java.util.ArrayList<>(handles.keySet()));
         Assertions.assertTrue(ops.log.isEmpty(),
                 "with a present transient table, no remote getTable reload must happen");
+    }
+
+    @Test
+    public void disablesCastPredicatePushdown() {
+        PaimonConnectorMetadata metadata =
+                new PaimonConnectorMetadata(null, Collections.emptyMap(), new RecordingConnectorContext());
+
+        // WHY: the shared converter unwraps CAST shells, so if this returned true (the SPI
+        // default), a predicate like CAST(str_col AS INT)=5 would be pushed to Paimon as
+        // str_col="5" and used for file/partition pruning, silently dropping rows like "05"/" 5"
+        // at the source (BE re-eval cannot recover source-dropped rows). Returning false keeps
+        // CAST conjuncts BE-only, mirroring MaxCompute/Jdbc. MUTATION: removing the override (or
+        // flipping it to true) reverts to the default true -> red. The getter touches no instance
+        // field, so a null ops / null session keeps this offline.
+        Assertions.assertFalse(metadata.supportsCastPredicatePushdown(null),
+                "Paimon must disable CAST-predicate pushdown: the converter unwraps CAST shells "
+                        + "and pushing the stripped predicate under-matches at the source, "
+                        + "silently dropping rows BE re-eval cannot recover");
     }
 }

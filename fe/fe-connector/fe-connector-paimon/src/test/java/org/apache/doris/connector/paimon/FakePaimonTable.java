@@ -32,6 +32,7 @@ import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.SimpleFileReader;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,12 +40,17 @@ import java.util.Optional;
 /**
  * Minimal offline {@link Table} double for unit tests. Only the metadata read calls that
  * {@link PaimonConnectorMetadata} actually exercises — {@link #rowType()},
- * {@link #partitionKeys()}, {@link #primaryKeys()} — return controlled values; every other
- * method throws {@link UnsupportedOperationException}.
+ * {@link #partitionKeys()}, {@link #primaryKeys()}, {@link #options()} — return controlled
+ * values; every other method throws {@link UnsupportedOperationException}.
  *
  * <p>Throwing on the rest is deliberate: it documents that the metadata read path must touch
  * nothing else, and a future change that starts depending on (say) {@code newReadBuilder()} in
  * the read-only metadata path would blow up loudly in the test instead of silently passing.
+ *
+ * <p>P5-T08 promoted {@link #options()} out of the throwing set: the partition-listing path
+ * reads the {@code partition.legacy-name} option, so {@code options()} now returns a
+ * configurable map (default empty, settable via {@link #setOptions(Map)}). Every other method
+ * keeps the fail-loud contract.
  */
 final class FakePaimonTable implements Table {
 
@@ -52,6 +58,7 @@ final class FakePaimonTable implements Table {
     private final RowType rowType;
     private final List<String> partitionKeys;
     private final List<String> primaryKeys;
+    private Map<String, String> options = Collections.emptyMap();
 
     FakePaimonTable(String name, RowType rowType,
             List<String> partitionKeys, List<String> primaryKeys) {
@@ -59,6 +66,11 @@ final class FakePaimonTable implements Table {
         this.rowType = rowType;
         this.partitionKeys = partitionKeys;
         this.primaryKeys = primaryKeys;
+    }
+
+    /** Configures the value returned by {@link #options()}. */
+    void setOptions(Map<String, String> options) {
+        this.options = options;
     }
 
     @Override
@@ -85,7 +97,7 @@ final class FakePaimonTable implements Table {
 
     @Override
     public Map<String, String> options() {
-        throw new UnsupportedOperationException();
+        return options;
     }
 
     @Override

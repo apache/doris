@@ -7,7 +7,7 @@
 
 ## 元信息
 
-- **状态**：🟢 进行中（**B1 已完成 2026-06-09**：T03/T04/T05 flavor 装配，用户签 all-5-flavors，连接器 43/0/0/1 绿、checkstyle 0、import-gate 0、final holistic review=READY；下一批 = B2 normal-read。B0 见阶段日志）
+- **状态**：🟢 进行中（**B3 已完成 2026-06-10**：T11-T15 DDL metadata，连接器 96/0/0/1 绿、checkstyle 0、import-gate 0、**无 fe-core/SPI/api 改动**、3-lens final holistic review=全 READY；D7 签字（authenticator=legacy-parity wrap each DDL call）。下一批 = B4 sys-tables E7 + MVCC E5（gated on B2+B3 全完，现满足）。B0/B1/B2 见阶段日志）
 - **启动日期**：2026-06-09（recon+设计）
 - **目标完成**：TBD（估时 ~5-6 周，含 D2-A 的 MTMV/MVCC 桥）
 - **阻塞**：无（D1=A / D2=A 已签字）；分批实现按 B0→B9 启动
@@ -88,16 +88,16 @@ Master plan [§3.6](../00-connector-migration-master-plan.md)；策略 = full ad
 | P5-T03 | `PaimonConnector.createCatalog` flavor 装配（switch on `paimon.catalog.type`→paimon `metastore` opt：warehouse/options/重建 Hadoop·HiveConf/**authenticator=`ConnectorContext.executeAuthenticated`**；全 5 flavor）| B1 | C | ✅ | 新 `PaimonCatalogFactory`（纯 buildCatalogOptions/buildHadoopConfiguration/buildHmsHiveConf/buildDlfHiveConf/requireOssStorageForDlf）；线程 ConnectorContext；DriverShim 经 getEnvironment 替 JdbcResource；hms/dlf live-e2e 门见下 |
 | P5-T04 | 拷 HMS/REST/DLF/JDBC + credential/storage 属性键入 `PaimonConnectorProperties`（禁 import fe-core）| B1 | C | ✅ | 全 flavor key 常量，多别名 `String[]` |
 | P5-T05 | 扩 `PaimonConnectorProvider.validateProperties`（flavor 合法性 + 每-flavor 必需属性，`IllegalArgumentException` fail-fast）| B1 | C | ✅ | → `PaimonCatalogFactory.validate`；rest 同样必需 warehouse（legacy parity，纠偏 recon）|
-| P5-T06 | 修 `PaimonTableHandle` transient-Table **reload fallback**（transient null 时由 `catalog.getTable(Identifier)` 重建）；`PaimonScanPlanProvider:95` 调用 | B2 | C | ⏳ | **BLOCKER** |
-| P5-T07 | `PaimonPredicateConverter` session-TZ 化（读 `getTimeZone()` 惰性解析+降级，替 `:284` 固定 UTC）；不可转降级空；`supportsCastPredicatePushdown()=false`；保 FLOAT/CHAR 不下推 | B2 | C | ⏳ | [[catalog-spi-connector-session-tz-gotcha]] |
-| P5-T08 | 实现 `PaimonConnectorMetadata.listPartitionNames/listPartitions/listPartitionValues`（填 `ConnectorPartitionInfo` 含 lastModifiedMillis=`Partition.lastFileCreationTime()`，partitionName=最终 legacy-name 解析后显示名）+ `getProperties`（现 stub `:154`）| B2 | C | ⏳ | 喂 `getNameToPartitionItems:246` 裁剪 + MTMV |
-| P5-T09 | override 6-arg `planScan(...requiredPartitions)` 让引擎分区裁剪生效（`PluginDrivenScanNode:474`），OR 文档化纯谓词裁剪 + 测 | B2 | C | ⏳ | 现只 override 4-arg |
-| P5-T10 | 连接器内 cache 已解析 Table+schema（替 `PaimonExternalMetaCache`）；核 REFRESH CATALOG 经 `PluginDrivenExternalCatalog` 销毁 connector（`:530-534`）是否够，否则提 `invalidateTable` SPI；核 REFRESH TABLE seam | B2 | C | ⏳ | 见开放问题 |
-| P5-T11 | `PaimonTypeMapping` 加 Doris→paimon 方向（吃 ConnectorType；保留 legacy gap：无 TINYINT/SMALLINT/LARGEINT/TIME、char→VarChar(MAX)、DATETIME→plain Timestamp）| B3 | C | ⏳ | `DorisToPaimonTypeVisitor:81-108` |
-| P5-T12 | `PaimonSchemaBuilder`（ConnectorCreateTableRequest→paimon Schema：primary-key/comment/location→CoreOptions.PATH、partitionKeys from IDENTITY spec；bucket 经 options passthrough）| B3 | C | ⏳ | DISTRIBUTE BY 禁(`CreateTableInfo:793`) |
-| P5-T13 | 实现 `createTable`/`dropTable`（远端 + per-flavor authenticator；保留 latent remote-vs-local 名 bug 不修）| B3 | C | ⏳ | `PluginDrivenExternalCatalog` 已 override FE 侧 |
-| P5-T14 | 实现 `supportsCreateDatabase=true`+`createDatabase`（HMS-only-props gate 读 `session.getCatalogProperties()`）+`dropDatabase(force)` enumerate-loop | B3 | C | ⏳ | MC parity `:466/478` |
-| P5-T15 | DDL 离线 UT（createDb gate / dropDb force 级联 / createTable schema / IF NOT EXISTS / type gap）| B3 | T | ⏳ | |
+| P5-T06 | 修 transient-Table **reload fallback**：`PaimonScanPlanProvider` 加 `catalogOps` 注入 + 包私 `resolveTable`（transient null→`catalogOps.getTable(Identifier)` 重建），planScan + getScanNodeProperties 两 site 都护 | B2 | C | ✅ | **BLOCKER**；镜像 `getColumnHandles:160-171` fallback；2 直测 `resolveTable`（FakePaimonTable.newReadBuilder 抛故不能端到端跑 planScan）|
+| P5-T07 | `PaimonPredicateConverter` **parity-correct TZ**（NTZ 保 UTC、LTZ 不下推、不可转降级空、保 FLOAT/CHAR 不下推）+ `PaimonConnectorMetadata.supportsCastPredicatePushdown()=false` | B2 | C | ✅ | **D4：不 session-TZ**（纠偏 [[catalog-spi-connector-session-tz-gotcha]] 对 paimon 的误用；legacy 用固定 GMT/UTC）|
+| P5-T08 | 实现 `PaimonConnectorMetadata.listPartitionNames/listPartitions/listPartitionValues`（填 `ConnectorPartitionInfo` 含 lastModifiedMillis=`Partition.lastFileCreationTime()`、rowCount/sizeBytes、raw spec partitionValues，partitionName=legacy-name 解析显示名经 paimon `DateTimeUtils.formatDate`）+ 扩 seam `listPartitions(Identifier)`（+ `RecordingPaimonCatalogOps`/`FakePaimonTable.options()` 测扩）| B2 | C | ✅ | **D5：B2 实现连接器 SPI 但不接 FE**（`partition_columns` key 翻 + FE 消费 + MTMV 喂 = B5 前置）；**`getProperties` 不实现**（firsthand：fe-core 零消费方 + MC 不 override + 凭据泄漏风险 → 留 emptyMap stub，纠偏 plan「retain props map」）|
+| P5-T09 | **文档化纯谓词裁剪**（不 override 6-arg `planScan`；paimon `withFilter`+SDK 内部裁分区/文件，scan-correct）+ Javadoc note（镜像 MC「intentionally NOT overridden」）| B2 | C | ✅ | **D5：不 override 6-arg**；EXPLAIN partition=N/M 显示损失=已知 cosmetic gap |
+| P5-T10 | 连接器内 cache（替 `PaimonExternalMetaCache`）**延后**；REFRESH seam 已核 | B2 | D | ✅ | **D6：B2 延后**（cache+invalidation SPI=`default-no-op invalidateTable`+`onRefreshCache` clear+RefreshManager wiring = B8/翻闸前置；REFRESH CATALOG/TABLE 均不达 connector 已证伪 plan 前提）|
+| P5-T11 | `PaimonTypeMapping` 加 Doris→paimon 方向（吃 ConnectorType；保留 legacy gap：无 TINYINT/SMALLINT/LARGEINT/TIME、char→VarChar(MAX)、DATETIME→plain Timestamp）| B3 | C | ✅ | `toPaimonType` switch on `getTypeName()`，byte-parity `DorisToPaimonTypeVisitor.atomic:82-108`（map-key `.copy(false)`、struct id `AtomicInteger(-1)`、gap→`DorisConnectorException`）；nested-nullability SPI 结构性丢失（`ConnectorType` 无 per-child flag，上游已丢，moot） |
+| P5-T12 | `PaimonSchemaBuilder`（ConnectorCreateTableRequest→paimon Schema：primary-key/comment/location→CoreOptions.PATH、partitionKeys from IDENTITY spec；bucket 经 options passthrough）| B3 | C | ✅ | port `toPaimonSchema:231-256`；2 故意 safer 偏差：comment `properties["comment"]`优先否则 fallback `request.getComment()`（legacy 只读 prop 丢 COMMENT 子句）、PK drop-blank（legacy 不 drop）；非-identity transform→throw |
+| P5-T13 | 实现 `createTable`/`dropTable`（远端 + per-flavor authenticator；保留 latent remote-vs-local 名 bug 不修）| B3 | C | ✅ | override request-overload `createTable` + handle-based `dropTable`（idempotent ignoreIfNotExists=true）；**D7=B：每 DDL call 包 `context.executeAuthenticated`**（读路径不包）；remote-vs-local 名 bug 在 SPI 层 moot（请求单名 from `db.getRemoteName()`）；`PluginDrivenExternalCatalog` 已 override FE 侧 |
+| P5-T14 | 实现 `supportsCreateDatabase=true`+`createDatabase`（HMS-only-props gate 读 `session.getCatalogProperties()`）+`dropDatabase(force)` enumerate-loop | B3 | C | ✅ | gate 读注入 `catalogProperties`（= session.getCatalogProperties 同 map，更简）BEFORE auth；`dropDatabase(force)` = enumerate-loop **AND** native cascade（legacy `performDropDb:147-163` belt-and-suspenders，非 MC enumerate-only）；createDatabase ignoreIfExists=false（FE 已 short-circuit）；MC parity `:466/478` |
+| P5-T15 | DDL 离线 UT（createDb gate / dropDb force 级联 / createTable schema / IF NOT EXISTS / type gap）| B3 | T | ✅ | 分布 4 新测类（`PaimonTypeMappingToPaimonTest`10 / `PaimonSchemaBuilderTest`10 / `PaimonConnectorMetadataDdlTest`9 / `PaimonConnectorMetadataDbDdlTest`11）+ `RecordingConnectorContext`（failAuth 钉 auth-wrap）+ `RecordingPaimonCatalogOps` DDL 扩；no-mockito，WHY+MUTATION |
 | P5-T16 | **新 E7 SPI**：`ConnectorMetadata.listSupportedSysTables`(default emptySet) + `getSysTableHandle`(default empty)；保 MC/jdbc/es/trino 不受影响 | B4 | C | ⏳ | greenfield，签名须慎（被未来连接器复用）|
 | P5-T17 | paimon 实现 E7：名取 `SystemTableLoader.SYSTEM_TABLES`；`getSysTableHandle` 走 4-arg `Identifier(db,tbl,"main",sysName)`；handle 带 sysName+forceJni；reload fallback | B4 | C | ⏳ | branch="main" 限制保留+文档 |
 | P5-T18 | 通用 fe-core `PluginDrivenSysExternalTable extends PluginDrivenExternalTable`(报 PLUGIN_EXTERNAL_TABLE) + `NativeSysTable` factory；override `PluginDrivenExternalTable.getSupportedSysTables/findSysTable` 委托连接器 | B4 | C | ⏳ | 路由经 `PluginDrivenScanNode`，**勿报 PAIMON_EXTERNAL_TABLE** |
@@ -163,6 +163,32 @@ B6 (procedure doc no-op, 独立)          │                                   
 - 弃 `PaimonScanMetricsReporter`（连接器禁 import profile）→ EXPLAIN/profile paimon scan 指标回归 —— 登记为已知 behavior 回归。
 - COUNT 下推 / cpp-reader / history-schema：初版翻闸**延后**（仅 perf/edge parity，correctness 不丢）—— 默认采纳。
 
+### D4–D6 — B2 设计定夺（✅ 签字 2026-06-09；code-grounded understand 复审纠偏 plan 前提）
+
+> B2 启动时 6-agent understand workflow + 主线 firsthand 核读，纠偏 **3 处 plan 前提**，用户签字 A/A/A（均推荐）。这 3 处 plan 备注（基于 recon）与 firsthand 代码冲突，按 Rule 7 不取平均、择 code 真相。
+
+**D4 — T07 时间戳谓词 TZ → ✅ 采纳「parity-correct（不 session-TZ）」**
+- **纠偏**：plan T07「session-TZ 化替固定 UTC」沿用 MC gotcha [[catalog-spi-connector-session-tz-gotcha]]，但 firsthand 核：legacy `paimon/source/PaimonValueConverter:149` 时间戳字面量用**固定 GMT/UTC** 转 epoch，且**无** `visit(LocalZonedTimestampType)`（LTZ 落 defaultMethod→null→**legacy 根本不下推 LTZ**）。连接器现 `PaimonPredicateConverter:284` 固定 `ZoneOffset.UTC` 对 NTZ **已 = legacy parity**；对 NTZ session-TZ 化会移位下推谓词 vs paimon UTC-based min/max stats → **假裁剪丢行**。MC≠paimon（时间戳存储语义不同）。
+- **决定**：NTZ 保持 UTC（勿动 zone）；LTZ 改为**不下推**（`TIMESTAMP_WITH_LOCAL_TIME_ZONE` return null，补齐 legacy parity + 修当前 over-push 的潜在 LTZ 假裁剪）；加 `PaimonConnectorMetadata.supportsCastPredicatePushdown=false`（镜像 MC:331-334）。**不** session-TZ 化、**不**加 ZoneId 惰性解析。
+
+**D5 — T08/T09 分区处理 scope → ✅ 采纳「minimal/safe」**
+- **纠偏（latent bug）**：`PaimonConnectorMetadata.getTableSchema:133` 发 schema key `partition_keys`，但 fe-core `PluginDrivenExternalTable:181` 读 `partition_columns`（MC 正确发 `partition_columns:163`）→ **FE 现把所有 paimon 表当非分区**（SHOW PARTITIONS/TVF 空、`getNameToPartitionItems` 空、无 MTMV 分区喂）。paimon 经谓词下推（`ReadBuilder.withFilter`+SDK `scan.plan`）仍正确裁剪分区/文件，行数 parity 不丢。
+- **决定（B2）**：T09 = **文档化纯谓词裁剪**（不 override 6-arg `planScan`；scan-correct，EXPLAIN partition=N/M 显示损失为已知 cosmetic gap）。T08 = 实现连接器侧 `listPartitions*`（连接器 SPI deliverable，B5/B9 复用）+ 扩 seam `listPartitions(Identifier)`，但 **B2 不翻 `partition_columns` key、不接 FE 消费**；**`getProperties` 不实现**（实现中 firsthand 纠偏：`ConnectorMetadata.getProperties()` 在 fe-core 零消费方 + MC 不 override + 返原始 props 会泄漏 ak/sk 凭据 → 留 emptyMap stub）（避免提前激活 FE 分区裁剪→ prune-dataloss 危险区 [[catalog-spi-nonpartitioned-prune-dataloss]] / [[catalog-spi-plugindriven-explain-override-gap]]，须与 requiredPartitions 处理同落）。**key 翻 + 6-arg planScan/requiredPartitions + MTMV 分区喂 = B5 前置硬门**（记入 B5）。
+- **NTZ/LTZ 谓词与分区**：分区裁剪走纯谓词；上面 D4 的 LTZ 不下推不影响分区裁剪正确性（LTZ 极少做分区列）。
+
+**D6 — T10 连接器 cache scope → ✅ 采纳「延后至翻闸」**
+- **纠偏**：plan 前提「REFRESH CATALOG 经 `PluginDrivenExternalCatalog:530-534` 销毁 connector」**证伪**——firsthand：`RefreshManager.refreshCatalogInternal` 只调 `((ExternalCatalog)c).onRefreshCache(invalidCache)`（清 fe-core cache via `invalidateCatalog`，**connector 存活**）；`resetToUninitialized`→`onClose`(连接器销毁) 仅 `CatalogMgr.addCatalog`/MODIFY/DROP CATALOG 触发，**REFRESH CATALOG 不触**。REFRESH TABLE 也**永不达 connector**（`refreshTableInternal` 只 `unsetObjectCreated`+`ExtMetaCacheMgr.invalidateTableCache`，全留 fe-core）。`ConnectorMetadata` SPI 无任何 invalidate/refresh hook。
+- **决定**：B2 **不加** connector cache（normal-read 无 cache 即正确；现每次 `catalogOps.getTable` 打活 catalog）。cache + invalidation SPI 设计（default-no-op `invalidateTable(...)` + `onRefreshCache` 触发的 connector clear hook + RefreshManager wiring）记为 **B8/删 legacy 前置**，随翻闸落地（fe-core SPI/RefreshManager wiring 与 cutover 同批更合理）。否则 naive cache 在 REFRESH CATALOG/TABLE 后供陈旧 Table/schema。
+
+### D7 — B3 DDL authenticator scope → ✅ **采纳 B（legacy parity：每 DDL call 包 `executeAuthenticated`）**
+
+> B3 启动时 6-agent understand workflow + 主线 firsthand 核读，纠偏 **1 处 plan 前提**（其余 T11-T15 plan 备注与 code 一致，含纠偏「PluginDrivenExternalCatalog 已 override FE 侧」**证实为真**——memory [[catalog-spi-cutover-fe-dispatch-gap]] 警告的 FE 分发缺口对 paimon DDL 不适用，MC 已证端到端通；缺口的真闸是 `SPI_READY_TYPES` 成员，属 B7/T27 非 B3）。
+
+- **纠偏**：plan T13「per-flavor authenticator」沿用 legacy 直觉，但 firsthand：① MC DDL **完全不**用 authenticator（不同 auth 模型）；② legacy `PaimonMetadataOps` **每个**远端 DDL call 包 `executionAuthenticator.execute`；③ **B2 刚落地的 read 路径不 re-wrap**（靠 catalog 构建时 `PaimonConnector.createCatalogFromContext:166-172` 的一次 wrap）；④ `PaimonConnectorMetadata` 当前**不**收 `ConnectorContext`。
+- **fork**：A=match B2 read 路径（不 per-call wrap，靠构建时 wrap，per-call authenticator 作单一 connector-wide live-e2e 项，已是 R-中）｜**B=legacy parity（thread `ConnectorContext` 入 metadata + 每 DDL op 包 `executeAuthenticated`）**。
+- **用户签 B**：metadata-level wrap（保 seam 为纯 Catalog delegate）；4 个 DDL op（createTable/dropTable/createDatabase/dropDatabase）各包一次 `context.executeAuthenticated`（dropDatabase 的 enumerate-loop+cascade 整体一个 scope，UGI doAs 可重入，行为等价 legacy）；**read 路径仍不 wrap**（B 仅 DDL 域，未回改 B2）。`executeAuthenticated` 默认 no-op → 离线测不受影响，正确性须 live-e2e 验。
+- **遗留不一致（记录）**：read 路径未 per-call wrap（B2 决策），DDL 已 wrap（D7=B）——若 live-e2e 证 Kerberized **读**也需 call-time doAs，则 read 路径须补 wrap（B2 回改，非 B3 范围）。归入翻闸前 live-e2e authenticator 门。
+
 ---
 
 ## 风险 / 开放问题
@@ -185,6 +211,23 @@ B6 (procedure doc no-op, 独立)          │                                   
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-10（B3 实现：DDL metadata，T11-T15；understand workflow 纠偏 1 处 → 用户签 D7=B；subagent-driven 3 dispatch + 双审 + 3-lens final holistic = 全 READY）
+- **6-agent understand workflow + 主线 firsthand 核读**：T11-T15 plan 备注大体与 code 一致；**纠偏 1 处** → 用户签 **D7=B**（DDL authenticator = legacy parity，每 DDL call 包 `executeAuthenticated`，见开放决策 D7）。另**证实** plan「PluginDrivenExternalCatalog 已 override FE 侧」为真（FE 4 个 DDL 分发 createTable:300/createDb:355/dropDb:387/dropTable:439 已通用接 SPI，MC 已证；闸是 `SPI_READY_TYPES` 成员=B7，非 B3 缺口）。understand workflow 中 2 个 agent 返回退化 stub，由其余 4 agent 全覆盖（cross-verified）。
+- **D1（T11+T12）**：`PaimonTypeMapping.toPaimonType(ConnectorType)`（reverse 方向，byte-parity `DorisToPaimonTypeVisitor.atomic`，gap→`DorisConnectorException`，map-key `.copy(false)`，struct id `AtomicInteger(-1)`）+ 新 `PaimonSchemaBuilder.build(request)`（port `toPaimonSchema`，2 故意 safer 偏差：comment fallback、PK drop-blank；非-identity transform→throw）。20 新测。
+- **D2（seam + auth + T13）**：`PaimonCatalogOps` 加 4 DDL 方法（+ `CatalogBackedPaimonCatalogOps` delegations + `RecordingPaimonCatalogOps` fake，paimon `Catalog` 签名经 javap 核）；**thread `ConnectorContext` 入 `PaimonConnectorMetadata`（3-arg ctor，无 2-arg；`PaimonConnector.getMetadata` 传 context）**；`createTable`（override request-overload，`PaimonSchemaBuilder` build 在 wrap 外 → schema-fail raw）+ `dropTable`（handle-based idempotent）各包 `executeAuthenticated`，异常→`DorisConnectorException`；read 路径**不** wrap。9 DDL 测（含 2 个 failAuth auth-wrap mutation 测 + schema-build-fail-propagation 测）。
+- **D3（T14）**：`supportsCreateDatabase=true` + `createDatabase`（HMS-only-props gate，flavor 读注入 `catalogProperties`，gate 在 auth 前；ignoreIfExists=false）+ 4-arg `dropDatabase(force)`（enumerate-loop + native cascade 整体一个 auth scope）。11 DB-DDL 测（含 force-cascade 顺序、force-空库、HMS-gate 3 例、auth-wrap）。
+- **验证（主线 firsthand 复跑）**：`Tests run: 96, Failures: 0, Errors: 0, Skipped: 1`（1=live）+ BUILD SUCCESS + checkstyle 0 + import-gate 0 + **无 fe-core/fe-connector-api/fe-connector-spi 改动**（B3 纯连接器侧，FE override 已通用存在）+ 无 B7 cutover 泄漏（SPI_READY_TYPES/GSON/pluginCatalogTypeToEngine/PhysicalPlanTranslator 未碰）。每 dispatch implement→spec-review→quality-review 双审（均 mutation-verified），final 3-lens holistic（parity / adversarial / scope-build）= 全 READY，仅 NIT（已修 `PaimonSchemaBuilder` 类 javadoc「byte-for-byte」过度声明 → 「functional port + 2 documented divergences」）。
+- **B3 改动未提交**（用户决定何时 commit）。B2+B3 改动同处 dirty tree（B2 normal-read 仍未提交）。
+
+### 2026-06-10（B2 实现：normal-read，T06-T10；subagent-driven 3 dispatch + 双审 + final holistic = READY）
+- **6-agent understand workflow + 主线 firsthand 核读** 纠偏 **3 处 plan 前提** → 用户签 D4/D5/D6（A/A/A，见开放决策）：T07 非 session-TZ、T08/T09 minimal/safe、T10 cache 延后。
+- **T06（BLOCKER）**：`PaimonScanPlanProvider` 加 `PaimonCatalogOps` 注入（`getScanPlanProvider` 镜像 `getMetadata:86`）+ 包私 `resolveTable`（transient null→`catalogOps.getTable` 重建，byte-identical `getColumnHandles:160-171`），planScan + getScanNodeProperties **两 site 都护**（recon 只点 :95，复审补出 :204 同 NPE）。2 直测 `resolveTable`（`FakePaimonTable.newReadBuilder` 抛 → 不能端到端跑 planScan，测 helper 直接）。
+- **T07（parity-correct TZ）**：拆 NTZ/LTZ——`TIMESTAMP_WITHOUT_TIME_ZONE` 保固定 UTC（= legacy `PaimonValueConverter:149` GMT；session-TZ 会移位 vs paimon UTC min/max stats → 假裁剪丢行）、`TIMESTAMP_WITH_LOCAL_TIME_ZONE` 改 `return null`（= legacy 无 `visit(LocalZonedTimestampType)` → 不下推，修当前 over-push）；加 `supportsCastPredicatePushdown=false`（镜像 MC:331-334）。新 `PaimonPredicateConverterTest`（NTZ 值钉 UTC millis / LTZ·FLOAT·CHAR 不推 / INT control）+ cap 测。
+- **T08（partition listing，dormant）**：扩 seam `listPartitions(Identifier)`；实现 `listPartitionNames/listPartitions/listPartitionValues`（legacy `generatePartitionInfo:169-187` byte-parity：spec 迭代 + legacy-name DATE 经 **paimon `org.apache.paimon.utils.DateTimeUtils.formatDate`**（legacy 同款，无漂移）、DATE 检测经 `DataTypeRoot.DATE`；6-arg `ConnectorPartitionInfo` raw spec values + `lastFileCreationTime`/`recordCount`/`fileSizeInBytes`；filter 忽略 doc）。共享 `collectPartitions`+`resolveTable`（`getColumnHandles` 重构复用，byte-identical，B0 测仍绿）。**`getProperties` 不实现**（纠偏：fe-core 零消费方 + MC 不 override + 凭据泄漏 → 留 emptyMap stub）。新 `PaimonConnectorMetadataPartitionTest`(5) + 扩 `FakePaimonTable.options()`/`RecordingPaimonCatalogOps`。
+- **T09**：`PaimonScanPlanProvider` 类 Javadoc 钉纯谓词裁剪（6-arg `planScan` 故意不 override；EXPLAIN partition=0/0 = 已知 B5 显示 gap）。**T10**：D6 决策 + 文档（cache + invalidation SPI 延后 B8），无 code。
+- **验证（主线 firsthand 每任务复跑）**：`Tests run: 56, Failures: 0, Errors: 0, Skipped: 1`（1=live）+ checkstyle 0 + import-gate 0 + 无 fe-core 改动 + `partition_keys` schema key 未翻。每任务 implement→spec-review→quality-review 双审 PASS（spec/quality 均 mutation-verified），final holistic review = READY。
+- **B5 reconcile 项（非 B2 风险，dormant）**：`listPartitionValues` 返 **RAW** spec 值（如 DATE epoch-day `19723`），legacy `partition_values()` TVF 返 **RENDERED**（`2024-01-01`，经解析 partitionName）；B5 接 TVF + 翻 `partition_columns` key 时须核 raw-vs-rendered 一致性。
 
 ### 2026-06-09（B1 实现：flavor 装配，全 5 flavor，单 Catalog）
 - **用户签字 all-5-flavors**（非分阶段）；内部 2-dispatch 落地（dispatch1=offline core+paimon-core 3 flavor 活线；dispatch2=hms/dlf 活线+pom deps），每 dispatch implement→spec-review→quality-review→fix-loop→re-review，主线 firsthand 复跑构建。
@@ -226,6 +269,6 @@ B6 (procedure doc no-op, 独立)          │                                   
 
 ## 当前阻塞项
 
-- 无硬阻塞（D1=A / D2=A 已签字；**B0 + B1 已完成 2026-06-09**）。下一 session 起 **B2**（normal-read：T06 transient-Table reload BLOCKER / T07 session-TZ 谓词 / T08 listPartitions+lastModifiedMillis / T09 6-arg planScan 分区裁剪 / T10 连接器内 cache）；**B6**（procedure doc no-op，独立）可随时落。
-- 翻闸（B7）仍 gated on B2+B3+B4+B5 全完 + live e2e（用户真实 paimon 各 flavor 环境）。**B1 新增 4 个翻闸/live-e2e 硬门**（见阶段日志 B1 条 + 「风险/开放问题」）：hms/dlf metastore-client 跨 loader、jdbc driver_url 安全 allow-list、hive-site.xml 文件加载、live createCatalog——pre-cutover 不可离线测，翻闸前用户须 live 验。
-- B1 复用资产：`PaimonCatalogFactory`（纯 options/conf 构建器，B3 DDL 可复用 flavor 解析 + conf 构建）；seam（B2-B3 须扩 DDL 方法 + 同步 `RecordingPaimonCatalogOps`/`CatalogBackedPaimonCatalogOps`）；parity doc 是后续批次 gap 清单 + 翻闸门基准。
+- 无硬阻塞（D1=A / D2=A / D4=A / D5=A / D6=A / D7=B 已签字；**B0 + B1 + B2 + B3 已完成**）。下一 session = **B4**（sys-tables E7 + MVCC E5；gated on B2+B3 全完，现满足）：T16 新 E7 SPI（`listSupportedSysTables`/`getSysTableHandle` default-empty）/ T17 paimon 实现 E7 / T18 通用 `PluginDrivenSysExternalTable` / T19 forceJni 分支（binlog/audit_log）/ T20 首个 E5 消费者（`beginQuerySnapshot`/`getSnapshotAt`/`getSnapshotById`）。**注意 T16/T18 是 greenfield SPI 新面（被未来连接器复用，签名须慎）**。**B6**（procedure doc no-op，独立）可随时穿插。B5（MTMV 桥）gated on B4。
+- 翻闸（B7）仍 gated on B2+B3+B4+B5 全完 + live e2e（用户真实 paimon 各 flavor 环境）。**翻闸/live-e2e 硬门**（见阶段日志 B1 条 + 「风险/开放问题」）：hms/dlf metastore-client 跨 loader、jdbc driver_url 安全 allow-list、hive-site.xml 文件加载、live createCatalog；**B3 新增 live-e2e 门**：DDL 的 `executeAuthenticated`（D7=B）在 Kerberized HMS/HDFS createTable/dropDatabase 正确性（离线 no-op，须 live 验）+ `lastFileCreationTime` 等 B2 dormant 项——pre-cutover 不可离线测，翻闸前用户须 live 验。
+- 复用资产：`PaimonCatalogFactory`（纯 options/conf 构建器 + `resolveFlavor`，B3 createDatabase HMS-gate 已复用）；`PaimonCatalogOps` seam（现含 5 read + 4 DDL，B4 sys-table 可能再扩）；`PaimonTypeMapping`（双向）；`PaimonSchemaBuilder`；`RecordingPaimonCatalogOps`/`RecordingConnectorContext` 测基建（B4 复用）；parity doc 是后续批次 gap 清单 + 翻闸门基准。

@@ -20,20 +20,23 @@ package org.apache.doris.connector.paimon;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.partition.Partition;
+import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Hand-written recording fake for {@link PaimonCatalogOps} (no Mockito), mirroring the
  * maxcompute connector's recording {@code McStructureHelper}.
  *
  * <p>Records an ordered call log, returns configurable fixed data, and can be told to throw
- * the paimon {@code DatabaseNotExistException} / {@code TableNotExistException} that the
- * production code catches. Because the seam fully covers every remote call
- * {@link PaimonConnectorMetadata} makes, the metadata under test is built with a {@code null}
- * real Catalog — the test stays entirely offline.
+ * the paimon {@code DatabaseNotExistException} / {@code TableNotExistException} (and the B3
+ * DDL exceptions) that the production code catches/wraps. Because the seam fully covers every
+ * remote call {@link PaimonConnectorMetadata} makes, the metadata under test is built with a
+ * {@code null} real Catalog — the test stays entirely offline.
  */
 final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
@@ -42,9 +45,30 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     List<String> databases = new ArrayList<>();
     List<String> tables = new ArrayList<>();
     Table table;
+    List<Partition> partitions = new ArrayList<>();
 
     boolean throwDatabaseNotExist;
     boolean throwTableNotExist;
+
+    // ---- B3 DDL capture fields (inputs the metadata layer passed to the seam) ----
+    Schema lastCreatedSchema;
+    Identifier lastCreatedTableId;
+    boolean lastCreateTableIgnoreIfExists;
+    Identifier lastDroppedTableId;
+    boolean lastDropTableIgnoreIfNotExists;
+    String lastCreatedDb;
+    Map<String, String> lastCreatedDbProps;
+    boolean lastCreateDbIgnoreIfExists;
+    String lastDroppedDb;
+    boolean lastDropCascade;
+    boolean lastDropDbIgnoreIfNotExists;
+
+    // ---- B3 DDL throw flags (mirror the read-path throwDatabaseNotExist/throwTableNotExist) ----
+    boolean throwTableAlreadyExist;
+    boolean throwTableNotExistOnDrop;
+    boolean throwDatabaseAlreadyExist;
+    boolean throwDatabaseNotEmpty;
+    boolean throwDatabaseNotExistOnDrop;
 
     @Override
     public List<String> listDatabases() {
@@ -79,6 +103,65 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
             throw new Catalog.TableNotExistException(identifier);
         }
         return table;
+    }
+
+    @Override
+    public List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException {
+        log.add("listPartitions:" + identifier.getFullName());
+        if (throwTableNotExist) {
+            throw new Catalog.TableNotExistException(identifier);
+        }
+        return partitions;
+    }
+
+    @Override
+    public void createDatabase(String name, boolean ignoreIfExists, Map<String, String> properties)
+            throws Catalog.DatabaseAlreadyExistException {
+        log.add("createDatabase:" + name);
+        lastCreatedDb = name;
+        lastCreateDbIgnoreIfExists = ignoreIfExists;
+        lastCreatedDbProps = properties;
+        if (throwDatabaseAlreadyExist) {
+            throw new Catalog.DatabaseAlreadyExistException(name);
+        }
+    }
+
+    @Override
+    public void dropDatabase(String name, boolean ignoreIfNotExists, boolean cascade)
+            throws Catalog.DatabaseNotExistException, Catalog.DatabaseNotEmptyException {
+        log.add("dropDatabase:" + name + ",cascade=" + cascade);
+        lastDroppedDb = name;
+        lastDropDbIgnoreIfNotExists = ignoreIfNotExists;
+        lastDropCascade = cascade;
+        if (throwDatabaseNotExistOnDrop) {
+            throw new Catalog.DatabaseNotExistException(name);
+        }
+        if (throwDatabaseNotEmpty) {
+            throw new Catalog.DatabaseNotEmptyException(name);
+        }
+    }
+
+    @Override
+    public void createTable(Identifier identifier, Schema schema, boolean ignoreIfExists)
+            throws Catalog.TableAlreadyExistException, Catalog.DatabaseNotExistException {
+        log.add("createTable:" + identifier.getFullName());
+        lastCreatedTableId = identifier;
+        lastCreatedSchema = schema;
+        lastCreateTableIgnoreIfExists = ignoreIfExists;
+        if (throwTableAlreadyExist) {
+            throw new Catalog.TableAlreadyExistException(identifier);
+        }
+    }
+
+    @Override
+    public void dropTable(Identifier identifier, boolean ignoreIfNotExists)
+            throws Catalog.TableNotExistException {
+        log.add("dropTable:" + identifier.getFullName());
+        lastDroppedTableId = identifier;
+        lastDropTableIgnoreIfNotExists = ignoreIfNotExists;
+        if (throwTableNotExistOnDrop || throwTableNotExist) {
+            throw new Catalog.TableNotExistException(identifier);
+        }
     }
 
     @Override

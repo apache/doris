@@ -83,12 +83,13 @@ public class PaimonConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties);
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties, context);
     }
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new PaimonScanPlanProvider(properties);
+        return new PaimonScanPlanProvider(properties,
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()));
     }
 
     private Catalog ensureCatalog() {
