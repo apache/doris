@@ -118,23 +118,24 @@ TEST_F(PartitionTransformersTest, test_string_truncate_transform) {
 }
 
 TEST_F(PartitionTransformersTest, test_floating_point_special_partition_value) {
-    PartitionColumnTransform transform;
     auto float_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, false);
     auto double_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, false);
+    IdentityPartitionColumnTransform float_transform(float_type);
+    IdentityPartitionColumnTransform double_transform(double_type);
 
-    EXPECT_EQ("NaN",
-              transform.get_partition_value(float_type, std::numeric_limits<Float32>::quiet_NaN()));
-    EXPECT_EQ("Infinity",
-              transform.get_partition_value(float_type, std::numeric_limits<Float32>::infinity()));
-    EXPECT_EQ("-Infinity",
-              transform.get_partition_value(float_type, -std::numeric_limits<Float32>::infinity()));
-    EXPECT_EQ("NaN", transform.get_partition_value(double_type,
-                                                   std::numeric_limits<Float64>::quiet_NaN()));
-    EXPECT_EQ("Infinity",
-              transform.get_partition_value(double_type, std::numeric_limits<Float64>::infinity()));
-    EXPECT_EQ("-Infinity", transform.get_partition_value(
+    EXPECT_EQ("NaN", float_transform.get_partition_value(
+                             float_type, std::numeric_limits<Float32>::quiet_NaN()));
+    EXPECT_EQ("Infinity", float_transform.get_partition_value(
+                                  float_type, std::numeric_limits<Float32>::infinity()));
+    EXPECT_EQ("-Infinity", float_transform.get_partition_value(
+                                   float_type, -std::numeric_limits<Float32>::infinity()));
+    EXPECT_EQ("NaN", double_transform.get_partition_value(
+                             double_type, std::numeric_limits<Float64>::quiet_NaN()));
+    EXPECT_EQ("Infinity", double_transform.get_partition_value(
+                                  double_type, std::numeric_limits<Float64>::infinity()));
+    EXPECT_EQ("-Infinity", double_transform.get_partition_value(
                                    double_type, -std::numeric_limits<Float64>::infinity()));
 }
 
