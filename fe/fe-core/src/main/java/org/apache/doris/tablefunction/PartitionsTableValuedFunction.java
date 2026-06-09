@@ -32,8 +32,6 @@ import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -172,7 +170,6 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         }
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog
                 || catalog instanceof PluginDrivenExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                     catalog.getType()));
@@ -199,12 +196,6 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
                 throw new AnalysisException("Table " + tableName + " is not a partitioned table");
             }
             return;
-        }
-
-        if (table instanceof MaxComputeExternalTable) {
-            if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
-                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
-            }
         }
 
         if (table instanceof PluginDrivenExternalTable) {

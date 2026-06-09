@@ -50,7 +50,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -388,8 +387,6 @@ public class CreateTableInfo {
             throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
         } else if (catalog instanceof PaimonExternalCatalog && !engineName.equals(ENGINE_PAIMON)) {
             throw new AnalysisException("Paimon type catalog can only use `paimon` engine.");
-        } else if (catalog instanceof MaxComputeExternalCatalog && !engineName.equals(ENGINE_MAXCOMPUTE)) {
-            throw new AnalysisException("MaxCompute type catalog can only use `maxcompute` engine.");
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             // After the SPI cutover a max_compute catalog is a PluginDrivenExternalCatalog; mirror the
             // legacy MaxComputeExternalCatalog consistency check, keyed on the connector type.
@@ -917,8 +914,6 @@ public class CreateTableInfo {
                 engineName = ENGINE_ICEBERG;
             } else if (catalog instanceof PaimonExternalCatalog) {
                 engineName = ENGINE_PAIMON;
-            } else if (catalog instanceof MaxComputeExternalCatalog) {
-                engineName = ENGINE_MAXCOMPUTE;
             } else if (catalog instanceof PluginDrivenExternalCatalog
                     && pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog) != null) {
                 // After the SPI cutover a max_compute catalog is a PluginDrivenExternalCatalog; pad the

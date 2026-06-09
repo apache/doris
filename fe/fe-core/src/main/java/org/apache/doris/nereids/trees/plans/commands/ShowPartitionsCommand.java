@@ -44,7 +44,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -204,7 +203,6 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog
                 || catalog instanceof PluginDrivenExternalCatalog
                 || catalog instanceof PaimonExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
@@ -287,26 +285,6 @@ public class ShowPartitionsCommand extends ShowCommand {
                 table.readUnlock();
             }
         }
-    }
-
-    private ShowResultSet handleShowMaxComputeTablePartitions() {
-        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) (catalog);
-        List<List<String>> rows = new ArrayList<>();
-        String dbName = tableName.getDb();
-        List<String> partitionNames;
-        if (limit < 0) {
-            partitionNames = mcCatalog.listPartitionNames(dbName, tableName.getTbl());
-        } else {
-            partitionNames = mcCatalog.listPartitionNames(dbName, tableName.getTbl(), offset, limit);
-        }
-        for (String partition : partitionNames) {
-            List<String> list = new ArrayList<>();
-            list.add(partition);
-            rows.add(list);
-        }
-        // sort by partition name
-        rows.sort(Comparator.comparing(x -> x.get(0)));
-        return new ShowResultSet(getMetaData(), rows);
     }
 
     private ShowResultSet handleShowPluginDrivenTablePartitions() throws AnalysisException {
@@ -455,8 +433,6 @@ public class ShowPartitionsCommand extends ShowCommand {
             List<List<String>> rows = ((PartitionsProcDir) node).fetchResultByExpressionFilter(filterMap,
                     orderByPairs, limitElement).getRows();
             return new ShowResultSet(getMetaData(), rows);
-        } else if (catalog instanceof MaxComputeExternalCatalog) {
-            return handleShowMaxComputeTablePartitions();
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             return handleShowPluginDrivenTablePartitions();
         } else if (catalog instanceof PaimonExternalCatalog) {
