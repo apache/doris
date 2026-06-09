@@ -25,13 +25,19 @@ namespace doris {
 
 bvar::Adder<int64_t> object_request_retry_count("object_request_retry_count");
 
-S3CustomRetryStrategy::S3CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
+S3CustomRetryStrategy::S3CustomRetryStrategy(int maxRetries, bool retry_slow_down)
+        : DefaultRetryStrategy(maxRetries), _retry_slow_down(retry_slow_down) {}
 
 S3CustomRetryStrategy::~S3CustomRetryStrategy() = default;
 
 bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
                                         long attemptedRetries) const {
     if (attemptedRetries >= m_maxRetries) {
+        return false;
+    }
+
+    if (!_retry_slow_down && error.GetExceptionName() == "SlowDown" &&
+        error.GetResponseCode() == Aws::Http::HttpResponseCode::SERVICE_UNAVAILABLE) {
         return false;
     }
 
