@@ -26,6 +26,7 @@
 #include <parquet/page_index.h>
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -44,14 +45,14 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format_v2/parquet/parquet_column_schema.h"
-#include "format_v2/parquet/parquet_scan.h"
-#include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/expr/literal.h"
 #include "format_v2/expr/slot_ref.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_scan.h"
+#include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
@@ -489,6 +490,36 @@ void write_page_index_filter_parquet_file(const std::string& file_path) {
                                                       ids.size(), builder.build()));
 }
 
+void write_page_index_filter_pair_parquet_file(const std::string& file_path) {
+    std::vector<int32_t> ids(128);
+    std::iota(ids.begin(), ids.end(), 0);
+    std::vector<int32_t> payloads;
+    payloads.reserve(ids.size());
+    for (const auto id : ids) {
+        payloads.push_back(id + 1000);
+    }
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("payload", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array(ids), build_int32_array(payloads)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.disable_dictionary();
+    builder.enable_write_page_index();
+    builder.write_batch_size(8);
+    builder.data_pagesize(10);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ids.size(), builder.build()));
+}
+
 parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
     parquet::ParquetColumnSchema schema;
     schema.local_id = 0;
@@ -543,6 +574,15 @@ Block build_file_block_with_row_position(const std::vector<format::ColumnDefinit
     block.insert({row_position_field.type->create_column(), row_position_field.type,
                   row_position_field.name});
     return block;
+}
+
+void use_schema_order_positions(format::FileScanRequest* request,
+                                const std::vector<format::ColumnDefinition>& schema) {
+    DORIS_CHECK(request != nullptr);
+    for (size_t idx = 0; idx < schema.size(); ++idx) {
+        request->local_positions.emplace(format::LocalColumnId(schema[idx].local_id),
+                                         format::LocalIndex(idx));
+    }
 }
 
 int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
@@ -1341,7 +1381,8 @@ protected:
     void TearDown() override { std::filesystem::remove_all(_test_dir); }
 
     std::unique_ptr<parquet::ParquetReader> create_reader(int64_t range_start_offset = 0,
-                                                          int64_t range_size = -1) const {
+                                                          int64_t range_size = -1,
+                                                          RuntimeProfile* profile = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1350,7 +1391,7 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         return std::make_unique<parquet::ParquetReader>(system_properties, file_description,
-                                                        nullptr, nullptr);
+                                                        nullptr, profile);
     }
 
     std::filesystem::path _test_dir;
@@ -1447,7 +1488,8 @@ TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
 }
 
 TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
-    auto reader = create_reader();
+    RuntimeProfile profile("new_parquet_reader_filter_profile");
+    auto reader = create_reader(0, -1, &profile);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
@@ -1482,6 +1524,31 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     EXPECT_EQ(values.get_data_at(0).to_string(), "three");
     EXPECT_EQ(values.get_data_at(1).to_string(), "four");
     EXPECT_EQ(values.get_data_at(2).to_string(), "five");
+
+    ASSERT_NE(profile.get_counter("FileReaderCreateTime"), nullptr);
+    ASSERT_NE(profile.get_counter("FileNum"), nullptr);
+    ASSERT_NE(profile.get_counter("RawRowsRead"), nullptr);
+    ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
+    ASSERT_NE(profile.get_counter("RowsFilteredByConjunct"), nullptr);
+    ASSERT_NE(profile.get_counter("TotalBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("EmptySelectionBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderReadRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderSelectRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
+    ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
+    ASSERT_GT(profile.get_counter("FileReaderCreateTime")->value(), 0);
+    EXPECT_EQ(profile.get_counter("FileNum")->value(), 1);
+    EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), ROW_COUNT);
+    EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 3);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 2);
+    EXPECT_EQ(profile.get_counter("TotalBatches")->value(), 1);
+    EXPECT_EQ(profile.get_counter("EmptySelectionBatches")->value(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderReadRows")->value(), ROW_COUNT + 3);
+    EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 2);
+    EXPECT_EQ(profile.get_counter("ReaderSelectRows")->value(), 3);
+    EXPECT_GT(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
+    EXPECT_GT(profile.get_counter("MaterializationTime")->value(), 0);
 
     rows = 0;
     eof = false;
@@ -1523,6 +1590,41 @@ TEST_F(NewParquetReaderTest, ColumnPredicateOnlyPrunesAndDoesNotFilterRowsInside
     EXPECT_EQ(ids.get_element(4), 5);
     EXPECT_EQ(values.get_data_at(0).to_string(), "one");
     EXPECT_EQ(values.get_data_at(4).to_string(), "five");
+}
+
+TEST_F(NewParquetReaderTest, EmptySelectionUpdatesProfileCounters) {
+    RuntimeProfile profile("new_parquet_reader_empty_selection_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 10));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+
+    ASSERT_NE(profile.get_counter("RawRowsRead"), nullptr);
+    ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
+    ASSERT_NE(profile.get_counter("RowsFilteredByConjunct"), nullptr);
+    ASSERT_NE(profile.get_counter("TotalBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("EmptySelectionBatches"), nullptr);
+    EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), ROW_COUNT);
+    EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 0);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), ROW_COUNT);
+    EXPECT_EQ(profile.get_counter("TotalBatches")->value(), 1);
+    EXPECT_EQ(profile.get_counter("EmptySelectionBatches")->value(), 1);
 }
 
 TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
@@ -1719,6 +1821,7 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"lm"}));
+    use_schema_order_positions(request.get(), schema);
     format::FileColumnPredicateFilter column_filter;
     column_filter.file_column_id = format::LocalColumnId(1);
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
@@ -1865,6 +1968,20 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
     ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
     EXPECT_GT(plan.row_groups[0].selected_ranges.front().start, 0);
     EXPECT_LT(plan.row_groups[0].selected_ranges.front().length, 128);
+    auto skip_plan_it = plan.row_groups[0].page_skip_plans.find(0);
+    ASSERT_NE(skip_plan_it, plan.row_groups[0].page_skip_plans.end());
+    EXPECT_EQ(skip_plan_it->second.leaf_column_id, 0);
+    EXPECT_GT(skip_plan_it->second.skipped_ranges.size(), 0);
+    EXPECT_GT(skip_plan_it->second.skipped_pages.size(), 1);
+    ASSERT_EQ(skip_plan_it->second.skipped_pages.size(),
+              skip_plan_it->second.skipped_page_compressed_sizes.size());
+    int64_t skipped_compressed_bytes = 0;
+    for (size_t page_idx = 0; page_idx < skip_plan_it->second.skipped_pages.size(); ++page_idx) {
+        if (skip_plan_it->second.should_skip_page(page_idx)) {
+            skipped_compressed_bytes += skip_plan_it->second.skipped_page_compressed_size(page_idx);
+        }
+    }
+    EXPECT_GT(skipped_compressed_bytes, 0);
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
@@ -1911,11 +2028,93 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
     ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
     EXPECT_GT(plan.row_groups[0].selected_ranges.front().start, 0);
     EXPECT_LT(plan.row_groups[0].selected_ranges.front().length, 128);
+    auto skip_plan_it = plan.row_groups[0].page_skip_plans.find(0);
+    ASSERT_NE(skip_plan_it, plan.row_groups[0].page_skip_plans.end());
+    EXPECT_EQ(skip_plan_it->second.leaf_column_id, 0);
+    EXPECT_GT(skip_plan_it->second.skipped_ranges.size(), 0);
+    EXPECT_GT(skip_plan_it->second.skipped_pages.size(), 1);
+    ASSERT_EQ(skip_plan_it->second.skipped_pages.size(),
+              skip_plan_it->second.skipped_page_compressed_sizes.size());
+    int64_t skipped_compressed_bytes = 0;
+    for (size_t page_idx = 0; page_idx < skip_plan_it->second.skipped_pages.size(); ++page_idx) {
+        if (skip_plan_it->second.should_skip_page(page_idx)) {
+            skipped_compressed_bytes += skip_plan_it->second.skipped_page_compressed_size(page_idx);
+        }
+    }
+    EXPECT_GT(skipped_compressed_bytes, 0);
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
     EXPECT_GT(plan.pruning_stats.filtered_page_rows, 0);
     EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
+}
+
+TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns) {
+    write_page_index_filter_pair_parquet_file(_file_path);
+    RuntimeProfile profile("new_parquet_reader_page_skip");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    Block block = build_file_block(schema);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 63));
+    format::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = format::LocalColumnId(0);
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", schema[0].type, Field::create_field<TYPE_INT>(63), false));
+    request->column_predicate_filters.push_back(std::move(column_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> payloads;
+    bool eof = false;
+    while (!eof) {
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& payload_column =
+                assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            payloads.push_back(payload_column.get_element(row));
+        }
+    }
+
+    ASSERT_NE(profile.get_counter("PagesSkippedByDataPageFilter"), nullptr);
+    ASSERT_NE(profile.get_counter("DataPageFilterSkipBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("RawRowsRead"), nullptr);
+    ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
+    ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupFilterTime"), nullptr);
+    ASSERT_NE(profile.get_counter("PageIndexFilterTime"), nullptr);
+    ASSERT_NE(profile.get_counter("PageIndexReadTime"), nullptr);
+    EXPECT_GT(profile.get_counter("PagesSkippedByDataPageFilter")->value(), 0);
+    EXPECT_GT(profile.get_counter("DataPageFilterSkipBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), 64);
+    EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 64);
+    EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 0);
+    EXPECT_GT(profile.get_counter("RowGroupFilterTime")->value(), 0);
+    EXPECT_GT(profile.get_counter("PageIndexFilterTime")->value(), 0);
+    EXPECT_GT(profile.get_counter("PageIndexReadTime")->value(), 0);
+
+    ASSERT_EQ(ids.size(), 64);
+    ASSERT_EQ(payloads.size(), ids.size());
+    for (size_t row = 0; row < ids.size(); ++row) {
+        EXPECT_EQ(ids[row], static_cast<int32_t>(row + 64));
+        EXPECT_EQ(payloads[row], ids[row] + 1000);
+    }
 }
 
 TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
@@ -1930,6 +2129,7 @@ TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"az", "za"}));
+    use_schema_order_positions(request.get(), schema);
     auto set = build_set<TYPE_STRING>();
     set->insert(const_cast<char*>("az"), 2);
     set->insert(const_cast<char*>("za"), 2);
@@ -1983,6 +2183,7 @@ TEST_F(NewParquetReaderTest, DictionaryPageV2StringEdgesSurviveSelection) {
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(create_string_in_conjunct(1, {"", "same"}));
+    use_schema_order_positions(request.get(), schema);
     auto set = build_set<TYPE_STRING>();
     set->insert(const_cast<char*>(""), 0);
     set->insert(const_cast<char*>("same"), 4);

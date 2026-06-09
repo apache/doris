@@ -33,6 +33,7 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/string_ref.h"
 #include "format_v2/parquet/reader/nested_column_reader.h"
+#include "runtime/runtime_profile.h"
 #include "util/simd/bits.h"
 
 namespace doris::parquet {
@@ -194,7 +195,10 @@ Status read_leaf_records(const ArrowLeafReaderContext& context, int64_t batch_ro
     try {
         context.record_reader->Reset();
         context.record_reader->Reserve(batch_rows);
-        *rows_read = context.record_reader->ReadRecords(batch_rows);
+        {
+            SCOPED_TIMER(context.profile.arrow_read_records_time);
+            *rows_read = context.record_reader->ReadRecords(batch_rows);
+        }
     } catch (const ::parquet::ParquetException& e) {
         return Status::Corruption("Failed to read parquet records for column {}: {}",
                                   context.column_name(), e.what());
@@ -283,8 +287,11 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
         view.values = record_reader.values();
     }
 
-    RETURN_IF_ERROR(
-            context.data_type()->get_serde()->read_column_from_decoded_values(*column, view));
+    {
+        SCOPED_TIMER(context.profile.materialization_time);
+        RETURN_IF_ERROR(
+                context.data_type()->get_serde()->read_column_from_decoded_values(*column, view));
+    }
     return Status::OK();
 }
 

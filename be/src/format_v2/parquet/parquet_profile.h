@@ -17,29 +17,16 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
-
-#include "format_v2/parquet/reader/column_reader.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::parquet {
 
-class RowPositionColumnReader final : public ParquetColumnReader {
-public:
-    explicit RowPositionColumnReader(int64_t row_group_first_row,
-                                     ParquetColumnReaderProfile profile = {});
-
-    int file_column_id() const override;
-    int parquet_leaf_column_id() const override;
-    const DataTypePtr& type() const override;
-    const std::string& name() const override;
-
-    Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
-    Status skip(int64_t rows) override;
-
-private:
-    int64_t _row_group_first_row = 0;
-    int64_t _next_row_position = 0;
+struct ParquetColumnReaderProfile {
+    RuntimeProfile::Counter* reader_read_rows = nullptr;
+    RuntimeProfile::Counter* reader_skip_rows = nullptr;
+    RuntimeProfile::Counter* reader_select_rows = nullptr;
+    RuntimeProfile::Counter* arrow_read_records_time = nullptr;
+    RuntimeProfile::Counter* materialization_time = nullptr;
 };
 
 } // namespace doris::parquet

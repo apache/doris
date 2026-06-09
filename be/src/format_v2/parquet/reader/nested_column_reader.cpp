@@ -33,8 +33,14 @@ namespace doris::parquet {
 Status read_nested_scalar_batch(ScalarColumnReader& column_reader, int64_t batch_rows,
                                 int16_t value_slot_definition_level, NestedScalarBatch* batch,
                                 int16_t value_slot_repetition_level) {
-    return read_nested_leaf_batch(column_reader.leaf_context(), batch_rows,
-                                  value_slot_definition_level, batch, value_slot_repetition_level);
+    RETURN_IF_ERROR(read_nested_leaf_batch(column_reader.leaf_context(), batch_rows,
+                                           value_slot_definition_level, batch,
+                                           value_slot_repetition_level));
+    column_reader.advance_rows_read(batch->records_read);
+    if (column_reader.profile().reader_read_rows != nullptr) {
+        COUNTER_UPDATE(column_reader.profile().reader_read_rows, batch->records_read);
+    }
+    return Status::OK();
 }
 
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,

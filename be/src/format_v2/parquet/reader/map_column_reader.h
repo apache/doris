@@ -32,8 +32,9 @@ class MapColumnReader final : public ParquetColumnReader {
 public:
     MapColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
                     std::unique_ptr<ParquetColumnReader> key_reader,
-                    std::unique_ptr<ParquetColumnReader> value_reader)
-            : ParquetColumnReader(schema, type),
+                    std::unique_ptr<ParquetColumnReader> value_reader,
+                    ParquetColumnReaderProfile profile = {})
+            : ParquetColumnReader(schema, type, profile),
               _key_reader(std::move(key_reader)),
               _value_reader(std::move(value_reader)) {}
 

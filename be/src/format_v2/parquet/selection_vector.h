@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "common/check.h"
 #include "common/status.h"
 
 namespace doris::parquet {
@@ -28,6 +29,28 @@ namespace doris::parquet {
 struct RowRange {
     int64_t start = 0;
     int64_t length = 0;
+};
+
+struct ParquetPageSkipPlan {
+    int leaf_column_id = -1;
+    // Page ordinal is the data-page ordinal in the column chunk. It intentionally excludes
+    // dictionary pages, matching Arrow PageReader::set_data_page_filter().
+    std::vector<uint8_t> skipped_pages;
+    std::vector<int64_t> skipped_page_compressed_sizes;
+    // Row ranges covered by skipped data pages. ScalarColumnReader uses these ranges to avoid
+    // calling RecordReader::SkipRecords() again for pages already skipped by Arrow.
+    std::vector<RowRange> skipped_ranges;
+
+    bool empty() const { return skipped_ranges.empty(); }
+
+    bool should_skip_page(size_t page_idx) const {
+        return page_idx < skipped_pages.size() && skipped_pages[page_idx] != 0;
+    }
+
+    int64_t skipped_page_compressed_size(size_t page_idx) const {
+        DCHECK_LT(page_idx, skipped_page_compressed_sizes.size());
+        return skipped_page_compressed_sizes[page_idx];
+    }
 };
 
 // 类似 DuckDB SelectionVector 的轻量行号视图。

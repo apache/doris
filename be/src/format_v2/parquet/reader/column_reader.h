@@ -18,15 +18,18 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format_v2/column_data.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_type.h"
 #include "format_v2/parquet/selection_vector.h"
-#include "format_v2/column_data.h"
+#include "runtime/runtime_profile.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -42,6 +45,11 @@ class IColumn;
 
 namespace parquet {
 struct ParquetColumnSchema;
+
+struct ParquetPageSkipProfile {
+    RuntimeProfile::Counter* skipped_pages = nullptr;
+    RuntimeProfile::Counter* skipped_bytes = nullptr;
+};
 
 // Doris 的 Parquet column reader 抽象。
 // 该类包装 Arrow Parquet RecordReader，负责将 file-local Parquet leaf column 读取成
@@ -63,6 +71,7 @@ public:
 
     virtual const DataTypePtr& type() const { return _type; }
     virtual const std::string& name() const { return _name; }
+    const ParquetColumnReaderProfile& profile() const { return _profile; }
 
     // 读取一个 file-local column batch。
     virtual Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) = 0;
@@ -76,9 +85,13 @@ public:
                           MutableColumnPtr& column);
 
 protected:
-    ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type);
+    ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type,
+                        ParquetColumnReaderProfile profile = {});
     ParquetColumnReader() = default;
+    void update_reader_read_rows(int64_t rows) const;
+    void update_reader_skip_rows(int64_t rows) const;
 
+    ParquetColumnReaderProfile _profile;
     const int _field_id = -1;
     const int _leaf_column_id = -1;
     const int16_t _nullable_definition_level = 0;
@@ -95,7 +108,10 @@ protected:
 class ParquetColumnReaderFactory {
 public:
     ParquetColumnReaderFactory(std::shared_ptr<::parquet::RowGroupReader> row_group,
-                               int num_leaf_columns);
+                               int num_leaf_columns,
+                               const std::map<int, ParquetPageSkipPlan>* page_skip_plans = nullptr,
+                               ParquetPageSkipProfile page_skip_profile = {},
+                               ParquetColumnReaderProfile column_reader_profile = {});
 
     static constexpr int ROW_POSITION_COLUMN_ID = -10001;
     static constexpr const char* ROW_POSITION_COLUMN_NAME = "__parquet_row_position";
@@ -145,6 +161,9 @@ private:
 
     std::shared_ptr<::parquet::RowGroupReader> _row_group;
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>> _record_readers;
+    const std::map<int, ParquetPageSkipPlan>* _page_skip_plans = nullptr;
+    ParquetPageSkipProfile _page_skip_profile;
+    ParquetColumnReaderProfile _column_reader_profile;
 };
 
 } // namespace parquet

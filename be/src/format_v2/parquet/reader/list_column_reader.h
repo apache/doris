@@ -31,8 +31,10 @@ namespace doris::parquet {
 class ListColumnReader final : public ParquetColumnReader {
 public:
     ListColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
-                     std::unique_ptr<ParquetColumnReader> element_reader)
-            : ParquetColumnReader(schema, type), _element_reader(std::move(element_reader)) {}
+                     std::unique_ptr<ParquetColumnReader> element_reader,
+                     ParquetColumnReaderProfile profile = {})
+            : ParquetColumnReader(schema, type, profile),
+              _element_reader(std::move(element_reader)) {}
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;

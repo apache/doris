@@ -702,6 +702,9 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
         bool enable_bloom_filter, ParquetPruningStats* pruning_stats) {
+    int64_t row_group_filter_time_sink = 0;
+    SCOPED_RAW_TIMER(pruning_stats == nullptr ? &row_group_filter_time_sink
+                                              : &pruning_stats->row_group_filter_time);
     if (selected_row_groups == nullptr) {
         return Status::InvalidArgument("selected_row_groups is null");
     }
@@ -966,8 +969,8 @@ int64_t count_range_rows(const std::vector<RowRange>& ranges) {
     return rows;
 }
 
-void append_page_range(const ::parquet::OffsetIndex& offset_index, size_t page_idx,
-                       int64_t row_group_rows, std::vector<RowRange>* ranges) {
+RowRange page_row_range(const ::parquet::OffsetIndex& offset_index, size_t page_idx,
+                        int64_t row_group_rows) {
     const auto& page_locations = offset_index.page_locations();
     const int64_t start = page_locations[page_idx].first_row_index;
     const int64_t end = page_idx + 1 == page_locations.size()
@@ -976,17 +979,21 @@ void append_page_range(const ::parquet::OffsetIndex& offset_index, size_t page_i
     DORIS_CHECK(start >= 0);
     DORIS_CHECK(end >= start);
     DORIS_CHECK(end <= row_group_rows);
-    if (start == end) {
+    return RowRange {start, end - start};
+}
+
+void append_row_range(const RowRange& range, std::vector<RowRange>* ranges) {
+    if (range.length == 0) {
         return;
     }
     if (!ranges->empty()) {
         auto& previous = ranges->back();
-        if (previous.start + previous.length == start) {
-            previous.length += end - start;
+        if (previous.start + previous.length == range.start) {
+            previous.length += range.length;
             return;
         }
     }
-    ranges->push_back(RowRange {start, end - start});
+    ranges->push_back(range);
 }
 
 bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndexReader>& row_group,
@@ -1025,12 +1032,149 @@ bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndex
             ranges->clear();
             return false;
         }
+        const RowRange row_range = page_row_range(*offset_index, page_idx, row_group_rows);
         if (ParquetStatisticsUtils::CheckStatistics(column_filter, page_statistics)) {
             continue;
         }
-        append_page_range(*offset_index, page_idx, row_group_rows, ranges);
+        append_row_range(row_range, ranges);
     }
     return true;
+}
+
+bool ranges_intersect(const std::vector<RowRange>& ranges, const RowRange& range) {
+    const int64_t range_end = range.start + range.length;
+    for (const auto& selected_range : ranges) {
+        const int64_t selected_end = selected_range.start + selected_range.length;
+        if (selected_end <= range.start) {
+            continue;
+        }
+        if (selected_range.start >= range_end) {
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+void collect_leaf_schemas(const ParquetColumnSchema& column_schema,
+                          const format::LocalColumnIndex* projection,
+                          std::vector<const ParquetColumnSchema*>* leaf_schemas) {
+    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        leaf_schemas->push_back(&column_schema);
+        return;
+    }
+    for (const auto& child_schema : column_schema.children) {
+        if (!format::is_child_projected(projection, child_schema->local_id)) {
+            continue;
+        }
+        const auto* child_projection =
+                format::find_child_projection(projection, child_schema->local_id);
+        collect_leaf_schemas(*child_schema, child_projection, leaf_schemas);
+    }
+}
+
+void collect_request_leaf_schemas(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request,
+        std::vector<const ParquetColumnSchema*>* leaf_schemas) {
+    std::set<int> seen_leaf_ids;
+    auto collect_projection = [&](const format::LocalColumnIndex& projection) {
+        const int32_t local_id = projection.field_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
+            return;
+        }
+        std::vector<const ParquetColumnSchema*> projection_leaf_schemas;
+        collect_leaf_schemas(*file_schema[local_id], &projection, &projection_leaf_schemas);
+        for (const auto* leaf_schema : projection_leaf_schemas) {
+            DORIS_CHECK(leaf_schema != nullptr);
+            if (seen_leaf_ids.insert(leaf_schema->leaf_column_id).second) {
+                leaf_schemas->push_back(leaf_schema);
+            }
+        }
+    };
+    for (const auto& projection : request.predicate_columns) {
+        collect_projection(projection);
+    }
+    for (const auto& projection : request.non_predicate_columns) {
+        collect_projection(projection);
+    }
+    for (const auto& column_filter : request.column_predicate_filters) {
+        const auto* leaf_schema =
+                ParquetStatisticsUtils::ResolvePredicateLeafSchema(file_schema, column_filter);
+        if (leaf_schema == nullptr) {
+            continue;
+        }
+        if (seen_leaf_ids.insert(leaf_schema->leaf_column_id).second) {
+            leaf_schemas->push_back(leaf_schema);
+        }
+    }
+}
+
+bool build_page_skip_plan_for_leaf(
+        const std::shared_ptr<::parquet::RowGroupPageIndexReader>& row_group,
+        const ParquetColumnSchema& column_schema, const std::vector<RowRange>& selected_ranges,
+        int64_t row_group_rows, ParquetPageSkipPlan* page_skip_plan) {
+    DORIS_CHECK(page_skip_plan != nullptr);
+    *page_skip_plan = ParquetPageSkipPlan {};
+    // OffsetIndex first_row_index is row-based only for non-repeated leaves. LIST/MAP/repeated
+    // leaves need repetition-level-aware range mapping and are intentionally left out for now.
+    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema.descriptor == nullptr || column_schema.leaf_column_id < 0 ||
+        column_schema.descriptor->max_repetition_level() != 0) {
+        return false;
+    }
+
+    std::shared_ptr<::parquet::OffsetIndex> offset_index;
+    try {
+        offset_index = row_group->GetOffsetIndex(column_schema.leaf_column_id);
+    } catch (const ::parquet::ParquetException&) {
+        return false;
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (offset_index == nullptr) {
+        return false;
+    }
+
+    const auto page_count = offset_index->page_locations().size();
+    page_skip_plan->leaf_column_id = column_schema.leaf_column_id;
+    page_skip_plan->skipped_pages.resize(page_count);
+    page_skip_plan->skipped_page_compressed_sizes.resize(page_count);
+    const auto& page_locations = offset_index->page_locations();
+    for (size_t page_idx = 0; page_idx < page_count; ++page_idx) {
+        const RowRange row_range = page_row_range(*offset_index, page_idx, row_group_rows);
+        if (row_range.length == 0 || ranges_intersect(selected_ranges, row_range)) {
+            continue;
+        }
+        page_skip_plan->skipped_pages[page_idx] = 1;
+        page_skip_plan->skipped_page_compressed_sizes[page_idx] =
+                page_locations[page_idx].compressed_page_size;
+        append_row_range(row_range, &page_skip_plan->skipped_ranges);
+    }
+    if (page_skip_plan->empty()) {
+        *page_skip_plan = ParquetPageSkipPlan {};
+        return false;
+    }
+    return true;
+}
+
+void build_page_skip_plans(const std::shared_ptr<::parquet::RowGroupPageIndexReader>& row_group,
+                           const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+                           const format::FileScanRequest& request,
+                           const std::vector<RowRange>& selected_ranges, int64_t row_group_rows,
+                           std::map<int, ParquetPageSkipPlan>* page_skip_plans) {
+    DORIS_CHECK(page_skip_plans != nullptr);
+    page_skip_plans->clear();
+    std::vector<const ParquetColumnSchema*> leaf_schemas;
+    collect_request_leaf_schemas(file_schema, request, &leaf_schemas);
+    for (const auto* leaf_schema : leaf_schemas) {
+        DORIS_CHECK(leaf_schema != nullptr);
+        ParquetPageSkipPlan page_skip_plan;
+        if (build_page_skip_plan_for_leaf(row_group, *leaf_schema, selected_ranges, row_group_rows,
+                                          &page_skip_plan)) {
+            page_skip_plans->emplace(page_skip_plan.leaf_column_id, std::move(page_skip_plan));
+        }
+    }
 }
 
 } // namespace
@@ -1039,9 +1183,16 @@ Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
-        std::vector<RowRange>* selected_ranges, ParquetPruningStats* pruning_stats) {
+        std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
+        ParquetPruningStats* pruning_stats) {
+    int64_t page_index_filter_time_sink = 0;
+    SCOPED_RAW_TIMER(pruning_stats == nullptr ? &page_index_filter_time_sink
+                                              : &pruning_stats->page_index_filter_time);
     DORIS_CHECK(selected_ranges != nullptr);
     selected_ranges->clear();
+    if (page_skip_plans != nullptr) {
+        page_skip_plans->clear();
+    }
     if (row_group_rows <= 0) {
         return Status::OK();
     }
@@ -1057,11 +1208,16 @@ Status select_row_group_ranges_by_page_index(
         if (pruning_stats != nullptr) {
             ++pruning_stats->page_index_read_calls;
         }
-        page_index_reader = file_reader->GetPageIndexReader();
-        if (page_index_reader == nullptr) {
-            return Status::OK();
+        {
+            int64_t read_page_index_time_sink = 0;
+            SCOPED_RAW_TIMER(pruning_stats == nullptr ? &read_page_index_time_sink
+                                                      : &pruning_stats->read_page_index_time);
+            page_index_reader = file_reader->GetPageIndexReader();
+            if (page_index_reader == nullptr) {
+                return Status::OK();
+            }
+            row_group_index_reader = page_index_reader->RowGroup(row_group_idx);
         }
-        row_group_index_reader = page_index_reader->RowGroup(row_group_idx);
     } catch (const ::parquet::ParquetException&) {
         return Status::OK();
     } catch (const std::exception&) {
@@ -1079,12 +1235,19 @@ Status select_row_group_ranges_by_page_index(
         }
         *selected_ranges = intersect_ranges(*selected_ranges, filter_ranges);
         if (selected_ranges->empty()) {
+            if (page_skip_plans != nullptr) {
+                page_skip_plans->clear();
+            }
             if (pruning_stats != nullptr) {
                 pruning_stats->filtered_page_rows += row_group_rows;
                 ++pruning_stats->filtered_row_groups_by_page_index;
             }
             return Status::OK();
         }
+    }
+    if (page_skip_plans != nullptr) {
+        build_page_skip_plans(row_group_index_reader, file_schema, request, *selected_ranges,
+                              row_group_rows, page_skip_plans);
     }
     if (pruning_stats != nullptr) {
         const int64_t selected_rows = count_range_rows(*selected_ranges);

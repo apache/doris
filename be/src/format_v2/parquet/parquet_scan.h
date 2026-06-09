@@ -19,15 +19,18 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "core/column/column.h"
+#include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
-#include "format_v2/file_reader.h"
+#include "runtime/runtime_profile.h"
 
 namespace parquet {
 class FileMetaData;
@@ -59,11 +62,24 @@ struct RowGroupReadPlan {
     int64_t first_file_row = 0;
     int64_t row_group_rows = 0;
     std::vector<RowRange> selected_ranges;
+    std::map<int, ParquetPageSkipPlan> page_skip_plans;
 };
 
 struct RowGroupScanPlan {
     std::vector<RowGroupReadPlan> row_groups;
     ParquetPruningStats pruning_stats;
+};
+
+struct ParquetScanProfile {
+    RuntimeProfile::Counter* raw_rows_read = nullptr;
+    RuntimeProfile::Counter* selected_rows = nullptr;
+    RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
+    RuntimeProfile::Counter* total_batches = nullptr;
+    RuntimeProfile::Counter* empty_selection_batches = nullptr;
+    RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
+    RuntimeProfile::Counter* column_read_time = nullptr;
+    RuntimeProfile::Counter* predicate_filter_time = nullptr;
+    ParquetColumnReaderProfile column_reader_profile;
 };
 
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
@@ -83,6 +99,10 @@ Status execute_batch_filters(const format::FileScanRequest& request, int64_t bat
 class ParquetScanScheduler {
 public:
     void set_plan(RowGroupScanPlan plan);
+    void set_page_skip_profile(ParquetPageSkipProfile page_skip_profile) {
+        _page_skip_profile = page_skip_profile;
+    }
+    void set_scan_profile(ParquetScanProfile scan_profile) { _scan_profile = scan_profile; }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
 
@@ -118,6 +138,8 @@ private:
     std::vector<RowRange> _current_selected_ranges;
     size_t _current_range_idx = 0;
     int64_t _current_range_rows_read = 0;
+    ParquetPageSkipProfile _page_skip_profile;
+    ParquetScanProfile _scan_profile;
 };
 
 } // namespace doris::parquet

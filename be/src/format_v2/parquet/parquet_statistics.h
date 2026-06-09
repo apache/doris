@@ -18,13 +18,14 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "core/field.h"
-#include "format_v2/parquet/selection_vector.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/selection_vector.h"
 
 namespace parquet {
 class BloomFilter;
@@ -61,6 +62,9 @@ struct ParquetPruningStats {
     int64_t selected_row_ranges = 0;
     int64_t page_index_read_calls = 0;
     int64_t bloom_filter_read_time = 0;
+    int64_t row_group_filter_time = 0;
+    int64_t page_index_filter_time = 0;
+    int64_t read_page_index_time = 0;
 };
 
 // Parquet row group column statistics 转换后的 Doris 统计视图。
@@ -131,6 +135,7 @@ Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
-        std::vector<RowRange>* selected_ranges, ParquetPruningStats* pruning_stats);
+        std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
+        ParquetPruningStats* pruning_stats);
 
 } // namespace doris::parquet
