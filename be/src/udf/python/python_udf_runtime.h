@@ -18,6 +18,7 @@
 #pragma once
 
 #include <boost/process.hpp>
+#include <chrono>
 
 #include "python_env.h"
 
@@ -75,6 +76,15 @@ public:
 
     void shutdown();
 
+    enum class ChildExitWaitResult { EXITED, ALREADY_REAPED, TIMEOUT, ERROR };
+
+    static ChildExitWaitResult wait_child_exit(pid_t pid, std::chrono::milliseconds timeout,
+                                               int* exit_status);
+
+    // Hand off a killed child that could not be reaped synchronously. The background reaper keeps
+    // waitpid ownership so a later child exit will not become a zombie under BE.
+    static void enqueue_child_for_reap(pid_t pid);
+
     std::string to_string() const;
 
     pid_t get_child_pid() const { return _child_pid; }
@@ -85,10 +95,13 @@ public:
 
 #ifdef BE_TEST
     void set_uri_for_test(std::string uri) { _uri = std::move(uri); }
+
+    static bool wait_background_reaped_for_test(pid_t pid, std::chrono::milliseconds timeout);
+
+    static void force_child_exit_timeouts_for_test(int count);
 #endif
 
 private:
-    constexpr static int TERMINATE_RETRY_TIMES = 10;
     constexpr static size_t MAX_ACCUMULATED_LOG_SIZE = 65536;
 
     bool _is_shutdown {false};
