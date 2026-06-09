@@ -673,6 +673,9 @@ Status MapColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, in
 }
 
 Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+    if (dynamic_cast<MapColumnReader*>(_value_reader.get()) == nullptr) {
+        return read_internal(rows, column, rows_read, nullptr);
+    }
     RETURN_IF_ERROR(load_nested_batch(rows));
     return build_nested_column(rows, column, rows_read);
 }
