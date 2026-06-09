@@ -38,6 +38,14 @@ namespace doris::parquet {
 
 constexpr int64_t NESTED_READ_BATCH_ROWS = 4096;
 
+// Nested reader state is intentionally split into shape and value.
+//
+// Shape is the Dremel row/level stream plus the derived parent layout information: parent nulls,
+// repeated-entry counts, and row/value membership. Value is the primitive payload attached to the
+// level slots that actually contain a value. Complex readers must build Doris ColumnStruct,
+// ColumnArray, and ColumnMap from shape first, then append values into that layout. This mirrors
+// Arrow's nested reader contract and prevents LIST/MAP/STRUCT from inferring offsets or parent
+// validity from payload counts.
 struct NestedScalarBatch {
     int64_t records_read = 0;
     int64_t levels_written = 0;
@@ -106,6 +114,43 @@ inline int16_t nested_shape_repetition_level(const NestedScalarBatch& batch, int
 inline int16_t nested_shape_repetition_level(const NestedStructBatch& batch, int64_t level_idx) {
     DORIS_CHECK(!batch.child_batches.empty());
     return batch.child_batches[0].rep_levels[level_idx];
+}
+
+inline void append_null_shapes(const std::vector<ParquetNullShapeSink>* sinks, int16_t def_level) {
+    if (sinks == nullptr) {
+        return;
+    }
+    for (const auto& sink : *sinks) {
+        DORIS_CHECK(sink.null_map != nullptr);
+        sink.null_map->push_back(def_level < sink.nullable_definition_level);
+    }
+}
+
+inline void capture_null_shape_sizes(const std::vector<ParquetNullShapeSink>& sinks,
+                                     std::vector<size_t>* sizes) {
+    DORIS_CHECK(sizes != nullptr);
+    sizes->clear();
+    sizes->reserve(sinks.size());
+    for (const auto& sink : sinks) {
+        DORIS_CHECK(sink.null_map != nullptr);
+        sizes->push_back(sink.null_map->size());
+    }
+}
+
+inline Status validate_null_shape_rows(const std::string& column_name, std::string_view type_name,
+                                       const std::vector<ParquetNullShapeSink>& sinks,
+                                       const std::vector<size_t>& initial_sizes,
+                                       int64_t rows_read) {
+    DORIS_CHECK(sinks.size() == initial_sizes.size());
+    for (size_t shape_idx = 0; shape_idx < sinks.size(); ++shape_idx) {
+        const auto shape_rows = sinks[shape_idx].null_map->size() - initial_sizes[shape_idx];
+        if (shape_rows != static_cast<size_t>(rows_read)) {
+            return Status::Corruption(
+                    "Parquet {} column {} returned {} ancestor shape rows, expected {}", type_name,
+                    column_name, shape_rows, rows_read);
+        }
+    }
+    return Status::OK();
 }
 
 template <typename Batch>

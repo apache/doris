@@ -106,6 +106,7 @@ Status read_scalar_list_values(const std::string& column_name, const DataTypePtr
                                NestedScalarOverflow* element_overflow, int64_t rows,
                                MutableColumnPtr& element_column,
                                std::vector<uint64_t>* entry_counts, NullMap* parent_nulls,
+                               const std::vector<ParquetNullShapeSink>* ancestor_shapes,
                                int64_t* rows_read) {
     DORIS_CHECK(element_overflow != nullptr);
     DORIS_CHECK(entry_counts != nullptr);
@@ -134,6 +135,9 @@ Status read_scalar_list_values(const std::string& column_name, const DataTypePtr
     auto start_parent = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
         reset_value_cursor(batch, level_idx);
         const int16_t def_level = batch.def_levels[level_idx];
+        if (ancestor_shapes != nullptr) {
+            append_null_shapes(ancestor_shapes, def_level);
+        }
         if (def_level < list_nullable_definition_level) {
             RETURN_IF_ERROR(parent_state.append_null_parent(column_name, "LIST", list_type));
             return value_appender.skip_shape_only_slot();
@@ -163,6 +167,7 @@ Status read_struct_list_values(const std::string& column_name, const DataTypePtr
                                NestedStructOverflow* element_overflow, int64_t rows,
                                MutableColumnPtr& element_column,
                                std::vector<uint64_t>* entry_counts, NullMap* parent_nulls,
+                               const std::vector<ParquetNullShapeSink>* ancestor_shapes,
                                int64_t* rows_read) {
     DORIS_CHECK(element_overflow != nullptr);
     DORIS_CHECK(entry_counts != nullptr);
@@ -179,6 +184,9 @@ Status read_struct_list_values(const std::string& column_name, const DataTypePtr
     };
     auto start_parent = [&](const NestedStructBatch& batch, int64_t level_idx) -> Status {
         const int16_t def_level = nested_shape_definition_level(batch, level_idx);
+        if (ancestor_shapes != nullptr) {
+            append_null_shapes(ancestor_shapes, def_level);
+        }
         if (def_level < list_nullable_definition_level) {
             RETURN_IF_ERROR(parent_state.append_null_parent(column_name, "LIST", list_type));
             return value_appender.skip_shape_only_slot();
@@ -209,6 +217,7 @@ Status read_nested_list_values(const std::string& column_name, const DataTypePtr
                                MutableColumnPtr& inner_element_column,
                                std::vector<uint64_t>* outer_entry_counts,
                                NullMap* outer_parent_nulls,
+                               const std::vector<ParquetNullShapeSink>* ancestor_shapes,
                                std::vector<uint64_t>* inner_entry_counts,
                                NullMap* inner_parent_nulls, int64_t* rows_read) {
     DORIS_CHECK(element_overflow != nullptr);
@@ -262,6 +271,9 @@ Status read_nested_list_values(const std::string& column_name, const DataTypePtr
     auto start_parent = [&](const NestedScalarBatch& batch, int64_t level_idx) -> Status {
         reset_value_cursor(batch, level_idx);
         const int16_t def_level = batch.def_levels[level_idx];
+        if (ancestor_shapes != nullptr) {
+            append_null_shapes(ancestor_shapes, def_level);
+        }
         if (def_level < outer_nullable_definition_level) {
             return outer_state.append_null_parent(column_name, "LIST", outer_list_type);
         }
@@ -320,7 +332,8 @@ Status skip_struct_list_values(const std::string& column_name, int16_t repeated_
 
 } // namespace
 
-Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+Status ListColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
+                                       const std::vector<ParquetNullShapeSink>* ancestor_shapes) {
     if (column.get() == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet list read result pointer for column {}",
                                        _name);
@@ -338,10 +351,10 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     NullMap parent_nulls;
 
     if (auto* element_reader = dynamic_cast<ScalarColumnReader*>(_element_reader.get())) {
-        RETURN_IF_ERROR(read_scalar_list_values(_name, _type, _nullable_definition_level,
-                                                _repeated_repetition_level, *element_reader,
-                                                &_element_overflow, rows, nested_column,
-                                                &entry_counts, &parent_nulls, rows_read));
+        RETURN_IF_ERROR(read_scalar_list_values(
+                _name, _type, _nullable_definition_level, _repeated_repetition_level,
+                *element_reader, &_element_overflow, rows, nested_column, &entry_counts,
+                &parent_nulls, ancestor_shapes, rows_read));
         array_column->get_data_ptr() = std::move(nested_column);
         append_offsets(array_column->get_offsets(), entry_counts);
         append_parent_nulls(parent_null_map, parent_nulls);
@@ -349,10 +362,10 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     }
 
     if (auto* struct_element_reader = dynamic_cast<StructColumnReader*>(_element_reader.get())) {
-        RETURN_IF_ERROR(read_struct_list_values(_name, _type, _nullable_definition_level,
-                                                _repeated_repetition_level, *struct_element_reader,
-                                                &_struct_element_overflow, rows, nested_column,
-                                                &entry_counts, &parent_nulls, rows_read));
+        RETURN_IF_ERROR(read_struct_list_values(
+                _name, _type, _nullable_definition_level, _repeated_repetition_level,
+                *struct_element_reader, &_struct_element_overflow, rows, nested_column,
+                &entry_counts, &parent_nulls, ancestor_shapes, rows_read));
         array_column->get_data_ptr() = std::move(nested_column);
         append_offsets(array_column->get_offsets(), entry_counts);
         append_parent_nulls(parent_null_map, parent_nulls);
@@ -384,11 +397,11 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     std::vector<uint64_t> inner_entry_counts;
     NullMap inner_parent_nulls;
 
-    RETURN_IF_ERROR(read_nested_list_values(_name, _type, _nullable_definition_level,
-                                            _repeated_repetition_level, *list_element_reader,
-                                            *scalar_nested_element_reader, &_element_overflow, rows,
-                                            inner_nested_column, &entry_counts, &parent_nulls,
-                                            &inner_entry_counts, &inner_parent_nulls, rows_read));
+    RETURN_IF_ERROR(read_nested_list_values(
+            _name, _type, _nullable_definition_level, _repeated_repetition_level,
+            *list_element_reader, *scalar_nested_element_reader, &_element_overflow, rows,
+            inner_nested_column, &entry_counts, &parent_nulls, ancestor_shapes, &inner_entry_counts,
+            &inner_parent_nulls, rows_read));
     inner_array_column->get_data_ptr() = std::move(inner_nested_column);
     append_offsets(inner_array_column->get_offsets(), inner_entry_counts);
     append_parent_nulls(inner_null_map, inner_parent_nulls);
@@ -396,6 +409,40 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     array_column->get_data_ptr() = std::move(nested_column);
     append_parent_nulls(parent_null_map, parent_nulls);
     return Status::OK();
+}
+
+Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+    return read_internal(rows, column, rows_read, nullptr);
+}
+
+Status ListColumnReader::read_with_ancestor_shape(int64_t rows,
+                                                  int16_t ancestor_nullable_definition_level,
+                                                  MutableColumnPtr& column, int64_t* rows_read,
+                                                  NullMap* ancestor_nulls) {
+    if (ancestor_nulls == nullptr) {
+        return Status::InvalidArgument("Ancestor shape output is null for parquet LIST column {}",
+                                       _name);
+    }
+    const auto initial_null_count = ancestor_nulls->size();
+    std::vector<ParquetNullShapeSink> ancestor_shapes {
+            {ancestor_nullable_definition_level, ancestor_nulls}};
+    RETURN_IF_ERROR(read_with_ancestor_shapes(rows, ancestor_shapes, column, rows_read));
+    if (ancestor_nulls->size() - initial_null_count != static_cast<size_t>(*rows_read)) {
+        return Status::Corruption(
+                "Parquet LIST column {} returned {} ancestor shape rows, expected {}", _name,
+                ancestor_nulls->size() - initial_null_count, *rows_read);
+    }
+    return Status::OK();
+}
+
+Status ListColumnReader::read_with_ancestor_shapes(
+        int64_t rows, const std::vector<ParquetNullShapeSink>& ancestor_shapes,
+        MutableColumnPtr& column, int64_t* rows_read) {
+    std::vector<size_t> initial_null_counts;
+    capture_null_shape_sizes(ancestor_shapes, &initial_null_counts);
+    RETURN_IF_ERROR(read_internal(rows, column, rows_read, &ancestor_shapes));
+    return validate_null_shape_rows(_name, "LIST", ancestor_shapes, initial_null_counts,
+                                    *rows_read);
 }
 
 Status ListColumnReader::skip(int64_t rows) {

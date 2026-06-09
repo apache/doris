@@ -39,8 +39,19 @@ public:
               _value_reader(std::move(value_reader)) {}
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
+    Status read_with_ancestor_shape(int64_t rows, int16_t ancestor_nullable_definition_level,
+                                    MutableColumnPtr& column, int64_t* rows_read,
+                                    NullMap* ancestor_nulls) override;
+    Status read_with_ancestor_shapes(int64_t rows,
+                                     const std::vector<ParquetNullShapeSink>& ancestor_shapes,
+                                     MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
+private:
+    Status read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
+                         const std::vector<ParquetNullShapeSink>* ancestor_shapes);
+
+public:
     std::unique_ptr<ParquetColumnReader> _key_reader;
     std::unique_ptr<ParquetColumnReader> _value_reader;
     NestedScalarOverflow _key_overflow;

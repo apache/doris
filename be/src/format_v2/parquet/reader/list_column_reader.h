@@ -37,10 +37,19 @@ public:
               _element_reader(std::move(element_reader)) {}
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
+    Status read_with_ancestor_shape(int64_t rows, int16_t ancestor_nullable_definition_level,
+                                    MutableColumnPtr& column, int64_t* rows_read,
+                                    NullMap* ancestor_nulls) override;
+    Status read_with_ancestor_shapes(int64_t rows,
+                                     const std::vector<ParquetNullShapeSink>& ancestor_shapes,
+                                     MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
     ParquetColumnReader* element_reader() const { return _element_reader.get(); }
 
 private:
+    Status read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
+                         const std::vector<ParquetNullShapeSink>* ancestor_shapes);
+
     std::unique_ptr<ParquetColumnReader> _element_reader;
     NestedScalarOverflow _element_overflow;
     NestedStructOverflow _struct_element_overflow;

@@ -30,12 +30,19 @@
 
 namespace doris::parquet {
 
-Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+Status StructColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
+                                         const std::vector<ParquetNullShapeSink>* ancestor_shapes) {
     if (column.get() == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet struct read result pointer for column {}",
                                        _name);
     }
     if (_children.empty()) {
+        if (ancestor_shapes != nullptr && !ancestor_shapes->empty()) {
+            return Status::NotSupported(
+                    "Parquet STRUCT column {} cannot expose ancestor shape without a physical "
+                    "descendant",
+                    _name);
+        }
         column->resize(static_cast<size_t>(rows));
         *rows_read = rows;
         return Status::OK();
@@ -104,6 +111,9 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
             const bool parent_is_null =
                     child_batches[0].def_levels[row_idx] < _nullable_definition_level;
             parent_nulls.push_back(parent_is_null);
+            if (ancestor_shapes != nullptr) {
+                append_null_shapes(ancestor_shapes, child_batches[0].def_levels[row_idx]);
+            }
             for (size_t child_idx = 1; child_idx < child_batches.size(); ++child_idx) {
                 const bool child_parent_is_null =
                         child_batches[child_idx].def_levels[row_idx] < _nullable_definition_level;
@@ -112,6 +122,21 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                             "Parquet struct children returned different null parent shape in "
                             "column {}",
                             _name);
+                }
+                if (ancestor_shapes != nullptr) {
+                    for (const auto& ancestor_shape : *ancestor_shapes) {
+                        const bool ancestor_is_null = child_batches[0].def_levels[row_idx] <
+                                                      ancestor_shape.nullable_definition_level;
+                        const bool child_ancestor_is_null =
+                                child_batches[child_idx].def_levels[row_idx] <
+                                ancestor_shape.nullable_definition_level;
+                        if (child_ancestor_is_null != ancestor_is_null) {
+                            return Status::Corruption(
+                                    "Parquet struct children returned different ancestor shape in "
+                                    "column {}",
+                                    _name);
+                        }
+                    }
                 }
             }
             for (size_t child_idx = 0; child_idx < scalar_children.size(); ++child_idx) {
@@ -211,6 +236,9 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
             const bool parent_is_null =
                     child_batches[0].def_levels[level_indices[0]] < _nullable_definition_level;
             parent_nulls.push_back(parent_is_null);
+            if (ancestor_shapes != nullptr) {
+                append_null_shapes(ancestor_shapes, child_batches[0].def_levels[level_indices[0]]);
+            }
             for (size_t scalar_idx = 1; scalar_idx < child_batches.size(); ++scalar_idx) {
                 const bool child_parent_is_null =
                         child_batches[scalar_idx].def_levels[level_indices[scalar_idx]] <
@@ -220,6 +248,22 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                             "Parquet struct children returned different null parent shape in "
                             "column {}",
                             _name);
+                }
+                if (ancestor_shapes != nullptr) {
+                    for (const auto& ancestor_shape : *ancestor_shapes) {
+                        const bool ancestor_is_null =
+                                child_batches[0].def_levels[level_indices[0]] <
+                                ancestor_shape.nullable_definition_level;
+                        const bool child_ancestor_is_null =
+                                child_batches[scalar_idx].def_levels[level_indices[scalar_idx]] <
+                                ancestor_shape.nullable_definition_level;
+                        if (child_ancestor_is_null != ancestor_is_null) {
+                            return Status::Corruption(
+                                    "Parquet struct children returned different ancestor shape in "
+                                    "column {}",
+                                    _name);
+                        }
+                    }
                 }
             }
             for (size_t scalar_idx = 0; scalar_idx < scalar_children.size(); ++scalar_idx) {
@@ -270,39 +314,137 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         return Status::OK();
     }
 
-    if (parent_null_map != nullptr) {
-        return Status::NotSupported(
-                "Current parquet nullable STRUCT reader requires at least one scalar child for "
-                "column {}",
-                _name);
-    }
-
     int64_t expected_rows = -1;
+    NullMap parent_nulls;
+    std::vector<int16_t> shape_definition_levels;
+    int parent_shape_index = -1;
+    if (parent_null_map != nullptr) {
+        parent_shape_index = 0;
+        shape_definition_levels.push_back(_nullable_definition_level);
+    }
+    if (ancestor_shapes != nullptr) {
+        shape_definition_levels.reserve(shape_definition_levels.size() + ancestor_shapes->size());
+        for (const auto& ancestor_shape : *ancestor_shapes) {
+            DORIS_CHECK(ancestor_shape.null_map != nullptr);
+            shape_definition_levels.push_back(ancestor_shape.nullable_definition_level);
+        }
+    }
+    const bool need_shape = !shape_definition_levels.empty();
+    std::vector<NullMap> expected_shape_maps;
     size_t child_idx = 0;
     for (auto& child_reader : _children) {
         DORIS_CHECK(child_reader != nullptr);
         int64_t child_rows = 0;
         const int output_idx = _child_output_indices[child_idx];
+        std::vector<NullMap> child_shape_maps(shape_definition_levels.size());
         if (output_idx < 0) {
-            RETURN_IF_ERROR(child_reader->skip(rows));
-            child_rows = rows;
+            if (!need_shape) {
+                RETURN_IF_ERROR(child_reader->skip(rows));
+                child_rows = rows;
+            } else {
+                std::vector<ParquetNullShapeSink> child_shape_sinks;
+                child_shape_sinks.reserve(shape_definition_levels.size());
+                for (size_t shape_idx = 0; shape_idx < shape_definition_levels.size();
+                     ++shape_idx) {
+                    child_shape_sinks.push_back(
+                            {shape_definition_levels[shape_idx], &child_shape_maps[shape_idx]});
+                }
+                auto scratch_column = child_reader->type()->create_column();
+                RETURN_IF_ERROR(child_reader->read_with_ancestor_shapes(
+                        rows, child_shape_sinks, scratch_column, &child_rows));
+            }
         } else {
             auto child_column = struct_column->get_column_ptr(output_idx)->assert_mutable();
-            RETURN_IF_ERROR(child_reader->read(rows, child_column, &child_rows));
+            if (!need_shape) {
+                RETURN_IF_ERROR(child_reader->read(rows, child_column, &child_rows));
+            } else {
+                std::vector<ParquetNullShapeSink> child_shape_sinks;
+                child_shape_sinks.reserve(shape_definition_levels.size());
+                for (size_t shape_idx = 0; shape_idx < shape_definition_levels.size();
+                     ++shape_idx) {
+                    child_shape_sinks.push_back(
+                            {shape_definition_levels[shape_idx], &child_shape_maps[shape_idx]});
+                }
+                // Phase-1 shape source: a nullable STRUCT whose selected children are all complex
+                // has no scalar child levels to derive parent validity from. Ask each complex child
+                // to materialize normally and expose the requested ancestor STRUCT shapes into
+                // scratch maps, then validate sibling shapes before appending them to real outputs.
+                // This keeps the file block as a top-level ColumnStruct and avoids hidden child
+                // slots while leaving room for the later unified shape builder.
+                RETURN_IF_ERROR(child_reader->read_with_ancestor_shapes(rows, child_shape_sinks,
+                                                                        child_column, &child_rows));
+            }
             struct_column->get_column_ptr(output_idx) = std::move(child_column);
         }
         if (expected_rows < 0) {
             expected_rows = child_rows;
+            expected_shape_maps = std::move(child_shape_maps);
         } else if (child_rows != expected_rows) {
             return Status::Corruption(
                     "Parquet struct children returned different row counts in column {}: {} vs {}",
                     _name, expected_rows, child_rows);
+        } else if (need_shape && child_shape_maps != expected_shape_maps) {
+            return Status::Corruption(
+                    "Parquet struct children returned different null parent shape in column {}",
+                    _name);
         }
         child_idx++;
     }
 
     *rows_read = std::max<int64_t>(expected_rows, 0);
+    if (parent_null_map != nullptr) {
+        DORIS_CHECK(parent_shape_index >= 0);
+        parent_nulls = expected_shape_maps[static_cast<size_t>(parent_shape_index)];
+        if (parent_nulls.size() != static_cast<size_t>(*rows_read)) {
+            return Status::Corruption(
+                    "Parquet STRUCT column {} returned {} parent shape rows, expected {}", _name,
+                    parent_nulls.size(), *rows_read);
+        }
+        append_parent_nulls(parent_null_map, parent_nulls);
+    }
+    if (ancestor_shapes != nullptr) {
+        const size_t ancestor_shape_offset = parent_shape_index >= 0 ? 1 : 0;
+        for (size_t shape_idx = 0; shape_idx < ancestor_shapes->size(); ++shape_idx) {
+            auto* ancestor_nulls = (*ancestor_shapes)[shape_idx].null_map;
+            const auto& shape_map = expected_shape_maps[ancestor_shape_offset + shape_idx];
+            ancestor_nulls->insert(ancestor_nulls->end(), shape_map.begin(), shape_map.end());
+        }
+    }
     return Status::OK();
+}
+
+Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+    return read_internal(rows, column, rows_read, nullptr);
+}
+
+Status StructColumnReader::read_with_ancestor_shape(int64_t rows,
+                                                    int16_t ancestor_nullable_definition_level,
+                                                    MutableColumnPtr& column, int64_t* rows_read,
+                                                    NullMap* ancestor_nulls) {
+    if (ancestor_nulls == nullptr) {
+        return Status::InvalidArgument("Ancestor shape output is null for parquet STRUCT column {}",
+                                       _name);
+    }
+    const auto initial_null_count = ancestor_nulls->size();
+    std::vector<ParquetNullShapeSink> ancestor_shapes {
+            {ancestor_nullable_definition_level, ancestor_nulls}};
+    RETURN_IF_ERROR(read_with_ancestor_shapes(rows, ancestor_shapes, column, rows_read));
+    if (ancestor_nulls->size() - initial_null_count != static_cast<size_t>(*rows_read)) {
+        return Status::Corruption(
+                "Parquet STRUCT column {} returned {} ancestor shape rows, expected {}", _name,
+                ancestor_nulls->size() - initial_null_count, *rows_read);
+    }
+    return Status::OK();
+}
+
+Status StructColumnReader::read_with_ancestor_shapes(
+        int64_t rows, const std::vector<ParquetNullShapeSink>& ancestor_shapes,
+        MutableColumnPtr& column, int64_t* rows_read) {
+    std::vector<size_t> initial_null_counts;
+    capture_null_shape_sizes(ancestor_shapes, &initial_null_counts);
+    RETURN_IF_ERROR(read_internal(rows, column, rows_read, &ancestor_shapes));
+    return validate_null_shape_rows(_name, "STRUCT", ancestor_shapes, initial_null_counts,
+                                    *rows_read);
 }
 
 Status StructColumnReader::skip(int64_t rows) {

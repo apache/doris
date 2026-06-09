@@ -288,6 +288,7 @@ struct MapValueSink {
     MutableColumnPtr* key_column = nullptr;
     MutableColumnPtr* value_column = nullptr;
     RepeatedParentSinkState parent_state;
+    const std::vector<ParquetNullShapeSink>* ancestor_shapes = nullptr;
     int16_t key_max_definition_level = 0;
     MapValueStream<ValueBatch, ValueOverflow, ValueReader> value_stream;
     ValueAppender value_appender;
@@ -306,6 +307,9 @@ struct MapValueSink {
         DORIS_CHECK(column_name != nullptr);
         DORIS_CHECK(map_type != nullptr);
         const int16_t def_level = key_batch.def_levels[level_idx];
+        if (ancestor_shapes != nullptr) {
+            append_null_shapes(ancestor_shapes, def_level);
+        }
         if (def_level < map_nullable_definition_level) {
             RETURN_IF_ERROR(parent_state.append_null_parent(*column_name, "MAP", *map_type));
             return value_appender.skip_shape_only_slot();
@@ -358,6 +362,7 @@ struct MapListValueSink {
     MutableColumnPtr* list_element_column = nullptr;
     RepeatedParentSinkState map_state;
     RepeatedChildSinkState list_state;
+    const std::vector<ParquetNullShapeSink>* ancestor_shapes = nullptr;
     int16_t key_max_definition_level = 0;
     MapScalarSlotStream key_stream;
     ValueAppender value_appender;
@@ -374,6 +379,9 @@ struct MapListValueSink {
         DORIS_CHECK(column_name != nullptr);
         DORIS_CHECK(map_type != nullptr);
         const int16_t def_level = value_batch.def_levels[level_idx];
+        if (ancestor_shapes != nullptr) {
+            append_null_shapes(ancestor_shapes, def_level);
+        }
         if (def_level < map_nullable_definition_level) {
             RETURN_IF_ERROR(consume_key_slot(value_batch, level_idx, false));
             return map_state.append_null_parent(*column_name, "MAP", *map_type);
@@ -471,7 +479,9 @@ Status read_aligned_map_entries(const std::string& column_name, const DataTypePt
                                 ScalarColumnReader& key_reader, int16_t key_max_definition_level,
                                 ValueReader& value_reader, ValueOverflow* value_overflow,
                                 NestedScalarOverflow* key_overflow, ValueAppender value_appender,
-                                int64_t rows, MapReadContext* context, int64_t* rows_read) {
+                                int64_t rows, MapReadContext* context,
+                                const std::vector<ParquetNullShapeSink>* ancestor_shapes,
+                                int64_t* rows_read) {
     DORIS_CHECK(context != nullptr);
     MapValueSink<ValueBatch, ValueOverflow, ValueReader, ValueAppender> sink;
     sink.column_name = &column_name;
@@ -481,6 +491,7 @@ Status read_aligned_map_entries(const std::string& column_name, const DataTypePt
     sink.key_column = &context->key_column;
     sink.value_column = &context->value_column;
     sink.parent_state = {&context->entry_counts, &context->parent_nulls};
+    sink.ancestor_shapes = ancestor_shapes;
     sink.key_max_definition_level = key_max_definition_level;
     sink.value_stream = {&value_reader, value_overflow,
                          static_cast<int16_t>(map_nullable_definition_level + 1), "value"};
@@ -500,7 +511,9 @@ Status read_map_list_value_entries(const std::string& column_name, const DataTyp
                                    ScalarColumnReader& list_element_reader,
                                    NestedScalarOverflow* key_overflow,
                                    NestedScalarOverflow* value_overflow, int64_t rows,
-                                   MapReadContext* context, int64_t* rows_read) {
+                                   MapReadContext* context,
+                                   const std::vector<ParquetNullShapeSink>* ancestor_shapes,
+                                   int64_t* rows_read) {
     DORIS_CHECK(context != nullptr);
     MapListValueReadContext list_context(context->value_column, list_element_reader);
     const int16_t list_element_slot_definition_level =
@@ -520,6 +533,7 @@ Status read_map_list_value_entries(const std::string& column_name, const DataTyp
     sink.list_element_column = &list_context.list_nested_column;
     sink.map_state = {&context->entry_counts, &context->parent_nulls};
     sink.list_state = {&list_context.list_entry_counts, &list_context.list_parent_nulls};
+    sink.ancestor_shapes = ancestor_shapes;
     sink.key_max_definition_level = key_max_definition_level;
     sink.key_stream = {&key_reader, key_overflow,
                        static_cast<int16_t>(map_nullable_definition_level + 1), "key"};
@@ -604,7 +618,8 @@ Status skip_map_list_value_entries(
 
 } // namespace
 
-Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+Status MapColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
+                                      const std::vector<ParquetNullShapeSink>* ancestor_shapes) {
     if (column.get() == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet map read result pointer for column {}",
                                        _name);
@@ -628,7 +643,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
                 key_max_definition_level, *readers.scalar_value, &_value_overflow, &_key_overflow,
                 NestedScalarValueAppender {readers.scalar_value, "MAP", "value",
                                            value_max_definition_level},
-                rows, &context, rows_read));
+                rows, &context, ancestor_shapes, rows_read));
         return Status::OK();
     }
 
@@ -645,7 +660,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
         RETURN_IF_ERROR(read_map_list_value_entries(
                 _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
                 key_max_definition_level, *readers.list_value, *scalar_list_value_reader,
-                &_key_overflow, &_value_overflow, rows, &context, rows_read));
+                &_key_overflow, &_value_overflow, rows, &context, ancestor_shapes, rows_read));
         return Status::OK();
     }
 
@@ -653,8 +668,41 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
             _name, _type, _nullable_definition_level, _repeated_repetition_level, *readers.key,
             key_max_definition_level, *readers.struct_value, &_struct_value_overflow,
             &_key_overflow, NestedStructValueAppender {readers.struct_value}, rows, &context,
-            rows_read));
+            ancestor_shapes, rows_read));
     return Status::OK();
+}
+
+Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
+    return read_internal(rows, column, rows_read, nullptr);
+}
+
+Status MapColumnReader::read_with_ancestor_shape(int64_t rows,
+                                                 int16_t ancestor_nullable_definition_level,
+                                                 MutableColumnPtr& column, int64_t* rows_read,
+                                                 NullMap* ancestor_nulls) {
+    if (ancestor_nulls == nullptr) {
+        return Status::InvalidArgument("Ancestor shape output is null for parquet MAP column {}",
+                                       _name);
+    }
+    const auto initial_null_count = ancestor_nulls->size();
+    std::vector<ParquetNullShapeSink> ancestor_shapes {
+            {ancestor_nullable_definition_level, ancestor_nulls}};
+    RETURN_IF_ERROR(read_with_ancestor_shapes(rows, ancestor_shapes, column, rows_read));
+    if (ancestor_nulls->size() - initial_null_count != static_cast<size_t>(*rows_read)) {
+        return Status::Corruption(
+                "Parquet MAP column {} returned {} ancestor shape rows, expected {}", _name,
+                ancestor_nulls->size() - initial_null_count, *rows_read);
+    }
+    return Status::OK();
+}
+
+Status MapColumnReader::read_with_ancestor_shapes(
+        int64_t rows, const std::vector<ParquetNullShapeSink>& ancestor_shapes,
+        MutableColumnPtr& column, int64_t* rows_read) {
+    std::vector<size_t> initial_null_counts;
+    capture_null_shape_sizes(ancestor_shapes, &initial_null_counts);
+    RETURN_IF_ERROR(read_internal(rows, column, rows_read, &ancestor_shapes));
+    return validate_null_shape_rows(_name, "MAP", ancestor_shapes, initial_null_counts, *rows_read);
 }
 
 Status MapColumnReader::skip(int64_t rows) {

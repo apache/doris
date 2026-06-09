@@ -41,6 +41,12 @@ public:
     }
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
+    Status read_with_ancestor_shape(int64_t rows, int16_t ancestor_nullable_definition_level,
+                                    MutableColumnPtr& column, int64_t* rows_read,
+                                    NullMap* ancestor_nulls) override;
+    Status read_with_ancestor_shapes(int64_t rows,
+                                     const std::vector<ParquetNullShapeSink>& ancestor_shapes,
+                                     MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
 
     Status skip_non_scalar_children(int64_t rows);
@@ -49,6 +55,9 @@ public:
     int child_output_index(size_t child_idx) const { return _child_output_indices[child_idx]; }
 
 private:
+    Status read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
+                         const std::vector<ParquetNullShapeSink>* ancestor_shapes);
+
     std::vector<std::unique_ptr<ParquetColumnReader>> _children;
     std::vector<int> _child_output_indices;
 };

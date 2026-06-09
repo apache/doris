@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_profile.h"
@@ -49,6 +50,11 @@ class IColumn;
 
 namespace parquet {
 struct ParquetColumnSchema;
+
+struct ParquetNullShapeSink {
+    int16_t nullable_definition_level = 0;
+    NullMap* null_map = nullptr;
+};
 
 struct ParquetPageSkipProfile {
     RuntimeProfile::Counter* skipped_pages = nullptr;
@@ -79,6 +85,25 @@ public:
 
     // 读取一个 file-local column batch。
     virtual Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) = 0;
+
+    // Read and materialize this subtree while exposing the null shape of an ancestor complex node.
+    //
+    // This is the transitional Phase-1 shape channel used by STRUCT when its projected children
+    // are all complex. The child reader still owns value materialization, but it must derive one
+    // ancestor null bit per parent row from the same Dremel level stream that drives its own
+    // LIST/MAP/STRUCT shape. This keeps shape semantics explicit without registering nested
+    // children as hidden block slots.
+    virtual Status read_with_ancestor_shape(int64_t rows,
+                                            int16_t ancestor_nullable_definition_level,
+                                            MutableColumnPtr& column, int64_t* rows_read,
+                                            NullMap* ancestor_nulls);
+
+    // Same as read_with_ancestor_shape(), but exposes multiple ancestor null shapes from one pass
+    // over the same Dremel stream. This is needed when a nested STRUCT with only complex children
+    // must build its own parent validity and also provide an outer STRUCT validity to its parent.
+    virtual Status read_with_ancestor_shapes(
+            int64_t rows, const std::vector<ParquetNullShapeSink>& ancestor_shapes,
+            MutableColumnPtr& column, int64_t* rows_read);
 
     // 跳过指定行数。这里必须使用 row-level skip，不能退回到 value-level Skip。
     virtual Status skip(int64_t rows);
