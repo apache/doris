@@ -155,14 +155,15 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
 
     // `local_positions.empty()` means all columns are needed by table reader
+    // TODO(gabriel): It will happen only for TVF `select *` query.
     if (request_snapshot->local_positions.empty()) {
         for (const auto& col : request_snapshot->predicate_columns) {
-            request_snapshot->local_positions.emplace(
-                    col.column_id(), format::LocalIndex(request_snapshot->local_positions.size()));
+            request_snapshot->local_positions.emplace(col.column_id(),
+                                                      format::LocalIndex(col.column_id().value()));
         }
         for (const auto& col : request_snapshot->non_predicate_columns) {
-            request_snapshot->local_positions.emplace(
-                    col.column_id(), format::LocalIndex(request_snapshot->local_positions.size()));
+            request_snapshot->local_positions.emplace(col.column_id(),
+                                                      format::LocalIndex(col.column_id().value()));
         }
     }
 

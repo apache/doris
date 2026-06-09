@@ -24,6 +24,7 @@
 
 #include "core/column/column.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "util/simd/bits.h"
 
 namespace doris::parquet {
 
@@ -47,14 +48,25 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     ::parquet::internal::RecordReader* record_reader = nullptr;
     const auto context = leaf_context();
     RETURN_IF_ERROR(read_leaf_records(context, rows, &record_reader, rows_read));
-    if (record_reader->values_written() != *rows_read) {
+
+    NullMap null_map;
+    RETURN_IF_ERROR(build_leaf_null_map(context, *record_reader, *rows_read, &null_map));
+    if (record_reader->read_dense_for_nullable() && !null_map.empty()) {
+        const int64_t non_null_count = static_cast<int64_t>(simd::count_zero_num(
+                reinterpret_cast<const int8_t*>(null_map.data()), null_map.size()));
+        const int64_t null_count = *rows_read - non_null_count;
+        if (record_reader->values_written() != non_null_count) {
+            return Status::Corruption(
+                    "Invalid dense nullable parquet record read result for column {}: values={}, "
+                    "records={}, nulls={}",
+                    _name, record_reader->values_written(), *rows_read, null_count);
+        }
+    } else if (!record_reader->read_dense_for_nullable() &&
+               record_reader->values_written() != *rows_read) {
         return Status::Corruption(
                 "Invalid parquet record read result for column {}: values={}, records={}", _name,
                 record_reader->values_written(), *rows_read);
     }
-
-    NullMap null_map;
-    RETURN_IF_ERROR(build_leaf_null_map(context, *record_reader, *rows_read, &null_map));
 
     RETURN_IF_ERROR(append_leaf_values(context, *record_reader, *rows_read, &null_map, column));
     return Status::OK();
