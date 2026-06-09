@@ -57,7 +57,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -354,7 +353,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 long expectedStart = stream.getStreamUpdate(pid).first;
                 Assertions.assertEquals(expectedScanType, range.getBinlogScanType(),
                         "binlog scan type should match stream consume type");
-                Assertions.assertEquals(TSOTimestamp.extractTimestamp(expectedStart), range.getStartTso(),
+                Assertions.assertEquals(expectedStart, range.getStartTso(),
                         "startTSO should equal stream partitionOffset (last committed binlog TSO)");
                 assertedAtLeastOne = true;
             }
@@ -429,7 +428,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             for (TScanRangeLocations loc : locations) {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long pid = tabletIdToPartitionId.get(range.getTabletId());
-                Assertions.assertEquals(TSOTimestamp.extractTimestamp(nextOffsets.get(pid)), range.getStartTso(),
+                Assertions.assertEquals(nextOffsets.get(pid), range.getStartTso(),
                         "after offset commit, new startTSO must equal the previously committed next TSO");
                 assertedAtLeastOne = true;
             }

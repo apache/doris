@@ -113,7 +113,6 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
-import org.apache.doris.persist.PruneTableStreamPartitionOffsetInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -132,6 +131,7 @@ import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
+import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -967,8 +967,8 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_PRUNE_TABLE_STREAM_PARTITION_OFFSETS: {
-                data = PruneTableStreamPartitionOffsetInfo.read(in);
+            case OperationType.OP_TABLE_STREAM_CLEANUP: {
+                data = TableStreamCleanupInfo.read(in);
                 isRead = true;
                 break;
             }

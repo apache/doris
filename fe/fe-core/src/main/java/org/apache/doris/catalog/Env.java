@@ -223,7 +223,6 @@ import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperation
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
-import org.apache.doris.persist.PruneTableStreamPartitionOffsetInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
@@ -237,6 +236,7 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
+import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
@@ -2744,8 +2744,8 @@ public class Env {
         return checksum;
     }
 
-    public void replayPruneTableStreamPartitionOffsets(PruneTableStreamPartitionOffsetInfo info) {
-        tableStreamManager.replayPruneTableStreamPartitionOffsets(info);
+    public void replayTableStreamCleanup(TableStreamCleanupInfo info) {
+        tableStreamManager.replayTableStreamCleanup(info);
     }
 
     // Only called by checkpoint thread

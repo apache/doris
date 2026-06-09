@@ -22,8 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.persist.PruneTableStreamPartitionOffsetInfo;
+import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -109,13 +110,31 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         } finally {
             context.stream.writeUnlock();
         }
-        Env.getCurrentEnv().getTableStreamManager().replayPruneTableStreamPartitionOffsets(
-                new PruneTableStreamPartitionOffsetInfo(Collections.singletonList(
-                        new PruneTableStreamPartitionOffsetInfo.Entry(
+        Env.getCurrentEnv().getTableStreamManager().replayTableStreamCleanup(
+                new TableStreamCleanupInfo(Collections.singletonList(
+                        new TableStreamCleanupInfo.PartitionOffsetPruneEntry(
                                 context.stream.getDatabase().getId(), context.stream.getId(),
                                 Collections.singleton(removedPartitionId)))));
 
         assertPartitionState(context.stream, keptPartitionId, removedPartitionId, true);
+    }
+
+    @Test
+    public void testReplayRemoveStaleDbAndStream() throws Exception {
+        StreamContext context = createStreamContext("replay_remove");
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
+        long dbId = db.getId();
+        long streamId = context.stream.getId();
+
+        Assertions.assertTrue(
+                Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db).contains(streamId));
+
+        Env.getCurrentEnv().getTableStreamManager().replayTableStreamCleanup(
+                new TableStreamCleanupInfo(Collections.emptyList(), Collections.emptyList(),
+                        Collections.singletonList(Pair.of(dbId, streamId))));
+
+        Assertions.assertFalse(
+                Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db).contains(streamId));
     }
 
     private StreamContext createStreamContext(String suffix) throws Exception {

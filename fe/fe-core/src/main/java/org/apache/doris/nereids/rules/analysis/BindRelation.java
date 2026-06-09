@@ -36,6 +36,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Config;
@@ -71,7 +72,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -112,7 +113,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -279,7 +280,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return scan.withPreAggStatus(PreAggStatus.on());
         }
         if (isChangeRead) {
-            TBinlogScanType scanType = checkChangeScanCondition(((OlapTableWrapper) table).getOriginTable(),
+            StreamScanType scanType = checkChangeScanCondition(((OlapTableWrapper) table).getOriginTable(),
                     unboundRelation.getScanParams());
             scan = scan.withTableScanParams(unboundRelation.getScanParams());
             return checkAndAddChangeScanFilter(scan, scanType, parseTimestampRange(unboundRelation.getScanParams()));
@@ -475,7 +476,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf, ImmutableList.of()));
     }
 
-    private TBinlogScanType checkChangeScanCondition(OlapTable olapTable, TableScanParams scanParams)
+    private StreamScanType checkChangeScanCondition(OlapTable olapTable, TableScanParams scanParams)
             throws AnalysisException {
         if (!olapTable.needRowBinlog()) {
             throw new AnalysisException("INCR query requires ROW binlog enabled on base table "
@@ -489,8 +490,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (!keys.isEmpty()) {
             throw new ParseException("Unsupported parameter in incr query: " + keys);
         }
-        TBinlogScanType binlogScanType = OlapScanNode.parseBinlogScanType(scanParams, olapTable);
-        if (binlogScanType.equals(TBinlogScanType.MIN_DELTA)) {
+        StreamScanType streamScanType = StreamScanType.getType(scanParams.getMapParams().getOrDefault(
+                OlapScanNode.OLAP_INCREMENT_TYPE, StreamScanType.MIN_DELTA.name()));
+        if (streamScanType == StreamScanType.UNKNOWN) {
+            throw new AnalysisException("Unsupported parameter in incr query: " + keys);
+        }
+        if (olapTable.getKeysType().equals(KeysType.DUP_KEYS)) {
+            return streamScanType;
+        }
+        if (streamScanType.equals(StreamScanType.MIN_DELTA)) {
             if (!olapTable.isUniqKeyMergeOnWrite()) {
                 throw new AnalysisException("MIN_DELTA INCR query requires base table to be UNIQUE KEY with "
                         + "enable_unique_key_merge_on_write=true. Table " + olapTable.getQualifiedName()
@@ -502,16 +510,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         + " doesn't enable historical value in row binlog.");
             }
         }
-        return binlogScanType;
+        return streamScanType;
     }
 
     private Pair<Long, Long> parseTimestampRange(TableScanParams scanParams) {
         Map<String, String> params = scanParams.getMapParams();
         Long startTimestamp = OlapScanNode.parseChangeTimestamp(
                 params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
+        startTimestamp = TSOTimestamp.composeFullTimestamp(startTimestamp);
         Long endTimestamp = null;
         if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
             endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
+            endTimestamp = TSOTimestamp.composeFullTimestamp(endTimestamp);
         }
         return Pair.of(startTimestamp, endTimestamp);
     }
@@ -844,7 +854,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
      * Add append only filter on olap scan with changes if need.
      */
     public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
-                                                          TBinlogScanType scanType,
+                                                          StreamScanType scanType,
                                                           Pair<Long, Long> timestampRange) {
         LogicalPlan plan = scan;
         Slot timestampSlot = null;
@@ -855,11 +865,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         }
         List<Expression> conjuncts = Lists.newArrayList();
-        conjuncts.add(new GreaterThanEqual(timestampSlot, new BigIntLiteral(timestampRange.first)));
+        conjuncts.add(new GreaterThan(timestampSlot, new BigIntLiteral(timestampRange.first)));
         if (timestampRange.second != null) {
             conjuncts.add(new LessThanEqual(timestampSlot, new BigIntLiteral(timestampRange.second)));
         }
-        if (scanType.equals(TBinlogScanType.APPEND_ONLY)) {
+        if (scanType.equals(StreamScanType.APPEND_ONLY)) {
             Slot opSlot = null;
             for (Slot slot : scan.getOutput()) {
                 if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {

@@ -321,6 +321,10 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
 }
 
 Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
+    if (UNLIKELY(_eof && !_has_pending_row)) {
+        *eof = true;
+        return Status::OK();
+    }
     auto target_columns_guard = block->mutate_columns_scoped();
     auto& target_columns = target_columns_guard.mutable_columns();
     size_t output_row_count = 0;

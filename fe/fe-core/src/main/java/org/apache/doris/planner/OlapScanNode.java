@@ -94,7 +94,6 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
-import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -229,10 +228,6 @@ public class OlapScanNode extends ScanNode {
     private Column globalRowIdColumn;
 
     protected TableScanParams scanParams;
-
-    private static long decodeTsoToTimestamp(long tso) {
-        return tso <= 0 ? 0 : TSOTimestamp.extractTimestamp(tso);
-    }
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
@@ -549,12 +544,12 @@ public class OlapScanNode extends ScanNode {
                 if (((RowBinlogTableWrapper) olapTable).getParent().isPresent()) {
                     Pair<Long, Long> update = getStreamUpdate(partition.getId());
                     if (update.first != null) {
-                        paloRange.setStartTso(decodeTsoToTimestamp(update.first));
+                        paloRange.setStartTso(update.first);
                     }
                     if (update.second != null) {
-                        paloRange.setEndTso(decodeTsoToTimestamp(update.second));
+                        paloRange.setEndTso(update.second);
                     } else {
-                        paloRange.setEndTso(decodeTsoToTimestamp(partition.getTso()));
+                        paloRange.setEndTso(partition.getTso());
                     }
                 }
                 if (binlogScanType != TBinlogScanType.NONE) {

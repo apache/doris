@@ -104,6 +104,15 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
+     * Compose 64-bit TSO timestamp from physical time
+     *
+     * @return 64-bit TSO timestamp with full counter
+     */
+    public static long composeFullTimestamp(long physicalTimestamp) {
+        return composeTimestamp(physicalTimestamp, LOGICAL_MASK);
+    }
+
+    /**
      * Extract physical time (milliseconds) from TSO timestamp
      *
      * @param timestamp 64-bit TSO timestamp

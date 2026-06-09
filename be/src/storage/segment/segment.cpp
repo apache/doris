@@ -248,6 +248,19 @@ Status Segment::_open_index_file_reader() {
     return Status::OK();
 }
 
+bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
+                                     const StorageReadOptions& read_options) const {
+    if (read_options.version.first != read_options.version.second) {
+        return false;
+    }
+    if (read_options.io_ctx.reader_type != ReaderType::READER_BINLOG &&
+        read_options.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+        return false;
+    }
+    // tso_col_idx() is -1 for non-binlog schemas, so this returns false there.
+    return cid == schema.tso_col_idx();
+}
+
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
@@ -274,6 +287,12 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         // should be OK
         DCHECK(reader != nullptr);
         if (!reader->has_zone_map()) {
+            continue;
+        }
+        // Placeholder tso column on a single-version binlog segment: its zonemap reflects the
+        // NULL placeholder (replaced with commit_tso at read time), so skip segment-level
+        // pruning. Range (compaction) segments hold the real value and keep normal pruning.
+        if (is_tso_placeholder_col(column_id, *schema, read_options)) {
             continue;
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&

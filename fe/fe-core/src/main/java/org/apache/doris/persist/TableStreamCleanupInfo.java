@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -26,19 +27,44 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-public class PruneTableStreamPartitionOffsetInfo implements Writable {
+public class TableStreamCleanupInfo implements Writable {
     @SerializedName(value = "entries")
-    private List<Entry> entries;
+    private List<PartitionOffsetPruneEntry> entries;
 
-    public PruneTableStreamPartitionOffsetInfo(List<Entry> entries) {
-        this.entries = entries;
+    // db ids whose stream mapping should be removed from TableStreamManager.dbStreamMap
+    @SerializedName(value = "staleDbIds")
+    private List<Long> staleDbIds;
+
+    // (dbId, streamId) pairs whose stream mapping should be removed from TableStreamManager.dbStreamMap
+    @SerializedName(value = "staleStreamIds")
+    private List<Pair<Long, Long>> staleStreamIds;
+
+    public TableStreamCleanupInfo(List<PartitionOffsetPruneEntry> entries) {
+        this(entries, new ArrayList<>(), new ArrayList<>());
     }
 
-    public List<Entry> getEntries() {
-        return entries;
+    public TableStreamCleanupInfo(List<PartitionOffsetPruneEntry> entries, List<Long> staleDbIds,
+            List<Pair<Long, Long>> staleStreamIds) {
+        this.entries = entries;
+        this.staleDbIds = staleDbIds;
+        this.staleStreamIds = staleStreamIds;
+    }
+
+    public List<PartitionOffsetPruneEntry> getEntries() {
+        return entries == null ? Collections.emptyList() : entries;
+    }
+
+    public List<Long> getStaleDbIds() {
+        return staleDbIds == null ? Collections.emptyList() : staleDbIds;
+    }
+
+    public List<Pair<Long, Long>> getStaleStreamIds() {
+        return staleStreamIds == null ? Collections.emptyList() : staleStreamIds;
     }
 
     @Override
@@ -46,11 +72,11 @@ public class PruneTableStreamPartitionOffsetInfo implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static PruneTableStreamPartitionOffsetInfo read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), PruneTableStreamPartitionOffsetInfo.class);
+    public static TableStreamCleanupInfo read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableStreamCleanupInfo.class);
     }
 
-    public static class Entry {
+    public static class PartitionOffsetPruneEntry {
         @SerializedName(value = "dbId")
         private long dbId;
 
@@ -60,7 +86,7 @@ public class PruneTableStreamPartitionOffsetInfo implements Writable {
         @SerializedName(value = "partitionIds")
         private Set<Long> partitionIds;
 
-        public Entry(long dbId, long streamId, Set<Long> partitionIds) {
+        public PartitionOffsetPruneEntry(long dbId, long streamId, Set<Long> partitionIds) {
             this.dbId = dbId;
             this.streamId = streamId;
             this.partitionIds = partitionIds;

@@ -424,7 +424,7 @@ public class OperationType {
     public static final short OP_CREATE_ROLE_MAPPING = 496;
     public static final short OP_DROP_ROLE_MAPPING = 497;
 
-    public static final short OP_PRUNE_TABLE_STREAM_PARTITION_OFFSETS = 498;
+    public static final short OP_TABLE_STREAM_CLEANUP = 498;
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;

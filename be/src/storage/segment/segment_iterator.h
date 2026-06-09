@@ -218,6 +218,10 @@ private:
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
+    // The tso column on a single-version binlog segment is constant (== commit_tso) after
+    // replacement, so the tso predicates either keep or drop the whole segment. Returns true
+    // if commit_tso fails the pushed-down tso predicates and the whole segment can be pruned.
+    bool _can_prune_segment_by_tso() const;
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
