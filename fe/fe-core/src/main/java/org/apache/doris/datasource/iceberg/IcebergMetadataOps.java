@@ -44,6 +44,8 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
@@ -99,6 +101,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
     private static final String NAMESPACE_LOCATION_PROP = "location";
+    private static final List<String> ICEBERG_TABLE_LOCATION_CHILD_DIRS = Arrays.asList("data", "metadata");
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -309,7 +312,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Optional<String> namespaceLocation = shouldCleanupManagedLocation()
                 ? loadNamespaceLocation(namespace) : Optional.empty();
         nsCatalog.dropNamespace(namespace);
-        namespaceLocation.ifPresent(location -> cleanupEmptyLocation(location, "database", dbName));
+        namespaceLocation.ifPresent(location -> cleanupEmptyLocation(location, "database", dbName, false));
     }
 
     @Override
@@ -442,7 +445,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ? loadTableLocation(tableIdentifier) : Optional.empty();
         catalog.dropTable(tableIdentifier, true);
         tableLocation.ifPresent(location ->
-                cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName));
+                cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName, true));
     }
 
     private Optional<String> loadNamespaceLocation(Namespace namespace) {
@@ -456,12 +459,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return StringUtils.isBlank(location) ? Optional.empty() : Optional.of(location);
     }
 
-    private void cleanupEmptyLocation(String location, String objectType, String objectName) {
+    private void cleanupEmptyLocation(
+            String location, String objectType, String objectName, boolean cleanupIcebergTableChildren) {
         if (!shouldCleanupManagedLocation() || StringUtils.isBlank(location)) {
             return;
         }
         try (FileSystem fs = createCleanupFileSystem()) {
-            boolean deleted = deleteEmptyDirectory(fs, Location.of(location));
+            boolean deleted = cleanupIcebergTableChildren
+                    ? deleteEmptyTableLocation(fs, Location.of(location))
+                    : deleteEmptyDirectory(fs, Location.of(location));
             if (deleted) {
                 LOG.info("Cleaned empty Iceberg {} location {} for {}", objectType, location, objectName);
             } else {
@@ -491,11 +497,46 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (!fs.exists(location)) {
             return true;
         }
-        if (!fs.listFilesRecursive(location).isEmpty()) {
-            return false;
+        List<Location> childDirectories = new ArrayList<>();
+        try (FileIterator iterator = fs.list(location)) {
+            while (iterator.hasNext()) {
+                FileEntry entry = iterator.next();
+                if (!entry.isDirectory()) {
+                    return false;
+                }
+                childDirectories.add(entry.location());
+            }
         }
-        fs.delete(location, true);
-        return true;
+        for (Location childDirectory : childDirectories) {
+            if (!deleteEmptyDirectory(fs, childDirectory)) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectoryMarker(fs, location);
+    }
+
+    @VisibleForTesting
+    static boolean deleteEmptyTableLocation(FileSystem fs, Location location) throws IOException {
+        for (String childDir : ICEBERG_TABLE_LOCATION_CHILD_DIRS) {
+            if (!deleteEmptyDirectory(fs, location.resolve(childDir))) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectory(fs, location);
+    }
+
+    private static boolean deleteEmptyDirectoryMarker(FileSystem fs, Location location) throws IOException {
+        Location directoryMarker = Location.of(withTrailingSlash(location.uri()));
+        try {
+            fs.delete(directoryMarker, false);
+        } catch (IOException e) {
+            return !fs.exists(location);
+        }
+        return !fs.exists(location);
+    }
+
+    private static String withTrailingSlash(String uri) {
+        return uri.endsWith("/") ? uri : uri + "/";
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {

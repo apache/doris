@@ -21,6 +21,10 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.MemoryFileSystem;
@@ -34,12 +38,17 @@ import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 
 public class IcebergMetadataOpTest {
 
@@ -192,15 +201,15 @@ public class IcebergMetadataOpTest {
     }
 
     @Test
-    public void testDeleteEmptyDirectoryCleansObjectStoreMarkers() throws Exception {
-        MemoryFileSystem fs = new MemoryFileSystem();
+    public void testDeleteEmptyTableLocationCleansFlatObjectStoreMarkers() throws Exception {
+        FlatMarkerFileSystem fs = new FlatMarkerFileSystem();
         Location tableLocation = Location.of("s3://bucket/warehouse/db/t3");
         fs.mkdirs(tableLocation);
         fs.mkdirs(tableLocation.resolve("data"));
         fs.mkdirs(tableLocation.resolve("metadata"));
 
         Assert.assertTrue(fs.exists(tableLocation));
-        Assert.assertTrue(IcebergMetadataOps.deleteEmptyDirectory(fs, tableLocation));
+        Assert.assertTrue(IcebergMetadataOps.deleteEmptyTableLocation(fs, tableLocation));
         Assert.assertFalse(fs.exists(tableLocation));
     }
 
@@ -224,5 +233,114 @@ public class IcebergMetadataOpTest {
         };
         Mockito.when(dorisCatalog.getMetadataOps()).thenReturn(ops);
         return ops;
+    }
+
+    private static class FlatMarkerFileSystem implements FileSystem {
+        private final Set<String> markers = new HashSet<>();
+        private final Set<String> files = new HashSet<>();
+
+        @Override
+        public boolean exists(Location location) {
+            String uri = location.uri();
+            String marker = withTrailingSlash(uri);
+            if (markers.contains(uri) || markers.contains(marker) || files.contains(uri)) {
+                return true;
+            }
+            String prefix = withTrailingSlash(uri);
+            for (String file : files) {
+                if (file.startsWith(prefix)) {
+                    return true;
+                }
+            }
+            for (String directoryMarker : markers) {
+                if (directoryMarker.startsWith(prefix)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public void mkdirs(Location location) {
+            markers.add(withTrailingSlash(location.uri()));
+        }
+
+        @Override
+        public void delete(Location location, boolean recursive) throws IOException {
+            if (recursive) {
+                throw new IOException("recursive delete is not fail-safe");
+            }
+            String marker = withTrailingSlash(location.uri());
+            for (String file : files) {
+                if (file.startsWith(marker) && !file.equals(marker)) {
+                    throw new IOException("Directory not empty: " + location.uri());
+                }
+            }
+            for (String directoryMarker : markers) {
+                if (directoryMarker.startsWith(marker) && !directoryMarker.equals(marker)) {
+                    throw new IOException("Directory not empty: " + location.uri());
+                }
+            }
+            markers.remove(marker);
+            files.remove(location.uri());
+        }
+
+        @Override
+        public void rename(Location src, Location dst) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public FileIterator list(Location location) {
+            String prefix = withTrailingSlash(location.uri());
+            List<FileEntry> entries = new ArrayList<>();
+            for (String file : files) {
+                if (file.startsWith(prefix)) {
+                    entries.add(new FileEntry(Location.of(file), 1L, false, 0L, null));
+                }
+            }
+            return iteratorOf(entries);
+        }
+
+        @Override
+        public DorisInputFile newInputFile(Location location) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public DorisOutputFile newOutputFile(Location location) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() {
+        }
+
+        private static FileIterator iteratorOf(List<FileEntry> entries) {
+            return new FileIterator() {
+                private int index = 0;
+
+                @Override
+                public boolean hasNext() {
+                    return index < entries.size();
+                }
+
+                @Override
+                public FileEntry next() {
+                    if (!hasNext()) {
+                        throw new NoSuchElementException();
+                    }
+                    return entries.get(index++);
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        }
+
+        private static String withTrailingSlash(String uri) {
+            return uri.endsWith("/") ? uri : uri + "/";
+        }
     }
 }
