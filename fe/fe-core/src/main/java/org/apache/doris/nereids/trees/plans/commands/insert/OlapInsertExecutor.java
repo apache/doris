@@ -264,7 +264,13 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         // Bootstrap table-level stats only after the target data is visible to keep row-count fallback aligned.
         if (txnStatus == TransactionStatus.VISIBLE
                 && ctx.getSessionVariable().isEnableInsertSelectTableStatsBootstrap()) {
-            Env.getCurrentEnv().getAnalysisManager().bootstrapTableStatsIfAbsent(olapTable, loadedRows);
+            try {
+                Env.getCurrentEnv().getAnalysisManager().bootstrapTableStatsIfAbsent(olapTable, loadedRows);
+            } catch (Exception e) {
+                // Bootstrap is best-effort; failure should not fail the insert statement because the data
+                // has already been committed and is visible.
+                LOG.warn("Failed to bootstrap table stats for {} after insert", olapTable.getName(), e);
+            }
         }
     }
 
