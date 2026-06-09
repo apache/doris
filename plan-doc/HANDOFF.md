@@ -5,6 +5,57 @@
 
 ---
 
+# 🔥 第 19 次 handoff（2026-06-09，覆盖）— 🎉 P4 maxcompute 全部完成并合入；下一 session = P5 paimon 迁移 kickoff
+
+> **本 session**：用户确认「P4（maxcompute）已完成、HANDOFF 中所有 maxcompute TODO 已做完」，要求同步交接文档（PROGRESS + HANDOFF）并为下一 session 启动 **P5 paimon 迁移**做准备。**本 session 仅文档同步，0 产线代码。**
+
+## ✅ P4 完成核实（code-grounded，本 session 亲核）
+- **翻闸已合入**：`max_compute` ∈ `CatalogFactory.SPI_READY_TYPES`（PR **#64253** "P4 maxcompute connector full adoption + live cutover (T01–T06)"）。
+- **legacy 已删 + odps-free**：`fe-core/.../datasource/maxcompute/` 不存在；`grep com.aliyun.odps fe-core/src/main/java`=∅（PR **#64300** "remove legacy subsystem + make fe-core odps-free (T07–T09)"，HEAD `e96037cf6aa`）。
+- **#64119 校验迁移已合入**：连接器含 `validateMaxComputeConnection`/`checkOperationSupported`；`git log -S validateMaxComputeConnection` 证其随 **#64300** squash 合入 —— 即上一次（第 18 次）handoff 的 10 文件工作已落地，无悬空。
+- **分支干净**：当前 `branch-catalog-spi`，HEAD=`e96037cf6aa`（#64300）；`git status` 仅未跟踪 scratch（`.audit-scratch/`/`conf.cmy/`/`*.bak`/`.claude/scheduled_tasks.lock`）。
+- ⚠️ 仍有遗留 stash `stash@{0}`（"WIP on branch-catalog-spi: ... #64253"）—— 本 session 未动；如确认无用可由用户 `git stash drop stash@{0}`。
+
+## ✅ 本 session 已完成（文档同步）
+- **PROGRESS.md**：§header（P4 完成→P5 待启动 + 进度统一 ~32%）；§一（P4 100%✅ / P5 标「下一阶段」）；§二看板（maxcompute 100%）；§三（P4 收尾为「已合入 #64253+#64300」+ **新增 P5 kickoff 块**：范围/风险/材料）；§四（加 2026-06-09 P4 完成里程碑）；§六（决策计数 25→**36**、偏差 12→**22** 纠正，此前严重 stale）；§七（session 状态）。
+- **HANDOFF.md**：本第 19 次 + 折叠第 18 次（标注「已随 #64300 合入」）。
+
+## 🎯 下一 session = P5 paimon 迁移 kickoff（用户定）
+> **策略 = full adopter + 翻闸**（复用 P4 样板，非 P3 hybrid）。P4 已交付可复用的**写/事务 SPI**（`ConnectorTransaction`/`ConnectorWritePlanProvider`/`PluginDrivenTransaction`/`PluginDrivenInsertExecutor`）+ full-adopter + cutover 流程范本。
+
+**kickoff 步骤**（沿用 P2/P3/P4：recon → 设计 → 用户签字 → 分批实现）：
+1. **code-grounded recon**（多 Agent + 亲核，Rule 8）—— 产 `research/p5-paimon-migration-recon.md`：
+   - 连接器模块 `fe-connector-paimon/` 现状（10 文件：scan/predicate/handle 完整；`ConnectorMetadata` 部分实现；catalog flavor / MVCC / vended / sys-tables 缺）。
+   - fe-core footprint：`datasource/paimon/`（22 顶层 + source/5 + profile/2）；**反向 instanceof 10 处**（`PhysicalPlanTranslator` 的 `PAIMON_EXTERNAL_TABLE` 分支等）。
+   - **6 个 catalog flavor**（HMS/DLF/REST/File/Base/Factory）—— 连接器内工厂重组 `PaimonConnectorProvider.create()` 按 properties 实例化 paimon `Catalog`。
+   - **复用面**：P0 已建 `ConnectorMvccSnapshot`(E5) / vended-creds(E6) / sys-tables(E7) SPI —— **paimon 是首个真正消费 E5/E6/E7 的 adopter**（MC 未用，无先例，须重点核）。BE 经 JNI 调 paimon-reader，序列化 `Table` 经 `ConnectorScanPlanProvider.getSerializedTable` 已支持。
+   - **P1-T02 推迟项**：fe-core 重复 `PaimonPredicateConverter`（**仍在** `datasource/paimon/source/PaimonPredicateConverter.java:43`，连接器侧另有一份）—— P5 删 fe-core 版。
+2. **写设计 + 批次计划** `tasks/P5-paimon-migration.md`（连接器档约定「P5 待启动时建」）。
+3. **用户签字** → 分批落地、独立 commit、每批守门。
+
+**已知特殊性 / 风险**（master §3.6 line 218 + 连接器档 + risks）：
+- **R-004**（classloader 隔离打破 SDK 单例，**paimon 明列**）+ **R-007**（FE/BE 共享 jar 冲突）+ **R-012**（snapshotId 类型）—— P5/P6 触发窗口，recon 须评估（auto-memory [[catalog-spi-be-java-ext-shared-classpath]] 有共享类路径模型）。
+- **关联决策**：D-005（HMS flavor 走 `tableFormatType`，P3-T08 已细化 per-table `getScanPlanProvider`）、D-006（cache 放连接器内）。
+- paimon-HMS-flavor 复用 `fe-connector-hms`（P3 已建、稳定）。
+
+**起点材料**：[paimon 连接器档](./connectors/paimon.md)、master plan [§3.6](./00-connector-migration-master-plan.md)、[P4 task 档](./tasks/P4-maxcompute-migration.md)（full-adopter 样板）、写 SPI RFC `tasks/designs/connector-write-spi-rfc.md`、[AGENT-PLAYBOOK](./AGENT-PLAYBOOK.md)。
+
+## ⚙️ 操作须知（复用）
+- maven 必绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml` + `-pl :<artifact> -am` + `-Dmaven.build.cache.enabled=false`；改连接器 `:fe-connector-paimon`、改 SPI `:fe-connector-api`（须 -am 连带 rebuild）、改 fe-core `:fe-core`。读真实 `Tests run:`/`BUILD`，勿信后台 echo exit（[[doris-build-verify-gotchas]]）。
+- 连接器**禁 import fe-core**（import-gate `bash tools/check-connector-imports.sh`）—— 需 fe Config/session 值经 session-property 透传（[[catalog-spi-connector-session-tz-gotcha]]）。
+- 连接器测试模块**无 mockito**（纯 seam / child-first loader，[[catalog-spi-fe-core-test-infra]]）。
+- 分支 `branch-catalog-spi`（HEAD #64300）；P5 建议 off 最新 upstream 起新分支。未跟踪 scratch 勿提交。
+
+## 🧠 给下一个 agent 的 meta
+- **P4 是 full-adopter + cutover 的完整样板** —— P5 复用其写 SPI + 流程；但 paimon 多了 **6 catalog flavor 工厂** + **首次真正用 E5/E6/E7（MVCC/vended/sys-tables）**，recon 须重点核这两块（MC 无先例）。
+- **live e2e 仍是翻闸真正完成门**（CI 跳）—— P5 翻闸前同样需用户真实 paimon 环境验证。
+- **翻闸时 GSON 三注册须 atomic 齐迁**（catalog+db+table，[[catalog-spi-gson-migrate-all-three]]，漏 db 致 ClassCastException）；**每个 full-adopter 都要补 FE 分发缺口**（DROP TABLE / CREATE·DROP DB / SHOW PARTITIONS / partitions TVF，[[catalog-spi-cutover-fe-dispatch-gap]]）。
+- auto-memory：连接器禁 import fe-core（[[catalog-spi-connector-session-tz-gotcha]]）；测基建无 fe-core/无 mockito（[[catalog-spi-fe-core-test-infra]]）；clean-room 对抗复审偏好（[[clean-room-adversarial-review-pref]]）；构建坑（[[doris-build-verify-gotchas]]）。
+
+---
+
+<details><summary>📅 历史：第 18 次 handoff（2026-06-09）— PR #64119 MaxCompute 校验迁移 SPI DONE（10 文件已随 #64300 合入）</summary>
+
 # 🔥 第 18 次 handoff（2026-06-09，覆盖）— PR #64119（MaxCompute test_connection 校验 + 外表/视图 read·write 拒绝）迁移 SPI DONE，连接器 UT 全绿
 
 > **本 session**：用户要求把 upstream PR apache/doris#64119（`[fix](fe) Improve MaxCompute catalog validation`，11 文件/+422）的功能完整迁移到 SPI 框架，并跑通其 3 个单元测试。PR 改的 fe-core 类（`MaxComputeExternalCatalog`/`MaxComputeExternalTable`/`MCTransaction`/`MaxComputeScanNode`）在本 fork 已于 P4 删除→连接器化，故为真迁移。**用户定夺**：① 范围 = surgical（补 A + 加 C，B/D 已在不动）；② 测试 = fold 进现有连接器测试文件。
@@ -37,6 +88,8 @@
 - 连接器测试模块**无 Mockito**（仅 junit-jupiter，纯 seam 直测）——迁 fe-core Mockito 测须改写：连接器校验类用 **protected-seam 子类覆盖**（连 ctx 可传 null、odps client 离线构造 AK/SK 不联网），表型 reject 用**纯静态守卫直测**（见 [[catalog-spi-fe-core-test-infra]]）。
 - maven 绝对 `-f .../fe/pom.xml -pl :fe-connector-maxcompute -am test [-Dtest=X] -Dmaven.build.cache.enabled=false`；**必带 -am**；读真实 `Tests run:`/`BUILD`，勿信后台 echo exit。
 - 分支 `catalog-spi-06`。未跟踪 `.audit-scratch/`（本 session 测试 log）/`conf.cmy/`/`*.bak`/`scheduled_tasks.lock`（勿提交）。
+
+</details>
 
 ---
 
