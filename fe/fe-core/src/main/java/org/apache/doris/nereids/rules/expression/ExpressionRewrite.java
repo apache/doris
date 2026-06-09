@@ -110,7 +110,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new LogicalFileSinkRewrite().build(),
                 new LogicalHiveTableSinkRewrite().build(),
                 new LogicalIcebergTableSinkRewrite().build(),
-                new LogicalMaxComputeTableSinkRewrite().build(),
                 new LogicalIcebergMergeSinkRewrite().build(),
                 new LogicalConnectorTableSinkRewrite().build(),
                 new LogicalOlapTableSinkRewrite().build(),
@@ -515,14 +514,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalIcebergTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
-                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
-        }
-    }
-
-    private class LogicalMaxComputeTableSinkRewrite extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalMaxComputeTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }

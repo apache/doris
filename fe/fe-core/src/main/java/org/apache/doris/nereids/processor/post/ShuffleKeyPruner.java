@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -266,20 +265,6 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
                         icebergTableSink.getRequirePhysicalProperties().equals(PhysicalProperties.ANY);
             }
             return rewriteUnary(icebergTableSink, ctx.withAllowShuffleKeyPrune(childAllowShuffleKeyPrune));
-        }
-
-        @Override
-        public Plan visitPhysicalMaxComputeTableSink(
-                PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, PruneCtx ctx) {
-            boolean childAllowShuffleKeyPrune;
-            if (ctx.cascadesContext.getConnectContext() != null
-                    && !ctx.cascadesContext.getConnectContext().getSessionVariable().enableStrictConsistencyDml) {
-                childAllowShuffleKeyPrune = true;
-            } else {
-                childAllowShuffleKeyPrune = mcTableSink.getRequirePhysicalProperties().equals(
-                        PhysicalProperties.ANY);
-            }
-            return rewriteUnary(mcTableSink, ctx.withAllowShuffleKeyPrune(childAllowShuffleKeyPrune));
         }
 
         @Override
