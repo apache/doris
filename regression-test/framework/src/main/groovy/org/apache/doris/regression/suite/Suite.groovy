@@ -2308,6 +2308,11 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void testExpectNoResult(String testSql) {
+        def result = sql(testSql)
+        assertEquals(result.size(), 0)
+    }
+
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
         def sqlCacheOrigValue = sql("select @@enable_sql_cache")

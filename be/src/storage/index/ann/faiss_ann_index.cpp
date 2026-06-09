@@ -983,8 +983,7 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
                 // Write codes
                 const uint8_t* codes = ails->get_codes(i);
                 size_t codes_bytes = list_size * code_size;
-                ivfdata_output->writeBytes(reinterpret_cast<const uint8_t*>(codes),
-                                           cast_set<Int32>(codes_bytes));
+                ivfdata_output->writeBytes(codes, cast_set<Int32>(codes_bytes));
 
                 // Write ids
                 const faiss::idx_t* ids = ails->get_ids(i);

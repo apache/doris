@@ -593,7 +593,7 @@ Status IcebergReaderMixin<BaseReader>::_expand_block_if_need(Block* block) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
         names.insert(col.name);
-        (*this->col_name_to_block_idx_ref())[col.name] = static_cast<uint32_t>(block->columns());
+        (*this->col_name_to_block_idx_ref())[col.name] = block->columns();
         block->insert({col.type->create_column(), col.type, col.name});
     }
     return Status::OK();

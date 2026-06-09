@@ -114,6 +114,10 @@ CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");
+// Max expired recycle_rowset entries to process for one tablet in one recycle_rowsets scan.
+// Remaining entries are left for later scans so deletion can spread across tablet prefixes.
+CONF_mInt32(recycle_rowsets_per_tablet_batch_size, "1000");
+CONF_mInt32(recycle_rowsets_delete_batch_size, "300000");
 // The worker pool size for http api `statistics_recycle` worker pool
 CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
@@ -355,6 +359,7 @@ CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
 // This reduces contention during transaction commit by extending delete bitmap locks.
 CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
+CONF_mBool(enable_recycler_check_lazy_txn_finished, "true");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");

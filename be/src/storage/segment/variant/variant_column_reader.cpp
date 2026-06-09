@@ -311,7 +311,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         // only collect subcolumns that belong to this bucket to avoid extra IO.
         if (bucket_index.has_value()) {
             CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_SPARSE);
-            uint32_t N = static_cast<uint32_t>(_binary_column_reader->num_buckets());
+            uint32_t N = _binary_column_reader->num_buckets();
             if (N > 1) {
                 uint32_t b = variant_util::variant_binary_shard_of(
                         StringRef {path.data(), path.size()}, N);

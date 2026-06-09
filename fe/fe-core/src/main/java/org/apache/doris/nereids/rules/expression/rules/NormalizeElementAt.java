@@ -21,7 +21,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.StructField;
@@ -32,35 +32,38 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * given column s has data type: struct&lt;a: int, b: int&gt;, if exists struct_element(s, 2), we will rewrite
- * to struct_element(s, 'b')
+ * given column s has data type: struct&lt;a: int, b: int&gt;, if exists element_at(s, 2), we will rewrite
+ * to element_at(s, 'b'). Only applies to element_at over a struct; array/map keep their int index.
  */
-public class NormalizeStructElement implements ExpressionPatternRuleFactory {
-    public static final NormalizeStructElement INSTANCE = new NormalizeStructElement();
+public class NormalizeElementAt implements ExpressionPatternRuleFactory {
+    public static final NormalizeElementAt INSTANCE = new NormalizeElementAt();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(StructElement.class).then(NormalizeStructElement::normalize)
-                        .toRule(ExpressionRuleType.NORMALIZE_STRUCT_ELEMENT)
+                matchesType(ElementAt.class).then(NormalizeElementAt::normalize)
+                        .toRule(ExpressionRuleType.NORMALIZE_ELEMENT_AT)
         );
     }
 
-    private static StructElement normalize(StructElement structElement) {
-        Expression field = structElement.getArgument(1);
+    private static Expression normalize(ElementAt elementAt) {
+        if (!(elementAt.child(0).getDataType() instanceof StructType)) {
+            return elementAt;
+        }
+        Expression field = elementAt.getArgument(1);
         if (field instanceof IntegerLikeLiteral) {
             int fieldIndex = ((Number) ((IntegerLikeLiteral) field).getValue()).intValue();
-            StructType structType = (StructType) structElement.getArgument(0).getDataType();
+            StructType structType = (StructType) elementAt.child(0).getDataType();
             List<StructField> fields = structType.getFields();
-            if (fieldIndex >= 0 && fieldIndex <= fields.size()) {
-                return structElement.withChildren(
+            if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
+                return elementAt.withChildren(
                         ImmutableList.of(
-                                structElement.child(0),
+                                elementAt.child(0),
                                 new StringLiteral(fields.get(fieldIndex - 1).getName())
                         )
                 );
             }
         }
-        return structElement;
+        return elementAt;
     }
 }

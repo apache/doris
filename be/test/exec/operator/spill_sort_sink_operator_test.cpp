@@ -25,6 +25,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/spill_sort_test_helper.h"
+#include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_task.h"
 #include "testutil/column_helper.h"
@@ -37,6 +38,84 @@ protected:
     void TearDown() override { _helper.TearDown(); }
     SpillSortTestHelper _helper;
 };
+
+namespace {
+
+constexpr auto CANCEL_REASON = "spill sort sink cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
+} // namespace
+
+TEST_F(SpillSortSinkOperatorTest, ExecuteSpillSortReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    auto sink_local_state = SpillSortSinkLocalState::create_unique(sink_operator.get(),
+                                                                   _helper.runtime_state.get());
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(sink_local_state->_execute_spill_sort(_helper.runtime_state.get()));
+}
+
+TEST_F(SpillSortSinkOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    auto tnode = _helper.create_test_plan_node();
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state = sink_operator->create_shared_state();
+    ASSERT_TRUE(shared_state != nullptr);
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = _helper.operator_profile.get(),
+                             .sender_id = 0,
+                             .shared_state = shared_state.get(),
+                             .shared_state_map = {},
+                             .tsink = {}};
+
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(sink_operator->revoke_memory(_helper.runtime_state.get()));
+}
+
+TEST_F(SpillSortSinkOperatorTest, RunSpillTaskReturnsCancelAtEntry) {
+    cancel_state(_helper.runtime_state.get());
+
+    bool executed = false;
+    expect_cancelled(run_spill_task(_helper.runtime_state.get(), [&]() {
+        executed = true;
+        return Status::OK();
+    }));
+    EXPECT_FALSE(executed);
+}
+
+TEST_F(SpillSortSinkOperatorTest, RunSpillTaskReturnsCancelAfterCallback) {
+    bool finalized = false;
+
+    auto status = run_spill_task(
+            _helper.runtime_state.get(),
+            [&]() {
+                cancel_state(_helper.runtime_state.get());
+                return Status::OK();
+            },
+            [&]() {
+                finalized = true;
+                return Status::OK();
+            });
+    expect_cancelled(status);
+    EXPECT_FALSE(finalized);
+}
 
 TEST_F(SpillSortSinkOperatorTest, Basic) {
     auto [source_operator, sink_operator] = _helper.create_operators();
