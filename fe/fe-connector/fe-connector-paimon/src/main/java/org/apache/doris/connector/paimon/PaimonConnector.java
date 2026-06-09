@@ -53,7 +53,8 @@ public class PaimonConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new PaimonConnectorMetadata(ensureCatalog(), properties);
+        return new PaimonConnectorMetadata(
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties);
     }
 
     @Override

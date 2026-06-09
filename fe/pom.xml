@@ -396,6 +396,13 @@ under the License.
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
+        <!-- R-007 INVARIANT: this single property pins org.apache.paimon:* for ALL THREE paimon
+             consumers — the FE connector (fe-connector-paimon, references ${paimon.version}
+             directly) and the two BE-java-extensions modules paimon-scanner + preload-extensions
+             (inherit via dependencyManagement below). The FE serializes a paimon Table/Split with
+             InstantiationUtil and BE deserializes it with the SAME paimon jar; a version mismatch
+             silently breaks that FE->BE deserialization at runtime. These three MUST stay equal —
+             do NOT override paimon.version per-module. -->
         <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->

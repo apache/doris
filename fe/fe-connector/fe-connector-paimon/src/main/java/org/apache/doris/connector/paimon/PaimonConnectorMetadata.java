@@ -52,18 +52,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(PaimonConnectorMetadata.class);
 
-    private final Catalog catalog;
+    private final PaimonCatalogOps catalogOps;
     private final PaimonTypeMapping.Options typeMappingOptions;
 
-    public PaimonConnectorMetadata(Catalog catalog, Map<String, String> properties) {
-        this.catalog = catalog;
+    public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties) {
+        this.catalogOps = catalogOps;
         this.typeMappingOptions = buildTypeMappingOptions(properties);
     }
 
     @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
         try {
-            return catalog.listDatabases();
+            return catalogOps.listDatabases();
         } catch (Exception e) {
             LOG.warn("Failed to list Paimon databases", e);
             return Collections.emptyList();
@@ -73,7 +73,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean databaseExists(ConnectorSession session, String dbName) {
         try {
-            catalog.getDatabase(dbName);
+            catalogOps.getDatabase(dbName);
             return true;
         } catch (Catalog.DatabaseNotExistException e) {
             return false;
@@ -83,7 +83,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<String> listTableNames(ConnectorSession session, String dbName) {
         try {
-            return catalog.listTables(dbName);
+            return catalogOps.listTables(dbName);
         } catch (Catalog.DatabaseNotExistException e) {
             LOG.warn("Database does not exist: {}", dbName);
             return Collections.emptyList();
@@ -98,7 +98,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, String dbName, String tableName) {
         Identifier identifier = Identifier.create(dbName, tableName);
         try {
-            Table table = catalog.getTable(identifier);
+            Table table = catalogOps.getTable(identifier);
             List<String> partitionKeys = table.partitionKeys();
             List<String> primaryKeys = table.primaryKeys();
             PaimonTableHandle handle = new PaimonTableHandle(
@@ -122,7 +122,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Identifier identifier = Identifier.create(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         try {
-            Table table = catalog.getTable(identifier);
+            Table table = catalogOps.getTable(identifier);
             RowType rowType = table.rowType();
             List<String> primaryKeys = table.primaryKeys();
             List<ConnectorColumn> columns = mapFields(rowType, primaryKeys);
@@ -164,7 +164,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             Identifier id = Identifier.create(
                     paimonHandle.getDatabaseName(), paimonHandle.getTableName());
             try {
-                table = catalog.getTable(id);
+                table = catalogOps.getTable(id);
             } catch (Exception e) {
                 throw new RuntimeException("Failed to load Paimon table: " + id, e);
             }

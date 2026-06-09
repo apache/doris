@@ -7,7 +7,7 @@
 
 ## 元信息
 
-- **状态**：⏸ 待启动（recon+设计完成；**D1/D2 已签字 2026-06-09**，可启动分批实现）
+- **状态**：🟢 进行中（**B0 已完成 2026-06-09**：T01 测试基建 + T02 parity baseline，连接器 12/0/0/1 绿、checkstyle 0、import-gate 净；下一批 = B1 flavor 装配）
 - **启动日期**：2026-06-09（recon+设计）
 - **目标完成**：TBD（估时 ~5-6 周，含 D2-A 的 MTMV/MVCC 桥）
 - **阻塞**：无（D1=A / D2=A 已签字）；分批实现按 B0→B9 启动
@@ -83,8 +83,8 @@ Master plan [§3.6](../00-connector-migration-master-plan.md)；策略 = full ad
 
 | ID | 任务 | 批次 | type | 状态 | 备注 |
 |---|---|---|---|---|---|
-| P5-T01 | 建 `fe-connector-paimon` 测试模块 + 注入式 SDK seam（`PaimonCatalogOps` 接口包远端 Catalog 调用，MC `McStructureHelper` 范式，no-mockito recording fake）| B0 | C+T | ⏳ | 0 测试现状 |
-| P5-T02 | parity baseline（vs 旧 `PaimonScanNode`：谓词/分区/native·JNI/deletion/SELECT*）+ FE→BE round-trip smoke + **pin paimon-core 版本三方对齐** | B0 | T | ⏳ | 翻闸前后跑 |
+| P5-T01 | 建 `fe-connector-paimon` 测试模块 + 注入式 SDK seam（`PaimonCatalogOps` 接口包远端 Catalog 调用，MC `McStructureHelper` 范式，no-mockito recording fake）| B0 | C+T | ✅ | seam=5 读方法（B0 只读，DDL 待 B1-B3 扩）；`PaimonConnectorMetadata` 6 调用点齐迁；9 UT 钉 databaseExists try/catch + getColumnHandles reload-fallback + 1 env-gated live smoke |
+| P5-T02 | parity baseline（vs 旧 `PaimonScanNode`：谓词/分区/native·JNI/deletion/SELECT*，doc [`research/p5-paimon-parity-baseline.md`](../research/p5-paimon-parity-baseline.md)）+ FE→BE round-trip smoke（offline `PaimonTableSerdeRoundTripTest`，CI 非 env-gated）+ **pin paimon-core 版本三方对齐**（R-007 注释落 `fe/pom.xml` `<paimon.version>`） | B0 | T | ✅ | 翻闸前后跑；gap 见 doc §3 |
 | P5-T03 | `PaimonConnector.createCatalog` flavor 装配（switch on `paimon.catalog.type`：warehouse/options/重建 Hadoop·HiveConf/**每-flavor ExecutionAuthenticator**；filesystem→hms→rest/jdbc/dlf 渐进）| B1 | C | ⏳ | **gated on D1**；authenticator 丢=Kerberos DDL 炸 |
 | P5-T04 | 拷 HMS/REST/DLF/JDBC + credential/storage 属性键入 `PaimonConnectorProperties`（禁 import fe-core）| B1 | C | ⏳ | |
 | P5-T05 | 扩 `PaimonConnectorProvider.validateProperties`（flavor 合法性 + 每-flavor 必需属性，`IllegalArgumentException` fail-fast）| B1 | C | ⏳ | legacy `PaimonExternalCatalogFactory:29-47` |
@@ -183,6 +183,12 @@ B6 (procedure doc no-op, 独立)          │                                   
 
 ## 阶段日志（倒序）
 
+### 2026-06-09（B0 实现：测试基建 + parity baseline）
+- **T01**：抽 `PaimonCatalogOps` 注入式 seam（5 读方法，B0 只读）over 远端 Catalog；`PaimonConnectorMetadata` 6 调用点齐迁（读路径字节级不变，`Catalog` import 仅留两 NotExist catch）；`PaimonConnector` 装配；建测试模块 = no-mockito `RecordingPaimonCatalogOps` + `PaimonConnectorMetadataTest`（9 UT，钉 `databaseExists` try/catch 与 `getColumnHandles` reload-fallback，各带 WHY+MUTATION）+ `FakePaimonTable`（28 非读方法 fail-loud）+ env-gated `PaimonLiveConnectivityTest`。
+- **T02**：① R-007 三方版本已对齐（`${paimon.version}=1.3.1` 单源 `fe/pom.xml:399`，FE 连接器 + BE paimon-scanner + preload-extensions 同源）→ 落不变式注释（非改版本）。② offline FE→BE serde round-trip smoke `PaimonTableSerdeRoundTripTest`：真 `FileSystemCatalog`/`LocalFileIO`@TempDir → 真 `FileStoreTable` → 连接器 encode（InstantiationUtil+STD Base64）→ BE-side decode（镜像 `PaimonUtils.deserialize` URL-first/STD-fallback）→ 断 rowType/partition/primary keys；CI 跑非 env-gated。③ parity-baseline doc [`research/p5-paimon-parity-baseline.md`](../research/p5-paimon-parity-baseline.md)：33 p0 + 6 p2 + 3 MTMV + fe-core `PaimonScanNodeTest` 清单、翻闸自动 before/after 门模型、4 真 gap + live-e2e 计划。
+- **验证**：连接器 `Tests run: 12, Failures: 0, Errors: 0, Skipped: 1`（1 skip=live）+ BUILD SUCCESS + checkstyle 0 + import-gate 净（主线 firsthand 复跑）。每任务 spec+quality 双审 PASS；主线追加 3 处准确性修正（beDecode 镜像 BE 真分支 / 第二测试重命名 / doc §3.1 legacy 已有 fe-core UT）后复绿。
+- **纠偏**：recon「无 parity baseline」证伪——41 套回归已存在且翻闸自动变 after 门，真 gap 是连接器侧 UT（谓词转换/native·deletion/sys-forced-JNI）+ live-e2e。
+
 ### 2026-06-09（recon + 设计，0 产线代码）
 - 14-agent code-grounded recon + cross-cut 对抗复审；产 `research/p5-paimon-migration-recon.md` + 本 doc。
 - firsthand 核实 4 个 load-bearing 锚点（SPI_READY_TYPES / GSON 7 注册 / PluginDrivenExternalTable 无 MTMV / ConnectorPartitionInfo.lastModifiedMillis 存在）。
@@ -200,10 +206,12 @@ B6 (procedure doc no-op, 独立)          │                                   
 - 风险：R-004（classloader）、R-007（FE/BE 共享 jar）、R-012（snapshotId 类型）
 - 连接器：[paimon](../connectors/paimon.md)
 - recon：[p5-paimon-migration-recon](../research/p5-paimon-migration-recon.md)
+- parity baseline（T02，翻闸前后 before/after 门 + gap 清单 + live-e2e 计划）：[p5-paimon-parity-baseline](../research/p5-paimon-parity-baseline.md)
 
 ---
 
 ## 当前阻塞项
 
-- 无硬阻塞（D1=A / D2=A 已签字 2026-06-09）。下一 session 可启动 B0（测试基建 + parity baseline，无前置）、B1（flavor 装配，单 Catalog 模型）、B6（procedure doc no-op）。
+- 无硬阻塞（D1=A / D2=A 已签字；**B0 已完成 2026-06-09**）。下一 session 起 **B1**（flavor 装配，单 Catalog 模型，T03/T04/T05；gated on D1，已签）；**B6**（procedure doc no-op，独立）可随时落。
 - 翻闸（B7）仍 gated on B2+B3+B4+B5 全完 + live e2e（用户真实 paimon 各 flavor 环境）。
+- B0 复用资产：seam（B1-B3 须扩 DDL 方法 + 同步 `RecordingPaimonCatalogOps`/`CatalogBackedPaimonCatalogOps`）；parity doc 是后续批次 gap 清单 + 翻闸门基准。
