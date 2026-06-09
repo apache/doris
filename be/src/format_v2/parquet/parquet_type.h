@@ -66,6 +66,7 @@ struct ParquetTypeDescriptor {
     bool is_timestamp = false;
     bool is_string_like = false;
     bool supports_record_reader = false;
+    std::string reason; // reason if supports_record_reader is false
 };
 
 // 返回 Parquet leaf column 的 file-local 展示名。

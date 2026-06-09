@@ -61,6 +61,8 @@ DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor
         return DecodedValueKind::INT32;
     case ::parquet::Type::INT64:
         return DecodedValueKind::INT64;
+    case ::parquet::Type::INT96:
+        return DecodedValueKind::INT96;
     case ::parquet::Type::FLOAT:
         return DecodedValueKind::FLOAT;
     case ::parquet::Type::DOUBLE:
@@ -84,6 +86,9 @@ Status decoded_fixed_value_size(const ArrowLeafReaderContext& context, DecodedVa
         return Status::OK();
     case DecodedValueKind::INT64:
         *value_size = sizeof(int64_t);
+        return Status::OK();
+    case DecodedValueKind::INT96:
+        *value_size = 12;
         return Status::OK();
     case DecodedValueKind::FLOAT:
         *value_size = sizeof(float);

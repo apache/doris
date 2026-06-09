@@ -32,9 +32,9 @@
 #include "exec/common/endian.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
-#include "format_v2/parquet/parquet_reader.h"
-#include "format_v2/column_mapper.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format_v2/column_mapper.h"
+#include "format_v2/parquet/parquet_reader.h"
 #include "io/io_common.h"
 #include "roaring/roaring64map.hh"
 
@@ -266,7 +266,6 @@ std::string TableReader::debug_string() const {
         << ", current_file=" << current_file_debug_string(_current_task)
         << ", has_delete_rows=" << (_delete_rows != nullptr)
         << ", delete_row_count=" << (_delete_rows == nullptr ? 0 : _delete_rows->size())
-        << ", has_profile=" << (_profile != nullptr)
         << ", has_system_properties=" << (_system_properties != nullptr) << ", system_type="
         << (_system_properties == nullptr ? static_cast<int>(TFileType::FILE_LOCAL)
                                           : static_cast<int>(_system_properties->system_type))
@@ -319,11 +318,33 @@ Status TableReader::init(TableReadOptions&& options) {
     _push_down_agg_type = options.push_down_agg_type;
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
-    _profile = std::move(options.profile);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _mapper_options.allow_missing_columns = options.allow_missing_columns;
     _conjuncts = std::move(options.conjuncts);
     _table_column_predicates = std::move(options.column_predicates);
+
+    if (_scanner_profile != nullptr) {
+        static const char* table_profile = "TableReader";
+        ADD_TIMER_WITH_LEVEL(_scanner_profile, table_profile, 1);
+        _profile.num_delete_files = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteFiles",
+                                                                 TUnit::UNIT, table_profile, 1);
+        _profile.num_delete_rows = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteRows",
+                                                                TUnit::UNIT, table_profile, 1);
+        _profile.parse_delete_file_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "ParseDeleteFileTime", table_profile, 1);
+        _profile.exec_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "GetBlockTime", table_profile, 1);
+        _profile.prepare_split_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PrepareSplitTime", table_profile, 1);
+        _profile.finalize_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "FinalizeBlockTime", table_profile, 1);
+        _profile.create_reader_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "CreateReaderTime", table_profile, 1);
+        _profile.pushdown_agg_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
+        _profile.open_reader_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
+    }
     return Status::OK();
 }
 
@@ -350,6 +371,7 @@ Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request
 }
 
 Status TableReader::create_next_reader(bool* eos) {
+    SCOPED_TIMER(_profile.create_reader_timer);
     DCHECK(_data_reader.reader == nullptr);
     if (_current_task == nullptr) {
         *eos = true;
@@ -394,6 +416,7 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 }
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
+    SCOPED_TIMER(_profile.prepare_split_timer);
     _partition_values = std::move(options.partition_values);
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
@@ -429,12 +452,12 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
             }
 
             const char* buf = buffer.data();
-            SCOPED_TIMER(_profile->parse_delete_file_time);
+            SCOPED_TIMER(_profile.parse_delete_file_time);
             create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows);
             if (!create_status.ok()) [[unlikely]] {
                 return nullptr;
             }
-            COUNTER_UPDATE(_profile->num_delete_rows, delete_rows->size());
+            COUNTER_UPDATE(_profile.num_delete_rows, delete_rows->size());
             return delete_rows;
         });
         RETURN_IF_ERROR(create_status);

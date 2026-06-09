@@ -717,7 +717,6 @@ Status FileScannerV2::_create_table_reader(const TFileRangeDesc& range) {
             .scanner_profile = _local_state->scanner_profile(),
             .allow_missing_columns = false, // TODO
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
-            .profile = nullptr, // TODO
     }));
     return Status::OK();
 }

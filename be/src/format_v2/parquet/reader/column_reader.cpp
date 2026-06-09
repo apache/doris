@@ -105,8 +105,9 @@ void install_data_page_filter(std::unique_ptr<::parquet::PageReader>& page_reade
     page_reader->set_data_page_filter(DataPageSkipFilter(page_skip_plan, page_skip_profile));
 }
 
+// TODO: support more types
 bool supports_nested_scalar_record_reader(const ParquetColumnSchema& column_schema) {
-    if (supports_record_reader(column_schema.type_descriptor)) {
+    if (column_schema.type_descriptor.supports_record_reader) {
         return true;
     }
     const auto& type_descriptor = column_schema.type_descriptor;
@@ -129,6 +130,7 @@ bool supports_nested_scalar_record_reader(const ParquetColumnSchema& column_sche
     default:
         return false;
     }
+    return true;
 }
 
 } // namespace
@@ -232,12 +234,6 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
         return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
                                        column_schema.leaf_column_id, column_schema.name);
     }
-    if (!supports_record_reader(column_schema.type_descriptor)) {
-        return Status::NotSupported(
-                "Current parquet reader only supports primitive columns without repetition; "
-                "column {} is not supported",
-                column_schema.name);
-    }
     if (column_schema.descriptor == nullptr ||
         column_schema.descriptor->max_repetition_level() != 0 ||
         column_schema.descriptor->max_definition_level() > 1) {
@@ -245,6 +241,10 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
                 "Current parquet scalar reader only supports flat primitive columns; column {} is "
                 "not supported",
                 column_schema.name);
+    }
+    if (!column_schema.type_descriptor.supports_record_reader) {
+        return Status::NotSupported("Current parquet scalar reader does not support column {}",
+                                    column_schema.name);
     }
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
