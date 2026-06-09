@@ -21,16 +21,20 @@ import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -165,5 +169,34 @@ public class ShowTableStatsCommandTest {
         ShowTableStatsCommand command2 = new ShowTableStatsCommand(tableNameInfo2, columns, partitionNamesInfo2);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
                 "Permission denied command denied to user 'null'@'null' for table 'test_db: test_tbl2'");
+    }
+
+    @Test
+    void testConstructTableResultSetForBootstrapStats() throws Exception {
+        runBefore();
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(catalogIf.getId()).thenReturn(1L);
+        Mockito.when(catalogIf.getName()).thenReturn(internalCtl);
+        Mockito.when(database.getCatalog()).thenReturn(catalogIf);
+        Mockito.when(database.getId()).thenReturn(2L);
+        Mockito.when(database.getFullName()).thenReturn(CatalogMocker.TEST_DB_NAME);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getId()).thenReturn(CatalogMocker.TEST_TBL_ID);
+        Mockito.when(table.getName()).thenReturn(CatalogMocker.TEST_TBL_NAME);
+        Mockito.when(table.getBaseIndexId()).thenReturn(CatalogMocker.TEST_TBL_ID);
+        Mockito.when(table.autoAnalyzeEnabled()).thenReturn(false);
+        // Bootstrap stats only seed row count, so show table stats should still render without a job type.
+        TableStatsMeta bootstrapStats = TableStatsMeta.newBootstrapStats(table, 128L, 128L);
+        ShowTableStatsCommand command = new ShowTableStatsCommand(CatalogMocker.TEST_TBL_ID);
+        ShowResultSet resultSet = command.constructTableResultSet(bootstrapStats, table);
+
+        Assertions.assertEquals(1, resultSet.getResultRows().size());
+        List<String> row = resultSet.getResultRows().get(0);
+        Assertions.assertEquals("128", row.get(0));
+        Assertions.assertEquals("128", row.get(2));
+        Assertions.assertEquals("", row.get(5));
+        Assertions.assertEquals("false", row.get(7));
     }
 }

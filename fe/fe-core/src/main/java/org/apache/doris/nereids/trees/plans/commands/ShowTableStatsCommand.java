@@ -255,7 +255,8 @@ public class ShowTableStatsCommand extends ShowCommand {
             newColumnsSet.add(Pair.of(Util.getTempTableDisplayName(pair.first), pair.second));
         }
         row.add(newColumnsSet.toString());
-        row.add(tableStatistic.jobType.toString());
+        // Bootstrap table stats may only seed row count, so job type can be absent before the first analyze task.
+        row.add(tableStatistic.jobType == null ? "" : tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
         row.add(table == null ? "N/A" : String.valueOf(table.autoAnalyzeEnabled()));

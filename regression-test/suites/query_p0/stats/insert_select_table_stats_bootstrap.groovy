@@ -21,23 +21,27 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
 
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
+    // Disable the distributed planner path so this case falls back to regular join-side selection.
+    sql "set enable_nereids_distribute_planner = false"
+    // Disable bucket shuffle join so the optimizer has to choose between broadcast and regular shuffle.
+    sql "set enable_bucket_shuffle_join = false"
     sql "set runtime_filter_mode = OFF"
-    sql "set enable_auto_analyze_internal_catalog = false"
     sql "set broadcast_row_count_limit = 100"
     sql "set broadcast_hashtable_mem_limit_percentage = 1"
 
     sql "drop table if exists smallb"
     sql """
         create table smallb (
-            k int,
+            k1 int,
+            k2 int,
             v int
         )
-        distributed by hash(k) buckets 1
+        distributed by hash(v) buckets 1
         properties("replication_num" = "1")
     """
     sql """
         insert into smallb
-        select number, number
+        select number, 0, number
         from numbers("number" = "10")
     """
     // Analyze the known small table first so the join-side change mainly depends on biga bootstrap stats.
@@ -52,7 +56,7 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
             properties("replication_num" = "1")
             as
             select number % 10 as k, repeat('x', 64) as pad
-            from numbers("number" = "4096")
+            from numbers("number" = "262144")
         """
     }
 
@@ -68,9 +72,9 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
         sql """
             physical plan
             select a.k, b.v
-            from biga a
-            join smallb b
-            on a.k = b.k
+            from smallb b
+            join biga a
+            on cast(a.k as bigint) = cast(b.k1 + b.k2 as bigint)
         """
         contains("PhysicalOlapScan[biga]")
         contains("distributionSpec=DistributionSpecReplicated")
@@ -84,23 +88,23 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
 
     def tableStatsWithBootstrap = sql "show table stats biga"
     assertEquals(1, tableStatsWithBootstrap.size())
-    assertEquals("4096", tableStatsWithBootstrap[0][0])
-    assertEquals("4096", tableStatsWithBootstrap[0][2])
+    assertEquals("262144", tableStatsWithBootstrap[0][0])
+    assertEquals("262144", tableStatsWithBootstrap[0][2])
     assertEquals("false", tableStatsWithBootstrap[0][7])
 
     explain {
         sql """
             physical plan
             select a.k, b.v
-            from biga a
-            join smallb b
-            on a.k = b.k
+            from smallb b
+            join biga a
+            on cast(a.k as bigint) = cast(b.k1 + b.k2 as bigint)
         """
         contains("PhysicalOlapScan[biga]")
         contains("PhysicalOlapScan[smallb]")
         contains("distributionSpec=DistributionSpecReplicated")
         check { explainStr ->
-            assertTrue((explainStr =~ /PhysicalOlapScan\[biga\][^\n]*stats=4,096/).find())
+            assertTrue((explainStr =~ /PhysicalOlapScan\[biga\][^\n]*stats=262,144/).find())
             assertTrue((explainStr =~ /DistributionSpecReplicated[\s\S]*PhysicalOlapScan\[smallb\]/).find())
         }
     }
