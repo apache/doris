@@ -1335,7 +1335,10 @@ Status SegmentIterator::_apply_index_expr() {
 
     std::unique_ptr<roaring::Roaring> scan_filter_profile_bitmap;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        const bool collect_scan_filter_stats = static_cast<bool>(expr_ctx->scan_filter_handle());
+        const bool collect_scan_filter_stats = _opts.scan_filter_profile != nullptr;
+        if (collect_scan_filter_stats) {
+            DCHECK(expr_ctx->scan_filter_handle());
+        }
         if (collect_scan_filter_stats && scan_filter_profile_bitmap == nullptr) {
             scan_filter_profile_bitmap = std::make_unique<roaring::Roaring>(_row_bitmap);
         }
@@ -1352,8 +1355,9 @@ Status SegmentIterator::_apply_index_expr() {
                 return st;
             }
         }
-        if (collect_scan_filter_stats && expr_ctx->get_index_context() != nullptr &&
-            expr_ctx->root() != nullptr) {
+        if (collect_scan_filter_stats) {
+            DCHECK(expr_ctx->get_index_context() != nullptr);
+            DCHECK(expr_ctx->root() != nullptr);
             const auto* result = expr_ctx->get_index_context()->get_index_result_for_expr(
                     expr_ctx->root().get());
             if (result != nullptr && result->get_data_bitmap() != nullptr) {
@@ -1394,7 +1398,8 @@ Status SegmentIterator::_apply_index_expr() {
                 _common_expr_to_slotref_map, _row_bitmap, ann_index_stats,
                 enable_ann_index_result_cache, &ann_range_search_executed));
         if (ann_range_search_executed) {
-            if (expr_ctx->scan_filter_handle()) {
+            if (_opts.scan_filter_profile != nullptr) {
+                DCHECK(expr_ctx->scan_filter_handle());
                 expr_ctx->scan_filter_handle().stats->record(
                         ScanFilterStage::INDEX_ANN, static_cast<int64_t>(origin_rows),
                         static_cast<int64_t>(_row_bitmap.cardinality()));

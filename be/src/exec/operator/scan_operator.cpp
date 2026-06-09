@@ -80,7 +80,8 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
                                                                    arrived_rf_num, _conjuncts));
     if (_scan_filter_profile != nullptr) {
         for (size_t i = conjuncts_before; i < _conjuncts.size(); ++i) {
-            if (_conjuncts[i]->root() != nullptr && !_conjuncts[i]->scan_filter_handle()) {
+            DCHECK(_conjuncts[i]->root() != nullptr);
+            if (!_conjuncts[i]->scan_filter_handle()) {
                 _conjuncts[i]->attach_scan_filter(
                         _register_scan_filter(_conjuncts[i]->root(), nullptr));
             }
@@ -227,9 +228,8 @@ static std::string predicates_to_string(
 
 ScanFilterHandle ScanLocalStateBase::_register_scan_filter(const VExprSPtr& root,
                                                            const SlotDescriptor* slot) {
-    if (_scan_filter_profile == nullptr || root == nullptr) {
-        return {};
-    }
+    DCHECK(_scan_filter_profile != nullptr);
+    DCHECK(root != nullptr);
 
     ScanFilterDesc desc;
     desc.kind = ScanFilterKind::NORMAL;
@@ -395,7 +395,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), conjunct->root(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (!conjunct->scan_filter_handle()) {
+                if (_scan_filter_profile != nullptr && !conjunct->scan_filter_handle()) {
                     conjunct->attach_scan_filter(_register_scan_filter(conjunct->root(), nullptr));
                 }
                 if (_should_push_down_common_expr(conjunct->root())) {
@@ -532,16 +532,15 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                 },
                 *range);
         RETURN_IF_ERROR(status);
-        if (pdt != PushDownType::UNACCEPTABLE) {
+        if (pdt != PushDownType::UNACCEPTABLE && _scan_filter_profile != nullptr) {
             auto handle = context->scan_filter_handle();
             if (!handle) {
                 handle = _register_scan_filter(root, slot);
                 context->attach_scan_filter(handle);
             }
-            if (handle) {
-                for (size_t i = predicates_before; i < slot_predicates.size(); ++i) {
-                    slot_predicates[i]->attach_scan_filter(handle);
-                }
+            DCHECK(handle);
+            for (size_t i = predicates_before; i < slot_predicates.size(); ++i) {
+                slot_predicates[i]->attach_scan_filter(handle);
             }
         }
     }
@@ -637,10 +636,14 @@ Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, S
                                                           expr_ctx, &val, &fn_ctx, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             std::string col = slot->col_name();
-            auto handle = expr_ctx->scan_filter_handle();
-            if (!handle) {
-                handle = _register_scan_filter(expr_ctx->root(), slot);
-                expr_ctx->attach_scan_filter(handle);
+            ScanFilterHandle handle;
+            if (_scan_filter_profile != nullptr) {
+                handle = expr_ctx->scan_filter_handle();
+                if (!handle) {
+                    handle = _register_scan_filter(expr_ctx->root(), slot);
+                    expr_ctx->attach_scan_filter(handle);
+                }
+                DCHECK(handle);
             }
             _push_down_functions.emplace_back(opposite, col, fn_ctx, val, handle);
             *pdt = temp_pdt;

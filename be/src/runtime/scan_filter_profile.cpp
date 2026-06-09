@@ -409,9 +409,8 @@ void ScanFilterProfile::set_runtime_filter_partition_pruning_stats(
 }
 
 void ScanFilterProfile::materialize(RuntimeProfile* profile, int profile_level) const {
-    if (profile == nullptr || profile_level <= 0) {
-        return;
-    }
+    DCHECK(profile != nullptr);
+    DCHECK_GT(profile_level, 0);
 
     const auto snapshots = _snapshots();
     const auto key_range_snapshot = _key_range_snapshot();

@@ -628,9 +628,10 @@ bool OlapScanLocalState::_read_mor_as_dup() {
 }
 
 void OlapScanLocalState::_register_key_range_scan_filter() {
-    if (_scan_filter_profile == nullptr || _key_range_scan_filter) {
+    if (_scan_filter_profile == nullptr) {
         return;
     }
+    DORIS_CHECK(!_key_range_scan_filter);
 
     std::vector<int32_t> source_filter_ids;
     for (const auto& [_, filter_ids] : _slot_id_to_scan_filter_ids_for_key_range) {
@@ -1275,13 +1276,11 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         new_predicates.push_back(it);
                     } else if (_scan_filter_profile != nullptr) {
                         const auto& handle = it->scan_filter_handle();
-                        if (handle.has_filter_id()) {
-                            auto& source_ids =
-                                    _slot_id_to_scan_filter_ids_for_key_range[*key_to_erase];
-                            if (std::find(source_ids.begin(), source_ids.end(), handle.filter_id) ==
-                                source_ids.end()) {
-                                source_ids.push_back(handle.filter_id);
-                            }
+                        DORIS_CHECK(handle.has_filter_id());
+                        auto& source_ids = _slot_id_to_scan_filter_ids_for_key_range[*key_to_erase];
+                        if (std::find(source_ids.begin(), source_ids.end(), handle.filter_id) ==
+                            source_ids.end()) {
+                            source_ids.push_back(handle.filter_id);
                         }
                     }
                 }
