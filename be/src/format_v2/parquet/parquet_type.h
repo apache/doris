@@ -65,7 +65,7 @@ struct ParquetTypeDescriptor {
     bool is_decimal = false;
     bool is_timestamp = false;
     bool is_string_like = false;
-    bool supports_record_reader = false;
+    bool supports_record_reader = true;
     std::string reason; // reason if supports_record_reader is false
 };
 

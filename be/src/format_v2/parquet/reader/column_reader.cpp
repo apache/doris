@@ -243,8 +243,9 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
                 column_schema.name);
     }
     if (!column_schema.type_descriptor.supports_record_reader) {
-        return Status::NotSupported("Current parquet scalar reader does not support column {}",
-                                    column_schema.name);
+        return Status::NotSupported(
+                "Current parquet scalar reader does not support column {}, reason: {}",
+                column_schema.name, column_schema.type_descriptor.reason);
     }
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
