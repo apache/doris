@@ -30,6 +30,25 @@
 
 namespace doris {
 
+namespace {
+
+bthread::Mutex& close_wait_mutex() {
+    static bthread::Mutex mutex;
+    return mutex;
+}
+
+bthread::ConditionVariable& close_wait_cv() {
+    static bthread::ConditionVariable cv;
+    return cv;
+}
+
+std::atomic<int64_t>& close_wait_version_value() {
+    static std::atomic<int64_t> version {0};
+    return version;
+}
+
+} // namespace
+
 int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                                  size_t size) {
     auto stub = _stub.lock();
@@ -118,6 +137,7 @@ void LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
         return;
     }
     stub->_is_closed.store(true);
+    LoadStreamStub::notify_close_wait();
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler& handler) {
@@ -364,6 +384,24 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
     return Status::OK();
 }
 
+int64_t LoadStreamStub::close_wait_version() {
+    return close_wait_version_value().load(std::memory_order_acquire);
+}
+
+void LoadStreamStub::wait_for_close_event(int64_t observed_version, int64_t timeout_ms) {
+    std::unique_lock<bthread::Mutex> lock(close_wait_mutex());
+    if (observed_version != close_wait_version()) {
+        return;
+    }
+    static_cast<void>(close_wait_cv().wait_for(lock, timeout_ms * 1000));
+}
+
+void LoadStreamStub::notify_close_wait() {
+    close_wait_version_value().fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<bthread::Mutex> lock(close_wait_mutex());
+    close_wait_cv().notify_all();
+}
+
 void LoadStreamStub::cancel(Status reason) {
     LOG(WARNING) << *this << " is cancelled because of " << reason;
     if (_is_open.load()) {
@@ -375,6 +413,7 @@ void LoadStreamStub::cancel(Status reason) {
         _is_cancelled.store(true);
     }
     _is_closed.store(true);
+    notify_close_wait();
 }
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {

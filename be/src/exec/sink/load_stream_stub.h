@@ -154,6 +154,10 @@ public:
     // remote will close stream when it receives CLOSE_LOAD
     Status close_finish_check(RuntimeState* state, bool* is_closed);
 
+    static int64_t close_wait_version();
+
+    static void wait_for_close_event(int64_t observed_version, int64_t timeout_ms);
+
     // cancel the stream, abort close_wait, mark _is_closed and _is_cancelled
     void cancel(Status reason);
 
@@ -243,6 +247,8 @@ public:
                     tablet_load_infos);
 
 private:
+    static void notify_close_wait();
+
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
     Status _send_with_retry(butil::IOBuf& buf);
