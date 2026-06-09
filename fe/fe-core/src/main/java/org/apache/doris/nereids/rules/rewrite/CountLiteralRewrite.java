@@ -20,9 +20,14 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -39,6 +44,7 @@ import java.util.Set;
 /**
  * count(1) ==> count(*)
  * count(null) ==> 0
+ * count(const_expr) ==> if(const_expr is null, 0, count(*))
  */
 public class CountLiteralRewrite extends OneRewriteRuleFactory {
     @Override
@@ -46,7 +52,7 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
         return logicalAggregate().then(
                 agg -> {
                     List<NamedExpression> newExprs = Lists.newArrayListWithCapacity(agg.getOutputExpressions().size());
-                    if (!rewriteCountLiteral(agg.getOutputExpressions(), newExprs)) {
+                    if (!rewriteCountLiteral(agg.getOutputExpressions(), newExprs, !agg.isNormalized())) {
                         // no need to rewrite
                         return agg;
                     }
@@ -83,13 +89,14 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
         ).toRule(RuleType.COUNT_LITERAL_REWRITE);
     }
 
-    private boolean rewriteCountLiteral(List<NamedExpression> oldExprs, List<NamedExpression> newExprs) {
+    private boolean rewriteCountLiteral(List<NamedExpression> oldExprs, List<NamedExpression> newExprs,
+            boolean rewriteConstantExpression) {
         boolean changed = false;
         for (Expression expr : oldExprs) {
             Map<Expression, Expression> replaced = new HashMap<>();
             Set<AggregateFunction> oldAggFuncSet = expr.collect(AggregateFunction.class::isInstance);
             for (AggregateFunction aggFun : oldAggFuncSet) {
-                if (isCountLiteral(aggFun)) {
+                if (isCountLiteral(aggFun) || (rewriteConstantExpression && isCountConstantExpression(aggFun))) {
                     replaced.put(aggFun, rewrite((Count) aggFun));
                 }
             }
@@ -107,9 +114,28 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
                 && aggFunc.child(0).isLiteral();
     }
 
+    private boolean isCountConstantExpression(AggregateFunction aggFunc) {
+        if (aggFunc.isDistinct()
+                || !(aggFunc instanceof Count)
+                || aggFunc.children().size() != 1) {
+            return false;
+        }
+        Expression arg = aggFunc.child(0);
+        return !arg.isLiteral()
+                && arg.foldable()
+                && !arg.containsNondeterministic()
+                && !arg.containsVolatileExpression()
+                && arg.getInputSlots().isEmpty()
+                && !arg.containsType(AggregateFunction.class, SubqueryExpr.class,
+                        TableGeneratingFunction.class, WindowExpression.class);
+    }
+
     private Expression rewrite(Count count) {
         if (count.child(0).isNullLiteral()) {
             return new BigIntLiteral(0);
+        }
+        if (!count.child(0).isLiteral()) {
+            return new If(new IsNull(count.child(0)), new BigIntLiteral(0), new Count());
         }
         return new Count();
     }

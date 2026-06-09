@@ -51,7 +51,7 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.rules.rewrite.CountConstantRewrite;
+import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -198,7 +198,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             //            -->scan（T)
             bottomUp(new CompressedMaterialize()),
             topDown(
-                    new CountConstantRewrite(),
+                    new CountLiteralRewrite(),
                     new NormalizeAggregate()
             ),
             topDown(new HavingToFilter()),
