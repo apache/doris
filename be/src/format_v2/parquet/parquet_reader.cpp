@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -98,8 +99,10 @@ void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_sc
 
 ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                              std::unique_ptr<io::FileDescription>& file_description,
-                             std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile)
-        : FileReader(system_properties, file_description, io_ctx, profile) {}
+                             std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
+                             std::optional<format::GlobalRowIdContext> global_rowid_context)
+        : FileReader(system_properties, file_description, io_ctx, profile),
+          _global_rowid_context(global_rowid_context) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -138,6 +141,9 @@ Status ParquetReader::get_schema(std::vector<format::ColumnDefinition>* file_sch
         DORIS_CHECK(field.local_id == static_cast<int32_t>(column_idx));
         file_schema->push_back(std::move(field));
     }
+    if (_global_rowid_context.has_value()) {
+        file_schema->push_back(format::global_rowid_column_definition());
+    }
     return Status::OK();
 }
 
@@ -175,7 +181,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     for (const auto& col : request_snapshot->predicate_columns) {
         DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
         const auto local_id = col.field_id();
-        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        if (local_id == format::ROW_POSITION_COLUMN_ID ||
+            local_id == format::GLOBAL_ROWID_COLUMN_ID) {
             continue;
         }
         DORIS_CHECK(local_id >= 0 && local_id < num_fields);
@@ -183,7 +190,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     for (const auto& col : request_snapshot->non_predicate_columns) {
         DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
         const auto local_id = col.field_id();
-        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        if (local_id == format::ROW_POSITION_COLUMN_ID ||
+            local_id == format::GLOBAL_ROWID_COLUMN_ID) {
             continue;
         }
         DORIS_CHECK(local_id >= 0 && local_id < num_fields);
@@ -226,6 +234,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _state->scheduler.set_page_skip_profile(
             {.skipped_pages = _parquet_profile.pages_skipped_by_data_page_filter,
              .skipped_bytes = _parquet_profile.data_page_filter_skip_bytes});
+    _state->scheduler.set_global_rowid_context(_global_rowid_context);
     _state->scheduler.set_scan_profile({
             .raw_rows_read = _parquet_profile.raw_rows_read,
             .selected_rows = _parquet_profile.selected_rows,

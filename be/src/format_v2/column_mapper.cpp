@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type/convert_field_to_type.h"
@@ -39,6 +40,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
+#include "exprs/vtopn_pred.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/literal.h"
 #include "format_v2/expr/slot_ref.h"
@@ -565,6 +567,9 @@ Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
                                                       direct_in_pred->get_set_func());
     } else if (const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get())) {
         cloned = VCompoundPred::create_shared(rebuild_expr_node(*compound_pred));
+    } else if (const auto* topn_pred = dynamic_cast<const VTopNPred*>(expr.get())) {
+        cloned = VTopNPred::create_shared(rebuild_expr_node(*topn_pred),
+                                          topn_pred->source_node_id(), nullptr);
     } else if (const auto* fn_call = dynamic_cast<const VectorizedFnCall*>(expr.get())) {
         cloned = VectorizedFnCall::create_shared(rebuild_expr_node(*fn_call));
     } else {
@@ -1983,6 +1988,12 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
 const ColumnDefinition* TableColumnMapper::_find_file_field(
         const ColumnDefinition& table_column,
         const std::vector<ColumnDefinition>& file_schema) const {
+    if (table_column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+        const auto field_it = std::ranges::find_if(file_schema, [](const ColumnDefinition& field) {
+            return field.column_type == ColumnType::GLOBAL_ROWID;
+        });
+        return field_it == file_schema.end() ? nullptr : &*field_it;
+    }
     return matcher_for_mode(_options.mode).find(table_column, file_schema);
 }
 
@@ -1990,7 +2001,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                                                  const ColumnDefinition& file_field,
                                                  ColumnMapping* mapping) const {
     DORIS_CHECK(mapping != nullptr);
-    DORIS_CHECK(file_field.local_id >= 0);
+    DORIS_CHECK(file_field.local_id >= 0 || file_field.local_id == GLOBAL_ROWID_COLUMN_ID);
     mapping->file_local_id = file_field.local_id;
     mapping->table_column_name = table_column.name;
     mapping->file_column_name = file_field.name;

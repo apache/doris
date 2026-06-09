@@ -381,7 +381,8 @@ Status TableReader::create_next_reader(bool* eos) {
     switch (_format) {
     case FileFormat::PARQUET: {
         _data_reader.reader = std::make_unique<parquet::ParquetReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile);
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _global_rowid_context);
         break;
     }
     case FileFormat::ORC:
@@ -420,6 +421,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _partition_values = std::move(options.partition_values);
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
+    _global_rowid_context = options.global_rowid_context;
     _delete_rows = nullptr;
     _aggregate_pushdown_tried = false;
     return _parse_delete_predicates(options);

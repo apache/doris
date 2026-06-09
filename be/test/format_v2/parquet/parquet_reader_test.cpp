@@ -569,8 +569,7 @@ Block build_file_block(const std::vector<format::ColumnDefinition>& schema) {
 
 Block build_file_block_with_row_position(const std::vector<format::ColumnDefinition>& schema) {
     auto block = build_file_block(schema);
-    const auto row_position_field =
-            parquet::ParquetColumnReaderFactory::row_position_column_definition();
+    const auto row_position_field = format::row_position_column_definition();
     block.insert({row_position_field.type->create_column(), row_position_field.type,
                   row_position_field.name});
     return block;
@@ -2274,13 +2273,11 @@ TEST_F(NewParquetReaderTest, RowPositionReaderReturnsFileLocalPositions) {
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_shared<format::FileScanRequest>();
-    request->non_predicate_columns = {
-            field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
-            field_projection(0)};
+    request->non_predicate_columns = {field_projection(format::ROW_POSITION_COLUMN_ID),
+                                      field_projection(0)};
     request->local_positions = {
             {format::LocalColumnId(0), format::LocalIndex(0)},
-            {format::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
-             format::LocalIndex(2)},
+            {format::LocalColumnId(format::ROW_POSITION_COLUMN_ID), format::LocalIndex(2)},
     };
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -2318,12 +2315,10 @@ TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    request->non_predicate_columns = {
-            field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
+    request->non_predicate_columns = {field_projection(format::ROW_POSITION_COLUMN_ID)};
     request->local_positions = {
             {format::LocalColumnId(0), format::LocalIndex(0)},
-            {format::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
-             format::LocalIndex(2)},
+            {format::LocalColumnId(format::ROW_POSITION_COLUMN_ID), format::LocalIndex(2)},
     };
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     ASSERT_TRUE(reader->open(request).ok());
@@ -2357,17 +2352,14 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
     static const std::vector<int64_t> deleted_rows {1, 3};
     auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
     delete_predicate->add_child(TableSlotRef::create_shared(
-            2, 2, -1, std::make_shared<DataTypeInt64>(),
-            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
+            2, 2, -1, std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
 
     auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {
-            field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
+    request->predicate_columns = {field_projection(format::ROW_POSITION_COLUMN_ID)};
     request->non_predicate_columns = {field_projection(0)};
     request->local_positions = {
             {format::LocalColumnId(0), format::LocalIndex(0)},
-            {format::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
-             format::LocalIndex(2)},
+            {format::LocalColumnId(format::ROW_POSITION_COLUMN_ID), format::LocalIndex(2)},
     };
     request->delete_conjuncts.push_back(VExprContext::create_shared(std::move(delete_predicate)));
     ASSERT_TRUE(reader->open(request).ok());
@@ -2401,18 +2393,15 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
     static const std::vector<int64_t> deleted_rows {3};
     auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
     delete_predicate->add_child(TableSlotRef::create_shared(
-            2, 2, -1, std::make_shared<DataTypeInt64>(),
-            parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
+            2, 2, -1, std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
 
     auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {
-            field_projection(0),
-            field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID)};
+    request->predicate_columns = {field_projection(0),
+                                  field_projection(format::ROW_POSITION_COLUMN_ID)};
     request->non_predicate_columns = {};
     request->local_positions = {
             {format::LocalColumnId(0), format::LocalIndex(0)},
-            {format::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
-             format::LocalIndex(2)},
+            {format::LocalColumnId(format::ROW_POSITION_COLUMN_ID), format::LocalIndex(2)},
     };
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 2));
     request->delete_conjuncts.push_back(VExprContext::create_shared(std::move(delete_predicate)));
@@ -2450,13 +2439,11 @@ TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange
         std::vector<format::ColumnDefinition> schema;
         ASSERT_TRUE(reader->get_schema(&schema).ok());
         auto request = std::make_shared<format::FileScanRequest>();
-        request->non_predicate_columns = {
-                field_projection(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
-                field_projection(0)};
+        request->non_predicate_columns = {field_projection(format::ROW_POSITION_COLUMN_ID),
+                                          field_projection(0)};
         request->local_positions = {
                 {format::LocalColumnId(0), format::LocalIndex(0)},
-                {format::LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID),
-                 format::LocalIndex(2)},
+                {format::LocalColumnId(format::ROW_POSITION_COLUMN_ID), format::LocalIndex(2)},
         };
         ASSERT_TRUE(reader->open(request).ok());
 

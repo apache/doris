@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/reader/global_rowid_column_reader.h"
 #include "format_v2/parquet/reader/list_column_reader.h"
 #include "format_v2/parquet/reader/map_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
@@ -194,19 +195,15 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
           _page_skip_profile(page_skip_profile),
           _column_reader_profile(column_reader_profile) {}
 
-format::ColumnDefinition ParquetColumnReaderFactory::row_position_column_definition() {
-    format::ColumnDefinition field;
-    field.identifier = Field::create_field<TYPE_INT>(ROW_POSITION_COLUMN_ID);
-    field.local_id = ROW_POSITION_COLUMN_ID;
-    field.name = ROW_POSITION_COLUMN_NAME;
-    field.type = std::make_shared<DataTypeInt64>();
-    field.column_type = format::ColumnType::ROW_NUMBER;
-    return field;
-}
-
 std::unique_ptr<ParquetColumnReader> ParquetColumnReaderFactory::create_row_position_column_reader(
         int64_t row_group_first_row) const {
     return std::make_unique<RowPositionColumnReader>(row_group_first_row, _column_reader_profile);
+}
+
+std::unique_ptr<ParquetColumnReader> ParquetColumnReaderFactory::create_global_rowid_column_reader(
+        const format::GlobalRowIdContext& context, int64_t row_group_first_row) const {
+    return std::make_unique<GlobalRowIdColumnReader>(context, row_group_first_row,
+                                                     _column_reader_profile);
 }
 
 Status ParquetColumnReaderFactory::create_scalar_reader(
@@ -243,9 +240,8 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
                 column_schema.name);
     }
     if (!column_schema.type_descriptor.supports_record_reader) {
-        return Status::NotSupported(
-                "Current parquet scalar reader does not support column {}, reason: {}",
-                column_schema.name, column_schema.type_descriptor.reason);
+        return Status::NotSupported("Current parquet scalar reader does not support column {}",
+                                    column_schema.name);
     }
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,

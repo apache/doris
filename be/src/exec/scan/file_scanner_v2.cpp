@@ -33,6 +33,7 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
@@ -56,9 +57,13 @@
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table_reader.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "service/backend_options.h"
+#include "storage/id_manager.h"
 
 namespace doris {
 namespace {
@@ -79,7 +84,10 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
            table_format == "iceberg" || table_format == "paimon";
 }
 
-bool is_partition_slot(const TFileScanSlotInfo& slot_info) {
+bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
+    if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+        return false;
+    }
     return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
                                       : !slot_info.is_file_slot;
 }
@@ -744,8 +752,31 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range) {
             .partition_values = std::move(partition_values),
             .cache = _kv_cache,
             .current_range = range,
+            .global_rowid_context = _create_global_rowid_context(range),
     }));
     return Status::OK();
+}
+
+bool FileScannerV2::_should_enable_file_meta_cache() const {
+    return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
+           _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
+}
+
+std::optional<format::GlobalRowIdContext> FileScannerV2::_create_global_rowid_context(
+        const TFileRangeDesc& range) const {
+    if (!_need_global_rowid_column) {
+        return std::nullopt;
+    }
+    auto& id_file_map = _state->get_id_file_map();
+    DORIS_CHECK(id_file_map != nullptr);
+    const auto file_id = id_file_map->get_file_mapping_id(
+            std::make_shared<FileMapping>(_local_state->cast<FileScanLocalState>().parent_id(),
+                                          range, _should_enable_file_meta_cache()));
+    return format::GlobalRowIdContext {
+            .version = IdManager::ID_VERSION,
+            .backend_id = BackendOptions::get_backend_id(),
+            .file_id = file_id,
+    };
 }
 
 Status FileScannerV2::_generate_partition_values(
@@ -809,6 +840,7 @@ Status FileScannerV2::_init_expr_ctxes() {
 Status FileScannerV2::_build_projected_columns() {
     _projected_columns.clear();
     _projected_columns.reserve(_params->required_slots.size());
+    _need_global_rowid_column = false;
 
     for (size_t slot_idx = 0; slot_idx < _params->required_slots.size(); ++slot_idx) {
         const auto& slot_info = _params->required_slots[slot_idx];
@@ -818,6 +850,9 @@ Status FileScannerV2::_build_projected_columns() {
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            _need_global_rowid_column = true;
+        }
         RETURN_IF_ERROR(_build_default_expr(slot_info, &column.default_expr));
         std::optional<format::ColumnDefinition> schema_column;
         if (const auto* schema_field = find_external_root_field(_params, column);
@@ -832,7 +867,7 @@ Status FileScannerV2::_build_projected_columns() {
         // The access paths are generated from the slot's access path expressions which means a projected column can have a subset of the schema column's nested children.
         RETURN_IF_ERROR(build_nested_children_from_access_paths(
                 &column, it->second, schema_column.has_value() ? &*schema_column : nullptr));
-        if (is_partition_slot(slot_info)) {
+        if (is_partition_slot(slot_info, column.name)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(
                     column.name,

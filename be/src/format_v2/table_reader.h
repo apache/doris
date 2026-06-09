@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -115,6 +116,7 @@ struct SplitReadOptions {
     std::map<std::string, Field> partition_values;
     ShardedKVCache* cache;
     TFileRangeDesc current_range;
+    std::optional<GlobalRowIdContext> global_rowid_context;
 };
 
 // table-level reader 基类。
@@ -433,12 +435,9 @@ protected:
                             [&](const LocalColumnIndex& p) { return p.column_id() == column_id; }),
                     request->non_predicate_columns.end());
         }
-        if (column_id ==
-                    LocalColumnId(
-                            doris::parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) &&
+        if (column_id == LocalColumnId(ROW_POSITION_COLUMN_ID) &&
             _find_column_definition(_data_reader.file_schema, column_id) == nullptr) {
-            _data_reader.file_schema.push_back(
-                    doris::parquet::ParquetColumnReaderFactory::row_position_column_definition());
+            _data_reader.file_schema.push_back(row_position_column_definition());
         }
     }
 
@@ -448,16 +447,14 @@ protected:
         if (_delete_rows == nullptr || _delete_rows->empty()) {
             return Status::OK();
         }
-        const auto row_position_column_id =
-                LocalColumnId(parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID);
+        const auto row_position_column_id = LocalColumnId(ROW_POSITION_COLUMN_ID);
         _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
 
         auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
         const auto block_position = request->local_positions.at(row_position_column_id);
         delete_predicate->add_child(TableSlotRef::create_shared(
                 cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
-                std::make_shared<DataTypeInt64>(),
-                parquet::ParquetColumnReaderFactory::ROW_POSITION_COLUMN_NAME));
+                std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
 
         request->delete_conjuncts.push_back(
                 VExprContext::create_shared(std::move(delete_predicate)));
@@ -893,6 +890,7 @@ protected:
     RuntimeProfile* _scanner_profile;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
     TableColumnMapperOptions _mapper_options;
 

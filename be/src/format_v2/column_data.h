@@ -20,13 +20,17 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "exprs/vexpr_fwd.h"
 
@@ -207,8 +211,15 @@ struct FilterEntry {
 };
 
 enum ColumnType {
-    DATA_COLUMN = 0, // normal data column
-    ROW_NUMBER = 1,  // row number in a file
+    DATA_COLUMN = 0,  // normal data column
+    ROW_NUMBER = 1,   // row number in a file
+    GLOBAL_ROWID = 2, // global unique row id across files, used by TopN filter
+};
+
+struct GlobalRowIdContext {
+    uint8_t version = 0;
+    int64_t backend_id = 0;
+    uint32_t file_id = 0;
 };
 
 // Column schema definition shared by table/global projection and file-local schema matching.
@@ -286,6 +297,30 @@ struct ColumnDefinition {
 
     std::string debug_string() const;
 };
+
+static constexpr int ROW_POSITION_COLUMN_ID = -10001;
+static constexpr const char* ROW_POSITION_COLUMN_NAME = "__file_row_position";
+static constexpr int GLOBAL_ROWID_COLUMN_ID = -10002;
+
+inline ColumnDefinition row_position_column_definition() {
+    ColumnDefinition field;
+    field.identifier = Field::create_field<TYPE_INT>(ROW_POSITION_COLUMN_ID);
+    field.local_id = ROW_POSITION_COLUMN_ID;
+    field.name = ROW_POSITION_COLUMN_NAME;
+    field.type = std::make_shared<DataTypeInt64>();
+    field.column_type = ColumnType::ROW_NUMBER;
+    return field;
+}
+
+inline ColumnDefinition global_rowid_column_definition() {
+    ColumnDefinition field;
+    field.identifier = Field::create_field<TYPE_STRING>(BeConsts::GLOBAL_ROWID_COL);
+    field.local_id = GLOBAL_ROWID_COLUMN_ID;
+    field.name = BeConsts::GLOBAL_ROWID_COL;
+    field.type = std::make_shared<DataTypeString>();
+    field.column_type = ColumnType::GLOBAL_ROWID;
+    return field;
+}
 
 // Recursive file-local projection path.
 //

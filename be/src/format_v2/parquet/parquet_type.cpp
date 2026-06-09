@@ -295,11 +295,8 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
 
     if (!record_reader_physical_type_supported(result.physical_type)) {
         result.supports_record_reader = false;
-        result.reason = "Do not support physical type " + std::to_string(result.physical_type);
     } else if (result.is_decimal && result.decimal_precision > 38) {
         result.supports_record_reader = false;
-        result.reason = "Decimal precision " + std::to_string(result.decimal_precision) +
-                        " exceeds max supported 38";
     }
     return result;
 }

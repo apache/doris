@@ -291,10 +291,17 @@ Status ParquetScanScheduler::open_next_row_group(
             _page_skip_profile, _scan_profile.column_reader_profile);
     for (const auto& col : request.predicate_columns) {
         const auto local_id = col.field_id();
-        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        if (local_id == format::ROW_POSITION_COLUMN_ID) {
             _current_predicate_columns[local_id] =
                     column_reader_factory.create_row_position_column_reader(
                             _current_row_group_first_row);
+            continue;
+        }
+        if (local_id == format::GLOBAL_ROWID_COLUMN_ID) {
+            DORIS_CHECK(_global_rowid_context.has_value());
+            _current_predicate_columns[local_id] =
+                    column_reader_factory.create_global_rowid_column_reader(
+                            *_global_rowid_context, _current_row_group_first_row);
             continue;
         }
 
@@ -307,10 +314,17 @@ Status ParquetScanScheduler::open_next_row_group(
     }
     for (const auto& col : request.non_predicate_columns) {
         const auto local_id = col.field_id();
-        if (local_id == ParquetColumnReaderFactory::ROW_POSITION_COLUMN_ID) {
+        if (local_id == format::ROW_POSITION_COLUMN_ID) {
             _current_non_predicate_columns[local_id] =
                     column_reader_factory.create_row_position_column_reader(
                             _current_row_group_first_row);
+            continue;
+        }
+        if (local_id == format::GLOBAL_ROWID_COLUMN_ID) {
+            DORIS_CHECK(_global_rowid_context.has_value());
+            _current_non_predicate_columns[local_id] =
+                    column_reader_factory.create_global_rowid_column_reader(
+                            *_global_rowid_context, _current_row_group_first_row);
             continue;
         }
         DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
