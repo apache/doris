@@ -315,7 +315,6 @@ Status StructColumnReader::read_internal(int64_t rows, MutableColumnPtr& column,
     }
 
     int64_t expected_rows = -1;
-    NullMap parent_nulls;
     std::vector<int16_t> shape_definition_levels;
     int parent_shape_index = -1;
     if (parent_null_map != nullptr) {
@@ -394,7 +393,7 @@ Status StructColumnReader::read_internal(int64_t rows, MutableColumnPtr& column,
     *rows_read = std::max<int64_t>(expected_rows, 0);
     if (parent_null_map != nullptr) {
         DORIS_CHECK(parent_shape_index >= 0);
-        parent_nulls = expected_shape_maps[static_cast<size_t>(parent_shape_index)];
+        const auto& parent_nulls = expected_shape_maps[static_cast<size_t>(parent_shape_index)];
         if (parent_nulls.size() != static_cast<size_t>(*rows_read)) {
             return Status::Corruption(
                     "Parquet STRUCT column {} returned {} parent shape rows, expected {}", _name,
