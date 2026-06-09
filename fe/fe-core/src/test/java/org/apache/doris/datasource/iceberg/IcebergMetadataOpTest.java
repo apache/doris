@@ -19,6 +19,11 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.MemoryFileSystem;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -113,5 +118,98 @@ public class IcebergMetadataOpTest {
         List<String> tableNames = ops.listTableNames("PUBLIC");
 
         Assert.assertEquals(Collections.singletonList("DORIS_HORIZON_T"), tableNames);
+    }
+
+    @Test
+    public void testDropTableCleansEmptyTableLocation() throws Exception {
+        MemoryFileSystem fs = new MemoryFileSystem();
+        Location tableLocation = Location.of("hdfs://nn/warehouse/db/t1");
+        fs.mkdirs(tableLocation);
+        fs.mkdirs(tableLocation.resolve("data"));
+        fs.mkdirs(tableLocation.resolve("metadata"));
+
+        IcebergExternalCatalog dorisCatalog = mockHmsCatalog();
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        IcebergMetadataOps ops = newOpsWithCleanupFileSystem(dorisCatalog, icebergCatalog, fs);
+
+        TableIdentifier tableIdentifier = TableIdentifier.of(Namespace.of("db"), "t1");
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(icebergTable.location()).thenReturn(tableLocation.uri());
+        Mockito.when(icebergCatalog.tableExists(tableIdentifier)).thenReturn(true);
+        Mockito.when(icebergCatalog.loadTable(tableIdentifier)).thenReturn(icebergTable);
+        Mockito.when(icebergCatalog.dropTable(tableIdentifier, true)).thenReturn(true);
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getRemoteName()).thenReturn("t1");
+        Mockito.when(dorisTable.getName()).thenReturn("t1");
+        ops.dropTableImpl(dorisTable, false);
+
+        Assert.assertFalse(fs.exists(tableLocation));
+        Mockito.verify(icebergCatalog).dropTable(tableIdentifier, true);
+    }
+
+    @Test
+    public void testDropDbCleansEmptyNamespaceLocation() throws Exception {
+        MemoryFileSystem fs = new MemoryFileSystem();
+        Location namespaceLocation = Location.of("hdfs://nn/warehouse/db.db");
+        fs.mkdirs(namespaceLocation);
+
+        IcebergExternalCatalog dorisCatalog = mockHmsCatalog();
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        IcebergMetadataOps ops = newOpsWithCleanupFileSystem(dorisCatalog, icebergCatalog, fs);
+
+        ExternalDatabase<?> dorisDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(dorisDb.getRemoteName()).thenReturn("db");
+        Mockito.when(dorisCatalog.getDbNullable("db")).thenReturn(dorisDb);
+
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+        Namespace namespace = Namespace.of("db");
+        Mockito.when(nsCatalog.loadNamespaceMetadata(namespace))
+                .thenReturn(Collections.singletonMap("location", namespaceLocation.uri()));
+        Mockito.when(nsCatalog.dropNamespace(namespace)).thenReturn(true);
+        ops.dropDbImpl("db", false, false);
+
+        Assert.assertFalse(fs.exists(namespaceLocation));
+        Mockito.verify(nsCatalog).dropNamespace(namespace);
+    }
+
+    @Test
+    public void testDeleteEmptyDirectoryKeepsDirectoryWithExternalFile() throws Exception {
+        MemoryFileSystem fs = new MemoryFileSystem();
+        Location tableLocation = Location.of("hdfs://nn/warehouse/db/t2");
+        fs.mkdirs(tableLocation);
+        fs.mkdirs(tableLocation.resolve("data"));
+        Location externalFile = tableLocation.resolve("external-file");
+        fs.put(externalFile, new byte[] {1});
+
+        Assert.assertFalse(IcebergMetadataOps.deleteEmptyDirectory(fs, tableLocation));
+        Assert.assertTrue(fs.exists(tableLocation));
+        Assert.assertTrue(fs.exists(externalFile));
+        Assert.assertFalse(fs.exists(tableLocation.resolve("data")));
+    }
+
+    private IcebergExternalCatalog mockHmsCatalog() {
+        IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_HMS);
+        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, Collections.emptyMap()));
+        return dorisCatalog;
+    }
+
+    private IcebergMetadataOps newOpsWithCleanupFileSystem(
+            IcebergExternalCatalog dorisCatalog, Catalog icebergCatalog, FileSystem fs) {
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog) {
+            @Override
+            protected FileSystem createCleanupFileSystem() {
+                return fs;
+            }
+        };
+        Mockito.when(dorisCatalog.getMetadataOps()).thenReturn(ops);
+        return ops;
     }
 }

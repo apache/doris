@@ -44,6 +44,11 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -52,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
@@ -79,6 +85,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -93,6 +100,7 @@ import java.util.stream.Stream;
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
+    private static final String NAMESPACE_LOCATION_PROP = "location";
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -299,7 +307,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 return;
             }
         }
-        nsCatalog.dropNamespace(getNamespace(dorisDb.getRemoteName()));
+        Namespace namespace = getNamespace(dorisDb.getRemoteName());
+        Optional<String> namespaceLocation = shouldCleanupManagedLocation()
+                ? loadNamespaceLocation(namespace) : Optional.empty();
+        nsCatalog.dropNamespace(namespace);
+        namespaceLocation.ifPresent(location -> cleanupEmptyLocation(location, "database", dbName));
     }
 
     @Override
@@ -427,7 +439,98 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, remoteTblName, remoteDbName);
             }
         }
-        catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), true);
+        TableIdentifier tableIdentifier = getTableIdentifier(remoteDbName, remoteTblName);
+        Optional<String> tableLocation = shouldCleanupManagedLocation()
+                ? loadTableLocation(tableIdentifier) : Optional.empty();
+        catalog.dropTable(tableIdentifier, true);
+        tableLocation.ifPresent(location -> cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName));
+    }
+
+    private Optional<String> loadNamespaceLocation(Namespace namespace) {
+        Map<String, String> namespaceMetadata = nsCatalog.loadNamespaceMetadata(namespace);
+        String location = namespaceMetadata.get(NAMESPACE_LOCATION_PROP);
+        return StringUtils.isBlank(location) ? Optional.empty() : Optional.of(location);
+    }
+
+    private Optional<String> loadTableLocation(TableIdentifier tableIdentifier) {
+        String location = catalog.loadTable(tableIdentifier).location();
+        return StringUtils.isBlank(location) ? Optional.empty() : Optional.of(location);
+    }
+
+    private void cleanupEmptyLocation(String location, String objectType, String objectName) {
+        if (!shouldCleanupManagedLocation() || StringUtils.isBlank(location)) {
+            return;
+        }
+        try (FileSystem fs = createCleanupFileSystem()) {
+            boolean deleted = deleteEmptyDirectory(fs, Location.of(location));
+            if (deleted) {
+                LOG.info("Cleaned empty Iceberg {} location {} for {}", objectType, location, objectName);
+            } else {
+                LOG.info("Skip cleaning Iceberg {} location {} for {}, because it still contains files",
+                        objectType, location, objectName);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to clean Iceberg {} location {} for {} after drop",
+                    objectType, location, objectName, e);
+        }
+    }
+
+    private boolean shouldCleanupManagedLocation() {
+        return dorisCatalog instanceof IcebergExternalCatalog
+                && IcebergExternalCatalog.ICEBERG_HMS.equals(
+                        ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType());
+    }
+
+    @VisibleForTesting
+    protected FileSystem createCleanupFileSystem() {
+        return new SpiSwitchingFileSystem(dorisCatalog.getCatalogProperty().getStoragePropertiesMap());
+    }
+
+    @VisibleForTesting
+    static boolean deleteEmptyDirectory(FileSystem fs, Location location) throws IOException {
+        if (!fs.exists(location)) {
+            return true;
+        }
+        boolean containsFile = false;
+        boolean deletedChildren = true;
+        List<Location> childDirectories = new ArrayList<>();
+        try (FileIterator iterator = fs.list(location)) {
+            while (iterator.hasNext()) {
+                FileEntry entry = iterator.next();
+                if (entry.isDirectory()) {
+                    childDirectories.add(entry.location());
+                } else {
+                    containsFile = true;
+                }
+            }
+        }
+        for (Location childDirectory : childDirectories) {
+            deletedChildren &= deleteEmptyDirectory(fs, childDirectory);
+        }
+        if (containsFile || !deletedChildren || hasChildren(fs, location)) {
+            return false;
+        }
+        deleteDirectory(fs, location);
+        return true;
+    }
+
+    private static boolean hasChildren(FileSystem fs, Location location) throws IOException {
+        try (FileIterator iterator = fs.list(location)) {
+            return iterator.hasNext();
+        }
+    }
+
+    private static void deleteDirectory(FileSystem fs, Location location) throws IOException {
+        try {
+            fs.delete(location, false);
+        } catch (IOException e) {
+            String uri = location.uri();
+            if (!uri.endsWith("/")) {
+                fs.delete(Location.of(uri + "/"), false);
+                return;
+            }
+            throw e;
+        }
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
