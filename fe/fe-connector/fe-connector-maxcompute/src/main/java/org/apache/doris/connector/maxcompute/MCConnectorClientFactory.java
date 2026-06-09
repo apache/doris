@@ -38,6 +38,9 @@ public final class MCConnectorClientFactory {
 
     /**
      * Validates that required authentication properties are present.
+     * Throws {@link IllegalArgumentException} so that CREATE CATALOG property
+     * validation ({@code MaxComputeConnectorProvider.validateProperties}) surfaces
+     * a clean DdlException, consistent with the other connectors' validation.
      */
     public static void checkAuthProperties(Map<String, String> properties) {
         String authType = properties.getOrDefault(
@@ -49,7 +52,7 @@ public final class MCConnectorClientFactory {
             if (!properties.containsKey(MCConnectorProperties.ACCESS_KEY)
                     || !properties.containsKey(
                             MCConnectorProperties.SECRET_KEY)) {
-                throw new RuntimeException(
+                throw new IllegalArgumentException(
                         "Missing access key or secret key for "
                                 + "AK/SK auth type");
             }
@@ -60,7 +63,7 @@ public final class MCConnectorClientFactory {
                             MCConnectorProperties.SECRET_KEY)
                     || !properties.containsKey(
                             MCConnectorProperties.RAM_ROLE_ARN)) {
-                throw new RuntimeException(
+                throw new IllegalArgumentException(
                         "Missing access key, secret key or role arn "
                                 + "for RAM Role ARN auth type");
             }
@@ -68,11 +71,11 @@ public final class MCConnectorClientFactory {
                 MCConnectorProperties.AUTH_TYPE_ECS_RAM_ROLE)) {
             if (!properties.containsKey(
                     MCConnectorProperties.ECS_RAM_ROLE)) {
-                throw new RuntimeException(
+                throw new IllegalArgumentException(
                         "Missing role name for ECS RAM Role auth type");
             }
         } else {
-            throw new RuntimeException(
+            throw new IllegalArgumentException(
                     "Unsupported auth type: " + authType);
         }
     }

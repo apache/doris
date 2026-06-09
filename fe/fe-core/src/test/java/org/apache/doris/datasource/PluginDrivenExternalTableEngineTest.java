@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
@@ -25,11 +27,15 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -59,6 +65,17 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
+    public void testMaxComputeCatalogReturnsLegacyEngineName() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("max_compute");
+        // Legacy MaxComputeExternalTable did not override getEngine(); its type
+        // MAX_COMPUTE_EXTERNAL_TABLE has no case in TableType.toEngineName(), so the
+        // engine name was null. The migrated table must reproduce that exactly,
+        // otherwise SHOW TABLE STATUS / information_schema.tables would regress.
+        Assertions.assertNull(table.getEngine(),
+                "MaxCompute catalog tables should report the legacy null engine name");
+    }
+
+    @Test
     public void testUnknownCatalogReturnsPluginEngineName() {
         PluginDrivenExternalTable table = createTableWithCatalogType("custom_type");
         Assertions.assertEquals("Plugin", table.getEngine(),
@@ -79,6 +96,14 @@ public class PluginDrivenExternalTableEngineTest {
         Assertions.assertEquals(TableType.ES_EXTERNAL_TABLE.name(),
                 table.getEngineTableTypeName(),
                 "ES catalog tables should report ES_EXTERNAL_TABLE type name");
+    }
+
+    @Test
+    public void testMaxComputeCatalogReturnsMaxComputeEngineTableTypeName() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("max_compute");
+        Assertions.assertEquals(TableType.MAX_COMPUTE_EXTERNAL_TABLE.name(),
+                table.getEngineTableTypeName(),
+                "MaxCompute catalog tables should report MAX_COMPUTE_EXTERNAL_TABLE type name");
     }
 
     @Test
@@ -119,6 +144,80 @@ public class PluginDrivenExternalTableEngineTest {
         Assertions.assertTrue(schema.isPresent(), "Schema should be present when a table handle exists");
         Assertions.assertEquals("mapped_id", schema.get().getSchema().get(0).getName(),
                 "Mapped remote column names should be reflected in Doris schema metadata");
+    }
+
+    /**
+     * Verifies the fe-core call site of {@link PluginDrivenExternalTable#toThrift()}: it must pass
+     * the REMOTE db/table names and the schema column count into
+     * {@code ConnectorMetadata.buildTableDescriptor(...)}.
+     *
+     * <p>WHY this matters: after the max_compute cutover, BE static_casts the descriptor to
+     * {@code MaxComputeTableDescriptor} and reads {@code project}/{@code table} (built by
+     * {@code MaxComputeConnectorMetadata.buildTableDescriptor} from these two args) as the JNI
+     * read-session addressing contract, which uses REMOTE names. If the call site passed the LOCAL
+     * names (or a wrong numCols), the descriptor would address the wrong ODPS project/table and the
+     * column count would be inconsistent with the schema, breaking reads. The connector-module UT
+     * ({@code MaxComputeBuildTableDescriptorTest}) only covers the override's own output; this test
+     * is the only automated guard on the cross-module WIRING.
+     *
+     * <p>It FAILS if the call site is changed to pass {@code db.getFullName()}/{@code getName()}
+     * (local names) or any column count other than {@code schema.size()}.
+     */
+    @Test
+    public void testToThriftPassesRemoteNamesAndNumColsToBuildTableDescriptor() {
+        ConnectorMetadata meta = Mockito.mock(ConnectorMetadata.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("max_compute", meta);
+
+        // Local names differ from remote names, so a regression that passes local names is caught.
+        ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getFullName()).thenReturn("mydb");
+        Mockito.when(db.getRemoteName()).thenReturn("REMOTE_DB");
+
+        // Schema with a known, non-trivial column count so numCols regressions are caught.
+        final int expectedNumCols = 3;
+        final List<Column> schema = new ArrayList<>();
+        for (int i = 0; i < expectedNumCols; i++) {
+            schema.add(new Column("c" + i, PrimitiveType.INT));
+        }
+
+        // Subclass stubs ONLY the two Env-backed methods toThrift() traverses (catalog/db init and
+        // schema-cache lookup), isolating the call-site wiring without standing up Env/CatalogMgr.
+        PluginDrivenExternalTable table = new PluginDrivenExternalTable(
+                1L, "mytbl", "REMOTE_TBL", catalog, db) {
+            @Override
+            protected synchronized void makeSureInitialized() {
+                // no-op: skip real catalog/db initialization (Env-backed)
+            }
+
+            @Override
+            public List<Column> getFullSchema() {
+                return schema;
+            }
+        };
+
+        TTableDescriptor stub = new TTableDescriptor(1L, TTableType.MAX_COMPUTE_TABLE,
+                expectedNumCols, 0, "mytbl", "REMOTE_DB");
+        Mockito.when(meta.buildTableDescriptor(
+                        Mockito.any(), Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
+                        Mockito.anyString(), Mockito.anyInt(), Mockito.anyLong()))
+                .thenReturn(stub);
+
+        table.toThrift();
+
+        ArgumentCaptor<String> dbNameCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> remoteNameCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Integer> numColsCaptor = ArgumentCaptor.forClass(Integer.class);
+        Mockito.verify(meta).buildTableDescriptor(
+                Mockito.any(ConnectorSession.class), Mockito.anyLong(), Mockito.anyString(),
+                dbNameCaptor.capture(), remoteNameCaptor.capture(),
+                numColsCaptor.capture(), Mockito.anyLong());
+
+        Assertions.assertEquals("REMOTE_DB", dbNameCaptor.getValue(),
+                "toThrift() must pass db.getRemoteName() as dbName, not the local db name");
+        Assertions.assertEquals("REMOTE_TBL", remoteNameCaptor.getValue(),
+                "toThrift() must pass table.getRemoteName() as remoteName, not the local table name");
+        Assertions.assertEquals(expectedNumCols, numColsCaptor.getValue().intValue(),
+                "toThrift() must pass schema.size() as numCols");
     }
 
     // -------- Helpers --------
@@ -169,15 +268,32 @@ public class PluginDrivenExternalTableEngineTest {
      */
     private static class TestablePluginCatalog extends PluginDrivenExternalCatalog {
         private final String catalogType;
+        private final Connector connector;
 
-        TestablePluginCatalog(String catalogType, Connector connector) {
+        TestablePluginCatalog(String catalogType) {
+            this(catalogType, mockConnector(Mockito.mock(ConnectorMetadata.class)));
+        }
+
+        TestablePluginCatalog(String catalogType, ConnectorMetadata meta) {
+            this(catalogType, mockConnector(meta));
+        }
+
+        private TestablePluginCatalog(String catalogType, Connector connector) {
             super(1L, "test-catalog", null, makeProps(catalogType), "", connector);
             this.catalogType = catalogType;
+            this.connector = connector;
         }
 
         @Override
         public String getType() {
             return catalogType;
+        }
+
+        @Override
+        public Connector getConnector() {
+            // Bypass the parent's makeSureInitialized() (Env-backed catalog init) so the call-site
+            // wiring test can reach toThrift() without standing up Env/CatalogMgr.
+            return connector;
         }
 
         @Override
@@ -199,6 +315,12 @@ public class PluginDrivenExternalTableEngineTest {
             Map<String, String> props = new HashMap<>();
             props.put("type", type);
             return props;
+        }
+
+        private static Connector mockConnector(ConnectorMetadata meta) {
+            Connector c = Mockito.mock(Connector.class);
+            Mockito.when(c.getMetadata(Mockito.any())).thenReturn(meta);
+            return c;
         }
     }
 }
