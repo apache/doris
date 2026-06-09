@@ -37,6 +37,8 @@
 #include "core/block/block.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -1230,6 +1232,158 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
             assert_cast<const DataTypeStruct*>(projected_type->get_value_type().get());
     ASSERT_EQ(projected_value->get_elements().size(), 1);
     EXPECT_EQ(projected_value->get_element_name(0), "b");
+}
+
+TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterThroughArrayWrapper) {
+    auto a_type = std::make_shared<DataTypeInt32>();
+    auto b_type = std::make_shared<DataTypeString>();
+    auto item_type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+
+    format::ColumnDefinition a_field;
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
+    a_field.name = "a";
+    a_field.type = a_type;
+    format::ColumnDefinition b_field;
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
+    b_field.name = "b";
+    b_field.type = b_type;
+    format::ColumnDefinition item_field;
+    item_field.identifier = Field::create_field<TYPE_INT>(0);
+    item_field.name = "item";
+    item_field.type = item_type;
+    item_field.children = {a_field, b_field};
+    format::ColumnDefinition array_field;
+    array_field.identifier = Field::create_field<TYPE_INT>(0);
+    array_field.name = "items";
+    array_field.type = std::make_shared<DataTypeArray>(item_type);
+    array_field.children = {item_field};
+
+    format::ColumnDefinition table_column = array_field;
+
+    auto filter_expr = std::make_shared<TestFunctionExpr>(
+            "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    auto item_expr = struct_element_expr(
+            TableSlotRef::create_shared(0, 0, -1, table_column.type, "items"), item_type, "item");
+    filter_expr->add_child(struct_element_expr(item_expr, a_type, "a"));
+    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    format::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .global_indices = {format::GlobalIndex(0)},
+    };
+
+    format::TableColumnMapperOptions options;
+    options.mode = format::TableColumnMappingMode::BY_NAME;
+    format::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&array_field, 0);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {array_field}).ok());
+
+    format::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].index, 0);
+    EXPECT_TRUE(request.predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
+    auto key_type = std::make_shared<DataTypeInt32>();
+    auto a_type = std::make_shared<DataTypeInt32>();
+    auto b_type = std::make_shared<DataTypeString>();
+    auto full_value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
+
+    format::ColumnDefinition key_field;
+    key_field.identifier = Field::create_field<TYPE_INT>(0);
+    key_field.name = "key";
+    key_field.type = key_type;
+    format::ColumnDefinition a_field;
+    a_field.identifier = Field::create_field<TYPE_INT>(0);
+    a_field.name = "a";
+    a_field.type = a_type;
+    format::ColumnDefinition b_field;
+    b_field.identifier = Field::create_field<TYPE_INT>(1);
+    b_field.name = "b";
+    b_field.type = b_type;
+    format::ColumnDefinition value_field;
+    value_field.identifier = Field::create_field<TYPE_INT>(1);
+    value_field.name = "value";
+    value_field.type = full_value_type;
+    value_field.children = {a_field, b_field};
+    format::ColumnDefinition entry_field;
+    entry_field.identifier = Field::create_field<TYPE_INT>(0);
+    entry_field.name = "entries";
+    entry_field.type = std::make_shared<DataTypeStruct>(DataTypes {key_type, full_value_type},
+                                                        Strings {"key", "value"});
+    entry_field.children = {key_field, value_field};
+    format::ColumnDefinition map_field;
+    map_field.identifier = Field::create_field<TYPE_INT>(0);
+    map_field.name = "m";
+    map_field.type = std::make_shared<DataTypeMap>(key_type, full_value_type);
+    map_field.children = {entry_field};
+
+    format::ColumnDefinition table_value_child;
+    table_value_child.identifier = Field::create_field<TYPE_INT>(103);
+    table_value_child.name = "b";
+    table_value_child.type = b_type;
+    format::ColumnDefinition table_value;
+    table_value.identifier = Field::create_field<TYPE_INT>(102);
+    table_value.name = "value";
+    table_value.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
+    table_value.children = {table_value_child};
+    format::ColumnDefinition table_entry;
+    table_entry.identifier = Field::create_field<TYPE_INT>(101);
+    table_entry.name = "entries";
+    table_entry.type =
+            std::make_shared<DataTypeStruct>(DataTypes {table_value.type}, Strings {"value"});
+    table_entry.children = {table_value};
+    format::ColumnDefinition table_column;
+    table_column.identifier = Field::create_field<TYPE_INT>(100);
+    table_column.name = "m";
+    table_column.type = std::make_shared<DataTypeMap>(key_type, table_value.type);
+    table_column.children = {table_entry};
+
+    auto filter_expr = std::make_shared<TestFunctionExpr>(
+            "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    auto full_entry_type = entry_field.type;
+    auto entries_expr = struct_element_expr(
+            TableSlotRef::create_shared(
+                    0, 0, -1, std::make_shared<DataTypeMap>(key_type, full_value_type), "m"),
+            full_entry_type, "entries");
+    auto value_expr = struct_element_expr(entries_expr, full_value_type, "value");
+    filter_expr->add_child(struct_element_expr(value_expr, a_type, "a"));
+    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    format::TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(filter_expr),
+            .global_indices = {format::GlobalIndex(0)},
+    };
+
+    format::TableColumnMapperOptions options;
+    options.mode = format::TableColumnMappingMode::BY_NAME;
+    format::TableColumnMapper mapper(options);
+    set_name_identifiers(&table_column, 0);
+    set_name_identifiers(&map_field, 0);
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {map_field}).ok());
+
+    format::FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, {table_column}, &request).ok());
+
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& projection = request.predicate_columns[0];
+    EXPECT_EQ(projection.index, 0);
+    ASSERT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 1);
+    EXPECT_EQ(projection.children[0].index, 0);
+    ASSERT_EQ(projection.children[0].children.size(), 1);
+    EXPECT_EQ(projection.children[0].children[0].index, 1);
+    ASSERT_EQ(projection.children[0].children[0].children.size(), 2);
+    EXPECT_EQ(projection.children[0].children[0].children[0].index, 1);
+    EXPECT_EQ(projection.children[0].children[0].children[1].index, 0);
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(TableColumnMapperTest, ColumnPredicatesDoNotForcePredicateMaterialization) {
