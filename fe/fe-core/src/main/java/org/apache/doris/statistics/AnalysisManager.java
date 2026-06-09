@@ -606,13 +606,18 @@ public class AnalysisManager implements Writable {
         if (findTableStatsStatus(table.getId()) != null) {
             return;
         }
+        TableStatsMeta newStats;
         synchronized (idToTblStats) {
             if (idToTblStats.containsKey(table.getId())) {
                 return;
             }
             long bootstrapRowCount = resolveBootstrapRowCount(table, loadedRows);
-            updateTableStatsStatus(TableStatsMeta.newBootstrapStats(table, bootstrapRowCount, loadedRows));
+            newStats = TableStatsMeta.newBootstrapStats(table, bootstrapRowCount, loadedRows);
+            idToTblStats.put(newStats.tblId, newStats);
         }
+        // Write edit log outside the lock to avoid potential deadlocks with internal locks
+        // held by the edit log subsystem.
+        logCreateTableStats(newStats);
     }
 
     public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableNameInfo tblName, String priority) {
