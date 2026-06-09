@@ -209,6 +209,13 @@ under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
+        <!-- Runtime-only: hive-catalog-shade's HiveConf needs org.apache.commons.lang.StringUtils.
+             scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
