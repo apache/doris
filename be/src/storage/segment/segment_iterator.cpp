@@ -495,9 +495,10 @@ Block* SegmentIterator::_build_project_block(Block* block, Block* project_block)
     }
 
     project_block->clear();
-    for (auto cid : _project_schema->column_ids()) {
-        auto loc = _schema_block_id_map[cid];
-        auto& output_column = block->get_by_position(loc);
+    const auto& project_column_ids = _project_schema->column_ids();
+    for (size_t i = 0; i < project_column_ids.size(); ++i) {
+        auto cid = project_column_ids[i];
+        auto& output_column = block->get_by_position(i);
         auto type = output_column.type;
         auto column = output_column.column;
         auto virtual_it = _vir_cid_to_idx_in_block.find(cid);
@@ -2003,7 +2004,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             }
 
             for (auto pair : _vir_cid_to_idx_in_block) {
-                _columns_to_filter.push_back(_schema_block_id_map[pair.first]);
+                _columns_to_filter.push_back(cast_set<ColumnId>(pair.second));
             }
         }
     }
@@ -2757,9 +2758,8 @@ Status SegmentIterator::next_batch(Block* block) {
                 // So a replacement of nothing column with real column is needed.
                 const auto& idx_to_datatype = _opts.vir_col_idx_to_type;
                 for (const auto& pair : _vir_cid_to_idx_in_block) {
-                    auto idx = _schema_block_id_map[pair.first];
                     auto type = idx_to_datatype.find(pair.second)->second;
-                    block->replace_by_position(idx, type->create_column());
+                    block->replace_by_position(pair.second, type->create_column());
                 }
 
                 if (_opts.condition_cache_digest && !_find_condition_cache) {
@@ -3470,8 +3470,7 @@ bool SegmentIterator::_can_opt_limit_reads() {
 // Before get next batch. make sure all virtual columns in block has type ColumnNothing.
 void SegmentIterator::_init_virtual_columns(Block* block) {
     for (const auto& pair : _vir_cid_to_idx_in_block) {
-        auto idx = _schema_block_id_map[pair.first];
-        auto& col_with_type_and_name = block->get_by_position(idx);
+        auto& col_with_type_and_name = block->get_by_position(pair.second);
         col_with_type_and_name.column = ColumnNothing::create(0);
         col_with_type_and_name.type = _opts.vir_col_idx_to_type[pair.second];
     }
@@ -3482,8 +3481,7 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
     // So materialize virtual column in advance to avoid errors.
     if (_selected_size == 0) {
         for (const auto& pair : _vir_cid_to_idx_in_block) {
-            auto idx = _schema_block_id_map[pair.first];
-            auto& col_with_type_and_name = block->get_by_position(idx);
+            auto& col_with_type_and_name = block->get_by_position(pair.second);
             col_with_type_and_name.column = _opts.vir_col_idx_to_type[pair.second]->create_column();
             col_with_type_and_name.type = _opts.vir_col_idx_to_type[pair.second];
         }
@@ -3519,11 +3517,10 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
     if (materialize_block != block) {
         for (const auto& cid_and_expr : _virtual_column_exprs) {
             auto cid = cid_and_expr.first;
-            auto idx_in_block = _schema_block_id_map[cid];
             auto materialized_pos = _vir_cid_to_idx_in_block.at(cid);
             const auto& column = project_block.get_by_position(materialized_pos).column;
             DORIS_CHECK(!check_and_get_column<const ColumnNothing>(column.get()));
-            block->replace_by_position(idx_in_block, column);
+            block->replace_by_position(materialized_pos, column);
         }
     }
     return Status::OK();
