@@ -19,6 +19,7 @@
 
 #include <bvar/bvar.h>
 
+#include <functional>
 #include <memory>
 #include <shared_mutex>
 #include <thread>
@@ -70,6 +71,9 @@ public:
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status remove(const FileCacheKey& key) override;
     Status remove_all_by_hash(const UInt128Wrapper& hash) override;
+    Status remove_key_dir(const UInt128Wrapper& hash, uint64_t expiration_time) override;
+    Status list_duplicate_key_dirs(std::vector<DuplicateKeyDirs>* duplicate_key_dirs,
+                                   const std::function<bool()>& should_stop) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) override;
     Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,

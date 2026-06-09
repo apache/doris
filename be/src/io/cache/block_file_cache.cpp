@@ -349,6 +349,16 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_update_lru_blocks_latency_us");
     _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
                                                                  "file_cache_ttl_gc_latency_us");
+    _ttl_repair_checker_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_latency_us");
+    _ttl_repair_checker_suspect_hashes = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_suspect_hashes");
+    _ttl_repair_checker_repairs_enqueued = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_repairs_enqueued");
+    _ttl_repair_checker_skipped_unstable_hashes = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_skipped_unstable_hashes");
+    _ttl_repair_checker_skipped_unbound_hashes = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_skipped_unbound_hashes");
     _shadow_queue_levenshtein_distance = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_shadow_queue_levenshtein_distance");
 
@@ -476,6 +486,8 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
             std::thread(&BlockFileCache::run_background_evict_in_advance, this);
     _cache_background_block_lru_update_thread =
             std::thread(&BlockFileCache::run_background_block_lru_update, this);
+    _cache_background_ttl_repair_checker_thread =
+            std::thread(&BlockFileCache::run_background_ttl_repair_checker, this);
 
     // Initialize LRU dump thread and restore queues
     _cache_background_lru_dump_thread = std::thread(&BlockFileCache::run_background_lru_dump, this);
@@ -895,6 +907,112 @@ void BlockFileCache::enqueue_hash_for_cleanup(const UInt128Wrapper& hash) {
     if (!ret) {
         LOG_WARNING("Failed to push recycle hash to queue, hash={}", hash.to_string());
     }
+}
+
+void BlockFileCache::enqueue_key_dir_for_cleanup(const UInt128Wrapper& hash,
+                                                 uint64_t expiration_time) {
+    if (_storage->get_type() != DISK) {
+        return;
+    }
+    bool ret = _recycle_key_dirs.enqueue(std::make_pair(hash, expiration_time));
+    if (!ret) {
+        LOG_WARNING("Failed to push recycle key dir to queue, hash={}, expiration_time={}",
+                    hash.to_string(), expiration_time);
+    }
+}
+
+std::optional<uint64_t> BlockFileCache::get_canonical_storage_expiration_if_stable(
+        const UInt128Wrapper& hash, std::lock_guard<std::mutex>& cache_lock,
+        bool* skipped_unstable) {
+    if (skipped_unstable != nullptr) {
+        *skipped_unstable = false;
+    }
+    auto iter = _files.find(hash);
+    if (iter == _files.end() || iter->second.empty()) {
+        return std::nullopt;
+    }
+
+    std::optional<uint64_t> canonical_expiration;
+    for (const auto& [_, cell] : iter->second) {
+        auto state = cell.file_block->state_unsafe();
+        if (state != FileBlock::State::DOWNLOADED) {
+            if (skipped_unstable != nullptr) {
+                *skipped_unstable = true;
+            }
+            return std::nullopt;
+        }
+        auto storage_expiration = cell.file_block->storage_expiration_time();
+        if (!canonical_expiration.has_value()) {
+            canonical_expiration = storage_expiration;
+        } else if (*canonical_expiration != storage_expiration) {
+            if (skipped_unstable != nullptr) {
+                *skipped_unstable = true;
+            }
+            return std::nullopt;
+        }
+    }
+    return canonical_expiration;
+}
+
+size_t BlockFileCache::repair_duplicate_ttl_dirs_once() {
+    if (_storage->get_type() != DISK || !config::enable_file_cache_ttl_repair_checker) {
+        return 0;
+    }
+    if (_recycle_keys.size_approx() > 0 || _recycle_hashes.size_approx() > 0 ||
+        _recycle_key_dirs.size_approx() > 0) {
+        return 0;
+    }
+
+    std::vector<DuplicateKeyDirs> duplicate_key_dirs;
+    auto st = _storage->list_duplicate_key_dirs(&duplicate_key_dirs, [this]() { return _close; });
+    if (st.is<ErrorCode::CANCELLED>()) {
+        return 0;
+    }
+    if (!st.ok()) {
+        LOG_WARNING("failed to list duplicate file cache ttl dirs").error(st);
+        return 0;
+    }
+
+    *_ttl_repair_checker_suspect_hashes << duplicate_key_dirs.size();
+    size_t repaired_hashes = 0;
+    size_t max_repairs =
+            std::max<int64_t>(config::file_cache_ttl_repair_checker_max_repairs_per_round, 0);
+    for (const auto& duplicate_key_dir : duplicate_key_dirs) {
+        if (_close || repaired_hashes >= max_repairs) {
+            break;
+        }
+
+        bool skipped_unstable = false;
+        std::optional<uint64_t> canonical_expiration;
+        {
+            SCOPED_CACHE_LOCK(_mutex, this);
+            canonical_expiration = get_canonical_storage_expiration_if_stable(
+                    duplicate_key_dir.hash, cache_lock, &skipped_unstable);
+        }
+
+        if (!canonical_expiration.has_value()) {
+            if (skipped_unstable) {
+                *_ttl_repair_checker_skipped_unstable_hashes << 1;
+            } else {
+                *_ttl_repair_checker_skipped_unbound_hashes << 1;
+            }
+            continue;
+        }
+
+        bool enqueued = false;
+        for (auto expiration_time : duplicate_key_dir.expiration_times) {
+            if (expiration_time == *canonical_expiration) {
+                continue;
+            }
+            enqueue_key_dir_for_cleanup(duplicate_key_dir.hash, expiration_time);
+            *_ttl_repair_checker_repairs_enqueued << 1;
+            enqueued = true;
+        }
+        if (enqueued) {
+            ++repaired_hashes;
+        }
+    }
+    return repaired_hashes;
 }
 
 CacheContext BlockFileCache::make_cell_context(
@@ -2237,6 +2355,7 @@ void BlockFileCache::run_background_gc() {
     Thread::set_self_name("run_background_gc");
     FileCacheKey key;
     UInt128Wrapper hash;
+    std::pair<UInt128Wrapper, uint64_t> key_dir;
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_gc_interval_ms;
         size_t batch_limit = config::file_cache_remove_block_qps_limit * interval_ms / 1000;
@@ -2278,8 +2397,49 @@ void BlockFileCache::run_background_gc() {
             }
             batch_count++;
         }
+        while (batch_count < batch_limit && _recycle_key_dirs.try_dequeue(key_dir)) {
+            int64_t duration_ns = 0;
+            Status st;
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                st = _storage->remove_key_dir(key_dir.first, key_dir.second);
+            }
+            *_storage_async_remove_latency_us << (duration_ns / 1000);
+
+            if (!st.ok()) {
+                LOG_WARNING("failed to remove file cache dir for hash={}, expiration_time={}",
+                            key_dir.first.to_string(), key_dir.second)
+                        .error(st);
+            }
+            batch_count++;
+        }
         *_recycle_keys_length_recorder << _recycle_keys.size_approx();
         batch_count = 0;
+    }
+}
+
+void BlockFileCache::run_background_ttl_repair_checker() {
+    Thread::set_self_name("run_ttl_repair");
+    while (!_close) {
+        int64_t interval_ms =
+                std::max<int64_t>(config::file_cache_ttl_repair_checker_interval_ms, 1000);
+        {
+            std::unique_lock close_lock(_close_mtx);
+            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
+            if (_close) {
+                break;
+            }
+        }
+        if (!config::enable_file_cache_ttl_repair_checker || _storage->get_type() != DISK) {
+            continue;
+        }
+
+        int64_t duration_ns = 0;
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            repair_duplicate_ttl_dirs_once();
+        }
+        *_ttl_repair_checker_latency_us << (duration_ns / 1000);
     }
 }
 

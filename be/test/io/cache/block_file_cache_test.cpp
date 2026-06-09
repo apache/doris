@@ -163,6 +163,13 @@ void write_cache_file(BlockFileCache& cache, const UInt128Wrapper& key, uint64_t
     ASSERT_TRUE(writer->close().ok());
 }
 
+void drain_recycle_key_dirs(BlockFileCache& cache) {
+    std::pair<UInt128Wrapper, uint64_t> key_dir;
+    while (cache._recycle_key_dirs.try_dequeue(key_dir)) {
+        ASSERT_TRUE(cache._storage->remove_key_dir(key_dir.first, key_dir.second).ok());
+    }
+}
+
 void test_file_cache(io::FileCacheType cache_type) {
     TUniqueId query_id;
     query_id.hi = 1;
@@ -6025,6 +6032,301 @@ TEST_F(BlockFileCacheTest, remove_if_cached_removes_unloaded_hash_dirs) {
     cache.remove_if_cached(key);
     EXPECT_EQ(count_cache_key_dirs(cache_base_path, key), 0);
     EXPECT_FALSE(cache._key_to_time.contains(key));
+}
+
+TEST_F(BlockFileCacheTest, ttl_repair_checker_removes_duplicate_stale_dirs) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t canonical_expiration = UnixSeconds() + 180;
+    int64_t stale_expiration = canonical_expiration - 60;
+    context.expiration_time = canonical_expiration;
+    auto key = io::BlockFileCache::hash("ttl_repair_duplicate_dirs");
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    ASSERT_TRUE(wait_async_open(cache));
+    {
+        auto holder = cache.get_or_set(key, 0, 10, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+    write_cache_file(cache, key, stale_expiration, 20, io::FileCacheType::TTL,
+                     std::string(10, 's'));
+    ASSERT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
+
+    EXPECT_EQ(cache.repair_duplicate_ttl_dirs_once(), 1);
+    drain_recycle_key_dirs(cache);
+
+    EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, canonical_expiration)));
+    EXPECT_FALSE(fs::exists(cache_key_dir(cache, key, stale_expiration)));
+    EXPECT_EQ(count_cache_key_dirs(cache_base_path, key), 1);
+}
+
+TEST_F(BlockFileCacheTest, ttl_repair_checker_skips_unbound_duplicate_dirs) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    auto key = io::BlockFileCache::hash("ttl_repair_skip_unbound");
+    int64_t expiration1 = UnixSeconds() + 180;
+    int64_t expiration2 = expiration1 + 60;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    ASSERT_TRUE(wait_async_open(cache));
+    write_cache_file(cache, key, expiration1, 0, io::FileCacheType::TTL, std::string(10, 'a'));
+    write_cache_file(cache, key, expiration2, 10, io::FileCacheType::TTL, std::string(10, 'b'));
+    ASSERT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
+
+    EXPECT_EQ(cache.repair_duplicate_ttl_dirs_once(), 0);
+    drain_recycle_key_dirs(cache);
+
+    EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, expiration1)));
+    EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, expiration2)));
+    EXPECT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
+}
+
+TEST_F(BlockFileCacheTest, ttl_repair_checker_respects_disable_config) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t canonical_expiration = UnixSeconds() + 180;
+    int64_t stale_expiration = canonical_expiration - 60;
+    context.expiration_time = canonical_expiration;
+    auto key = io::BlockFileCache::hash("ttl_repair_disabled");
+
+    bool old_enable = config::enable_file_cache_ttl_repair_checker;
+    config::enable_file_cache_ttl_repair_checker = false;
+    Defer defer {[old_enable] { config::enable_file_cache_ttl_repair_checker = old_enable; }};
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    ASSERT_TRUE(wait_async_open(cache));
+    {
+        auto holder = cache.get_or_set(key, 0, 10, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+    write_cache_file(cache, key, stale_expiration, 20, io::FileCacheType::TTL,
+                     std::string(10, 's'));
+    ASSERT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
+
+    EXPECT_EQ(cache.repair_duplicate_ttl_dirs_once(), 0);
+    drain_recycle_key_dirs(cache);
+
+    EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, canonical_expiration)));
+    EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, stale_expiration)));
+}
+
+TEST_F(BlockFileCacheTest, ttl_repair_checker_skips_downloading_hash) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t canonical_expiration = UnixSeconds() + 180;
+    int64_t stale_expiration = canonical_expiration - 60;
+    context.expiration_time = canonical_expiration;
+    auto key = io::BlockFileCache::hash("ttl_repair_skip_downloading");
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    ASSERT_TRUE(wait_async_open(cache));
+    {
+        auto holder = cache.get_or_set(key, 0, 10, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        ASSERT_TRUE(blocks[0]->append(Slice("0000000000", 10)).ok());
+        write_cache_file(cache, key, stale_expiration, 20, io::FileCacheType::TTL,
+                         std::string(10, 's'));
+        ASSERT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
+
+        EXPECT_EQ(cache.repair_duplicate_ttl_dirs_once(), 0);
+        drain_recycle_key_dirs(cache);
+
+        EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, canonical_expiration)));
+        EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, stale_expiration)));
+        ASSERT_TRUE(blocks[0]->finalize().ok());
+    }
+}
+
+TEST_F(BlockFileCacheTest, ttl_repair_checker_skips_when_cleanup_queue_backlogged) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t canonical_expiration = UnixSeconds() + 180;
+    int64_t stale_expiration = canonical_expiration - 60;
+    context.expiration_time = canonical_expiration;
+    auto key = io::BlockFileCache::hash("ttl_repair_backlog");
+
+    int64_t old_gc_interval = config::file_cache_background_gc_interval_ms;
+    config::file_cache_background_gc_interval_ms = 3600000;
+    Defer defer {[old_gc_interval] {
+        config::file_cache_background_gc_interval_ms = old_gc_interval;
+    }};
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    ASSERT_TRUE(wait_async_open(cache));
+    {
+        auto holder = cache.get_or_set(key, 0, 10, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+    write_cache_file(cache, key, stale_expiration, 20, io::FileCacheType::TTL,
+                     std::string(10, 's'));
+    ASSERT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
+
+    ASSERT_TRUE(cache._recycle_key_dirs.enqueue(
+            std::make_pair(io::BlockFileCache::hash("ttl_repair_backlog_fake"), uint64_t {1})));
+    EXPECT_EQ(cache.repair_duplicate_ttl_dirs_once(), 0);
+    drain_recycle_key_dirs(cache);
+
+    EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, canonical_expiration)));
+    EXPECT_TRUE(fs::exists(cache_key_dir(cache, key, stale_expiration)));
+}
+
+TEST_F(BlockFileCacheTest, ttl_repair_checker_respects_max_repairs_per_round) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 60;
+    settings.query_queue_elements = 10;
+    settings.ttl_queue_size = 60;
+    settings.ttl_queue_elements = 10;
+    settings.capacity = 120;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t expiration = UnixSeconds() + 180;
+
+    int64_t old_limit = config::file_cache_ttl_repair_checker_max_repairs_per_round;
+    config::file_cache_ttl_repair_checker_max_repairs_per_round = 1;
+    Defer defer {[old_limit] {
+        config::file_cache_ttl_repair_checker_max_repairs_per_round = old_limit;
+    }};
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    ASSERT_TRUE(wait_async_open(cache));
+    std::vector<UInt128Wrapper> keys;
+    for (int i = 0; i < 2; ++i) {
+        auto key = io::BlockFileCache::hash("ttl_repair_limit_" + std::to_string(i));
+        keys.push_back(key);
+        context.expiration_time = expiration + i;
+        {
+            auto holder = cache.get_or_set(key, 0, 10, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+        }
+        write_cache_file(cache, key, expiration - 60 - i, 20, io::FileCacheType::TTL,
+                         std::string(10, 's'));
+        ASSERT_EQ(count_cache_key_dirs(cache_base_path, key), 2);
+    }
+
+    EXPECT_EQ(cache.repair_duplicate_ttl_dirs_once(), 1);
+    drain_recycle_key_dirs(cache);
+
+    size_t repaired = 0;
+    for (const auto& key : keys) {
+        if (count_cache_key_dirs(cache_base_path, key) == 1) {
+            ++repaired;
+        }
+    }
+    EXPECT_EQ(repaired, 1);
 }
 
 TEST_F(BlockFileCacheTest, file_cache_path_storage_parse) {

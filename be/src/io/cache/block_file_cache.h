@@ -44,6 +44,7 @@
 namespace doris::io {
 using RecycleFileCacheKeys = moodycamel::ConcurrentQueue<FileCacheKey>;
 using RecycleFileCacheHashes = moodycamel::ConcurrentQueue<UInt128Wrapper>;
+using RecycleFileCacheKeyDirs = moodycamel::ConcurrentQueue<std::pair<UInt128Wrapper, uint64_t>>;
 
 class LockScopedTimer {
 public:
@@ -201,6 +202,9 @@ public:
         }
         if (_cache_background_block_lru_update_thread.joinable()) {
             _cache_background_block_lru_update_thread.join();
+        }
+        if (_cache_background_ttl_repair_checker_thread.joinable()) {
+            _cache_background_ttl_repair_checker_thread.join();
         }
     }
 
@@ -409,6 +413,11 @@ private:
                                    std::lock_guard<std::mutex>& cache_lock) const;
 
     void enqueue_hash_for_cleanup(const UInt128Wrapper& hash);
+    void enqueue_key_dir_for_cleanup(const UInt128Wrapper& hash, uint64_t expiration_time);
+    size_t repair_duplicate_ttl_dirs_once();
+    std::optional<uint64_t> get_canonical_storage_expiration_if_stable(
+            const UInt128Wrapper& hash, std::lock_guard<std::mutex>& cache_lock,
+            bool* skipped_unstable);
 
     void update_hash_logical_expiration_time(const UInt128Wrapper& hash,
                                              uint64_t new_expiration_time,
@@ -489,6 +498,7 @@ private:
     void restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock);
     void run_background_evict_in_advance();
     void run_background_block_lru_update();
+    void run_background_ttl_repair_checker();
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
                                                        std::vector<FileCacheType> other_cache_types,
@@ -545,6 +555,7 @@ private:
     std::thread _cache_background_lru_dump_thread;
     std::thread _cache_background_lru_log_replay_thread;
     std::thread _cache_background_block_lru_update_thread;
+    std::thread _cache_background_ttl_repair_checker_thread;
     std::atomic_bool _async_open_done {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
@@ -574,6 +585,7 @@ private:
     // keys for async remove
     RecycleFileCacheKeys _recycle_keys;
     RecycleFileCacheHashes _recycle_hashes;
+    RecycleFileCacheKeyDirs _recycle_key_dirs;
     std::unordered_set<UInt128Wrapper, KeyHash> _hashes_pending_cleanup;
 
     std::unique_ptr<LRUQueueRecorder> _lru_recorder;
@@ -638,6 +650,11 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _ttl_repair_checker_latency_us;
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_suspect_hashes;
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_repairs_enqueued;
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_skipped_unstable_hashes;
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_skipped_unbound_hashes;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
     // keep _storage last so it will deconstruct first

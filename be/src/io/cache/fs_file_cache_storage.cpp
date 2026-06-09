@@ -19,9 +19,11 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <iterator>
 #include <mutex>
 #include <system_error>
+#include <unordered_map>
 
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -289,6 +291,99 @@ Status FSFileCacheStorage::remove_all_by_hash(const UInt128Wrapper& hash) {
             return Status::IOError("failed to remove file cache dir {}, error={}", key_dir.path,
                                    ec.message());
         }
+    }
+    return Status::OK();
+}
+
+Status FSFileCacheStorage::remove_key_dir(const UInt128Wrapper& hash, uint64_t expiration_time) {
+    FDCache::instance()->remove_file_readers(hash);
+    auto dir = get_path_in_local_cache(hash, expiration_time);
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    if (ec) {
+        return Status::IOError("failed to remove file cache dir {}, error={}", dir, ec.message());
+    }
+    return Status::OK();
+}
+
+Status FSFileCacheStorage::list_duplicate_key_dirs(
+        std::vector<DuplicateKeyDirs>* duplicate_key_dirs,
+        const std::function<bool()>& should_stop) {
+    DCHECK(duplicate_key_dirs != nullptr);
+    duplicate_key_dirs->clear();
+
+    auto scan_parent = [&](const std::filesystem::path& parent_path) -> Status {
+        std::error_code ec;
+        std::filesystem::directory_iterator dir_it(parent_path, ec);
+        if (ec) {
+            return Status::OK();
+        }
+
+        std::unordered_map<UInt128Wrapper, std::vector<uint64_t>, KeyHash> dirs_by_hash;
+        for (; dir_it != std::filesystem::directory_iterator(); ++dir_it) {
+            if (should_stop && should_stop()) {
+                return Status::Cancelled("file cache ttl repair checker stopped");
+            }
+            if (!dir_it->is_directory(ec) || ec) {
+                ec.clear();
+                continue;
+            }
+            auto filename = dir_it->path().filename().native();
+            auto delim_pos = filename.find('_');
+            if (delim_pos == std::string::npos) {
+                continue;
+            }
+            auto hash_str = filename.substr(0, delim_pos);
+            auto expiration_str = filename.substr(delim_pos + 1);
+            if (hash_str.size() != sizeof(uint128_t) * 2) {
+                continue;
+            }
+            try {
+                size_t parsed_len = 0;
+                auto expiration_time = std::stoull(expiration_str, &parsed_len);
+                if (parsed_len != expiration_str.size()) {
+                    continue;
+                }
+                UInt128Wrapper hash(vectorized::unhex_uint<uint128_t>(hash_str.c_str()));
+                dirs_by_hash[hash].push_back(expiration_time);
+            } catch (...) {
+                LOG(WARNING) << "skip invalid file cache key dir=" << dir_it->path().native();
+            }
+        }
+
+        for (auto& [hash, expirations] : dirs_by_hash) {
+            std::sort(expirations.begin(), expirations.end());
+            expirations.erase(std::unique(expirations.begin(), expirations.end()),
+                              expirations.end());
+            if (expirations.size() > 1) {
+                duplicate_key_dirs->push_back(
+                        DuplicateKeyDirs {.hash = hash, .expiration_times = std::move(expirations)});
+            }
+        }
+        return Status::OK();
+    };
+
+    std::error_code ec;
+    if constexpr (USE_CACHE_VERSION2) {
+        std::filesystem::directory_iterator key_prefix_it {_cache_base_path, ec};
+        if (ec) {
+            return Status::OK();
+        }
+        for (; key_prefix_it != std::filesystem::directory_iterator(); ++key_prefix_it) {
+            if (should_stop && should_stop()) {
+                return Status::Cancelled("file cache ttl repair checker stopped");
+            }
+            if (!key_prefix_it->is_directory(ec) || ec) {
+                ec.clear();
+                continue;
+            }
+            if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
+                continue;
+            }
+            RETURN_IF_ERROR(scan_parent(key_prefix_it->path()));
+        }
+    } else {
+        RETURN_IF_ERROR(scan_parent(_cache_base_path));
     }
     return Status::OK();
 }

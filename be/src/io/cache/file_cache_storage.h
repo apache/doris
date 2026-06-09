@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <functional>
+#include <vector>
+
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
@@ -27,6 +30,11 @@ class BlockFileCache;
 using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
 
 enum FileCacheStorageType { DISK = 0, MEMORY = 1 };
+
+struct DuplicateKeyDirs {
+    UInt128Wrapper hash;
+    std::vector<uint64_t> expiration_times;
+};
 
 struct FileWriterMapKeyHash {
     std::size_t operator()(const FileWriterMapKey& w) const {
@@ -57,6 +65,15 @@ public:
     virtual Status remove(const FileCacheKey& key) = 0;
     // remove all directories for the same hash, including unloaded hash_* dirs
     virtual Status remove_all_by_hash(const UInt128Wrapper& hash) { return Status::OK(); }
+    // remove one storage directory for a hash
+    virtual Status remove_key_dir(const UInt128Wrapper&, uint64_t) {
+        return Status::OK();
+    }
+    // find hashes that have more than one storage directory on disk
+    virtual Status list_duplicate_key_dirs(std::vector<DuplicateKeyDirs>*,
+                                           const std::function<bool()>&) {
+        return Status::OK();
+    }
     // change the block meta
     virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) = 0;
     virtual Status change_key_meta_expiration(const FileCacheKey& key,
