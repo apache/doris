@@ -309,6 +309,7 @@ jobs:
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
