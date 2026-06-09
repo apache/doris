@@ -32,6 +32,11 @@
 
 namespace doris {
 
+namespace {
+constexpr size_t LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE = 12;
+constexpr size_t REQUIRE_PARTITION_FILTER_INDEX = 8;
+} // namespace
+
 std::vector<SchemaScanner::ColumnDesc>
         SchemaSqlBlockRuleStatusScanner::_s_sql_block_rule_status_columns = {
                 {"NAME", TYPE_STRING, sizeof(StringRef), true},
@@ -42,6 +47,7 @@ std::vector<SchemaScanner::ColumnDesc>
                 {"CARDINALITY", TYPE_BIGINT, sizeof(int64_t), true},
                 {"GLOBAL", TYPE_BOOLEAN, sizeof(bool), true},
                 {"ENABLE", TYPE_BOOLEAN, sizeof(bool), true},
+                {"REQUIRE_PARTITION_FILTER", TYPE_BOOLEAN, sizeof(bool), true},
                 {"BLOCKS", TYPE_BIGINT, sizeof(int64_t), true},
                 {"AVERAGE_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
                 {"LONGEST_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
@@ -65,11 +71,6 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
     }
 
     TSchemaTableRequestParams schema_table_request_params;
-    for (int i = 0; i < _s_sql_block_rule_status_columns.size(); i++) {
-        schema_table_request_params.__isset.columns_name = true;
-        schema_table_request_params.columns_name.emplace_back(
-                _s_sql_block_rule_status_columns[i].name);
-    }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_frontend_conjuncts(*_param->common_param->frontend_conjuncts);
 
@@ -112,16 +113,31 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
 
         if (result_data.size() > 0) {
             auto col_size = result_data[0].column_value.size();
-            if (col_size != _s_sql_block_rule_status_columns.size()) {
+            if (col_size != LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE &&
+                col_size != _s_sql_block_rule_status_columns.size()) {
                 return Status::InternalError("col size not equal");
             }
         }
 
         // Add rows from this FE to the result block
         for (int i = 0; i < result_data.size(); i++) {
-            TRow row = result_data[i];
+            const TRow& row = result_data[i];
+            auto col_size = row.column_value.size();
             for (int j = 0; j < _s_sql_block_rule_status_columns.size(); j++) {
-                RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
+                if (col_size == LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE &&
+                    j == REQUIRE_PARTITION_FILTER_INDEX) {
+                    TCell default_cell;
+                    default_cell.__set_boolVal(false);
+                    RETURN_IF_ERROR(insert_block_column(default_cell, j,
+                                                        _sql_block_rule_status_block.get(),
+                                                        _s_sql_block_rule_status_columns[j].type));
+                    continue;
+                }
+                int row_index = col_size == LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE &&
+                                                j > REQUIRE_PARTITION_FILTER_INDEX
+                                        ? j - 1
+                                        : j;
+                RETURN_IF_ERROR(insert_block_column(row.column_value[row_index], j,
                                                     _sql_block_rule_status_block.get(),
                                                     _s_sql_block_rule_status_columns[j].type));
             }

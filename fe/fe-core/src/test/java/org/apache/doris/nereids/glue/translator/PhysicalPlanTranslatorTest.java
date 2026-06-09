@@ -17,8 +17,17 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -30,34 +39,65 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.RepeatNode;
+import org.apache.doris.planner.ScanContext;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import mockit.Injectable;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test_db");
+        createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
+                + "properties('replication_num' = '1');");
+        createTable("create table test_db.partitioned_t(k1 int, p1 int)\n"
+                + "duplicate key(k1, p1)\n"
+                + "partition by range(`p1`)\n"
+                + "(\n"
+                + "partition p1 values less than(\"10\"),\n"
+                + "partition p2 values less than(\"20\")\n"
+                + ")\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1');");
+        connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
+    }
+
     @Test
-    public void testOlapPrune(@Injectable LogicalProperties placeHolder) throws Exception {
+    public void testOlapPrune() throws Exception {
+        LogicalProperties placeHolder = Mockito.mock(LogicalProperties.class);
         OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
@@ -68,7 +108,17 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         t1Output.add(col1);
         t1Output.add(col2);
         t1Output.add(col3);
-        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> DataTrait.EMPTY_TRAIT);
+        LogicalProperties t1Properties = new LogicalProperties(new Supplier<List<Slot>>() {
+            @Override
+            public List<Slot> get() {
+                return t1Output;
+            }
+        }, new Supplier<DataTrait>() {
+            @Override
+            public DataTrait get() {
+                return DataTrait.EMPTY_TRAIT;
+            }
+        });
         PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
                 ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
@@ -87,16 +137,12 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
         PlanNode planNode = fragment.getPlanRoot();
         List<OlapScanNode> scanNodeList = new ArrayList<>();
-        planNode.collect(OlapScanNode.class::isInstance, scanNodeList);
+        planNode.collect(OlapScanNode.class, scanNodeList);
         Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getSlots().size());
     }
 
     @Test
     public void testAggNeedsFinalize() throws Exception {
-        createDatabase("test_db");
-        createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
-                + "properties('replication_num' = '1');");
-        connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
         String querySql = "select b from test_db.t group by b";
         Planner planner = getSQLPlanner(querySql);
         Assertions.assertNotNull(planner);
@@ -109,7 +155,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         for (PlanFragment fragment : fragments) {
             PlanNode root = fragment.getPlanRoot();
             if (root != null) {
-                root.collect(AggregationNode.class::isInstance, aggNodes);
+                root.collect(AggregationNode.class, aggNodes);
             }
         }
         Assertions.assertEquals(2, aggNodes.size());
@@ -124,5 +170,110 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         boolean upperNeedsFinalize = needsFinalizeField.getBoolean(upperAggNode);
         Assertions.assertTrue(upperNeedsFinalize,
                 "upper AggregationNode needsFinalize should be true");
+    }
+
+    @Test
+    public void testNereidsOlapScanCarryPartitionPredicateSignal() throws Exception {
+        OlapScanNode filteredScanNode = getFirstOlapScanNode(
+                "select * from test_db.partitioned_t where p1 = 1");
+        Assertions.assertTrue(filteredScanNode.hasPartitionPredicate());
+
+        OlapScanNode manuallyPartitionedScanNode = getFirstOlapScanNode(
+                "select * from test_db.partitioned_t partition(p1)");
+        Assertions.assertTrue(manuallyPartitionedScanNode.hasPartitionPredicate());
+
+        OlapScanNode nonPartitionFilteredScanNode = getFirstOlapScanNode(
+                "select * from test_db.partitioned_t where k1 = 1");
+        Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testNereidsFileScanCarryPartitionPredicateSignal() throws Exception {
+        PhysicalFileScan fileScan = Mockito.mock(PhysicalFileScan.class);
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
+        TestScanNode scanNode = new TestScanNode();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(1));
+
+        Mockito.when(fileScan.getId()).thenReturn(1);
+        Mockito.when(fileScan.getRelationId()).thenReturn(RelationId.createGenerator().getNextId());
+        Mockito.when(fileScan.hasPartitionPredicate()).thenReturn(true);
+        Mockito.when(fileScan.getStats()).thenReturn(null);
+
+        Method method = PhysicalPlanTranslator.class.getDeclaredMethod("getPlanFragmentForPhysicalFileScan",
+                PhysicalFileScan.class, PlanTranslatorContext.class, ScanNode.class,
+                ExternalTable.class, TupleDescriptor.class);
+        method.setAccessible(true);
+        method.invoke(translator, fileScan, context, scanNode, table, tupleDescriptor);
+
+        Assertions.assertTrue(scanNode.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testRepeatInputOutputOrder() throws Exception {
+        String sql = "select grouping(a), grouping(b), grouping_id(a, b), sum(a + 2 * b), sum(a + 3 * b) + grouping_id(b, a, b), b, a, b, a"
+                + " from test_db.t"
+                + " group by grouping sets((a, b), (), (b), (a, b), (a + b), (a * b))";
+        PlanChecker.from(connectContext).checkPlannerResult(sql, new Consumer<NereidsPlanner>() {
+            @Override
+            public void accept(NereidsPlanner planner) {
+                Set<RepeatNode> repeatNodes = Sets.newHashSet();
+                for (PlanFragment fragment : planner.getFragments()) {
+                    PlanNode plan = fragment.getPlanRoot();
+                    if (plan != null) {
+                        plan.collect(RepeatNode.class, repeatNodes);
+                    }
+                }
+                Assertions.assertEquals(1, repeatNodes.size());
+                RepeatNode repeatNode = repeatNodes.iterator().next();
+                GroupingInfo groupingInfo;
+                try {
+                    Field groupingInfoField = RepeatNode.class.getDeclaredField("groupingInfo");
+                    groupingInfoField.setAccessible(true);
+                    groupingInfo = (GroupingInfo) groupingInfoField.get(repeatNode);
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException(e);
+                }
+                List<Expr> preRepeatExprs = groupingInfo.getPreRepeatExprs();
+                TupleDescriptor outputs = groupingInfo.getOutputTupleDesc();
+                for (int i = 0; i < preRepeatExprs.size(); i++) {
+                    Expr inputExpr = preRepeatExprs.get(i);
+                    Assertions.assertInstanceOf(SlotRef.class, inputExpr);
+                    Column inputColumn = ((SlotRef) inputExpr).getColumn();
+                    Column outputColumn = outputs.getSlots().get(i).getColumn();
+                    Assertions.assertEquals(inputColumn, outputColumn);
+                }
+            }
+        });
+    }
+
+    private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {
+        Planner planner = getSQLPlanner(sql);
+        Assertions.assertNotNull(planner);
+        List<OlapScanNode> scanNodes = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            PlanNode root = fragment.getPlanRoot();
+            if (root != null) {
+                root.collect(OlapScanNode.class, scanNodes);
+            }
+        }
+        Assertions.assertFalse(scanNodes.isEmpty());
+        return scanNodes.get(0);
+    }
+
+    private static final class TestScanNode extends ScanNode {
+        private TestScanNode() {
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "TEST_SCAN_NODE", ScanContext.EMPTY);
+        }
+
+        @Override
+        protected void createScanRangeLocations() throws UserException {
+        }
+
+        @Override
+        public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
+            return Collections.emptyList();
+        }
     }
 }
