@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
@@ -107,8 +108,17 @@ public final class ConnectorColumnConverter {
             return ConnectorType.structOf(names, types);
         } else if (dorisType instanceof ScalarType) {
             ScalarType scalar = (ScalarType) dorisType;
+            PrimitiveType primitiveType = scalar.getPrimitiveType();
+            // CHAR/VARCHAR store their length in `len`, not `precision`; encode it
+            // into the ConnectorType precision field (matching convertScalarType and
+            // the connector type convention) so CREATE TABLE requests keep the length.
+            if (primitiveType == PrimitiveType.CHAR
+                    || primitiveType == PrimitiveType.VARCHAR) {
+                return ConnectorType.of(primitiveType.toString(),
+                        scalar.getLength(), 0);
+            }
             return ConnectorType.of(
-                    scalar.getPrimitiveType().toString(),
+                    primitiveType.toString(),
                     scalar.getScalarPrecision(),
                     scalar.getScalarScale());
         } else {

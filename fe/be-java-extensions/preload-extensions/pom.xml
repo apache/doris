@@ -62,6 +62,18 @@ under the License.
             <artifactId>commons-io</artifactId>
             <version>${commons-io.version}</version>
         </dependency>
+        <!-- Runtime-only: Hive-using JNI scanners (paimon-hive-connector / hudi / HiveConf)
+             need org.apache.commons.lang.StringUtils (commons-lang 2.x) at runtime. It used to
+             arrive transitively via fe-common's odps-sdk-core; after P4-T09 (a53f2b17b8d) made
+             fe-common odps-free it was evicted from this shared preload classpath, breaking every
+             scanner with NoClassDefFoundError. Restore it here (version managed by fe/pom.xml) so
+             it lands in the preload-extensions runtime classpath, the shared parent of all JNI
+             scanners, while staying out of java-udf's own jar. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-memory-unsafe</artifactId>
