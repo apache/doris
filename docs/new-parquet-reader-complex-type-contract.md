@@ -59,20 +59,14 @@ row-level filter 和 file-layer pruning 必须分离：
 - file-layer pruning 只能在能证明不会漏读时生效。
 - 不能用 `ColumnPredicate` 替代 complex row-level filtering。
 
-### 2.4 repeated path 保守原则
+### 2.4 nested predicate 保守原则
 
-任何经过 `LIST`、`MAP` 或 repeated group 的 target 都属于 repeated path。
+过渡期 nested predicate 只处理 `STRUCT` / nested `STRUCT` 下的 primitive leaf。
 
-对 repeated path：
+任何不能解析为 struct field 链的表达式都不生成 file-layer pruning hint，包括动态 field
+selector、复杂函数包装、非 AND 必要条件，以及经过 repeated path 的表达式。
 
-- 当前不做 LIST/MAP/repeated path 的 predicate pushdown。
-- 不能直接把 primitive leaf page index 的 row range 当作 table row range。
-- 不能在 `NOT`、复杂 nullable 语义或 unknown quantifier 下做 pruning。
-- 只有当 predicate 语义能转换为“row 存在某个 element/value 满足条件”，并且 leaf-level
-  统计能证明没有任何 value 满足条件时，才允许 row group 级保守剪枝。
-
-page index on repeated path 必须等 Dremel page-to-row accounting 明确后再接入。LIST/MAP 的
-predicate pushdown 还需要等待 `ColumnPredicate` / nested filter target 重构后再设计。
+无法证明安全时直接保留 row group/page，由 row-level filter 执行最终判断。
 
 ### 2.5 过渡期 nested predicate 范围
 
@@ -86,8 +80,6 @@ Doris 当前没有 DuckDB 风格的通用 `TableFilter` / `StructFilter` filter 
 - 支持 resolved target 是 non-repeated primitive leaf。
 - 支持 comparison 和 `IN_LIST`。
 - 只从 AND 语义下提取。
-- 不支持 LIST/MAP predicate pushdown。
-- 不支持 repeated path predicate pushdown。
 
 这是一层 mapper-side extension，用于在 `ColumnPredicate` 重构前承接 struct primitive leaf 的
 file-layer pruning。
@@ -107,40 +99,34 @@ Parquet 内部 schema tree 继续由 `ParquetColumnSchema` 表达，但最终必
 
 legacy LIST/MAP encoding 应在 schema 解析阶段 normalization，reader tree 消费统一 layout。
 
-### 3.2 nested path
+### 3.2 struct predicate target
 
-最终 nested pruning target 可以从一组 child id 扩展为带语义的 path step：
+过渡期 nested pruning target 使用 DuckDB `StructFilter` 类似的 struct-only 形态：
 
 ```cpp
-enum class NestedPathStepKind {
-    STRUCT_FIELD,
-    LIST_ELEMENT,
-    MAP_KEY,
-    MAP_VALUE,
-};
-
-struct FileNestedPathStep {
-    NestedPathStepKind kind;
+struct FileStructPredicateTarget {
     int32_t file_local_id = -1;
+    std::string file_child_name;
+    std::unique_ptr<FileStructPredicateTarget> child;
 };
 
 struct FileNestedPredicateTarget {
     LocalColumnId file_column_id;
-    std::vector<FileNestedPathStep> path;
+    std::unique_ptr<FileStructPredicateTarget> struct_target;
 };
 ```
 
 其中：
 
 - `file_column_id` 是 top-level file column id。
-- `STRUCT_FIELD.file_local_id` 是当前 struct 下的 file-local child id。
-- `LIST_ELEMENT` 表示进入 list element，通常没有额外 child id。
-- `MAP_KEY` / `MAP_VALUE` 表示进入 map key/value。
-- path 是 file-local path，不是 table path。
+- `struct_target` 是 file-local struct field 链。
+- `file_local_id` 是当前 struct 下的 file-local child id。
+- `file_child_name` 只用于 debug 和可读性，不作为读取 id。
+- `child == nullptr` 表示当前 field 是 primitive leaf target。
 
-当前过渡实现继续使用 `file_child_id_path`，且只表示 `STRUCT_FIELD` 链。不要在这个字段上
-扩展 LIST/MAP 语义。LIST/MAP target 需要等 `ColumnPredicate` / nested filter target 重构后，
-再引入带 kind 的 path。
+当前实现可以继续用 `file_child_id_path` 作为兼容存储，但它只表示 struct field 链。后续如果
+重构 `ColumnPredicate` / nested filter target，应优先把它替换为上面的 struct-only target，
+而不是在 `file_child_id_path` 上继续扩展额外语义。
 
 ### 3.3 read projection
 
@@ -325,20 +311,7 @@ file-layer pruning hint 只从安全表达式中提取：
 - OR/NOT 中无法证明为必要条件的子表达式。
 - dynamic field selector。
 - non-deterministic function。
-- repeated path 上语义不明确的表达式。
-
-### 6.4 repeated predicate quantifier
-
-LIST/MAP/repeated leaf 的 pruning 如果后续要接入，必须明确 quantifier：
-
-- `EXISTS_VALUE_MATCH`：row 存在某个 value 满足 predicate。
-- `ALL_VALUES_MATCH`：row 所有 value 满足 predicate。
-- `SCALAR_VALUE_MATCH`：non-repeated scalar path。
-- `UNKNOWN`：不能用于 pruning。
-
-当前实现只支持 `SCALAR_VALUE_MATCH` pruning，也就是 struct/nested struct 下 non-repeated
-primitive leaf。后续 repeated path 只能在 `ColumnPredicate` / nested filter target 重构后，
-并且表达式能确定为 `EXISTS_VALUE_MATCH` 时，才考虑保守 row group pruning。
+- 非 struct field 链表达式。
 
 ## 7. File-layer Pruning 契约
 
@@ -358,39 +331,15 @@ primitive leaf。后续 repeated path 只能在 `ColumnPredicate` / nested filte
 - literal 可以安全转换到 file leaf type。
 - predicate 类型被对应 pruning 方法支持。
 
-### 7.2 repeated primitive leaf
-
-对 repeated primitive leaf，当前不接入 predicate pushdown。后续如果接入，应分级处理：
-
-- row group min/max：仅当 value-level stats 能证明没有任何 value 满足 `EXISTS_VALUE_MATCH`。
-- dictionary：仅当 dictionary 能证明没有任何 value 满足 `EXISTS_VALUE_MATCH`。
-- bloom：仅当 bloom 能证明 EQ/IN_LIST literal 不存在。
-- page index：暂不允许直接转 selected row ranges。
-
-page index repeated pruning 需要额外实现 page-to-row accounting：
-
-- 识别 data page 覆盖的 first row / last row。
-- 处理一个 row 的 repeated values 跨多个 page。
-- 处理 skipped page 和 retained page 对同一 row 的合并状态。
-- 保证不会因为跳过某个 value page 而错误删除可能在其他 page 命中的 row。
-
-在该 accounting 未完成前，repeated page index 只能跳过该 pruning 入口，不做 row range
-pruning。
-
-### 7.3 null pruning
+### 7.2 null pruning
 
 `IS NULL` / `IS NOT NULL` 需要区分：
 
 - leaf value null。
 - parent struct null。
-- list null。
-- empty list。
-- null element。
-- map null。
 - missing child default null。
 
-non-repeated struct primitive leaf 可以先支持 parent/leaf null 的统计推导。repeated path 的 null
-predicate 在完整 row semantics 明确前不参与 pruning。
+non-repeated struct primitive leaf 可以先支持 parent/leaf null 的统计推导。
 
 ## 8. Schema Evolution 契约
 
@@ -487,7 +436,7 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
   - multi split schema mismatch。
 - pruning：
   - non-repeated struct primitive stats/dictionary/bloom/page index positive and negative case。
-  - LIST/MAP/repeated path 不应触发 non-repeated page range pruning。
+  - 非 struct field 链表达式不应触发 nested pruning。
   - literal conversion failure 保留 row group/page。
   - missing stats/dictionary/bloom metadata 保留 row group/page。
 - lazy materialization：
@@ -500,7 +449,7 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
 ### Phase 0: 契约和安全测试
 
 - 固化本文契约。
-- 补 LIST/MAP/repeated pruning negative tests。
+- 补非 struct field 链表达式不产生 pruning hint 的 negative tests。
 - 补 filter-only projection 和 schema evolution regression tests。
 
 ### Phase 1: Nested Shape Engine
@@ -527,7 +476,7 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
 ### Phase 4: ColumnPredicate / nested filter target 重构
 
 - 明确是否引入 DuckDB 风格的 `StructFilter` / nested filter tree。
-- 或将 `FileColumnPredicateFilter` 扩展为带 kind 的 nested path target。
+- 或将 `FileColumnPredicateFilter` 扩展为 struct-only nested target。
 - 统一 nested target、literal cast、schema mapping、file-layer pruning 的职责边界。
 
 ### Phase 5: 扩展 predicate 和 pruning
@@ -535,22 +484,18 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
 - nested `IS NULL` / `IS NOT NULL`。
 - deterministic cast/function pruning。
 - runtime filter on nested primitive leaf。
-- repeated row group stats/dictionary/bloom pruning。
-- LIST/MAP predicate pushdown。
 
 ### Phase 6: decoder-level lazy materialization
 
 - shape-only scan。
 - value-late materialization。
 - decoder-level direct select。
-- repeated page-to-row accounting。
-- repeated path page index pruning。
 
 ## 12. 禁止实现
 
 - 不把 nested child 注册成独立 file block slot。
 - 不把 `struct_element(...)` 改写成 child `VSlotRef`。
 - 不让 `ColumnPredicate` 参与 row-level filtering。
-- 不在 repeated leaf 上直接套用 non-repeated page index row range pruning。
+- 不在非 struct field 链表达式上生成 nested pruning hint。
 - 不让 filter-only child 改变 final output mapping。
 - 不在 file reader 中重新解释 table/global schema。
