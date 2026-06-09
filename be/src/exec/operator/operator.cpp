@@ -114,8 +114,10 @@ Status sink_with_const_block_mock(DataSinkOperatorXBase* sink, RuntimeState* sta
                                   bool eos, bool* mocked) {
     *mocked = false;
     auto* local_state = state->get_sink_local_state();
-    if (block->rows() == 0 || local_state == nullptr ||
-        local_state->has_mocked_sink_const_block()) {
+    if (local_state == nullptr || !local_state->should_mock_const_block()) {
+        return Status::OK();
+    }
+    if (block->rows() == 0 || local_state->has_mocked_sink_const_block()) {
         return Status::OK();
     }
 

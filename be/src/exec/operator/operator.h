@@ -512,6 +512,8 @@ public:
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
 
+    [[nodiscard]] virtual bool should_mock_const_block() const { return true; }
+
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
@@ -1138,6 +1140,12 @@ public:
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, Block* block, bool eos);
+
+    bool should_mock_const_block() const override {
+        // Async writer sinks enqueue blocks and preserve observable write/RPC boundaries.
+        // Replaying one input block as many single-row blocks can change order-sensitive sinks.
+        return false;
+    }
 
     std::vector<Dependency*> dependencies() const override {
         return {_async_writer_dependency.get()};
