@@ -209,6 +209,13 @@ under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
+        <!-- Runtime-only: hive-catalog-shade's HiveConf needs org.apache.commons.lang.StringUtils.
+             scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
@@ -358,26 +365,6 @@ under the License.
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-sql-parser</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun.odps</groupId>
-            <artifactId>odps-sdk-core</artifactId>
-            <version>${maxcompute.version}</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>antlr-runtime</artifactId>
-                    <groupId>org.antlr</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>antlr4</artifactId>
-                    <groupId>org.antlr</groupId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun.odps</groupId>
-            <artifactId>odps-sdk-table-api</artifactId>
-            <version>${maxcompute.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>

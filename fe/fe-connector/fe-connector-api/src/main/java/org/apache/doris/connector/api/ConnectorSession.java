@@ -76,4 +76,30 @@ public interface ConnectorSession {
     default Optional<ConnectorTransaction> getCurrentTransaction() {
         return Optional.empty();
     }
+
+    /**
+     * Binds a transaction to this session so that connector {@code begin*} /
+     * {@code planWrite} operations can attach their work to it. Mutable session
+     * implementations (e.g. the engine's {@code ConnectorSessionImpl}) override
+     * this; the default rejects binding, matching the empty default of
+     * {@link #getCurrentTransaction()}.
+     */
+    default void setCurrentTransaction(ConnectorTransaction txn) {
+        throw new UnsupportedOperationException("setCurrentTransaction is not supported by this session");
+    }
+
+    /**
+     * Allocates a globally-unique engine (Doris) transaction id for a connector
+     * transaction opened via {@link ConnectorWriteOps#beginTransaction(ConnectorSession)}.
+     *
+     * <p>The id is the engine-side transaction id: it is registered in the engine
+     * transaction registry and stamped into the connector's data sink, so a
+     * connector must obtain it from the engine rather than mint its own. The
+     * default throws; the engine session implementation overrides it.</p>
+     *
+     * @return a fresh engine transaction id
+     */
+    default long allocateTransactionId() {
+        throw new UnsupportedOperationException("transaction id allocation not supported");
+    }
 }
