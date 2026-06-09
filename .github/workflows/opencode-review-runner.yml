@@ -79,9 +79,6 @@ jobs:
           [shell_environment_policy]
           inherit = "all"
 
-          [sandbox_workspace_write]
-          network_access = true
-
           [otel]
           environment = "github-actions"
           exporter = "none"
@@ -175,10 +172,12 @@ jobs:
       - name: Prepare review prompt
         run: |
           cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
-          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. 
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
           The current directory is the code repository for the PR to be reviewed.
           You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
-          You can comment on the pull request.
+          You MUST use the local gh CLI, including gh api when needed, for pull request review submission.
+          Do NOT use GitHub MCP connector write tools such as github_add_review_to_pr.
+          You can comment on the pull request through the GH_TOKEN-backed gh CLI.
           Proceed with all subsequent research at the HIGHEST level of thought, aiming to identify all issues and submit all comments in JSON format.
 
           Context:
@@ -229,15 +228,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REASONING_EFFORT: xhigh
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
         run: |
           PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
+          review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           set +e
+          # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
+          # Codex uses bubblewrap for that mode and uid maps can be unavailable.
           codex exec "$PROMPT" \
             --cd "$GITHUB_WORKSPACE" \
             --model "gpt-5.5" \
             --config "model_reasoning_effort=\"${REASONING_EFFORT}\"" \
-            --sandbox workspace-write \
+            --sandbox danger-full-access \
             --color never \
             --json \
             --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
@@ -259,6 +264,37 @@ jobs:
             fi
             if [ -z "$failure_reason" ]; then
               failure_reason="Codex exited with status $status"
+            fi
+          fi
+
+          if [ -z "$failure_reason" ] \
+            && jq -e 'select(.type == "item.completed" and (.item // {}).type == "mcp_tool_call" and (.item // {}).tool == "github_add_review_to_pr")' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" >/dev/null; then
+            failure_reason="Codex attempted to submit the review through the GitHub MCP connector instead of the GH_TOKEN-backed gh CLI."
+          fi
+
+          if [ -z "$failure_reason" ]; then
+            reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
+            reviews_api_ok=false
+            review_verified=false
+            for attempt in 1 2 3 4 5 6; do
+              if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
+                reviews_api_ok=true
+                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                  (add // [])
+                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
+                  | length > 0
+                ' "$reviews_file" >/dev/null; then
+                  review_verified=true
+                  break
+                fi
+              fi
+              sleep 5
+            done
+
+            if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
+              failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
+            elif [ "$review_verified" != "true" ]; then
+              failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
             fi
           fi
 
