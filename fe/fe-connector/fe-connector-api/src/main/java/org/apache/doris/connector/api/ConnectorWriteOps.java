@@ -48,6 +48,16 @@ public interface ConnectorWriteOps {
         return false;
     }
 
+    /**
+     * Returns {@code true} if this connector supports INSERT OVERWRITE (truncate-and-insert)
+     * semantics. A connector that supports plain INSERT but not overwrite must keep this
+     * {@code false} so callers reject the command up front (fail loud) instead of silently
+     * degrading OVERWRITE to a plain append.
+     */
+    default boolean supportsInsertOverwrite() {
+        return false;
+    }
+
     /** Returns {@code true} if this connector supports DELETE operations. */
     default boolean supportsDelete() {
         return false;
@@ -55,6 +65,22 @@ public interface ConnectorWriteOps {
 
     /** Returns {@code true} if this connector supports MERGE (INSERT + DELETE) operations. */
     default boolean supportsMerge() {
+        return false;
+    }
+
+    /**
+     * Returns {@code true} if this connector uses the SPI transaction model: the engine
+     * opens a {@link org.apache.doris.connector.api.handle.ConnectorTransaction} via
+     * {@link #beginTransaction(ConnectorSession)}, binds it to the {@link ConnectorSession},
+     * and the connector's write plan attaches to that transaction (e.g. maxcompute).
+     * Connectors with statement-scoped / auto-commit writes (e.g. jdbc) leave this
+     * {@code false} and use the {@code beginInsert} / {@code finishInsert} handle model.
+     *
+     * <p>The executor routes on this <em>before</em> touching any throwing-default write
+     * method, so connectors that only support the transaction model need not implement
+     * {@code getWriteConfig} / {@code beginInsert}.</p>
+     */
+    default boolean usesConnectorTransaction() {
         return false;
     }
 

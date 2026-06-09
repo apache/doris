@@ -36,11 +36,14 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -200,7 +203,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog
+                || catalog instanceof PluginDrivenExternalCatalog
                 || catalog instanceof PaimonExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));
@@ -252,7 +255,8 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP,
-                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
+                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE,
+                TableType.PLUGIN_EXTERNAL_TABLE);
 
         if (!catalog.isInternalCatalog()) {
             if (!table.isPartitionedTable()) {
@@ -283,23 +287,40 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
     }
 
-    private ShowResultSet handleShowMaxComputeTablePartitions() {
-        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) (catalog);
-        List<List<String>> rows = new ArrayList<>();
+    private ShowResultSet handleShowPluginDrivenTablePartitions() throws AnalysisException {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         String dbName = tableName.getDb();
-        List<String> partitionNames;
-        if (limit < 0) {
-            partitionNames = mcCatalog.listPartitionNames(dbName, tableName.getTbl());
-        } else {
-            partitionNames = mcCatalog.listPartitionNames(dbName, tableName.getTbl(), offset, limit);
-        }
+        ExternalTable dorisTable = pluginCatalog.getDbOrAnalysisException(dbName)
+                .getTableOrAnalysisException(tableName.getTbl());
+
+        // Route partition listing through the connector SPI. The SPI's
+        // listPartitionNames has no offset/limit, so paging is applied FE-side below.
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+        ConnectorTableHandle handle = metadata
+                .getTableHandle(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
+                .orElseThrow(() -> new AnalysisException(
+                        "table not found: " + dbName + "." + tableName.getTbl()));
+        List<String> partitionNames = metadata.listPartitionNames(session, handle);
+
+        List<List<String>> rows = new ArrayList<>();
         for (String partition : partitionNames) {
+            if (filterMap != null && !filterMap.isEmpty()) {
+                if (!PartitionsProcDir.filterExpression(FILTER_PARTITION_NAME, partition, filterMap)) {
+                    continue;
+                }
+            }
             List<String> list = new ArrayList<>();
             list.add(partition);
             rows.add(list);
         }
         // sort by partition name
-        rows.sort(Comparator.comparing(x -> x.get(0)));
+        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
+            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
+        } else {
+            rows.sort(Comparator.comparing(x -> x.get(0)));
+        }
+        rows = applyLimit(limit, offset, rows);
         return new ShowResultSet(getMetaData(), rows);
     }
 
@@ -412,8 +433,8 @@ public class ShowPartitionsCommand extends ShowCommand {
             List<List<String>> rows = ((PartitionsProcDir) node).fetchResultByExpressionFilter(filterMap,
                     orderByPairs, limitElement).getRows();
             return new ShowResultSet(getMetaData(), rows);
-        } else if (catalog instanceof MaxComputeExternalCatalog) {
-            return handleShowMaxComputeTablePartitions();
+        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+            return handleShowPluginDrivenTablePartitions();
         } else if (catalog instanceof PaimonExternalCatalog) {
             return handleShowPaimonTablePartitions();
         } else {

@@ -18,12 +18,14 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Tests for {@link ConnectorSessionImpl} and {@link ConnectorSessionBuilder}.
@@ -177,5 +179,70 @@ public class ConnectorSessionImplTest {
         Assertions.assertEquals("UTC", session.getTimeZone());
         Assertions.assertEquals("en_US", session.getLocale());
         Assertions.assertEquals("", session.getCatalogName());
+    }
+
+    // ──────────────── transaction binding (P4-T06a W-a / gap G1) ────────────────
+
+    // The session is otherwise immutable, but the insert executor binds a connector
+    // transaction onto it at write time (setCurrentTransaction) so the connector's
+    // planWrite can read it back (getCurrentTransaction). If this round-trip regresses,
+    // the maxcompute write plan fails loud ("no transaction on session") at bind time.
+
+    @Test
+    public void testCurrentTransactionIsEmptyBeforeBinding() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        Assertions.assertEquals(Optional.empty(), session.getCurrentTransaction(),
+                "a freshly built session must carry no transaction");
+    }
+
+    @Test
+    public void testSetCurrentTransactionBindsThenReadsBackSameInstance() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        ConnectorTransaction txn = new StubConnectorTransaction(1234L);
+
+        session.setCurrentTransaction(txn);
+
+        Optional<ConnectorTransaction> bound = session.getCurrentTransaction();
+        Assertions.assertTrue(bound.isPresent(), "transaction must be present after binding");
+        Assertions.assertSame(txn, bound.get(),
+                "getCurrentTransaction must return the exact instance the executor bound, "
+                        + "because planWrite stamps that transaction's id into the sink");
+    }
+
+    @Test
+    public void testSetCurrentTransactionNullUnbindsToEmpty() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        session.setCurrentTransaction(new StubConnectorTransaction(1L));
+
+        session.setCurrentTransaction(null);
+
+        Assertions.assertEquals(Optional.empty(), session.getCurrentTransaction(),
+                "binding null must clear the transaction back to empty (Optional.ofNullable semantics)");
+    }
+
+    /** Minimal hand-written {@link ConnectorTransaction}; only identity matters for this test. */
+    private static final class StubConnectorTransaction implements ConnectorTransaction {
+        private final long txnId;
+
+        private StubConnectorTransaction(long txnId) {
+            this.txnId = txnId;
+        }
+
+        @Override
+        public long getTransactionId() {
+            return txnId;
+        }
+
+        @Override
+        public void commit() {
+        }
+
+        @Override
+        public void rollback() {
+        }
+
+        @Override
+        public void close() {
+        }
     }
 }

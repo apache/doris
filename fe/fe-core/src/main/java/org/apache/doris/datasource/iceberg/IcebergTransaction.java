@@ -55,6 +55,9 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -98,6 +101,17 @@ public class IcebergTransaction implements Transaction {
         synchronized (this) {
             this.commitDataList.addAll(commitDataList);
         }
+    }
+
+    @Override
+    public void addCommitData(byte[] commitFragment) {
+        TIcebergCommitData data = new TIcebergCommitData();
+        try {
+            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(data, commitFragment);
+        } catch (TException e) {
+            throw new RuntimeException("failed to deserialize Iceberg commit data", e);
+        }
+        updateIcebergCommitData(Collections.singletonList(data));
     }
 
     public void setConflictDetectionFilter(Expression filter) {
@@ -559,6 +573,7 @@ public class IcebergTransaction implements Transaction {
         // For insert mode, do nothing as original implementation
     }
 
+    @Override
     public long getUpdateCnt() {
         long dataRows = 0;
         long deleteRows = 0;

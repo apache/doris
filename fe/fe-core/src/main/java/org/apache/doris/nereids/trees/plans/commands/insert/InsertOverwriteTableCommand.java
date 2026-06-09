@@ -26,11 +26,12 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.insertoverwrite.AbstractInsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.insertoverwrite.RemoteInsertOverwriteManager;
@@ -39,9 +40,9 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -140,7 +141,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         // check allow insert overwrite
         if (!allowInsertOverwrite(targetTableIf)) {
-            String errMsg = "insert into overwrite only support OLAP/Remote OLAP and HMS/ICEBERG table."
+            String errMsg = "insert into overwrite only support OLAP/Remote OLAP table and external"
+                    + " tables (HMS/Iceberg, or a plugin-driven connector that supports overwrite)."
                     + " But current table type is " + targetTableIf.getType();
             LOG.error(errMsg);
             throw new AnalysisException(errMsg);
@@ -317,8 +319,22 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         } else {
             return targetTable instanceof HMSExternalTable
                     || targetTable instanceof IcebergExternalTable
-                    || targetTable instanceof MaxComputeExternalTable;
+                    || (targetTable instanceof PluginDrivenExternalTable
+                            && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable));
         }
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table supports INSERT OVERWRITE only if its connector
+     * declares the capability. Connectors that support plain INSERT but not overwrite (e.g. jdbc)
+     * must be rejected here so the command fails loud, rather than reaching the sink and silently
+     * degrading OVERWRITE to a plain append. Mirrors the connector-access pattern in
+     * {@code PhysicalPlanTranslator}.
+     */
+    private static boolean pluginConnectorSupportsInsertOverwrite(PluginDrivenExternalTable table) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        return catalog.getConnector().getMetadata(catalog.buildConnectorSession())
+                .supportsInsertOverwrite();
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
@@ -395,8 +411,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
             setStaticPartitionToContext(sink, (IcebergInsertCommandContext) insertCtx);
             branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
-        } else if (logicalQuery instanceof UnboundMaxComputeTableSink) {
-            UnboundMaxComputeTableSink<?> sink = (UnboundMaxComputeTableSink<?>) logicalQuery;
+        } else if (logicalQuery instanceof UnboundConnectorTableSink) {
+            UnboundConnectorTableSink<?> sink = (UnboundConnectorTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
                     sink.getNameParts(), sink.getColNames(), sink.getHints(),
                     false, sink.getPartitions(), false,
@@ -404,8 +420,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)),
                     sink.getStaticPartitionKeyValues());
-            MCInsertCommandContext mcCtx = new MCInsertCommandContext();
-            mcCtx.setOverwrite(true);
+            PluginDrivenInsertCommandContext pluginCtx = new PluginDrivenInsertCommandContext();
+            pluginCtx.setOverwrite(true);
             if (sink.hasStaticPartition()) {
                 Map<String, String> staticSpec = Maps.newHashMap();
                 for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {
@@ -413,9 +429,9 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                         staticSpec.put(e.getKey(), ((Literal) e.getValue()).getStringValue());
                     }
                 }
-                mcCtx.setStaticPartitionSpec(staticSpec);
+                pluginCtx.setStaticPartitionSpec(staticSpec);
             }
-            insertCtx = mcCtx;
+            insertCtx = pluginCtx;
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }

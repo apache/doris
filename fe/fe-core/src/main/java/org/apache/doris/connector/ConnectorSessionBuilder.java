@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.qe.ConnectContext;
@@ -117,6 +118,12 @@ public final class ConnectorSessionBuilder {
         // Server-level lower_case_table_names for identifier mapping
         props.put("lower_case_table_names",
                 String.valueOf(GlobalVariable.lowerCaseTableNames));
+        // MaxCompute write block-id cap: the connector cannot import fe-core Config, so the tunable
+        // Config.max_compute_write_max_block_count is surfaced through this channel (same as
+        // lower_case_table_names above) and read back via ConnectorSession.getSessionProperties().
+        // Key must stay byte-identical to MaxComputeConnectorMetadata.MAX_COMPUTE_WRITE_MAX_BLOCK_COUNT.
+        props.put("max_compute_write_max_block_count",
+                String.valueOf(Config.max_compute_write_max_block_count));
         return props;
     }
 }

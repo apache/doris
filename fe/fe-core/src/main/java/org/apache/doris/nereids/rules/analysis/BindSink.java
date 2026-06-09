@@ -42,8 +42,6 @@ import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -53,7 +51,6 @@ import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -86,7 +83,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -108,6 +104,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -166,8 +163,6 @@ public class BindSink implements AnalysisRuleFactory {
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
-                RuleType.BINDING_INSERT_MAX_COMPUTE_TABLE.build(
-                    unboundMaxComputeTableSink().thenApply(this::bindMaxComputeTableSink)),
                 RuleType.BINDING_INSERT_CONNECTOR_TABLE.build(
                     unboundConnectorTableSink().thenApply(this::bindConnectorTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
@@ -878,53 +873,6 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
-    private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {
-        UnboundMaxComputeTableSink<?> sink = ctx.root;
-        Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> pair = bind(ctx.cascadesContext, sink);
-        MaxComputeExternalDatabase database = pair.first;
-        MaxComputeExternalTable table = pair.second;
-        LogicalPlan child = ((LogicalPlan) sink.child());
-
-        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-        Set<String> staticPartitionColNames = staticPartitions != null
-                ? staticPartitions.keySet()
-                : Sets.newHashSet();
-
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream()
-                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
-                    .collect(ImmutableList.toImmutableList());
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
-        }
-        LogicalMaxComputeTableSink<?> boundSink = new LogicalMaxComputeTableSink<>(
-                database,
-                table,
-                bindColumns,
-                child.getOutput().stream()
-                        .map(NamedExpression.class::cast)
-                        .collect(ImmutableList.toImmutableList()),
-                sink.getDMLCommandType(),
-                Optional.empty(),
-                Optional.empty(),
-                child);
-        if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output");
-        }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
-    }
-
     private Plan bindConnectorTableSink(MatchingContext<UnboundConnectorTableSink<Plan>> ctx) {
         UnboundConnectorTableSink<?> sink = ctx.root;
         Pair<ExternalDatabase, PluginDrivenExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -932,19 +880,15 @@ public class BindSink implements AnalysisRuleFactory {
         PluginDrivenExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
-        }
+        // Static-partition columns (e.g. MaxCompute `PARTITION(pt='x')`) carry their value via the
+        // static partition spec rather than the query output, so they are excluded from the bound
+        // columns when no explicit column list is given (mirrors legacy bindMaxComputeTableSink).
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+
+        List<Column> bindColumns = selectConnectorSinkBindColumns(table, sink.getColNames(), staticPartitionColNames);
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
@@ -959,14 +903,51 @@ public class BindSink implements AnalysisRuleFactory {
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        // For JDBC-backed connector tables, we must keep columns in user-specified order
-        // because the INSERT SQL column list is built from cols (user order) and the data
-        // values must match. For file-based writes, full schema order with defaults is needed.
-        // Currently only JDBC catalogs use connector sink, so use the JDBC-compatible approach:
-        // only project user-specified columns in user-specified order.
+        if (table.requiresFullSchemaWriteOrder()) {
+            // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
+            // against the full table schema, so project the child to FULL-SCHEMA order with any
+            // unmentioned / static-partition columns filled in (NULL literals), exactly like legacy
+            // bindMaxComputeTableSink — for ALL such writes, partitioned or not. Required on three
+            // counts: (1) a reordered/partial explicit column list must land values in the correct
+            // remote columns (not user order); (2) for a static-partition write the BE writer strips the
+            // trailing partition columns by position, so they must sit at their full-schema (tail)
+            // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
+            // partition columns by their full-schema position, so the child must be in full-schema order.
+            Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false, boundSink, child);
+            LogicalProject<?> fullOutputProject =
+                    getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+            return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        }
+        // Name-mapped connector tables (JDBC / ES): keep columns in user-specified order because the
+        // INSERT SQL column list is built from cols (user order) and the data values must match; only
+        // project user-specified columns in user order.
         Map<String, NamedExpression> columnToOutput = getConnectorColumnToOutput(bindColumns, child);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(bindColumns, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(outputProject);
+    }
+
+    /**
+     * Selects the bound columns for a connector table sink. With an explicit column list, binds those
+     * columns in user order. Without one, binds the full base schema minus any static partition columns
+     * (their value comes from the static partition spec, not the query output, so they must not be
+     * matched against the query columns) — mirrors legacy {@code bindMaxComputeTableSink}.
+     */
+    @VisibleForTesting
+    static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
+            List<String> colNames, Set<String> staticPartitionColNames) {
+        if (colNames.isEmpty()) {
+            return table.getBaseSchema(true).stream()
+                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .collect(ImmutableList.toImmutableList());
+        }
+        return colNames.stream().map(cn -> {
+            Column column = table.getColumn(cn);
+            if (column == null) {
+                throw new AnalysisException(String.format("column %s is not found in table %s",
+                        cn, table.getName()));
+            }
+            return column;
+        }).collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -1091,18 +1072,6 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an iceberg table");
-    }
-
-    private Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> bind(CascadesContext cascadesContext,
-            UnboundMaxComputeTableSink<? extends Plan> sink) {
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
-                sink.getNameParts());
-        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (pair.second instanceof MaxComputeExternalTable) {
-            return Pair.of(((MaxComputeExternalDatabase) pair.first), (MaxComputeExternalTable) pair.second);
-        }
-        throw new AnalysisException("the target table of insert into is not a MaxCompute table");
     }
 
     @SuppressWarnings("rawtypes")
