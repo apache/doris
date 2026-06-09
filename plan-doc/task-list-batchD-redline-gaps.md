@@ -30,7 +30,7 @@
 | G2 | **FIX-PREDICATE-COLGUARD** (GAP2) | minor | Fix | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE(0 must-fix) | ✅ DONE (`fefbbad391d`) |
 | GC1 | **FIX-BLOCKID-CAP-CONFIG** (CRITICGAP1) | minor | Fix（用户定 Option A: 全局 Config 透传） | ✅ | ✅ | ✅ | ✅ 单Agent APPROVE-WITH-NITS(0 must-fix) | ✅ DONE (`95575a4954d`) |
 | T3 | **Tier-3 DV batch** (GAP3/4/9/10) | minor | 接受+DV | ⬜ | n/a | n/a | n/a | ⬜ |
-| DOC | **Batch-D redline 扩充**（design §1/§2 must-land-before-delete + scan-node 注补 LIMIT-split 第 3 副本） | — | — | ⬜ | n/a | n/a | n/a | ⬜ |
+| DOC | **Batch-D redline 扩充**（design §1/§2 must-land-before-delete + scan-node 注补 LIMIT-split 第 3 副本 + §7 校验 + §8 fe-common 解耦） | — | — | ✅ | n/a | n/a | n/a | ✅ DONE 2026-06-09 |
 
 图例：⬜ 未开始 / 🔄 进行中 / ✅ 完成
 
