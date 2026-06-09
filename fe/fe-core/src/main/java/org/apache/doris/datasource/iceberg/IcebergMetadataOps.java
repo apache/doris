@@ -44,8 +44,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.filesystem.FileEntry;
-import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
@@ -493,46 +491,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (!fs.exists(location)) {
             return true;
         }
-        boolean containsFile = false;
-        boolean deletedChildren = true;
-        List<Location> childDirectories = new ArrayList<>();
-        try (FileIterator iterator = fs.list(location)) {
-            while (iterator.hasNext()) {
-                FileEntry entry = iterator.next();
-                if (entry.isDirectory()) {
-                    childDirectories.add(entry.location());
-                } else {
-                    containsFile = true;
-                }
-            }
-        }
-        for (Location childDirectory : childDirectories) {
-            deletedChildren &= deleteEmptyDirectory(fs, childDirectory);
-        }
-        if (containsFile || !deletedChildren || hasChildren(fs, location)) {
+        if (!fs.listFilesRecursive(location).isEmpty()) {
             return false;
         }
-        deleteDirectory(fs, location);
+        fs.delete(location, true);
         return true;
-    }
-
-    private static boolean hasChildren(FileSystem fs, Location location) throws IOException {
-        try (FileIterator iterator = fs.list(location)) {
-            return iterator.hasNext();
-        }
-    }
-
-    private static void deleteDirectory(FileSystem fs, Location location) throws IOException {
-        try {
-            fs.delete(location, false);
-        } catch (IOException e) {
-            String uri = location.uri();
-            if (!uri.endsWith("/")) {
-                fs.delete(Location.of(uri + "/"), false);
-                return;
-            }
-            throw e;
-        }
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {

@@ -163,7 +163,7 @@ public class IcebergMetadataOpTest {
 
         ExternalDatabase<?> dorisDb = Mockito.mock(ExternalDatabase.class);
         Mockito.when(dorisDb.getRemoteName()).thenReturn("db");
-        Mockito.when(dorisCatalog.getDbNullable("db")).thenReturn(dorisDb);
+        Mockito.doReturn(dorisDb).when(dorisCatalog).getDbNullable("db");
 
         SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
         Namespace namespace = Namespace.of("db");
@@ -188,7 +188,20 @@ public class IcebergMetadataOpTest {
         Assert.assertFalse(IcebergMetadataOps.deleteEmptyDirectory(fs, tableLocation));
         Assert.assertTrue(fs.exists(tableLocation));
         Assert.assertTrue(fs.exists(externalFile));
-        Assert.assertFalse(fs.exists(tableLocation.resolve("data")));
+        Assert.assertTrue(fs.exists(tableLocation.resolve("data")));
+    }
+
+    @Test
+    public void testDeleteEmptyDirectoryCleansObjectStoreMarkers() throws Exception {
+        MemoryFileSystem fs = new MemoryFileSystem();
+        Location tableLocation = Location.of("s3://bucket/warehouse/db/t3");
+        fs.mkdirs(tableLocation);
+        fs.mkdirs(tableLocation.resolve("data"));
+        fs.mkdirs(tableLocation.resolve("metadata"));
+
+        Assert.assertTrue(fs.exists(tableLocation));
+        Assert.assertTrue(IcebergMetadataOps.deleteEmptyDirectory(fs, tableLocation));
+        Assert.assertFalse(fs.exists(tableLocation));
     }
 
     private IcebergExternalCatalog mockHmsCatalog() {
