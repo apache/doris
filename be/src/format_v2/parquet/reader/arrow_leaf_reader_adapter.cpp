@@ -33,6 +33,7 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/string_ref.h"
 #include "format_v2/parquet/reader/nested_column_reader.h"
+#include "util/simd/bits.h"
 
 namespace doris::parquet {
 namespace {
