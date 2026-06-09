@@ -111,21 +111,26 @@ namespace doris {
 namespace {
 
 Status sink_with_const_block_mock(DataSinkOperatorXBase* sink, RuntimeState* state, Block* block,
-                                  bool eos, bool* mocked) {
-    *mocked = false;
+                                  bool eos) {
     auto* local_state = state->get_sink_local_state();
-    if (local_state == nullptr || !local_state->should_mock_const_block()) {
-        return Status::OK();
+    if (local_state == nullptr) {
+        return sink->sink_impl(state, block, eos);
     }
-    if (block->rows() == 0 || local_state->has_mocked_sink_const_block()) {
-        return Status::OK();
+    const bool mock_first_block = !local_state->has_mocked_first_sink_const_block();
+    if (!mock_first_block && !eos) {
+        return sink->sink_impl(state, block, eos);
     }
-
-    local_state->set_mocked_sink_const_block();
-    *mocked = true;
+    if (mock_first_block) {
+        local_state->set_mocked_first_sink_const_block();
+    }
+    if (block->rows() == 0) {
+        return sink->sink_impl(state, block, eos);
+    }
     auto const_blocks = block->split_to_const_blocks();
     for (size_t i = 0; i < const_blocks.size(); ++i) {
-        RETURN_IF_ERROR(sink->sink(state, &const_blocks[i], eos && i + 1 == const_blocks.size()));
+        RETURN_IF_ERROR(const_blocks[i].check_type_and_column());
+        RETURN_IF_ERROR(
+                sink->sink_impl(state, &const_blocks[i], eos && i + 1 == const_blocks.size()));
     }
     return Status::OK();
 }
@@ -496,10 +501,10 @@ Status DataSinkOperatorXBase::terminate(RuntimeState* state) {
 Status DataSinkOperatorXBase::sink(RuntimeState* state, Block* block, bool eos) {
     RETURN_IF_ERROR(block->check_type_and_column());
 #ifndef NDEBUG
-    bool mocked = false;
-    RETURN_IF_ERROR(sink_with_const_block_mock(this, state, block, eos, &mocked));
-    if (mocked) {
-        return Status::OK();
+    // Only sinks that opt out of default const materialization should be tested with const blocks.
+    // Other sinks rely on the default materialize path, so keep their original behavior.
+    if (!use_default_implementation_for_constants()) {
+        return sink_with_const_block_mock(this, state, block, eos);
     }
 #endif
     if (use_default_implementation_for_constants()) {

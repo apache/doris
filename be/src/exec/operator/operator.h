@@ -512,8 +512,6 @@ public:
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
 
-    [[nodiscard]] virtual bool should_mock_const_block() const { return true; }
-
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
@@ -522,8 +520,10 @@ public:
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
 #ifndef NDEBUG
-    [[nodiscard]] bool has_mocked_sink_const_block() const { return _has_mocked_sink_const_block; }
-    void set_mocked_sink_const_block() { _has_mocked_sink_const_block = true; }
+    [[nodiscard]] bool has_mocked_first_sink_const_block() const {
+        return _has_mocked_first_sink_const_block;
+    }
+    void set_mocked_first_sink_const_block() { _has_mocked_first_sink_const_block = true; }
 #endif
 
 protected:
@@ -552,7 +552,7 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
 #ifndef NDEBUG
-    bool _has_mocked_sink_const_block = false;
+    bool _has_mocked_first_sink_const_block = false;
 #endif
 };
 
@@ -1140,12 +1140,6 @@ public:
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, Block* block, bool eos);
-
-    bool should_mock_const_block() const override {
-        // Async writer sinks enqueue blocks and preserve observable write/RPC boundaries.
-        // Replaying one input block as many single-row blocks can change order-sensitive sinks.
-        return false;
-    }
 
     std::vector<Dependency*> dependencies() const override {
         return {_async_writer_dependency.get()};

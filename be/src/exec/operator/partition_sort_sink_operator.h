@@ -38,12 +38,6 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    bool should_mock_const_block() const override {
-        // Partition sort buffers and sorts rows by partition. Splitting one block can change the
-        // observable order of peer rows with equal sort keys, so skip sink const-block mocking.
-        return false;
-    }
-
 private:
     friend class PartitionSortSinkOperatorX;
 

@@ -37,12 +37,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
-    bool should_mock_const_block() const override {
-        // Splitting one input block into multiple sink calls can change the order of peer rows
-        // with equal sort keys. Sort sinks must preserve the original block boundary.
-        return false;
-    }
-
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 private:

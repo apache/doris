@@ -43,12 +43,6 @@ public:
 
     bool is_blockable() const override;
 
-    bool should_mock_const_block() const override {
-        // Spill sort delegates to the in-memory sort sink, which is sensitive to peer-row order.
-        // Do not split one input block into multiple sink calls here.
-        return false;
-    }
-
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     Status revoke_memory(RuntimeState* state);
