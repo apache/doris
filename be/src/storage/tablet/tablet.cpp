@@ -893,8 +893,8 @@ void Tablet::delete_expired_stale_rowset() {
 
         std::vector<int64_t> path_id_vec;
         // capture the path version to delete
-        _timestamped_version_tracker.capture_expired_paths(
-                static_cast<int64_t>(expired_stale_sweep_endtime), &path_id_vec);
+        _timestamped_version_tracker.capture_expired_paths(expired_stale_sweep_endtime,
+                                                           &path_id_vec);
 
         if (path_id_vec.empty()) {
             return;

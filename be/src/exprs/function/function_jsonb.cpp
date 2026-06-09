@@ -1415,8 +1415,7 @@ struct JsonbLengthUtil {
                 if (!path.seek(path_value.data, path_value.size)) {
                     return Status::InvalidArgument(
                             "Json path error: Invalid Json Path for value: {}",
-                            std::string_view(reinterpret_cast<const char*>(path_value.data),
-                                             path_value.size));
+                            std::string_view(path_value.data, path_value.size));
                 }
             }
             auto jsonb_value = jsonb_data_column->get_data_at(i);

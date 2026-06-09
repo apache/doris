@@ -107,7 +107,7 @@ inline UInt8 unhex(char c) {
 }
 
 inline UInt8 unhex2(const char* data) {
-    return static_cast<UInt8>(unhex(data[0])) * 0x10 + static_cast<UInt8>(unhex(data[1]));
+    return unhex(data[0]) * 0x10 + unhex(data[1]);
 }
 
 inline UInt16 unhex4(const char* data) {
