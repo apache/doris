@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 
 namespace doris {
@@ -113,6 +115,27 @@ TEST_F(PartitionTransformersTest, test_string_truncate_transform) {
     for (size_t i = 0; i < result_column->size(); ++i) {
         EXPECT_EQ(expected_data[i], result_column->get_data_at(i));
     }
+}
+
+TEST_F(PartitionTransformersTest, test_floating_point_special_partition_value) {
+    PartitionColumnTransform transform;
+    auto float_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, false);
+    auto double_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, false);
+
+    EXPECT_EQ("NaN", transform.get_partition_value(
+                             float_type, std::numeric_limits<Float32>::quiet_NaN()));
+    EXPECT_EQ("Infinity", transform.get_partition_value(
+                                  float_type, std::numeric_limits<Float32>::infinity()));
+    EXPECT_EQ("-Infinity", transform.get_partition_value(
+                                   float_type, -std::numeric_limits<Float32>::infinity()));
+    EXPECT_EQ("NaN", transform.get_partition_value(
+                             double_type, std::numeric_limits<Float64>::quiet_NaN()));
+    EXPECT_EQ("Infinity", transform.get_partition_value(
+                                  double_type, std::numeric_limits<Float64>::infinity()));
+    EXPECT_EQ("-Infinity", transform.get_partition_value(
+                                   double_type, -std::numeric_limits<Float64>::infinity()));
 }
 
 TEST_F(PartitionTransformersTest, test_integer_bucket_transform) {
