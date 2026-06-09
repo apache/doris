@@ -945,9 +945,6 @@ Status FileScannerV2::close(RuntimeState* state) {
 
 void FileScannerV2::try_stop() {
     _should_stop = true;
-    if (_table_reader != nullptr) {
-        static_cast<void>(_table_reader->close());
-    }
 }
 
 void FileScannerV2::update_realtime_counters() {
