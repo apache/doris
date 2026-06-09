@@ -58,6 +58,8 @@ row-level filter 和 file-layer pruning 必须分离：
 - `ColumnPredicate` 只作为 file-layer pruning hint。
 - file-layer pruning 只能在能证明不会漏读时生效。
 - 不能用 `ColumnPredicate` 替代 complex row-level filtering。
+- 不生成 file-layer pruning hint 不代表不支持 row-level filter；复杂表达式仍通过
+  predicate projection 读取并执行。
 
 ### 2.4 nested predicate 保守原则
 
@@ -292,6 +294,8 @@ VSlotRef(file_s_id) > 5
 
 - output child 和 filter-only child 合并到同一个 top-level complex read projection。
 - filter-only child 不进入 output mapping。
+- row-level predicate 可以引用任意已支持读取的复杂类型表达式；是否能生成 file-layer
+  pruning hint 是独立判断。
 - 如果 nested path 能解析到 file-local child，读取精确 child。
 - 如果 path 无法解析但 parent column 存在，必须保守读取足够 subtree 以保证 row-level Expr 可执行。
 - 如果 parent column 缺失，则按 table reader constant/default/missing 规则处理。
@@ -391,6 +395,10 @@ complex lazy materialization 的最终模式：
 2. payload phase：对 non-predicate columns 执行 selected read。
 3. finalize phase：移除 filter-only child，按 output mapping 构造 table/global block。
 
+predicate phase 必须覆盖所有 row-level filter 需要的 complex projection。即使某个 predicate
+不能生成 file-layer pruning hint，也必须读取足够的 predicate columns 和 shape，保证
+`VExprContext` 可以在行级别正确求值。
+
 ### 9.2 shape reuse
 
 同一个 top-level complex column 中 predicate child 和 output child 可能共享 parent shape。
@@ -441,6 +449,7 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
   - missing stats/dictionary/bloom metadata 保留 row group/page。
 - lazy materialization：
   - predicate child 和 output child 属于同一 top-level struct。
+  - predicate phase 读取不产生 pruning hint 的 complex filter columns。
   - selected ranges + page skip + nested projection。
   - filter-only child 不出现在 final output。
 
