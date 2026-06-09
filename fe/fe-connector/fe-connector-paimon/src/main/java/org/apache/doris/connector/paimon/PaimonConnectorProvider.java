@@ -38,6 +38,17 @@ public class PaimonConnectorProvider implements ConnectorProvider {
 
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
-        return new PaimonConnector(properties);
+        return new PaimonConnector(properties, context);
+    }
+
+    /**
+     * Validates catalog properties at CREATE CATALOG time via the pure flavor-assembly core,
+     * mirroring the legacy fe-core per-flavor {@code initNormalizeAndCheckProps}/
+     * {@code checkRequiredProperties} rules. Throws {@link IllegalArgumentException}, which the
+     * caller ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.
+     */
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        PaimonCatalogFactory.validate(properties);
     }
 }

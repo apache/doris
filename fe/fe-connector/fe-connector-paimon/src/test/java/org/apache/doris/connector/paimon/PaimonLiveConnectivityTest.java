@@ -18,11 +18,13 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -41,6 +43,26 @@ import java.util.Map;
  */
 public class PaimonLiveConnectivityTest {
 
+    /** Minimal context: simple auth (default executeAuthenticated) and an empty environment. */
+    private static ConnectorContext testContext() {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "paimon_live";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getEnvironment() {
+                return Collections.emptyMap();
+            }
+        };
+    }
+
     @Test
     public void liveMetadataRoundTrip() {
         String warehouse = System.getenv("PAIMON_WAREHOUSE");
@@ -58,7 +80,7 @@ public class PaimonLiveConnectivityTest {
         // Exercise the full production path: PaimonConnector lazily builds a real Catalog and
         // wires the CatalogBackedPaimonCatalogOps seam into the metadata. One listDatabaseNames
         // round-trip confirms the catalog is reachable end to end.
-        try (PaimonConnector connector = new PaimonConnector(props)) {
+        try (PaimonConnector connector = new PaimonConnector(props, testContext())) {
             ConnectorMetadata metadata = connector.getMetadata(null);
             Assertions.assertNotNull(metadata.listDatabaseNames(null),
                     "a reachable Paimon catalog must return a (possibly empty) database list");

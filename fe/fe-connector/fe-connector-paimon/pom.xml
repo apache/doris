@@ -69,6 +69,41 @@ under the License.
             <version>${paimon.version}</version>
         </dependency>
 
+        <!-- paimon-hive-connector-3.1 supplies org.apache.paimon.hive.HiveCatalogFactory (the
+             SPI impl discovered for metastore=hive) + HiveCatalogOptions, needed so the hms/dlf
+             flavors can create a live HiveCatalog. Version comes from dependencyManagement
+             (${paimon.version}, declared groupId+artifactId only like paimon-core). Its hive-exec
+             dep is `provided` and hadoop-client is `test`, so it does NOT drag Configuration/HiveConf
+             onto our compile classpath — those come from the two deps below.
+             NOTE (cutover P5-B7): the Thrift metastore client (IMetaStoreClient/HiveMetaStoreClient)
+             for the live metastore=hive (hms/dlf) path is therefore NOT bundled here; it is
+             host-provided via the FE's hive-catalog-shade at cutover, not at connector compile time
+             (see the NOTE blocks in PaimonConnector.createCatalog hms/dlf branches). -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-hive-connector-3.1</artifactId>
+        </dependency>
+
+        <!-- hadoop-common supplies org.apache.hadoop.conf.Configuration, reconstructed minimally
+             from the raw property map in PaimonCatalogFactory.buildHadoopConfiguration (this
+             replaces fe-core StorageProperties.getHadoopStorageConfig, which the connector cannot
+             import). Version + exclusions mirror fe-core's dependencyManagement entry
+             (${hadoop.version}). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+        </dependency>
+
+        <!-- hive-common supplies org.apache.hadoop.hive.conf.HiveConf for the hms/dlf flavors
+             (buildHmsHiveConf / buildDlfHiveConf). We deliberately use the plain hive-common
+             (${hive.common.version}) rather than fe-core's hive-catalog-shade: the shade bundles an
+             ancient, unrelocated fastutil (6.5.6) that collides on the classpath; hive-common does
+             not, so the connector module stays conflict-free. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-common</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>

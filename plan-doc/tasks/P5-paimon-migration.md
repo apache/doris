@@ -7,7 +7,7 @@
 
 ## 元信息
 
-- **状态**：🟢 进行中（**B0 已完成 2026-06-09**：T01 测试基建 + T02 parity baseline，连接器 12/0/0/1 绿、checkstyle 0、import-gate 净；下一批 = B1 flavor 装配）
+- **状态**：🟢 进行中（**B1 已完成 2026-06-09**：T03/T04/T05 flavor 装配，用户签 all-5-flavors，连接器 43/0/0/1 绿、checkstyle 0、import-gate 0、final holistic review=READY；下一批 = B2 normal-read。B0 见阶段日志）
 - **启动日期**：2026-06-09（recon+设计）
 - **目标完成**：TBD（估时 ~5-6 周，含 D2-A 的 MTMV/MVCC 桥）
 - **阻塞**：无（D1=A / D2=A 已签字）；分批实现按 B0→B9 启动
@@ -85,9 +85,9 @@ Master plan [§3.6](../00-connector-migration-master-plan.md)；策略 = full ad
 |---|---|---|---|---|---|
 | P5-T01 | 建 `fe-connector-paimon` 测试模块 + 注入式 SDK seam（`PaimonCatalogOps` 接口包远端 Catalog 调用，MC `McStructureHelper` 范式，no-mockito recording fake）| B0 | C+T | ✅ | seam=5 读方法（B0 只读，DDL 待 B1-B3 扩）；`PaimonConnectorMetadata` 6 调用点齐迁；9 UT 钉 databaseExists try/catch + getColumnHandles reload-fallback + 1 env-gated live smoke |
 | P5-T02 | parity baseline（vs 旧 `PaimonScanNode`：谓词/分区/native·JNI/deletion/SELECT*，doc [`research/p5-paimon-parity-baseline.md`](../research/p5-paimon-parity-baseline.md)）+ FE→BE round-trip smoke（offline `PaimonTableSerdeRoundTripTest`，CI 非 env-gated）+ **pin paimon-core 版本三方对齐**（R-007 注释落 `fe/pom.xml` `<paimon.version>`） | B0 | T | ✅ | 翻闸前后跑；gap 见 doc §3 |
-| P5-T03 | `PaimonConnector.createCatalog` flavor 装配（switch on `paimon.catalog.type`：warehouse/options/重建 Hadoop·HiveConf/**每-flavor ExecutionAuthenticator**；filesystem→hms→rest/jdbc/dlf 渐进）| B1 | C | ⏳ | **gated on D1**；authenticator 丢=Kerberos DDL 炸 |
-| P5-T04 | 拷 HMS/REST/DLF/JDBC + credential/storage 属性键入 `PaimonConnectorProperties`（禁 import fe-core）| B1 | C | ⏳ | |
-| P5-T05 | 扩 `PaimonConnectorProvider.validateProperties`（flavor 合法性 + 每-flavor 必需属性，`IllegalArgumentException` fail-fast）| B1 | C | ⏳ | legacy `PaimonExternalCatalogFactory:29-47` |
+| P5-T03 | `PaimonConnector.createCatalog` flavor 装配（switch on `paimon.catalog.type`→paimon `metastore` opt：warehouse/options/重建 Hadoop·HiveConf/**authenticator=`ConnectorContext.executeAuthenticated`**；全 5 flavor）| B1 | C | ✅ | 新 `PaimonCatalogFactory`（纯 buildCatalogOptions/buildHadoopConfiguration/buildHmsHiveConf/buildDlfHiveConf/requireOssStorageForDlf）；线程 ConnectorContext；DriverShim 经 getEnvironment 替 JdbcResource；hms/dlf live-e2e 门见下 |
+| P5-T04 | 拷 HMS/REST/DLF/JDBC + credential/storage 属性键入 `PaimonConnectorProperties`（禁 import fe-core）| B1 | C | ✅ | 全 flavor key 常量，多别名 `String[]` |
+| P5-T05 | 扩 `PaimonConnectorProvider.validateProperties`（flavor 合法性 + 每-flavor 必需属性，`IllegalArgumentException` fail-fast）| B1 | C | ✅ | → `PaimonCatalogFactory.validate`；rest 同样必需 warehouse（legacy parity，纠偏 recon）|
 | P5-T06 | 修 `PaimonTableHandle` transient-Table **reload fallback**（transient null 时由 `catalog.getTable(Identifier)` 重建）；`PaimonScanPlanProvider:95` 调用 | B2 | C | ⏳ | **BLOCKER** |
 | P5-T07 | `PaimonPredicateConverter` session-TZ 化（读 `getTimeZone()` 惰性解析+降级，替 `:284` 固定 UTC）；不可转降级空；`supportsCastPredicatePushdown()=false`；保 FLOAT/CHAR 不下推 | B2 | C | ⏳ | [[catalog-spi-connector-session-tz-gotcha]] |
 | P5-T08 | 实现 `PaimonConnectorMetadata.listPartitionNames/listPartitions/listPartitionValues`（填 `ConnectorPartitionInfo` 含 lastModifiedMillis=`Partition.lastFileCreationTime()`，partitionName=最终 legacy-name 解析后显示名）+ `getProperties`（现 stub `:154`）| B2 | C | ⏳ | 喂 `getNameToPartitionItems:246` 裁剪 + MTMV |
@@ -177,11 +177,25 @@ B6 (procedure doc no-op, 独立)          │                                   
 - **开放｜REFRESH TABLE seam**：`PluginDrivenExternalCatalog` 仅 REFRESH CATALOG 销 connector；REFRESH TABLE 是否触连接器 cache 未核 → 可能需 `invalidateTable` SPI。
 - **开放｜BE sys-table `TTableDescriptor`**：旧发 HIVE_TABLE，PluginDriven 默认 SCHEMA_TABLE；须核 BE paimon-scanner 期望。
 - **开放｜`isPartitionInvalid` parity**：基类 `TablePartitionValues` 是否静默丢失败转换计数。
-- **开放｜JDBC flavor DriverShim/URLClassLoader** 在 parent-first 连接器 loader 下的归属。
+- **开放｜JDBC flavor DriverShim/URLClassLoader** 在 parent-first 连接器 loader 下的归属。（B1：DriverShim 已移植，driver_url 经 `ConnectorContext.getEnvironment()` 解析；下条记安全门）
+- **R-高｜翻闸门（B1 落地，live-e2e 必验）｜hms/dlf metastore-client 跨 classloader**：连接器只编译 `HiveConf`（hive-common）+ `Configuration`（hadoop-common），**不打包** Thrift `IMetaStoreClient`/`HiveMetaStoreClient`（paimon-hive-connector 的 hive-exec/metastore=test scope；DLF `ProxyMetaStoreClient`）。翻闸时须由 FE host `hive-catalog-shade`(3.1.x) 提供；plugin child-first 下 host 的 `Configuration`/`HiveConf`(3.1.x) 与 plugin bundled(hadoop 3.4.2/hive 2.3.9) 可能身份冲突。翻闸前 live 验：真实 HMS `metastore=hive` 经 plugin 建 catalog 不抛 `NoClassDefFoundError: .../IMetaStoreClient` / `LinkageError` / `ClassCastException`（编译态 ABI 子集已证良性：paimon-3.1 引用的 HiveConf ConfVars/方法在 2.3.9 全存在）。修向（翻闸时定夺）：bundle 自洽 hive 栈并强制 `org.apache.hadoop.hive.` parent-first 用 host shade，或加 metastore-client dep 让整栈单 loader 解析。
+- **R-中｜翻闸门｜jdbc driver_url FE 安全 allow-list 未接**：legacy `JdbcResource.getFullDriverUrl` 的 `jdbc_driver_url_white_list`/`jdbc_driver_secure_path`/jar 名校验连接器未复现（禁 import fe-core）。翻闸前须经 `ConnectorContext` hook（参 `sanitizeJdbcUrl`）路由；paimon 未入 `SPI_READY_TYPES` 故当前不可触达。
+- **R-中｜翻闸门｜HMS 外部 hive-site.xml 文件加载延后**：`buildHmsHiveConf` 只吃 `hive.*`/auth 键 + storage，未加载 `hive.conf.resources` 指向的 hive-site.xml（legacy 用 fe-core `CatalogConfigFileUtils`，禁 import）。kerberos sasl.enabled/service-principal/auth_to_local 已移植；UGI doAs 经 `executeAuthenticated` FE 注入。
 
 ---
 
 ## 阶段日志（倒序）
+
+### 2026-06-09（B1 实现：flavor 装配，全 5 flavor，单 Catalog）
+- **用户签字 all-5-flavors**（非分阶段）；内部 2-dispatch 落地（dispatch1=offline core+paimon-core 3 flavor 活线；dispatch2=hms/dlf 活线+pom deps），每 dispatch implement→spec-review→quality-review→fix-loop→re-review，主线 firsthand 复跑构建。
+- **T04**：`PaimonConnectorProperties` 加全 flavor key 常量（HMS/REST/JDBC/DLF，多别名 `String[]`）。
+- **T05**：`PaimonConnectorProvider.validateProperties` override → `PaimonCatalogFactory.validate`（flavor 合法性 + 每-flavor 必需键 fail-fast：全 flavor warehouse / hms uri / jdbc uri+driver_class-if-driver_url / rest dlf-token requireIf / dlf ak·sk + endpoint-or-region）。
+- **T03**：新 `PaimonCatalogFactory`（纯 `buildCatalogOptions` flavor→`metastore` 映射[filesystem/hive/rest/jdbc] + 每-flavor opts + `paimon.*` 透传排除 storage 前缀；纯 `buildHadoopConfiguration`/`buildHmsHiveConf`/`buildDlfHiveConf`；`requireOssStorageForDlf`）；`PaimonConnector` 线程 `ConnectorContext`，`createCatalog` 全 5 flavor 活线（filesystem/jdbc=Options+Configuration，rest=Options-only，hms/dlf=HiveConf；全 `context.executeAuthenticated` 包裹；JDBC DriverShim 经 `getEnvironment` 替 `JdbcResource`）。
+- **pom**：加 `paimon-hive-connector-3.1` + `hadoop-common` + `hive-common`（compile，managed 版）；**弃 hive-catalog-shade** 避 fastutil 冲突（[[catalog-spi-fastutil-hive-shade-classpath]]）。
+- **2 新 blocker 已解（非 plan 预见）**：① JDBC `JdbcResource` 禁 import → `ConnectorContext.getEnvironment()`(`jdbc_drivers_dir`/`doris_home`)；② storage `Configuration` 由 fe-core `StorageProperties` 构建（禁）→ minimal 重建（`fs.*`/`dfs.*`/`hadoop.*` + `paimon.s3.*`→`fs.s3a.` normalize）。
+- **验证（主线 firsthand）**：`Tests run: 43, Failures: 0, Errors: 0, Skipped: 1`（PaimonCatalogFactoryTest 31 + ConnectorMetadataTest 9 + serde 2 + 1 live skip）+ BUILD SUCCESS + checkstyle 0 + import-gate 0。final holistic review = READY。
+- **纠偏**：recon「rest Options-only 无 warehouse 必需」证伪——legacy `AbstractPaimonProperties` warehouse `@ConnectorProperty` required 默认 true 且 rest 未 override → rest 同样必需 warehouse（已改齐 legacy parity）。
+- **翻闸(B7)硬门新增（详见「风险/开放问题」+ parity doc；live-e2e 必验，pre-cutover 离线不可测）**：① hms/dlf Thrift metastore client（`IMetaStoreClient`/`HiveMetaStoreClient`，DLF `ProxyMetaStoreClient`）连接器**不打包**，翻闸时由 FE host `hive-catalog-shade` 提供 + plugin child-first 下 `Configuration`/`HiveConf` 跨 loader 身份隐患须验（无 NoClassDefFound/LinkageError/ClassCastException）；② jdbc `driver_url` 的 FE 安全 allow-list（white-list/secure-path/jar 名校验）未接（须经 `ConnectorContext` hook，paimon 未入 SPI_READY_TYPES 故未触达）；③ HMS 外部 hive-site.xml 文件加载延后（legacy 用 fe-core `CatalogConfigFileUtils`，连接器禁 import）；④ 每-flavor live `createCatalog` + jdbc driver 注册离线不可测。
 
 ### 2026-06-09（B0 实现：测试基建 + parity baseline）
 - **T01**：抽 `PaimonCatalogOps` 注入式 seam（5 读方法，B0 只读）over 远端 Catalog；`PaimonConnectorMetadata` 6 调用点齐迁（读路径字节级不变，`Catalog` import 仅留两 NotExist catch）；`PaimonConnector` 装配；建测试模块 = no-mockito `RecordingPaimonCatalogOps` + `PaimonConnectorMetadataTest`（9 UT，钉 `databaseExists` try/catch 与 `getColumnHandles` reload-fallback，各带 WHY+MUTATION）+ `FakePaimonTable`（28 非读方法 fail-loud）+ env-gated `PaimonLiveConnectivityTest`。
@@ -212,6 +226,6 @@ B6 (procedure doc no-op, 独立)          │                                   
 
 ## 当前阻塞项
 
-- 无硬阻塞（D1=A / D2=A 已签字；**B0 已完成 2026-06-09**）。下一 session 起 **B1**（flavor 装配，单 Catalog 模型，T03/T04/T05；gated on D1，已签）；**B6**（procedure doc no-op，独立）可随时落。
-- 翻闸（B7）仍 gated on B2+B3+B4+B5 全完 + live e2e（用户真实 paimon 各 flavor 环境）。
-- B0 复用资产：seam（B1-B3 须扩 DDL 方法 + 同步 `RecordingPaimonCatalogOps`/`CatalogBackedPaimonCatalogOps`）；parity doc 是后续批次 gap 清单 + 翻闸门基准。
+- 无硬阻塞（D1=A / D2=A 已签字；**B0 + B1 已完成 2026-06-09**）。下一 session 起 **B2**（normal-read：T06 transient-Table reload BLOCKER / T07 session-TZ 谓词 / T08 listPartitions+lastModifiedMillis / T09 6-arg planScan 分区裁剪 / T10 连接器内 cache）；**B6**（procedure doc no-op，独立）可随时落。
+- 翻闸（B7）仍 gated on B2+B3+B4+B5 全完 + live e2e（用户真实 paimon 各 flavor 环境）。**B1 新增 4 个翻闸/live-e2e 硬门**（见阶段日志 B1 条 + 「风险/开放问题」）：hms/dlf metastore-client 跨 loader、jdbc driver_url 安全 allow-list、hive-site.xml 文件加载、live createCatalog——pre-cutover 不可离线测，翻闸前用户须 live 验。
+- B1 复用资产：`PaimonCatalogFactory`（纯 options/conf 构建器，B3 DDL 可复用 flavor 解析 + conf 构建）；seam（B2-B3 须扩 DDL 方法 + 同步 `RecordingPaimonCatalogOps`/`CatalogBackedPaimonCatalogOps`）；parity doc 是后续批次 gap 清单 + 翻闸门基准。
