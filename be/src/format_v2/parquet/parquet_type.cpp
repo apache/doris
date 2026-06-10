@@ -91,11 +91,13 @@ DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* colu
         return create_type(TYPE_TIMEV2, nullable, 0, 6);
     case ::parquet::ConvertedType::TIMESTAMP_MILLIS:
         result->is_timestamp = true;
+        result->timestamp_is_adjusted_to_utc = true;
         result->time_unit = ParquetTimeUnit::MILLIS;
         result->extra_type_info = ParquetExtraTypeInfo::UNIT_MS;
         return create_type(TYPE_DATETIMEV2, nullable, 0, 3);
     case ::parquet::ConvertedType::TIMESTAMP_MICROS:
         result->is_timestamp = true;
+        result->timestamp_is_adjusted_to_utc = true;
         result->time_unit = ParquetTimeUnit::MICROS;
         result->extra_type_info = ParquetExtraTypeInfo::UNIT_MICROS;
         return create_type(TYPE_DATETIMEV2, nullable, 0, 6);
@@ -185,6 +187,7 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
             return nullptr;
         }
         result->is_timestamp = true;
+        result->timestamp_is_adjusted_to_utc = timestamp_type.is_adjusted_to_utc();
         return create_type(TYPE_DATETIMEV2, nullable, 0, scale);
     }
     if (logical_type->is_int()) {

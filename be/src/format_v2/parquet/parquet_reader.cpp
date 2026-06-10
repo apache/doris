@@ -116,6 +116,9 @@ Status ParquetReader::init(RuntimeState* state) {
     _state = std::make_unique<ParquetReaderScanState>();
     _state->enable_bloom_filter =
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
+    if (state != nullptr) {
+        _state->scheduler.set_timezone(&state->timezone_obj());
+    }
     // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get()));
     // Build file schema from parquet metadata.

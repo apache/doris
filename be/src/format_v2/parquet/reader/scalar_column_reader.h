@@ -32,6 +32,10 @@ class RecordReader;
 } // namespace internal
 } // namespace parquet
 
+namespace cctz {
+class time_zone;
+} // namespace cctz
+
 namespace doris::parquet {
 
 class ScalarColumnReader final : public ParquetColumnReader {
@@ -39,6 +43,7 @@ public:
     ScalarColumnReader(const ParquetColumnSchema& column_schema,
                        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                        const ParquetPageSkipPlan* page_skip_plan = nullptr,
+                       const cctz::time_zone* timezone = nullptr,
                        ParquetColumnReaderProfile profile = {});
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
@@ -46,8 +51,8 @@ public:
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
     ArrowLeafReaderContext leaf_context() const {
-        return ArrowLeafReaderContext {_descriptor, _type_descriptor, _type,
-                                       _name,       _record_reader,   _profile};
+        return ArrowLeafReaderContext {_descriptor,    _type_descriptor, _type,    _name,
+                                       _record_reader, _profile,         _timezone};
     }
     void advance_rows_read(int64_t rows);
 
@@ -59,6 +64,7 @@ private:
     ParquetTypeDescriptor _type_descriptor;
     std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
     const ParquetPageSkipPlan* _page_skip_plan = nullptr;
+    const cctz::time_zone* _timezone = nullptr;
     int64_t _row_group_rows_read = 0;
 };
 

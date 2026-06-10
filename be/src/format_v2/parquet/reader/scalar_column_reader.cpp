@@ -32,12 +32,14 @@ namespace doris::parquet {
 ScalarColumnReader::ScalarColumnReader(
         const ParquetColumnSchema& column_schema,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
-        const ParquetPageSkipPlan* page_skip_plan, ParquetColumnReaderProfile profile)
+        const ParquetPageSkipPlan* page_skip_plan, const cctz::time_zone* timezone,
+        ParquetColumnReaderProfile profile)
         : ParquetColumnReader(column_schema, column_schema.type, profile),
           _descriptor(column_schema.descriptor),
           _type_descriptor(column_schema.type_descriptor),
           _record_reader(std::move(record_reader)),
-          _page_skip_plan(page_skip_plan) {}
+          _page_skip_plan(page_skip_plan),
+          _timezone(timezone) {}
 
 Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     if (column.get() == nullptr || rows_read == nullptr) {

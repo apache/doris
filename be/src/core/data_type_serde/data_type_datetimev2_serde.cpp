@@ -78,7 +78,7 @@ void append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
     }
 
     const int64_t daynr = EPOCH_DAYNR + days_since_epoch;
-    DORIS_CHECK(daynr > 0);
+    DORIS_CHECK(daynr > 0) << " " << daynr << " " << timestamp_micros << " " << days_since_epoch;
 
     DateV2Value<DateTimeV2ValueType> datetime_value;
     DORIS_CHECK(datetime_value.get_date_from_daynr(static_cast<uint64_t>(daynr)));
@@ -91,6 +91,24 @@ void append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
     const auto microsecond = static_cast<uint32_t>(micros_of_day % MICROS_PER_SECOND);
     datetime_value.unchecked_set_time(datetime_value.year(), datetime_value.month(),
                                       datetime_value.day(), hour, minute, second, microsecond);
+    data.push_back(datetime_value);
+}
+
+void append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
+                                             int64_t timestamp_micros,
+                                             const cctz::time_zone& timezone) {
+    static constexpr int64_t MICROS_PER_SECOND = 1000000;
+
+    int64_t epoch_seconds = timestamp_micros / MICROS_PER_SECOND;
+    int64_t micros_of_second = timestamp_micros % MICROS_PER_SECOND;
+    if (micros_of_second < 0) {
+        micros_of_second += MICROS_PER_SECOND;
+        --epoch_seconds;
+    }
+
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    datetime_value.from_unixtime(epoch_seconds, timezone);
+    datetime_value.set_microsecond(static_cast<uint32_t>(micros_of_second));
     data.push_back(datetime_value);
 }
 
@@ -526,13 +544,20 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
     }
 
     const auto* values = reinterpret_cast<const int64_t*>(view.values);
+    static const auto utc_timezone = cctz::utc_time_zone();
+    const auto& timezone = view.timezone == nullptr ? utc_timezone : *view.timezone;
     const int64_t second_mask = view.time_unit == DecodedTimeUnit::MILLIS ? 1000 : 1000000;
     for (int64_t row = 0; row < view.row_count; ++row) {
         if (decoded_column_view_row_is_null(view, row)) {
             data.push_back(DateV2Value<DateTimeV2ValueType>());
             continue;
         }
-        append_datetimev2_from_epoch_micros(data, values[row] * (1000000 / second_mask));
+        const int64_t timestamp_micros = values[row] * (1000000 / second_mask);
+        if (view.timestamp_is_adjusted_to_utc) {
+            append_datetimev2_from_utc_epoch_micros(data, timestamp_micros, timezone);
+        } else {
+            append_datetimev2_from_epoch_micros(data, timestamp_micros);
+        }
     }
     return Status::OK();
 }

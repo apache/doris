@@ -24,6 +24,10 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 
+namespace cctz {
+class time_zone;
+} // namespace cctz
+
 namespace doris {
 
 class IColumn;
@@ -57,9 +61,11 @@ struct DecodedColumnView {
     int decimal_precision = -1;
     int decimal_scale = -1;
     int fixed_length = -1;
+    bool timestamp_is_adjusted_to_utc = false;
     const uint8_t* values = nullptr;
     const uint8_t* null_map = nullptr;
     const std::vector<StringRef>* binary_values = nullptr;
+    const cctz::time_zone* timezone = nullptr;
 };
 
 inline bool decoded_column_view_row_is_null(const DecodedColumnView& view, int64_t row) {

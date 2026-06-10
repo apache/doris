@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -33,6 +34,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/string_ref.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -194,6 +196,29 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadDateAndDateTimeValues) {
         EXPECT_EQ(type->to_string(*column, 0), "1970-01-01 00:00:00.000000");
         EXPECT_EQ(type->to_string(*column, 1), "1970-01-01 00:00:01.234567");
         EXPECT_EQ(type->to_string(*column, 2), "1969-12-31 23:59:59.999999");
+    }
+    {
+        auto type = std::make_shared<DataTypeDateTimeV2>(6);
+        auto column = type->create_column();
+        const int64_t values[] = {0, 1234567, -1};
+        cctz::time_zone timezone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", timezone));
+
+        DecodedColumnView view;
+        view.value_kind = DecodedValueKind::INT64;
+        view.time_unit = DecodedTimeUnit::MICROS;
+        view.row_count = 3;
+        view.values = reinterpret_cast<const uint8_t*>(values);
+        view.timestamp_is_adjusted_to_utc = true;
+        view.timezone = &timezone;
+
+        auto st = type->get_serde()->read_column_from_decoded_values(*column, view);
+        ASSERT_TRUE(st.ok()) << st;
+
+        ASSERT_EQ(column->size(), 3);
+        EXPECT_EQ(type->to_string(*column, 0), "1970-01-01 08:00:00.000000");
+        EXPECT_EQ(type->to_string(*column, 1), "1970-01-01 08:00:01.234567");
+        EXPECT_EQ(type->to_string(*column, 2), "1970-01-01 07:59:59.999999");
     }
 }
 

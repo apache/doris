@@ -39,6 +39,10 @@ class ParquetFileReader;
 class RowGroupReader;
 } // namespace parquet
 
+namespace cctz {
+class time_zone;
+} // namespace cctz
+
 namespace doris {
 class Block;
 
@@ -107,6 +111,7 @@ public:
     void set_global_rowid_context(std::optional<format::GlobalRowIdContext> context) {
         _global_rowid_context = context;
     }
+    void set_timezone(const cctz::time_zone* timezone) { _timezone = timezone; }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
 
@@ -145,6 +150,7 @@ private:
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
+    const cctz::time_zone* _timezone = nullptr;
 };
 
 } // namespace doris::parquet

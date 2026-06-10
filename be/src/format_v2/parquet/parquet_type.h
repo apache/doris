@@ -67,6 +67,7 @@ struct ParquetTypeDescriptor {
     bool is_unsigned_integer = false;
     bool is_decimal = false;
     bool is_timestamp = false;
+    bool timestamp_is_adjusted_to_utc = false;
     bool is_string_like = false;
     bool supports_record_reader = true;
 };
