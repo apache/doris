@@ -124,7 +124,10 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
 
         const int64_t reclaimable_usage = inactive_file + active_file + slab_reclaimable;
         if (*value < reclaimable_usage) {
-            return Status::CgroupError("CgroupsV2Reader read_memory_usage negative memory usage");
+            return Status::CgroupError(
+                    "CgroupsV2Reader read_memory_usage negative memory usage, memory.current: {}, "
+                    "active_file: {}, inactive_file: {}, slab_reclaimable: {}",
+                    *value, active_file, inactive_file, slab_reclaimable);
         }
         // The reclaimable file cache described here should not be counted as used memory:
         // https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
