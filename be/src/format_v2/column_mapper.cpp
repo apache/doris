@@ -1608,11 +1608,12 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
             exists ? *existing_projection_it : scan_columns->back(), mapping));
     if (is_predicate_column) {
         // TODO: if the same column is used in both predicate and non-predicate projections, we can merge the two projections and only keep it in predicate_columns.
-        file_request->non_predicate_columns.erase(
-                std::ranges::find_if(
-                        file_request->non_predicate_columns,
-                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; }),
-                file_request->non_predicate_columns.end());
+        auto it = std::ranges::find_if(
+                file_request->non_predicate_columns,
+                [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
+        if (it != file_request->non_predicate_columns.end()) {
+            file_request->non_predicate_columns.erase(it);
+        }
     }
     return Status::OK();
 }

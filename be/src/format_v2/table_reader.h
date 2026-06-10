@@ -429,11 +429,12 @@ protected:
             scan_columns->push_back(LocalColumnIndex::top_level(column_id));
         }
         if (scan_columns == &request->predicate_columns) {
-            request->non_predicate_columns.erase(
-                    std::ranges::find_if(
-                            request->non_predicate_columns,
-                            [&](const LocalColumnIndex& p) { return p.column_id() == column_id; }),
-                    request->non_predicate_columns.end());
+            auto it = std::ranges::find_if(
+                    request->non_predicate_columns,
+                    [&](const LocalColumnIndex& p) { return p.column_id() == column_id; });
+            if (it != request->non_predicate_columns.end()) {
+                request->non_predicate_columns.erase(it);
+            }
         }
         if (column_id == LocalColumnId(ROW_POSITION_COLUMN_ID) &&
             _find_column_definition(_data_reader.file_schema, column_id) == nullptr) {
