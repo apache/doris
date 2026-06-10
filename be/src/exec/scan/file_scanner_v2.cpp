@@ -85,11 +85,16 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
 }
 
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
-    if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+    if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+        column_name == BeConsts::ICEBERG_ROWID_COL) {
         return false;
     }
     return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
                                       : !slot_info.is_file_slot;
+}
+
+bool is_scanner_materialized_virtual_column(const std::string& column_name) {
+    return column_name == BeConsts::ICEBERG_ROWID_COL;
 }
 
 bool parse_non_negative_int(std::string_view value, int32_t* result) {
@@ -502,6 +507,9 @@ Status build_nested_children_from_access_paths(format::ColumnDefinition* column,
                                                const TColumnAccessPaths& access_paths,
                                                const format::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
+    if (is_scanner_materialized_virtual_column(column->name)) {
+        return Status::OK();
+    }
     if (!is_complex_type(remove_nullable(column->type)->get_primitive_type())) {
         return Status::OK();
     }

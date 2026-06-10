@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -140,13 +141,14 @@ private:
     Status _init_position_delete_rows(const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
     // Materialize row lineage virtual columns based on the position delete file.
+    Status _materialize_iceberg_rowid(Block* table_block, size_t column_idx);
     Status _materialize_row_lineage_row_id(Block* table_block, size_t column_idx);
     Status _materialize_row_lineage_last_updated_sequence_number(Block* table_block,
                                                                  size_t column_idx);
 
     RowLineageColumns _row_lineage_columns;
     size_t _row_position_block_position = 0;
-    const TIcebergFileDesc* _iceberg_params = nullptr;
+    std::optional<TIcebergFileDesc> _iceberg_params;
     bool _delete_predicates_initialized = false;
     format::DeleteRows _position_delete_rows_storage;
     // TODO: Support nested types
@@ -158,6 +160,7 @@ private:
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
 
     bool _need_row_lineage_row_id() const;
+    bool _need_iceberg_rowid() const;
 };
 
 } // namespace doris::iceberg
