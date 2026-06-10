@@ -29,6 +29,7 @@ public:
     TableLiteral(const DataTypePtr& type, const Field& field) : VLiteral(type) {
         _data_type = type;
         _column_ptr = _data_type->create_column_const(1, field);
+        _node_type = TExprNodeType::LITERAL;
     }
 };
 

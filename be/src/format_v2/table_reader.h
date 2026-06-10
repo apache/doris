@@ -558,6 +558,26 @@ protected:
         return IColumn::mutate(std::move(column));
     }
 
+    static Status _align_column_nullability(ColumnPtr* column, const DataTypePtr& table_type) {
+        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(column->get() != nullptr);
+        DORIS_CHECK(table_type != nullptr);
+        *column = (*column)->convert_to_full_column_if_const();
+        if (table_type->is_nullable()) {
+            if (!(*column)->is_nullable()) {
+                *column = make_nullable(*column);
+            }
+        } else if ((*column)->is_nullable()) {
+            const auto& nullable_column = assert_cast<const ColumnNullable&>(**column);
+            if (nullable_column.has_null()) {
+                return Status::InternalError(
+                        "Default expression produced NULL for non-nullable table column");
+            }
+            *column = remove_nullable(*column);
+        }
+        return Status::OK();
+    }
+
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
         if (mapping.has_complex_projection && mapping.file_local_id.has_value() &&
@@ -582,6 +602,7 @@ protected:
                 int res_id;
                 RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
                 ColumnPtr result_column = current_block->get_by_position(res_id).column;
+                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
                 *column = _detach_column(std::move(result_column));
             } else {
                 DORIS_CHECK(mapping.constant_index.has_value());
@@ -591,6 +612,7 @@ protected:
                 int res_id;
                 RETURN_IF_ERROR(mapping.default_expr->execute(&eval_block, &res_id));
                 ColumnPtr result_column = eval_block.get_by_position(res_id).column;
+                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
                 *column = _detach_column(std::move(result_column));
             }
             return Status::OK();

@@ -90,6 +90,8 @@ enum TExprNodeType {
   SEARCH_EXPR = 42,
   // Normal predicate expression
   PREDICATE = 43,
+  // Normal literal
+  LITERAL = 44,
 }
 
 //enum TAggregationOp {

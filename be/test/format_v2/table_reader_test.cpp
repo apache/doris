@@ -2074,6 +2074,58 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, DefaultExprResultMatchesNullableTableType) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_nullable_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto missing_column = make_table_column(99, "c_new", make_nullable(int_type));
+    missing_column.default_expr = VExprContext::create_shared(
+            TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(42)));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(std::move(missing_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                            })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto& result = block.get_by_position(0);
+    EXPECT_TRUE(result.type->is_nullable());
+    ASSERT_TRUE(result.column->is_nullable());
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    ASSERT_EQ(nullable_column.size(), 1);
+    EXPECT_EQ(nullable_column.get_null_map_data()[0], 0);
+    const auto& values = assert_cast<const ColumnInt32&>(nullable_column.get_nested_column());
+    EXPECT_EQ(values.get_element(0), 42);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, ProjectedColumnsRejectParquetSchemaMismatchWhenMissingColumnsDisallowed) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_table_reader_schema_mismatch_reject_test";
