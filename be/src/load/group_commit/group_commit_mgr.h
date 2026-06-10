@@ -111,6 +111,10 @@ public:
     // counts of load in one group commit
     std::atomic_size_t group_commit_load_count = 0;
 
+    // only used by fault injection (debug point) to reproduce that multiple loads
+    // reuse one group commit plan and share a load_id
+    std::atomic<int> _debug_add_block_seq = 0;
+
     // the execute status of this internal group commit
     std::mutex mutex;
     std::atomic<bool> process_finish = false;
