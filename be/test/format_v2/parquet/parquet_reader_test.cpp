@@ -80,6 +80,26 @@ std::vector<int32_t> projection_ids(const std::vector<format::LocalColumnIndex>&
     return ids;
 }
 
+std::vector<std::string> struct_predicate_target_names(
+        const format::FileStructPredicateTarget* target) {
+    std::vector<std::string> names;
+    for (const auto* current = target; current != nullptr; current = current->child.get()) {
+        names.push_back(current->file_child_name);
+    }
+    return names;
+}
+
+void expect_struct_predicate_target(const format::FileColumnPredicateFilter& filter,
+                                    int32_t root_file_column_id,
+                                    const std::vector<int32_t>& child_id_path,
+                                    const std::vector<std::string>& child_name_path) {
+    ASSERT_TRUE(filter.target.is_valid());
+    EXPECT_EQ(filter.target.file_column_id.value(), root_file_column_id);
+    EXPECT_EQ(filter.effective_file_column_id().value(), root_file_column_id);
+    EXPECT_EQ(filter.effective_file_child_id_path(), child_id_path);
+    EXPECT_EQ(struct_predicate_target_names(filter.target.struct_target.get()), child_name_path);
+}
+
 void set_name_identifiers(format::ColumnDefinition* column, int32_t local_id) {
     DORIS_CHECK(column != nullptr);
     column->identifier = Field::create_field<TYPE_STRING>(column->name);
@@ -544,6 +564,7 @@ format::FileColumnPredicateFilter bloom_filter_with_predicate(
         const std::shared_ptr<ColumnPredicate>& predicate) {
     format::FileColumnPredicateFilter filter;
     filter.file_column_id = format::LocalColumnId(0);
+    filter.target = format::FileNestedPredicateTarget(filter.file_column_id);
     filter.predicates.push_back(predicate);
     return filter;
 }
@@ -788,6 +809,7 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
+    expect_struct_predicate_target(request.column_predicate_filters[0], 0, {0}, {"a"});
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
 
@@ -852,6 +874,7 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
+    expect_struct_predicate_target(request.column_predicate_filters[0], 0, {0}, {"file_id"});
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
 }
@@ -908,6 +931,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
+    expect_struct_predicate_target(request.column_predicate_filters[0], 0, {0}, {"a"});
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
 }
@@ -965,6 +989,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseCompariso
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
+    expect_struct_predicate_target(request.column_predicate_filters[0], 0, {0}, {"a"});
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
 }
@@ -1036,6 +1061,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0, 0}));
+    expect_struct_predicate_target(request.column_predicate_filters[0], 0, {0, 0}, {"a", "id"});
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
 }

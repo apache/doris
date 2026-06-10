@@ -564,15 +564,15 @@ const ParquetColumnSchema* find_child_schema_by_local_id(const ParquetColumnSche
 const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const format::FileColumnPredicateFilter& column_filter) {
-    if (!column_filter.file_column_id.is_valid() ||
-        column_filter.file_column_id.value() >= static_cast<int>(schema.size())) {
+    const auto file_column_id = column_filter.effective_file_column_id();
+    if (!file_column_id.is_valid() || file_column_id.value() >= static_cast<int>(schema.size())) {
         return nullptr;
     }
-    const ParquetColumnSchema* column_schema = schema[column_filter.file_column_id.value()].get();
+    const ParquetColumnSchema* column_schema = schema[file_column_id.value()].get();
     if (column_schema == nullptr) {
         return nullptr;
     }
-    for (const auto child_local_id : column_filter.file_child_id_path) {
+    for (const auto child_local_id : column_filter.effective_file_child_id_path()) {
         column_schema = find_child_schema_by_local_id(*column_schema, child_local_id);
         if (column_schema == nullptr) {
             return nullptr;

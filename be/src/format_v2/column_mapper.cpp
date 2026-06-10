@@ -612,13 +612,13 @@ static bool is_struct_element_expr(const VExprSPtr& expr) {
 // Transitional nested predicate extraction for file-layer pruning.
 //
 // Doris does not have a DuckDB-style TableFilter/StructFilter tree today, and ColumnPredicate
-// still represents predicates on one primitive column rather than a nested target. Until that is
-// refactored, keep the nested extension in the mapper: recognize struct_element(...) chains,
-// resolve them through split-local ColumnMapping, and attach the resulting primitive
-// ColumnPredicate to FileColumnPredicateFilter::file_child_id_path.
+// still represents predicates on one primitive column rather than a nested target. Keep that
+// contract explicit: recognize struct_element(...) chains in the mapper, resolve them through
+// split-local ColumnMapping, and attach the resulting primitive ColumnPredicate to a struct-only
+// FileNestedPredicateTarget carried by FileColumnPredicateFilter.
 //
 // This path is intentionally STRUCT-only. Do not add LIST/MAP/repeated predicate pushdown here;
-// those need an explicit nested target/quantifier model after the ColumnPredicate refactor.
+// those need an explicit nested target/quantifier model before they can be pruned safely.
 static bool parse_struct_child_selector(const VExprSPtr& expr, StructChildSelector* selector) {
     DORIS_CHECK(selector != nullptr);
     if (expr == nullptr || !expr->is_literal()) {
@@ -1003,9 +1003,49 @@ static const ColumnDefinition* resolve_file_leaf_from_projection(
 
 struct NestedPredicateTarget {
     LocalColumnIndex file_projection;
+    FileNestedPredicateTarget file_target;
     std::string leaf_name;
     DataTypePtr leaf_type;
 };
+
+static std::unique_ptr<FileStructPredicateTarget> build_struct_predicate_target_from_projection(
+        const std::vector<ColumnDefinition>& children, const LocalColumnIndex& projection) {
+    const auto child_it = std::ranges::find_if(children, [&](const ColumnDefinition& child) {
+        return child.file_local_id() == projection.field_id();
+    });
+    if (child_it == children.end()) {
+        return nullptr;
+    }
+    std::unique_ptr<FileStructPredicateTarget> nested_child;
+    if (!projection.children.empty()) {
+        if (projection.children.size() != 1) {
+            return nullptr;
+        }
+        nested_child = build_struct_predicate_target_from_projection(child_it->children,
+                                                                     projection.children[0]);
+        if (nested_child == nullptr) {
+            return nullptr;
+        }
+    }
+    return std::make_unique<FileStructPredicateTarget>(child_it->file_local_id(), child_it->name,
+                                                       std::move(nested_child));
+}
+
+static bool build_struct_predicate_target(const ColumnMapping& root_mapping,
+                                          const LocalColumnIndex& root_projection,
+                                          FileNestedPredicateTarget* file_target) {
+    DORIS_CHECK(file_target != nullptr);
+    if (!root_projection.column_id().is_valid() || root_projection.children.size() != 1) {
+        return false;
+    }
+    auto struct_target = build_struct_predicate_target_from_projection(
+            root_mapping.original_file_children, root_projection.children[0]);
+    if (struct_target == nullptr) {
+        return false;
+    }
+    *file_target = FileNestedPredicateTarget(root_projection.column_id(), std::move(struct_target));
+    return true;
+}
 
 static bool resolve_nested_predicate_target(const NestedStructPath& path,
                                             const std::vector<ColumnMapping>& mappings,
@@ -1023,6 +1063,10 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
     if (resolve_nested_projection_with_index_mapping(path, mappings, &target->file_projection,
                                                      &leaf_mapping) &&
         leaf_mapping != nullptr && leaf_mapping->file_type != nullptr) {
+        if (!build_struct_predicate_target(*mapping_it, target->file_projection,
+                                           &target->file_target)) {
+            return false;
+        }
         target->leaf_name = leaf_mapping->file_column_name;
         target->leaf_type = remove_nullable(leaf_mapping->file_type);
         return !is_complex_type(target->leaf_type->get_primitive_type());
@@ -1050,6 +1094,10 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
     target->leaf_name = file_leaf->name;
     target->file_projection = LocalColumnIndex::partial_field(*mapping_it->file_local_id);
     target->file_projection.children.push_back(std::move(child_projection));
+    if (!build_struct_predicate_target(*mapping_it, target->file_projection,
+                                       &target->file_target)) {
+        return false;
+    }
     return true;
 }
 
@@ -1238,6 +1286,7 @@ static bool extract_nested_binary_comparison_filter(const VExprSPtr& expr,
     }
     column_filter->file_column_id = target.file_projection.column_id();
     column_filter->file_child_id_path = std::move(file_child_id_path);
+    column_filter->target = std::move(target.file_target);
     column_filter->predicates.push_back(std::move(predicate));
     return true;
 }
@@ -1284,6 +1333,7 @@ static bool extract_nested_in_list_filter(const VExprSPtr& expr,
     }
     column_filter->file_column_id = target.file_projection.column_id();
     column_filter->file_child_id_path = std::move(file_child_id_path);
+    column_filter->target = std::move(target.file_target);
     column_filter->predicates.push_back(std::move(predicate));
     return true;
 }
@@ -1292,8 +1342,7 @@ static void merge_column_predicate_filter(FileColumnPredicateFilter column_filte
                                           std::vector<FileColumnPredicateFilter>* filters) {
     DORIS_CHECK(filters != nullptr);
     auto existing_filter_it = std::ranges::find_if(*filters, [&](const auto& existing_filter) {
-        return existing_filter.file_column_id == column_filter.file_column_id &&
-               existing_filter.file_child_id_path == column_filter.file_child_id_path;
+        return existing_filter.same_target_as(column_filter);
     });
     if (existing_filter_it == filters->end()) {
         filters->push_back(std::move(column_filter));
@@ -2066,6 +2115,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
         FileColumnPredicateFilter column_predicate_filter;
         column_predicate_filter.file_column_id = LocalColumnId(*mapping->file_local_id);
+        column_predicate_filter.target =
+                FileNestedPredicateTarget(column_predicate_filter.file_column_id);
         const auto file_primitive_type = remove_nullable(mapping->file_type)->get_primitive_type();
         for (const auto& predicate : predicates) {
             DORIS_CHECK(predicate != nullptr);

@@ -144,9 +144,13 @@ struct FileNestedPredicateTarget {
 - `file_child_name` 只用于 debug 和可读性，不作为读取 id。
 - `child == nullptr` 表示当前 field 是 primitive leaf target。
 
-当前实现可以继续用 `file_child_id_path` 作为兼容存储，但它只表示 struct field 链。后续如果
-重构 `ColumnPredicate` / nested filter target，应优先把它替换为上面的 struct-only target，
-而不是在 `file_child_id_path` 上继续扩展额外语义。
+Phase 4 后 `FileNestedPredicateTarget` 是 canonical nested pruning target。
+`FileColumnPredicateFilter` 过渡期仍保留 `file_child_id_path` 作为兼容字段，但它只表示 struct
+field 链，file reader / statistics / page index / bloom filter 等文件层 pruning 逻辑应优先消费
+`FileNestedPredicateTarget`，仅对旧调用点 fallback 到 `file_child_id_path`。
+
+后续扩展 nested predicate 时，必须继续扩展 typed target / filter tree，而不是在
+`file_child_id_path` 上叠加 list/map/quantifier 等额外语义。
 
 ### 3.3 read projection
 
@@ -531,9 +535,11 @@ selected read 必须按 table row 选择，而不是按 leaf value 选择：
 
 ### Phase 4: ColumnPredicate / nested filter target 重构
 
-- 明确是否引入 DuckDB 风格的 `StructFilter` / nested filter tree。
-- 或将 `FileColumnPredicateFilter` 扩展为 struct-only nested target。
-- 统一 nested target、literal cast、schema mapping、file-layer pruning 的职责边界。
+- 不引入完整 DuckDB 风格 `TableFilter` / `StructFilter` tree。
+- 将 `FileColumnPredicateFilter` 扩展为 struct-only `FileNestedPredicateTarget`。
+- `ColumnPredicate` 继续只表达 primitive predicate，不承载 nested path。
+- mapper 负责 table expr -> file-local struct target、literal cast、schema mapping。
+- file reader / statistics / dictionary / page index / bloom filter 只消费 file-local nested target。
 
 ### Phase 5: 扩展 predicate 和 pruning
 
