@@ -118,6 +118,8 @@ fe/fe-core/src/main/java/org/apache/doris/nereids            @morrySnow @9240609
 fe/fe-core/src/main/java/org/apache/doris/persist            @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/persist/gson       @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/persist/meta       @mymeiyi @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/qe                 @morrySnow @924060929
+fe/fe-core/src/main/java/org/apache/doris/statistics         @morrySnow @englefly @yujun777
 fe/fe-core/src/test/java/org/apache/doris/alter              @luwei16 @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/backup             @luwei16 @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/binlog             @luwei16 @gavinchou
