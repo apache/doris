@@ -1299,7 +1299,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         List<String> validComments = Lists.newArrayList(
                 "SELECT 1 as a /* this is comment */, 1",
-                "SELECT 1 as a /* this is comment /* */ */, 1",
+                // non-nesting: `/*` closes at the first `*/` (inside `/* */`), leaving `, 1`
                 "SELECT 1 as a /* this is comment /* */, 1",
                 "SELECT 1 as a /* this is comment -- */, 1",
                 "SELECT 1 as a -- this is comment\n, 1",
@@ -1313,7 +1313,9 @@ public class NereidsParserTest extends ParserTestBase {
 
         List<String> invalidComments = Lists.newArrayList(
                 "SELECT 1 as a /* this is comment */*/, 1",
-                "SELECT 1 as a /* this is comment, 1"
+                "SELECT 1 as a /* this is comment, 1",
+                // non-nesting: first `*/` closes the comment, leaving ` */` as a stray HINT_END token
+                "SELECT 1 as a /* this is comment /* */ */, 1"
         );
 
         for (String sql : invalidComments) {
