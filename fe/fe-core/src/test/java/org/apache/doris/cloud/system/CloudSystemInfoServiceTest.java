@@ -973,6 +973,21 @@ public class CloudSystemInfoServiceTest {
         }
     }
 
+    @Test
+    public void testContainsCloudCluster() {
+        infoService = new CloudSystemInfoService();
+        // Empty / null inputs short-circuit without touching the map.
+        Assert.assertFalse(infoService.containsCloudCluster(null));
+        Assert.assertFalse(infoService.containsCloudCluster(""));
+        // Unknown cluster name -> false.
+        Assert.assertFalse(infoService.containsCloudCluster("absent_cluster"));
+        // Register a cluster; lookup must hit.
+        infoService.addVirtualClusterInfoToMapsNoLock("cid_1", "cluster_1");
+        Assert.assertTrue(infoService.containsCloudCluster("cluster_1"));
+        // Different name in same map -> still false.
+        Assert.assertFalse(infoService.containsCloudCluster("cluster_2"));
+    }
+
     /**
      * Helper method to create a test ConnectContext with specific cluster name
      */
