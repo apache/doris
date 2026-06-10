@@ -1378,7 +1378,6 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
@@ -1534,7 +1533,6 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .allow_missing_columns = true,
-                                    .profile = nullptr,
                             })
                         .ok());
     ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
