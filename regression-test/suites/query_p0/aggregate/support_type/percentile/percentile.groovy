@@ -38,6 +38,13 @@ suite("percentile") {
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
     """
+    qt_percentile_tinyint_empty """select percentile(col_tinyint, 0.5) from d_table;"""
+    qt_percentile_smallint_empty """select percentile(col_smallint, 0.5) from d_table;"""
+    qt_percentile_int_empty """select percentile(col_int, 0.5) from d_table;"""
+    qt_percentile_bigint_empty """select percentile(col_bigint, 0.5) from d_table;"""
+    qt_percentile_largeint_empty """select percentile(col_largeint, 0.5) from d_table;"""
+    qt_percentile_float_empty """select percentile(col_float, 0.5) from d_table;"""
+    qt_percentile_double_empty """select percentile(col_double, 0.5) from d_table;"""
 
     // 插入测试数据
     sql """
