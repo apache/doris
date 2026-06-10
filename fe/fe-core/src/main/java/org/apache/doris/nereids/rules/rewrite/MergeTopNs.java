@@ -30,7 +30,8 @@ import java.util.List;
  * <p>
  * topN - child topN
  * If child topN orderby list is prefix subList of topN =>
- * topN with limit = min(topN.limit, childTopN.limit), offset = topN.offset + childTopN.offset
+ * topN with limit = min(topN.limit, max(childTopN.limit - topN.offset, 0)),
+ *         offset = topN.offset + childTopN.offset
  */
 public class MergeTopNs extends OneRewriteRuleFactory {
     @Override
@@ -48,8 +49,12 @@ public class MergeTopNs extends OneRewriteRuleFactory {
                     long childOffset = childTopN.getOffset();
                     long childLimit = childTopN.getLimit();
                     long newOffset = offset + childOffset;
-                    // choose min limit
-                    long newLimit = Math.min(limit, childLimit);
+                    // The parent's offset is applied on top of the child's output, so only
+                    // (childLimit - offset) of the child's rows survive. Clamp the merged limit
+                    // by that remaining count; otherwise rows beyond the child's limit leak through
+                    // when the parent has a non-zero offset (DORIS-26301). Same semantics as
+                    // MergeLimits.mergeLimit for consecutive limits.
+                    long newLimit = Math.min(limit, Math.max(childLimit - offset, 0));
                     return topN.withLimitChild(newLimit, newOffset, childTopN.child());
                 }).toRule(RuleType.MERGE_TOP_N);
     }
