@@ -87,7 +87,8 @@ const char* const DorisFSDirectory::WRITE_LOCK_FILE = "write.lock";
 
 bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
                                           IndexInput*& ret, CLuceneError& error,
-                                          int32_t buffer_size, int64_t file_size) {
+                                          int32_t buffer_size, int64_t file_size,
+                                          int64_t tablet_id) {
     CND_PRECONDITION(path != nullptr, "path is NULL");
 
     if (buffer_size == -1) {
@@ -100,6 +101,7 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
                                                           : io::FileCachePolicy::NO_CACHE;
     reader_options.is_doris_table = true;
     reader_options.file_size = file_size;
+    reader_options.tablet_id = tablet_id;
     Status st = fs->open_file(path, &h->_reader, &reader_options);
     DBUG_EXECUTE_IF("inverted file read error: index file not found",
                     { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
