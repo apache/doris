@@ -4700,7 +4700,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setRuntimeFilterType(int runtimeFilterType) {
-        this.runtimeFilterType = normalizeRuntimeFilterType(runtimeFilterType);
+        this.runtimeFilterType = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(runtimeFilterType);
     }
 
     public int getRuntimeFilterMaxInNum() {
@@ -5787,13 +5787,9 @@ public class SessionVariable implements Serializable, Writable {
     private static int normalizeIntValue(String name, String value) {
         int intValue = Integer.valueOf(value);
         if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
-            return normalizeRuntimeFilterType(intValue);
+            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
         }
         return intValue;
-    }
-
-    private static int normalizeRuntimeFilterType(int runtimeFilterType) {
-        return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(runtimeFilterType);
     }
 
     /**
