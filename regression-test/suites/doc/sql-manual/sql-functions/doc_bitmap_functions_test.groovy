@@ -19,16 +19,28 @@ suite("doc_bitmap_functions_test") {
     qt_bitmap_to_base64_null '''
         SELECT bitmap_to_base64(NULL);
     '''
+    testFoldConst('''
+        SELECT bitmap_to_base64(NULL);
+    ''')
 
     qt_bitmap_to_base64_empty '''
         SELECT bitmap_to_base64(bitmap_empty());
     '''
+    testFoldConst('''
+        SELECT bitmap_to_base64(bitmap_empty());
+    ''')
 
     qt_bitmap_to_base64_single '''
         SELECT bitmap_to_base64(to_bitmap(1));
     '''
+    testFoldConst('''
+        SELECT bitmap_to_base64(to_bitmap(1));
+    ''')
 
     qt_bitmap_to_base64_multi '''
         SELECT bitmap_to_base64(bitmap_from_string("1,9999999"));
     '''
+    testFoldConst('''
+        SELECT bitmap_to_base64(bitmap_from_string("1,9999999"));
+    ''')
 }

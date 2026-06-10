@@ -19,12 +19,21 @@ suite("doc_numeric_functions_test") {
     qt_fmod_normal '''
         SELECT fmod(10.1, 3.2);
     '''
+    testFoldConst('''
+        SELECT fmod(10.1, 3.2);
+    ''')
 
     qt_fmod_zero '''
         SELECT fmod(10.1, 0);
     '''
+    testFoldConst('''
+        SELECT fmod(10.1, 0);
+    ''')
 
     qt_fmod_null '''
         SELECT fmod(10.1, NULL);
     '''
+    testFoldConst('''
+        SELECT fmod(10.1, NULL);
+    ''')
 }

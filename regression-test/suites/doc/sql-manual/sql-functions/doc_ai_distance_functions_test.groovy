@@ -19,8 +19,14 @@ suite("doc_ai_distance_functions_test") {
     qt_cosine_distance '''
         SELECT COSINE_DISTANCE([1, 2], [2, 3]), COSINE_DISTANCE([3, 6], [4, 7]);
     '''
+    testFoldConst('''
+        SELECT COSINE_DISTANCE([1, 2], [2, 3]), COSINE_DISTANCE([3, 6], [4, 7]);
+    ''')
 
     qt_l2_distance '''
         SELECT L2_DISTANCE([4, 5], [6, 8]), L2_DISTANCE([3, 6], [4, 5]);
     '''
+    testFoldConst('''
+        SELECT L2_DISTANCE([4, 5], [6, 8]), L2_DISTANCE([3, 6], [4, 5]);
+    ''')
 }
