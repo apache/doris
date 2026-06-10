@@ -33,13 +33,14 @@ ScalarColumnReader::ScalarColumnReader(
         const ParquetColumnSchema& column_schema,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
         const ParquetPageSkipPlan* page_skip_plan, const cctz::time_zone* timezone,
-        ParquetColumnReaderProfile profile)
+        bool enable_strict_mode, ParquetColumnReaderProfile profile)
         : ParquetColumnReader(column_schema, column_schema.type, profile),
           _descriptor(column_schema.descriptor),
           _type_descriptor(column_schema.type_descriptor),
           _record_reader(std::move(record_reader)),
           _page_skip_plan(page_skip_plan),
-          _timezone(timezone) {}
+          _timezone(timezone),
+          _enable_strict_mode(enable_strict_mode) {}
 
 Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     if (column.get() == nullptr || rows_read == nullptr) {
@@ -56,7 +57,10 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
 
     NullMap null_map;
     RETURN_IF_ERROR(build_leaf_null_map(context, *record_reader, *rows_read, &null_map));
-    if (record_reader->read_dense_for_nullable() && !null_map.empty()) {
+    const auto value_kind = decoded_value_kind(_type_descriptor);
+    const bool is_binary_value =
+            value_kind == DecodedValueKind::BINARY || value_kind == DecodedValueKind::FIXED_BINARY;
+    if (!is_binary_value && record_reader->read_dense_for_nullable() && !null_map.empty()) {
         const int64_t non_null_count = static_cast<int64_t>(simd::count_zero_num(
                 reinterpret_cast<const int8_t*>(null_map.data()), null_map.size()));
         const int64_t null_count = *rows_read - non_null_count;
@@ -66,7 +70,7 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                     "records={}, nulls={}",
                     _name, record_reader->values_written(), *rows_read, null_count);
         }
-    } else if (!record_reader->read_dense_for_nullable() &&
+    } else if (!is_binary_value && !record_reader->read_dense_for_nullable() &&
                record_reader->values_written() != *rows_read) {
         return Status::Corruption(
                 "Invalid parquet record read result for column {}: values={}, records={}", _name,

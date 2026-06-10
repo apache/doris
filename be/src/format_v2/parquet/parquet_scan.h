@@ -112,6 +112,9 @@ public:
         _global_rowid_context = context;
     }
     void set_timezone(const cctz::time_zone* timezone) { _timezone = timezone; }
+    void set_enable_strict_mode(bool enable_strict_mode) {
+        _enable_strict_mode = enable_strict_mode;
+    }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
 
@@ -151,6 +154,7 @@ private:
     ParquetScanProfile _scan_profile;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
+    bool _enable_strict_mode = false;
 };
 
 } // namespace doris::parquet

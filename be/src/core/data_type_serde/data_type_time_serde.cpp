@@ -175,7 +175,9 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
 Status DataTypeTimeV2SerDe::read_column_from_decoded_values(IColumn& column,
                                                             const DecodedColumnView& view) const {
     if (view.value_kind != DecodedValueKind::INT32 && view.value_kind != DecodedValueKind::INT64) {
-        return Status::NotSupported("TIMEV2 decoded reader expects INT32 or INT64 source");
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("TIMEV2 decoded reader expects INT32 or INT64 source"));
     }
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());

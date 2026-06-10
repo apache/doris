@@ -20,6 +20,8 @@
 #include <arrow/builder.h>
 
 #include <cstdint>
+#include <limits>
+#include <type_traits>
 
 #include "common/exception.h"
 #include "common/status.h"
@@ -51,6 +53,28 @@ const NativeType* decoded_values_as(const DecodedColumnView& view) {
     return reinterpret_cast<const NativeType*>(view.values);
 }
 
+template <typename DorisCppType, typename SourceType>
+bool decoded_number_value_fits(SourceType value) {
+    if constexpr (std::is_floating_point_v<DorisCppType>) {
+        return true;
+    } else if constexpr (std::is_same_v<DorisCppType, UInt8>) {
+        return value == SourceType(0) || value == SourceType(1);
+    } else if constexpr (std::is_signed_v<SourceType>) {
+        const auto int128_value = static_cast<Int128>(value);
+        return int128_value >= static_cast<Int128>(std::numeric_limits<DorisCppType>::lowest()) &&
+               int128_value <= static_cast<Int128>(std::numeric_limits<DorisCppType>::max());
+    } else {
+        const auto uint128_value = static_cast<unsigned __int128>(value);
+        if constexpr (std::is_signed_v<DorisCppType>) {
+            return uint128_value <=
+                   static_cast<unsigned __int128>(std::numeric_limits<DorisCppType>::max());
+        } else {
+            return uint128_value <=
+                   static_cast<unsigned __int128>(std::numeric_limits<DorisCppType>::max());
+        }
+    }
+}
+
 template <PrimitiveType DorisType, typename SourceType>
 Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view) {
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
@@ -58,12 +82,22 @@ Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view
     }
     auto& data =
             assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    const auto old_size = data.size();
     const auto* values = decoded_values_as<SourceType>(view);
     for (int64_t row = 0; row < view.row_count; ++row) {
         using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
         if (decoded_column_view_row_is_null(view, row)) {
             data.push_back(DorisCppType());
             continue;
+        }
+        if (!decoded_number_value_fits<DorisCppType>(values[row])) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError("Decoded value is out of range for {} at row {}",
+                                            column.get_name(), row);
         }
         data.push_back(static_cast<DorisCppType>(values[row]));
     }
@@ -215,8 +249,10 @@ Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
             return read_number_decoded_values<TYPE_DOUBLE, double>(column, view);
         }
     }
-    return Status::NotSupported("Unsupported decoded values for {} from source kind {}", get_name(),
-                                static_cast<int>(view.value_kind));
+    return decoded_column_view_handle_conversion_failure(
+            column, view,
+            Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                 get_name(), static_cast<int>(view.value_kind)));
 }
 
 template <PrimitiveType T>

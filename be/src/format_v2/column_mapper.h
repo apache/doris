@@ -62,6 +62,7 @@ enum TableVirtualColumnType {
     INVALID = 0, // not a virtual column
     ROW_ID = 1,
     LAST_UPDATED_SEQUENCE_NUMBER = 2,
+    ICEBERG_ROWID = 3,
 };
 
 enum class FilterConversionType {

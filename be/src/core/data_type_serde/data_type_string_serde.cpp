@@ -39,6 +39,14 @@ Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view
             continue;
         }
         const auto& value = (*view.binary_values)[row];
+        if (value.data == nullptr && value.size > 0) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            return Status::Corruption("Decoded string binary value is null for {} at row {}",
+                                      column.get_name(), row);
+        }
         string_column.insert_data(value.data, value.size);
     }
     return Status::OK();
@@ -339,8 +347,10 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_decoded_values(
         IColumn& column, const DecodedColumnView& view) const {
     if (view.value_kind != DecodedValueKind::BINARY &&
         view.value_kind != DecodedValueKind::FIXED_BINARY) {
-        return Status::NotSupported("Unsupported decoded values for {} from source kind {}",
-                                    get_name(), static_cast<int>(view.value_kind));
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                     get_name(), static_cast<int>(view.value_kind)));
     }
     return read_string_decoded_values<ColumnType>(column, view);
 }

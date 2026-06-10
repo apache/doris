@@ -240,6 +240,7 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
     view.fixed_length = context.type_descriptor.fixed_length;
     view.timestamp_is_adjusted_to_utc = context.type_descriptor.timestamp_is_adjusted_to_utc;
     view.timezone = context.timezone;
+    view.enable_strict_mode = context.enable_strict_mode;
     view.null_map = null_map == nullptr || null_map->empty() ? nullptr : null_map->data();
     const bool read_dense_for_nullable =
             record_reader.read_dense_for_nullable() && view.null_map != nullptr;

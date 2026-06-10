@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -44,6 +45,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/column_data.h"
@@ -429,11 +431,12 @@ protected:
             scan_columns->push_back(LocalColumnIndex::top_level(column_id));
         }
         if (scan_columns == &request->predicate_columns) {
-            request->non_predicate_columns.erase(
-                    std::ranges::find_if(
-                            request->non_predicate_columns,
-                            [&](const LocalColumnIndex& p) { return p.column_id() == column_id; }),
-                    request->non_predicate_columns.end());
+            auto it = std::ranges::find_if(
+                    request->non_predicate_columns,
+                    [&](const LocalColumnIndex& p) { return p.column_id() == column_id; });
+            if (it != request->non_predicate_columns.end()) {
+                request->non_predicate_columns.erase(it);
+            }
         }
         if (column_id == LocalColumnId(ROW_POSITION_COLUMN_ID) &&
             _find_column_definition(_data_reader.file_schema, column_id) == nullptr) {
@@ -557,6 +560,98 @@ protected:
         return IColumn::mutate(std::move(column));
     }
 
+    static Status _align_column_nullability(ColumnPtr* column, const DataTypePtr& table_type) {
+        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(column->get() != nullptr);
+        DORIS_CHECK(table_type != nullptr);
+        if (const auto* const_column = check_and_get_column<ColumnConst>(column->get())) {
+            ColumnPtr data_column = const_column->get_data_column_ptr();
+            RETURN_IF_ERROR(_align_column_nullability(&data_column, table_type));
+            *column = ColumnConst::create(data_column, const_column->size());
+            return Status::OK();
+        }
+        if (table_type->is_nullable()) {
+            const auto& nested_type =
+                    assert_cast<const DataTypeNullable&>(*table_type).get_nested_type();
+            if (!(*column)->is_nullable()) {
+                RETURN_IF_ERROR(_align_column_nullability(column, nested_type));
+                *column = make_nullable(*column);
+                return Status::OK();
+            }
+            const auto& nullable_column = assert_cast<const ColumnNullable&>(**column);
+            ColumnPtr nested_column = nullable_column.get_nested_column_ptr();
+            RETURN_IF_ERROR(_align_column_nullability(&nested_column, nested_type));
+            *column = ColumnNullable::create(nested_column,
+                                             nullable_column.get_null_map_column_ptr());
+            return Status::OK();
+        }
+        if ((*column)->is_nullable()) {
+            const auto& nullable_column = assert_cast<const ColumnNullable&>(**column);
+            if (nullable_column.has_null()) {
+                return Status::InternalError(
+                        "Default expression produced NULL for non-nullable table column");
+            }
+            ColumnPtr nested_column = nullable_column.get_nested_column_ptr();
+            RETURN_IF_ERROR(_align_column_nullability(&nested_column, table_type));
+            *column = nested_column;
+            return Status::OK();
+        }
+        if (const auto* array_type = typeid_cast<const DataTypeArray*>(table_type.get())) {
+            const auto& array_column = assert_cast<const ColumnArray&>(**column);
+            ColumnPtr nested_column = array_column.get_data_ptr();
+            RETURN_IF_ERROR(
+                    _align_column_nullability(&nested_column, array_type->get_nested_type()));
+            *column = ColumnArray::create(nested_column, array_column.get_offsets_ptr());
+            return Status::OK();
+        }
+        if (const auto* map_type = typeid_cast<const DataTypeMap*>(table_type.get())) {
+            const auto& map_column = assert_cast<const ColumnMap&>(**column);
+            ColumnPtr key_column = map_column.get_keys_ptr();
+            ColumnPtr value_column = map_column.get_values_ptr();
+            RETURN_IF_ERROR(_align_column_nullability(&key_column, map_type->get_key_type()));
+            RETURN_IF_ERROR(_align_column_nullability(&value_column, map_type->get_value_type()));
+            *column = ColumnMap::create(key_column, value_column, map_column.get_offsets_ptr());
+            return Status::OK();
+        }
+        if (const auto* struct_type = typeid_cast<const DataTypeStruct*>(table_type.get())) {
+            const auto& struct_column = assert_cast<const ColumnStruct&>(**column);
+            Columns columns = struct_column.get_columns_copy();
+            DORIS_CHECK(columns.size() == struct_type->get_elements().size());
+            for (size_t i = 0; i < columns.size(); ++i) {
+                RETURN_IF_ERROR(
+                        _align_column_nullability(&columns[i], struct_type->get_element(i)));
+            }
+            *column = ColumnStruct::create(columns);
+            return Status::OK();
+        }
+        return Status::OK();
+    }
+
+    static Status _execute_default_expr_without_root_type_check(
+            const VExprContextSPtr& default_expr, const Block* block,
+            ColumnWithTypeAndName* result_data) {
+        DORIS_CHECK(default_expr != nullptr);
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(result_data != nullptr);
+        ColumnPtr result_column;
+        Status st;
+        RETURN_IF_CATCH_EXCEPTION({
+            st = default_expr->root()->execute_column_impl(default_expr.get(), block, nullptr,
+                                                           block->rows(), result_column);
+        });
+        RETURN_IF_ERROR(st);
+        DORIS_CHECK(result_column.get() != nullptr);
+        if (result_column->size() != block->rows()) {
+            return Status::InternalError(
+                    "Default expr {} return column size {} not equal to expected size {}",
+                    default_expr->expr_name(), result_column->size(), block->rows());
+        }
+        result_data->column = result_column;
+        result_data->type = default_expr->execute_type(block);
+        result_data->name = default_expr->expr_name();
+        return Status::OK();
+    }
+
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
         if (mapping.has_complex_projection && mapping.file_local_id.has_value() &&
@@ -578,18 +673,22 @@ protected:
         }
         if (mapping.default_expr != nullptr) {
             if (current_block->rows() == rows) {
-                int res_id;
-                RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
-                ColumnPtr result_column = current_block->get_by_position(res_id).column;
+                ColumnWithTypeAndName result;
+                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
+                        mapping.default_expr, current_block, &result));
+                ColumnPtr result_column = result.column;
+                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
                 *column = _detach_column(std::move(result_column));
             } else {
                 DORIS_CHECK(mapping.constant_index.has_value());
                 Block eval_block;
                 eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
                                    mapping.table_type, "__table_reader_const_rows"});
-                int res_id;
-                RETURN_IF_ERROR(mapping.default_expr->execute(&eval_block, &res_id));
-                ColumnPtr result_column = eval_block.get_by_position(res_id).column;
+                ColumnWithTypeAndName result;
+                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
+                        mapping.default_expr, &eval_block, &result));
+                ColumnPtr result_column = result.column;
+                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
                 *column = _detach_column(std::move(result_column));
             }
             return Status::OK();

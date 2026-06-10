@@ -62,8 +62,8 @@ struct DecodedInt96Timestamp {
 #pragma pack()
 static_assert(sizeof(DecodedInt96Timestamp) == 12);
 
-void append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
-                                         int64_t timestamp_micros) {
+Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
+                                           int64_t timestamp_micros) {
     static constexpr int64_t MICROS_PER_SECOND = 1000000;
     static constexpr int64_t MICROS_PER_MINUTE = MICROS_PER_SECOND * 60;
     static constexpr int64_t MICROS_PER_HOUR = MICROS_PER_MINUTE * 60;
@@ -78,10 +78,18 @@ void append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
     }
 
     const int64_t daynr = EPOCH_DAYNR + days_since_epoch;
-    DORIS_CHECK(daynr > 0) << " " << daynr << " " << timestamp_micros << " " << days_since_epoch;
+    if (daynr <= 0) {
+        return Status::DataQualityError(
+                "Decoded DATETIMEV2 timestamp is out of range: micros={}, daynr={}",
+                timestamp_micros, daynr);
+    }
 
     DateV2Value<DateTimeV2ValueType> datetime_value;
-    DORIS_CHECK(datetime_value.get_date_from_daynr(static_cast<uint64_t>(daynr)));
+    if (!datetime_value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+        return Status::DataQualityError(
+                "Decoded DATETIMEV2 timestamp is out of range: micros={}, daynr={}",
+                timestamp_micros, daynr);
+    }
 
     const auto hour = static_cast<uint8_t>(micros_of_day / MICROS_PER_HOUR);
     micros_of_day %= MICROS_PER_HOUR;
@@ -92,6 +100,7 @@ void append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
     datetime_value.unchecked_set_time(datetime_value.year(), datetime_value.month(),
                                       datetime_value.day(), hour, minute, second, microsecond);
     data.push_back(datetime_value);
+    return Status::OK();
 }
 
 void append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
@@ -525,12 +534,15 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
 Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
         IColumn& column, const DecodedColumnView& view) const {
     if (view.value_kind != DecodedValueKind::INT64 && view.value_kind != DecodedValueKind::INT96) {
-        return Status::NotSupported("DATETIMEV2 decoded reader expects INT64 or INT96 source");
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("DATETIMEV2 decoded reader expects INT64 or INT96 source"));
     }
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
     auto& data = assert_cast<ColumnDateTimeV2&>(column).get_data();
+    const auto old_size = data.size();
     if (view.value_kind == DecodedValueKind::INT96) {
         const auto* values = reinterpret_cast<const DecodedInt96Timestamp*>(view.values);
         for (int64_t row = 0; row < view.row_count; ++row) {
@@ -538,7 +550,15 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
                 data.push_back(DateV2Value<DateTimeV2ValueType>());
                 continue;
             }
-            append_datetimev2_from_epoch_micros(data, values[row].to_timestamp_micros());
+            auto st = append_datetimev2_from_epoch_micros(data, values[row].to_timestamp_micros());
+            if (!st.ok()) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
+                data.resize(old_size);
+                return st;
+            }
         }
         return Status::OK();
     }
@@ -556,7 +576,15 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
         if (view.timestamp_is_adjusted_to_utc) {
             append_datetimev2_from_utc_epoch_micros(data, timestamp_micros, timezone);
         } else {
-            append_datetimev2_from_epoch_micros(data, timestamp_micros);
+            auto st = append_datetimev2_from_epoch_micros(data, timestamp_micros);
+            if (!st.ok()) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
+                data.resize(old_size);
+                return st;
+            }
         }
     }
     return Status::OK();

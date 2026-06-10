@@ -52,6 +52,7 @@ struct ArrowLeafReaderContext {
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     ParquetColumnReaderProfile profile;
     const cctz::time_zone* timezone = nullptr;
+    bool enable_strict_mode = false;
 
     const std::string& column_name() const { return name; }
     const DataTypePtr& data_type() const { return type; }

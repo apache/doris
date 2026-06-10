@@ -375,6 +375,8 @@ Status DataTypeNullableSerDe::read_column_from_decoded_values(IColumn& column,
         }
     }
     DecodedColumnView nested_view = view;
+    nested_view.conversion_failure_null_map = &null_map;
+    nested_view.conversion_failure_null_map_offset = old_size;
     auto st = nested_serde->read_column_from_decoded_values(nested_column, nested_view);
     if (!st.ok()) {
         null_map.resize(old_size);

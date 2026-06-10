@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -503,6 +504,26 @@ TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
     std::vector<TColumnAccessPath> access_paths;
     access_paths.push_back(data_access_path({"s"}));
     access_paths.push_back(data_access_path({"s", "a"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(column.children.empty());
+}
+
+TEST(FileScannerV2Test, IcebergRowidSkipsNegativeAccessPath) {
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto rowid_type = std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, std::make_shared<DataTypeInt64>(),
+                       std::make_shared<DataTypeInt32>(), string_type},
+            Strings {"file_path", "row_pos", "partition_spec_id", "partition_data_json"});
+    format::ColumnDefinition column {
+            .identifier = Field::create_field<TYPE_STRING>(BeConsts::ICEBERG_ROWID_COL),
+            .name = BeConsts::ICEBERG_ROWID_COL,
+            .type = rowid_type,
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"-1"}));
     auto status =
             FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
     ASSERT_TRUE(status.ok()) << status;

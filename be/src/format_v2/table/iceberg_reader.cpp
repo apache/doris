@@ -28,6 +28,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
@@ -67,14 +68,14 @@ Status IcebergTableReader::PositionDeleteRowsCollector::collect(const Block& blo
 
 Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options) {
     _row_lineage_columns = {};
-    _iceberg_params = nullptr;
+    _iceberg_params.reset();
     _delete_predicates_initialized = false;
     _position_delete_rows_storage.clear();
     _equality_delete_filters.clear();
     if (options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.iceberg_params) {
         const auto& iceberg_params = options.current_range.table_format_params.iceberg_params;
-        _iceberg_params = &iceberg_params;
+        _iceberg_params = iceberg_params;
         if (iceberg_params.__isset.first_row_id) {
             _row_lineage_columns.first_row_id = iceberg_params.first_row_id;
         }
@@ -100,6 +101,9 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
             RETURN_IF_ERROR(
                     _materialize_row_lineage_last_updated_sequence_number(table_block, column_idx));
             break;
+        case format::TableVirtualColumnType::ICEBERG_ROWID:
+            RETURN_IF_ERROR(_materialize_iceberg_rowid(table_block, column_idx));
+            break;
         case format::TableVirtualColumnType::INVALID:
             break;
         }
@@ -109,7 +113,8 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
 
 Status IcebergTableReader::customize_file_scan_request(format::FileScanRequest* file_request) {
     RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
-    if (_row_lineage_columns.first_row_id >= 0 && _need_row_lineage_row_id()) {
+    if ((_row_lineage_columns.first_row_id >= 0 && _need_row_lineage_row_id()) ||
+        _need_iceberg_rowid()) {
         RETURN_IF_ERROR(_append_row_position_output_column(file_request));
     }
     RETURN_IF_ERROR(_append_equality_delete_predicates(file_request));
@@ -258,7 +263,7 @@ std::unique_ptr<io::FileDescription> IcebergTableReader::_delete_file_descriptio
 }
 
 std::string IcebergTableReader::_data_file_path() const {
-    if (_iceberg_params != nullptr && _iceberg_params->__isset.original_file_path) {
+    if (_iceberg_params.has_value() && _iceberg_params->__isset.original_file_path) {
         return _iceberg_params->original_file_path;
     }
     DORIS_CHECK(_current_task != nullptr);
@@ -531,6 +536,56 @@ Status IcebergTableReader::_materialize_row_lineage_row_id(Block* table_block, s
     return Status::OK();
 }
 
+Status IcebergTableReader::_materialize_iceberg_rowid(Block* table_block, size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    DORIS_CHECK(row_position_column.size() == table_block->rows());
+
+    const auto& type = table_block->get_by_position(column_idx).type;
+    auto column = type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(column.get());
+    auto* struct_column = nullable_column != nullptr
+                                  ? check_and_get_column<ColumnStruct>(
+                                            nullable_column->get_nested_column_ptr().get())
+                                  : check_and_get_column<ColumnStruct>(column.get());
+    DORIS_CHECK(struct_column != nullptr);
+    DORIS_CHECK(struct_column->tuple_size() >= 4);
+
+    const auto rows = row_position_column.size();
+    const auto file_path = _data_file_path();
+    const int32_t partition_spec_id =
+            _iceberg_params.has_value() && _iceberg_params->__isset.partition_spec_id
+                    ? _iceberg_params->partition_spec_id
+                    : 0;
+    const std::string partition_data_json =
+            _iceberg_params.has_value() && _iceberg_params->__isset.partition_data_json
+                    ? _iceberg_params->partition_data_json
+                    : "";
+
+    auto& file_path_column = struct_column->get_column(0);
+    auto& row_pos_column = struct_column->get_column(1);
+    auto& spec_id_column = struct_column->get_column(2);
+    auto& partition_data_column = struct_column->get_column(3);
+    file_path_column.reserve(rows);
+    row_pos_column.reserve(rows);
+    spec_id_column.reserve(rows);
+    partition_data_column.reserve(rows);
+    for (size_t row = 0; row < rows; ++row) {
+        file_path_column.insert_data(file_path.data(), file_path.size());
+        const int64_t row_pos = row_position_column.get_element(row);
+        row_pos_column.insert_data(reinterpret_cast<const char*>(&row_pos), sizeof(row_pos));
+        spec_id_column.insert_data(reinterpret_cast<const char*>(&partition_spec_id),
+                                   sizeof(partition_spec_id));
+        partition_data_column.insert_data(partition_data_json.data(), partition_data_json.size());
+    }
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(rows, 0);
+    }
+    table_block->replace_by_position(column_idx, std::move(column));
+    return Status::OK();
+}
+
 Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number(
         Block* table_block, size_t column_idx) {
     if (_row_lineage_columns.last_updated_sequence_number < 0) {
@@ -548,6 +603,15 @@ Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number
 bool IcebergTableReader::_need_row_lineage_row_id() const {
     for (const auto& mapping : _data_reader.column_mapper.mappings()) {
         if (mapping.virtual_column_type == format::TableVirtualColumnType::ROW_ID) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IcebergTableReader::_need_iceberg_rowid() const {
+    for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+        if (mapping.virtual_column_type == format::TableVirtualColumnType::ICEBERG_ROWID) {
             return true;
         }
     }

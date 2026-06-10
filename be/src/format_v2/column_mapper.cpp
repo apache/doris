@@ -162,6 +162,8 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "ROW_ID";
     case TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER:
         return "LAST_UPDATED_SEQUENCE_NUMBER";
+    case TableVirtualColumnType::ICEBERG_ROWID:
+        return "ICEBERG_ROWID";
     }
     return "UNKNOWN";
 }
@@ -1606,11 +1608,12 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
             exists ? *existing_projection_it : scan_columns->back(), mapping));
     if (is_predicate_column) {
         // TODO: if the same column is used in both predicate and non-predicate projections, we can merge the two projections and only keep it in predicate_columns.
-        file_request->non_predicate_columns.erase(
-                std::ranges::find_if(
-                        file_request->non_predicate_columns,
-                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; }),
-                file_request->non_predicate_columns.end());
+        auto it = std::ranges::find_if(
+                file_request->non_predicate_columns,
+                [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
+        if (it != file_request->non_predicate_columns.end()) {
+            file_request->non_predicate_columns.erase(it);
+        }
     }
     return Status::OK();
 }
@@ -1745,6 +1748,8 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
             mapping.virtual_column_type = TableVirtualColumnType::ROW_ID;
         } else if (table_column.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
             mapping.virtual_column_type = TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+        } else if (table_column.name == BeConsts::ICEBERG_ROWID_COL) {
+            mapping.virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
         } else {
             if (table_column.is_partition_key) {
                 return Status::InvalidArgument(
