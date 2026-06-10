@@ -39,6 +39,7 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskProgress;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
@@ -1409,14 +1410,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * Only applies to StreamingMultiTask.
      */
     public void processTimeoutTasks() throws JobException {
-        if (!(runningStreamTask instanceof StreamingMultiTblTask)) {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
             return;
         }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        StreamingTaskProgress progress = runningMultiTask.fetchProgress();
         writeLock();
         try {
-            StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
-            if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
-                    && runningMultiTask.isTimeout()) {
+            if (this.runningStreamTask == runningMultiTask
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
+                    && runningMultiTask.isTimeout(progress)) {
                 String timeoutReason = runningMultiTask.getTimeoutReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
                     timeoutReason = "task failed cause timeout";

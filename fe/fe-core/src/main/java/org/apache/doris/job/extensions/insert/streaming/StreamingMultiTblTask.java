@@ -85,8 +85,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long filteredRows = 0L;
     private long loadedRows = 0L;
     private long runningBackendId;
-    transient long lastScannedRows = -1;
-    transient long lastProgressMs = 0;
+    long lastScannedRows = -1;
+    long lastProgressMs = 0;
 
     public StreamingMultiTblTask(Long jobId,
             long taskId,
@@ -365,11 +365,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         return Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
     }
 
-    public boolean isTimeout() {
-        return isTimeout(fetchProgress());
-    }
-
-    // package-private: tests feed progress directly to avoid mocking the backend RPC.
     boolean isTimeout(StreamingTaskProgress progress) {
         if (startTimeMs == null) {
             // It's still pending, waiting for scheduling.
@@ -397,7 +392,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 Config.streaming_task_min_timeout_sec * 1000L);
     }
 
-    private StreamingTaskProgress fetchProgress() {
+    StreamingTaskProgress fetchProgress() {
         if (runningBackendId <= 0) {
             return null;
         }
