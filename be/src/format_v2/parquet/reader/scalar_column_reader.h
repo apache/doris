@@ -61,10 +61,10 @@ public:
     bool is_or_has_repeated_child() const override;
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
-    ArrowLeafReaderContext leaf_context() const {
-        return ArrowLeafReaderContext {_descriptor, _type_descriptor,   _type,
-                                       _name,       _record_reader,     _profile,
-                                       _timezone,   _enable_strict_mode};
+    ParquetLeafReaderAdapter leaf_adapter() const {
+        return ParquetLeafReaderAdapter(ArrowLeafReaderContext {
+                _descriptor, _type_descriptor, _type, _name, _record_reader, _profile, _timezone,
+                _enable_strict_mode});
     }
     void advance_rows_read(int64_t rows);
 

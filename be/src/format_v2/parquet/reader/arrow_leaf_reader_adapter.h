@@ -21,6 +21,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "core/column/column.h"
@@ -40,6 +41,10 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
+namespace arrow {
+class Array;
+} // namespace arrow
+
 namespace doris::parquet {
 
 struct NestedScalarBatch;
@@ -58,20 +63,60 @@ struct ArrowLeafReaderContext {
     const DataTypePtr& data_type() const { return type; }
 };
 
-Status read_leaf_records(const ArrowLeafReaderContext& context, int64_t batch_rows,
-                         ::parquet::internal::RecordReader** record_reader, int64_t* rows_read);
+// Normalized view of one already-read Arrow RecordReader batch.
+//
+// The Arrow reader exposes fixed-width values through RecordReader::values(), but binary values
+// through BinaryRecordReader::GetBuilderChunks(). Keeping that distinction here prevents nested
+// Dremel layout code from depending on Arrow's physical storage and one-shot transfer semantics.
+class ParquetLeafBatch {
+public:
+    Status collect(const ArrowLeafReaderContext& context,
+                   ::parquet::internal::RecordReader& record_reader);
 
-Status build_leaf_null_map(const ArrowLeafReaderContext& context,
-                           ::parquet::internal::RecordReader& record_reader, int64_t records_read,
-                           NullMap* null_map);
+    int64_t consumed_level_count() const { return _consumed_level_count; }
+    int64_t decoded_level_count() const { return _decoded_level_count; }
+    int64_t values_written() const { return _values_written; }
+    bool read_dense_for_nullable() const { return _read_dense_for_nullable; }
+    const int16_t* def_levels() const { return _def_levels; }
+    const int16_t* rep_levels() const { return _rep_levels; }
 
-Status append_leaf_values(const ArrowLeafReaderContext& context,
-                          ::parquet::internal::RecordReader& record_reader, int64_t row_count,
-                          const NullMap* null_map, MutableColumnPtr& column);
+    Status append_values(const ArrowLeafReaderContext& context, int64_t row_count,
+                         const NullMap* null_map, MutableColumnPtr& column) const;
 
-Status read_nested_leaf_batch(
-        const ArrowLeafReaderContext& context, int64_t batch_rows,
-        int16_t value_slot_definition_level, NestedScalarBatch* batch,
-        int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max());
+private:
+    bool is_binary_value() const;
+    Status build_spaced_fixed_values(const ArrowLeafReaderContext& context, int64_t row_count,
+                                     const NullMap* null_map,
+                                     std::vector<uint8_t>* spaced_values) const;
+
+    DecodedValueKind _value_kind = DecodedValueKind::INT32;
+    int64_t _consumed_level_count = 0;
+    int64_t _decoded_level_count = 0;
+    int64_t _values_written = 0;
+    const int16_t* _def_levels = nullptr;
+    const int16_t* _rep_levels = nullptr;
+    const uint8_t* _fixed_values = nullptr;
+    bool _read_dense_for_nullable = false;
+    std::vector<std::shared_ptr<::arrow::Array>> _binary_chunks;
+};
+
+class ParquetLeafReaderAdapter {
+public:
+    explicit ParquetLeafReaderAdapter(ArrowLeafReaderContext context);
+
+    Status read_batch(int64_t batch_rows, ParquetLeafBatch* batch, int64_t* rows_read) const;
+    Status build_null_map(const ParquetLeafBatch& batch, int64_t records_read,
+                          NullMap* null_map) const;
+    Status append_values(const ParquetLeafBatch& batch, int64_t row_count, const NullMap* null_map,
+                         MutableColumnPtr& column) const;
+
+    Status read_nested_batch(int64_t batch_rows, int16_t value_slot_definition_level,
+                             NestedScalarBatch* batch,
+                             int16_t value_slot_repetition_level =
+                                     std::numeric_limits<int16_t>::max()) const;
+
+private:
+    ArrowLeafReaderContext _context;
+};
 
 } // namespace doris::parquet

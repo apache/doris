@@ -55,33 +55,33 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         return Status::InternalError("Parquet record reader is not initialized for column {}",
                                      _name);
     }
-    ::parquet::internal::RecordReader* record_reader = nullptr;
-    const auto context = leaf_context();
-    RETURN_IF_ERROR(read_leaf_records(context, rows, &record_reader, rows_read));
+    auto adapter = leaf_adapter();
+    ParquetLeafBatch leaf_batch;
+    RETURN_IF_ERROR(adapter.read_batch(rows, &leaf_batch, rows_read));
 
     NullMap null_map;
-    RETURN_IF_ERROR(build_leaf_null_map(context, *record_reader, *rows_read, &null_map));
+    RETURN_IF_ERROR(adapter.build_null_map(leaf_batch, *rows_read, &null_map));
     const auto value_kind = decoded_value_kind(_type_descriptor);
     const bool is_binary_value =
             value_kind == DecodedValueKind::BINARY || value_kind == DecodedValueKind::FIXED_BINARY;
-    if (!is_binary_value && record_reader->read_dense_for_nullable() && !null_map.empty()) {
+    if (!is_binary_value && leaf_batch.read_dense_for_nullable() && !null_map.empty()) {
         const int64_t non_null_count = static_cast<int64_t>(simd::count_zero_num(
                 reinterpret_cast<const int8_t*>(null_map.data()), null_map.size()));
         const int64_t null_count = *rows_read - non_null_count;
-        if (record_reader->values_written() != non_null_count) {
+        if (leaf_batch.values_written() != non_null_count) {
             return Status::Corruption(
                     "Invalid dense nullable parquet record read result for column {}: values={}, "
                     "records={}, nulls={}",
-                    _name, record_reader->values_written(), *rows_read, null_count);
+                    _name, leaf_batch.values_written(), *rows_read, null_count);
         }
-    } else if (!is_binary_value && !record_reader->read_dense_for_nullable() &&
-               record_reader->values_written() != *rows_read) {
+    } else if (!is_binary_value && !leaf_batch.read_dense_for_nullable() &&
+               leaf_batch.values_written() != *rows_read) {
         return Status::Corruption(
                 "Invalid parquet record read result for column {}: values={}, records={}", _name,
-                record_reader->values_written(), *rows_read);
+                leaf_batch.values_written(), *rows_read);
     }
 
-    RETURN_IF_ERROR(append_leaf_values(context, *record_reader, *rows_read, &null_map, column));
+    RETURN_IF_ERROR(adapter.append_values(leaf_batch, *rows_read, &null_map, column));
     advance_rows_read(*rows_read);
     update_reader_read_rows(*rows_read);
     return Status::OK();
