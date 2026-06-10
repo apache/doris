@@ -909,11 +909,12 @@ protected:
             // COUNT pushdown is not a final count value. It emits `count` default rows so the
             // upper COUNT(*) aggregate can count them and produce the final result, including
             // zero rows when count is 0.
+            DORIS_CHECK(file_result.count >= 0);
+            const auto rows = cast_set<size_t>(file_result.count);
             for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
-                block->replace_by_position(column_idx,
-                                           block->get_by_position(column_idx)
-                                                   .type->create_column_const_with_default_value(
-                                                           cast_set<size_t>(file_result.count)));
+                auto column = block->get_by_position(column_idx).type->create_column();
+                column->resize(rows);
+                block->replace_by_position(column_idx, std::move(column));
             }
             return Status::OK();
         }

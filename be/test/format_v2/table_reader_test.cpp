@@ -34,6 +34,7 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -1026,6 +1027,7 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 5);
+    EXPECT_FALSE(is_column_const(*block.get_by_position(0).column));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
