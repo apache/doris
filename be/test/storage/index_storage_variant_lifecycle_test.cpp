@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <sstream>
 #include <string_view>
 #include <unordered_map>
 
@@ -35,35 +34,6 @@ std::shared_ptr<ColumnPredicate> string_equals(int32_t column_id, std::string co
     return create_comparison_predicate<PredicateType::EQ>(
             column_id, std::move(column_name), std::make_shared<DataTypeString>(),
             Field::create_field<TYPE_STRING>(std::move(value)), false);
-}
-
-void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
-                                       int64_t index_id, int64_t expected_filtered_rows,
-                                       int32_t column_uid = 2) {
-    expect_inverted_index_used(result);
-    expect_index_filter_stats(result, expected_filtered_rows);
-
-    int64_t filtered_rows = 0;
-    int64_t applied_events = 0;
-    for (const auto& event : result.stats.index_probe_events) {
-        if (event.state != IndexProbeState::APPLIED || event.column_uid != column_uid ||
-            event.index_id != index_id || !event.variant_path.has_value() ||
-            event.variant_path.value() != path) {
-            continue;
-        }
-        ++applied_events;
-        filtered_rows += event.filtered_rows;
-    }
-    EXPECT_GT(applied_events, 0);
-    EXPECT_EQ(filtered_rows, expected_filtered_rows);
-}
-
-void expect_index_not_applied(const IndexReadResult& result, int64_t index_id,
-                              int32_t column_uid = 2) {
-    for (const auto& event : result.stats.index_probe_events) {
-        EXPECT_FALSE(event.state == IndexProbeState::APPLIED && event.column_uid == column_uid &&
-                     event.index_id == index_id);
-    }
 }
 
 bool has_doc_value_column(const IndexRowsetProbe& probe) {
@@ -101,20 +71,6 @@ bool has_sparse_path_stat(const IndexRowsetProbe& probe, std::string_view relati
                                return it != column.sparse_non_null_size.end() && it->second > 0;
                            });
     });
-}
-
-std::string dump_schema_paths(const TabletSchema& schema) {
-    std::ostringstream out;
-    for (int32_t i = 0; i < schema.num_columns(); ++i) {
-        const auto& column = schema.column(i);
-        out << i << ": uid=" << column.unique_id() << " name=" << column.name()
-            << " type=" << TabletColumn::get_string_by_field_type(column.type());
-        if (column.has_path_info()) {
-            out << " path=" << column.path_info_ptr()->get_path();
-        }
-        out << '\n';
-    }
-    return out.str();
 }
 
 } // namespace

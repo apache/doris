@@ -26,6 +26,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -301,7 +302,13 @@ void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_f
 void expect_inverted_index_used(const IndexReadResult& result);
 void expect_inverted_index_fallback(const IndexReadResult& result);
 void expect_inverted_index_not_attempted(const IndexReadResult& result);
+void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
+                                       int64_t index_id, int64_t expected_filtered_rows,
+                                       int32_t column_uid = 2);
+void expect_index_not_applied(const IndexReadResult& result, int64_t index_id,
+                              int32_t column_uid = 2);
 void expect_index_files(const IndexRowsetProbe& probe, bool expected_present);
+std::string dump_schema_paths(const TabletSchema& schema);
 
 class ScopedDebugPoint {
 public:
