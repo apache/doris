@@ -17,8 +17,8 @@
 
 // Verify that ANN search params are guarded correctly:
 //   1. FE checker rejects ivf_nprobe=0 and hnsw_ef_search=0
-//   2. BE clamps nprobe to [1, nlist]: nprobe < 1 would crash FAISS (asserts nprobe > 0),
-//      while nprobe > nlist is harmless (FAISS caps at nlist) and is only normalized
+//   2. BE guards nprobe with max(nprobe, 1): nprobe < 1 would crash FAISS (asserts
+//      nprobe > 0). nprobe > nlist needs no clamp; FAISS caps it at the real nlist.
 //   3. BE boosts efSearch to max(ef_search, k) so LIMIT k always returns k results
 
 suite("ann_search_params_clamp", "nonConcurrent") {
@@ -39,10 +39,11 @@ suite("ann_search_params_clamp", "nonConcurrent") {
     }
 
     // -----------------------------------------------------------------------
-    // 2. nprobe > nlist is safe in FAISS itself (it caps nprobe at nlist), so this
-    //    case passes with or without the clamp; it guards that normalizing to nlist
-    //    does not break results. (The real crash case, nprobe < 1, is rejected by the
-    //    FE checker above, so it never reaches BE here; BE UT covers the BE-side clamp.)
+    // 2. nprobe > nlist is safe in FAISS itself (it caps nprobe at the real nlist),
+    //    so this case passes with or without any BE-side handling; it just guards that
+    //    a huge nprobe still returns results. (The real crash case, nprobe < 1, is
+    //    rejected by the FE checker above, so it never reaches BE; BE UT covers the
+    //    BE-side lower-bound guard.)
     //    Table: IVF nlist=8, 400 rows (>= 39*nlist training threshold)
     //    Query: nprobe=99999 -> capped to 8 -> returns results normally
     // -----------------------------------------------------------------------

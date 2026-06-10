@@ -1543,10 +1543,13 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
     EXPECT_GT(total_misses, 0) << "Expected cache misses from first-thread disk reads";
 }
 
-// nprobe is clamped to [1, nlist] before reaching FAISS.
-// The real crash is the lower bound: FAISS asserts nprobe > 0, so nprobe < 1 (e.g. 0)
-// throws "nprobe > 0 failed". nprobe > nlist is harmless (FAISS caps it at nlist
-// internally), so the upper-bound clamp only keeps the value well-defined.
+// NprobeClampedToNlist (name kept for history): after the fix nprobe only gets a
+// lower-bound guard. FAISS asserts nprobe > 0, so nprobe < 1 (e.g. 0) throws
+// "nprobe > 0 failed". The upper bound is intentionally NOT clamped: FAISS caps
+// nprobe at the index's real nlist internally, and _params.ivf_nlist is unreliable
+// after load() (stays at the default 1024). With nlist=4 this test cannot expose the
+// stale-nlist upper-bound bug (that needs nlist>1024); it covers the lower-bound
+// guard and that a huge nprobe is handled safely by FAISS.
 TEST_F(VectorSearchTest, NprobeClampedToNlist) {
     const int dim = 32;
     const int nlist = 4;
@@ -1580,8 +1583,8 @@ TEST_F(VectorSearchTest, NprobeClampedToNlist) {
     auto query = vector_search_utils::generate_random_vector(dim);
     IndexSearchResult result;
 
-    // nprobe way above nlist: FAISS caps this at nlist on its own, so it already
-    // succeeds even without our clamp — kept as a regression guard for results.
+    // nprobe far above nlist: FAISS caps it at the real nlist on its own, so this
+    // is safe with no upper-bound clamp at all. Regression guard for results.
     IVFSearchParameters search_params;
     search_params.roaring = roaring.get();
     search_params.rows_of_segment = num_vectors;

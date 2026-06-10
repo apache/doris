@@ -705,10 +705,11 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                     "IVF search parameters should not be null for IVF index");
         }
         faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
-        // FAISS asserts nprobe > 0, so the lower bound guards against a crash on
-        // nprobe < 1. nprobe > nlist is harmless (FAISS caps it at nlist internally);
-        // we clamp the upper bound only to keep the value semantically meaningful.
-        param->nprobe = std::clamp(ivf_params->nprobe, 1, _params.ivf_nlist);
+        // FAISS asserts nprobe > 0, so guard the lower bound against nprobe < 1.
+        // Do NOT clamp the upper bound here: FAISS internally caps nprobe at the
+        // index's real nlist, and _params.ivf_nlist is unreliable for loaded indexes
+        // (load() leaves it at the default 1024, see AnnIndexReader::load_index).
+        param->nprobe = std::max(ivf_params->nprobe, 1);
         param->sel = id_sel.get();
         search_param.reset(param);
     } else {
@@ -797,10 +798,11 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         {
             // Engine prepare: set search parameters and bind selector
             SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-            // FAISS asserts nprobe > 0, so the lower bound guards against a crash on
-            // nprobe < 1. nprobe > nlist is harmless (FAISS caps it at nlist
-            // internally); we clamp the upper bound only for a well-defined value.
-            param->nprobe = std::clamp(ivf_params->nprobe, 1, _params.ivf_nlist);
+            // FAISS asserts nprobe > 0, so guard the lower bound against nprobe < 1.
+            // Do NOT clamp the upper bound here: FAISS internally caps nprobe at the
+            // index's real nlist, and _params.ivf_nlist is unreliable for loaded
+            // indexes (load() leaves it at the default 1024, see load_index).
+            param->nprobe = std::max(ivf_params->nprobe, 1);
         }
         search_param.reset(param);
     } else {
