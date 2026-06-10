@@ -157,6 +157,7 @@ Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row
         DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
                         { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
+            DBUG_EXECUTE_IF("DeltaWriterV2.write.flush_limit_wait", DBUG_RUN_CALLBACK());
             if (_state->is_cancelled()) {
                 return _state->cancel_reason();
             }
