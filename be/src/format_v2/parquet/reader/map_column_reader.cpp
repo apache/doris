@@ -777,6 +777,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     const int64_t levels_written = _key_reader->nested_levels_written();
 
     std::vector<uint64_t> entry_counts;
+    std::vector<int64_t> entry_level_indices;
     NullMap parent_nulls;
     *values_read = 0;
     for (int64_t level_idx = 0; level_idx < levels_written && *values_read < length_upper_bound;
@@ -793,6 +794,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
             }
             if (def_level >= _definition_level) {
                 ++entry_counts.back();
+                entry_level_indices.push_back(level_idx);
             }
             continue;
         }
@@ -804,6 +806,9 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         }
         parent_nulls.push_back(parent_is_null);
         entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
+        if (def_level >= _definition_level) {
+            entry_level_indices.push_back(level_idx);
+        }
         ++*values_read;
     }
 
@@ -819,8 +824,15 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
                                   key_value_count, total_entries);
     }
     int64_t value_count = 0;
-    RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
-                                                       value_column, &value_count));
+    if (auto* scalar_value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get())) {
+        for (const int64_t level_idx : entry_level_indices) {
+            RETURN_IF_ERROR(scalar_value_reader->append_nested_value(level_idx, value_column));
+            ++value_count;
+        }
+    } else {
+        RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                           value_column, &value_count));
+    }
     if (value_count != static_cast<int64_t>(total_entries)) {
         return Status::Corruption("Parquet MAP column {} built {} values, expected {}", _name,
                                   value_count, total_entries);

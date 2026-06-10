@@ -205,6 +205,19 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     return Status::OK();
 }
 
+Status ScalarColumnReader::append_nested_value(int64_t level_idx, MutableColumnPtr& column) const {
+    if (column.get() == nullptr) {
+        return Status::InvalidArgument("Invalid parquet nested scalar append result for column {}",
+                                       _name);
+    }
+    DORIS_CHECK(_nested_batch != nullptr);
+    DORIS_CHECK(level_idx >= 0);
+    DORIS_CHECK(level_idx < _nested_batch->levels_written);
+    NestedScalarValueCursor value_cursor(_nested_batch.get());
+    return append_nullable_scalar_child(_name, "MAP", "value", *this, *_nested_batch, level_idx,
+                                        _definition_level, &value_cursor, column);
+}
+
 const std::vector<int16_t>& ScalarColumnReader::nested_definition_levels() const {
     DORIS_CHECK(_nested_batch != nullptr);
     return _nested_batch->def_levels;

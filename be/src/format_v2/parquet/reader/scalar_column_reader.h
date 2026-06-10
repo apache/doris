@@ -54,6 +54,7 @@ public:
     Status load_nested_batch(int64_t rows) override;
     Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                int64_t* values_read) override;
+    Status append_nested_value(int64_t level_idx, MutableColumnPtr& column) const;
     const std::vector<int16_t>& nested_definition_levels() const override;
     const std::vector<int16_t>& nested_repetition_levels() const override;
     int64_t nested_levels_written() const override;
