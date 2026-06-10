@@ -134,35 +134,20 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
                 argument_types, result_is_nullable, attr);
+    // For Complex type. Currently, only type_array supports min and max.
+    case PrimitiveType::TYPE_ARRAY:
+    case PrimitiveType::TYPE_MAP:
+    case PrimitiveType::TYPE_STRUCT:
+    case PrimitiveType::TYPE_AGG_STATE:
+    case PrimitiveType::TYPE_BITMAP:
+    case PrimitiveType::TYPE_HLL:
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        return creator_without_type::create_unary_arguments<
+                AggregateFunctionsSingleValue<Data<SingleValueDataComplexType>>>(
+                argument_types, result_is_nullable, attr);
     default:
         return nullptr;
     }
-}
-
-// any_value
-template <template <typename> class Data>
-AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
-        const String& name, const DataTypes& argument_types, const DataTypePtr& result_type,
-        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
-    AggregateFunctionPtr res = create_aggregate_function_single_value<Data>(
-            name, argument_types, result_type, result_is_nullable, attr);
-    if (res) {
-        return res;
-    }
-    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
-    if (argument_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_BITMAP ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_HLL ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_QUANTILE_STATE) {
-        return creator_without_type::create_unary_arguments<
-                AggregateFunctionsSingleValue<SingleValueDataComplexType>>(
-                argument_types, result_is_nullable, attr);
-    }
-
-    return nullptr;
 }
 
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory) {
@@ -171,8 +156,7 @@ void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory)
     factory.register_function_both(
             "min", create_aggregate_function_single_value<AggregateFunctionMinData>);
     factory.register_function_both(
-            "any",
-            create_aggregate_function_single_value_any_value_function<AggregateFunctionAnyData>);
+            "any", create_aggregate_function_single_value<AggregateFunctionAnyData>);
     factory.register_alias("any", "any_value");
 }
 

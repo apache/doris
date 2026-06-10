@@ -219,6 +219,38 @@ TEST(JsonParserTest, ParseCornerCases) {
     ASSERT_TRUE(result.has_value());
 }
 
+TEST(JsonParserTest, ParseDuplicateJsonPathCheckKeepsFirstLeafValue) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+    config.check_duplicate_json_path = true;
+
+    std::string json = R"({"a":123,"a":"123","b":1})";
+    auto result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->paths.size(), 2);
+    ASSERT_EQ(result->values.size(), 2);
+    EXPECT_EQ(result->paths[0].get_path(), "a");
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(result->values[0].get<doris::PrimitiveType::TYPE_BIGINT>(), 123);
+    EXPECT_EQ(result->paths[1].get_path(), "b");
+}
+
+TEST(JsonParserTest, ParseDuplicateJsonPathCheckNormalizesDottedAndNestedPaths) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+    config.check_duplicate_json_path = true;
+
+    std::string json = R"({"a.b":1,"a":{"b":2},"a":{"c":3}})";
+    auto result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->paths.size(), 2);
+    ASSERT_EQ(result->values.size(), 2);
+    EXPECT_EQ(result->paths[0].get_path(), "a.b");
+    EXPECT_EQ(result->values[0].get<doris::PrimitiveType::TYPE_BIGINT>(), 1);
+    EXPECT_EQ(result->paths[1].get_path(), "a.c");
+    EXPECT_EQ(result->values[1].get<doris::PrimitiveType::TYPE_BIGINT>(), 3);
+}
+
 // Test cases for the selected code functionality
 TEST(JsonParserTest, TestIsPrefixFunction) {
     JSONDataParser<SimdJSONParser> parser;

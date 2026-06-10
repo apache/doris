@@ -15,18 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
-
-#include "vec/aggregate_functions/aggregate_function_min_max_by.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
-
-void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both(
-            "min_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMinByData>);
+suite("test_parquet_dict", "p0") {
+    try {
+        String ak = context.config.otherConfigs.get("ak")
+        String sk = context.config.otherConfigs.get("sk")
+        qt_s3_tvf """ SELECT * FROM FILE (
+            "uri" = "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/query_p0/test_page_v2.parquet",
+            "s3.access_key"= "${ak}",
+            "s3.secret_key" = "${sk}",
+            "format" = "parquet"
+        ) where user_id='68535cc98406454081424bf8247d783d' ;
+        """
+    } finally {
+    }
 }
-
-} // namespace doris::vectorized

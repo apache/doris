@@ -210,7 +210,7 @@ public:
 
     size_t bytes() {
         if (_block) {
-            return _block->bytes();
+            return _block->allocated_bytes();
         } else {
             return 0;
         }

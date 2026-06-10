@@ -75,10 +75,6 @@ constexpr auto sequence_match_max_iterations = 1000000l;
 template <PrimitiveType T, typename Derived>
 struct AggregateFunctionSequenceMatchData final {
     using Timestamp = typename PrimitiveTypeTraits<T>::CppType;
-    using NativeType =
-            std::conditional_t<T == TYPE_DATEV2, uint32_t,
-                               std::conditional_t<T == TYPE_DATETIMEV2, uint64_t,
-                                                  typename PrimitiveTypeTraits<T>::CppType>>;
     using Events = std::bitset<MAX_EVENTS>;
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
@@ -256,7 +252,7 @@ private:
                         return;
                     }
 
-                    NativeType duration = 0;
+                    uint64_t duration = 0;
                     const auto* prev_pos = pos;
                     pos = try_read_first_int_text(duration, pos, end);
                     if (pos == prev_pos) {
@@ -595,7 +591,6 @@ class AggregateFunctionSequenceBase
         : public IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>,
                                               Derived> {
 public:
-    using NativeType = typename PrimitiveTypeTraits<T>::CppType;
     AggregateFunctionSequenceBase(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>, Derived>(
                       arguments) {

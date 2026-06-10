@@ -50,6 +50,17 @@ public class LogicalPlanDeepCopierTest {
     }
 
     @Test
+    public void testDeepCopyOlapScanWithNonFirstOperativeSlot() {
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        relationPlan = (LogicalOlapScan) relationPlan.withOperativeSlots(
+                ImmutableList.of(relationPlan.getOutput().get(1)));
+        LogicalOlapScan aCopy =
+                (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+
+        Assertions.assertEquals(ImmutableList.of(aCopy.getOutput().get(1)), aCopy.getOperativeSlots());
+    }
+
+    @Test
     public void testDeepCopyAggregateWithSourceRepeat() {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t", 0);
         List<? extends NamedExpression> groupingKeys = scan.getOutput().subList(0, 1);

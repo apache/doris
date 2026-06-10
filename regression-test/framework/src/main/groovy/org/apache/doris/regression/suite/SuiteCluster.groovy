@@ -71,6 +71,9 @@ class ClusterOptions {
     // just as `docker run --add-host myhost:192.168.10.10` do.
     List<String> extraHosts = []
 
+    // cloud store overrides for cloud docker clusters, each item should be 'name=value'
+    List<String> cloudStoreConfigs = []
+
     boolean connectToFollower = false
 
     // 1. cloudMode = true, only create cloud cluster.
@@ -353,6 +356,10 @@ class SuiteCluster {
             cmd += ['--extra-hosts']
             cmd += options.extraHosts
         }
+        if (!options.cloudStoreConfigs.isEmpty()) {
+            cmd += ['--cloud-config']
+            cmd += options.cloudStoreConfigs
+        }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
         }
@@ -517,8 +524,13 @@ class SuiteCluster {
     }
 
     List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
-        def result = add(num, 0, null, followerMode)
+        def result = add(0, num, '', false, null)
         return result.first
+    }
+
+    List<Integer> addBackend(int num, List<String> beDisks) throws Exception {
+        def result = add(0, num, '', false, beDisks)
+        return result.second
     }
 
     List<Integer> addBackend(int num, String ClusterName='') throws Exception {
@@ -528,29 +540,33 @@ class SuiteCluster {
 
     // ATTN: clusterName just used for cloud mode, 1 cluster has n bes
     // ATTN: followerMode just used for cloud mode
-    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false) throws Exception {
+    // ATTN: beDisks just used for not cloud mode
+    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false, List<String> beDisks=null) throws Exception {
         assert feNum > 0 || beNum > 0
 
-        def sb = new StringBuilder()
-        sb.append('up ' + name + ' ')
+        def cmd = ['up', name]
         if (feNum > 0) {
-            sb.append('--add-fe-num ' + feNum + ' ')
+            cmd += ['--add-fe-num', String.valueOf(feNum)]
             if (followerMode) {
-                sb.append('--fe-follower' + ' ')
+                cmd += ['--fe-follower']
             }
             if (sqlModeNodeMgr) {
-                sb.append('--sql-mode-node-mgr' + ' ')
+                cmd += ['--sql-mode-node-mgr']
             }
         }
         if (beNum > 0) {
-            sb.append('--add-be-num ' + beNum + ' ')
+            cmd += ['--add-be-num', String.valueOf(beNum)]
             if (clusterName != null && !clusterName.isEmpty()) {
-                sb.append(' --be-cluster ' + clusterName + ' ')
+                cmd += ['--be-cluster', clusterName]
             }
         }
-        sb.append('--wait-timeout 60')
+        if (beDisks != null && !beDisks.isEmpty()) {
+            cmd += ['--be-disks']
+            cmd += beDisks
+        }
+        cmd += ['--wait-timeout', '60']
 
-        def data = (Map<String, Map<String, Object>>) runCmd(sb.toString(), 180)
+        def data = (Map<String, Map<String, Object>>) runCmdList(cmd, 180)
         def newFrontends = (List<Integer>) data.get('fe').get('add_list')
         def newBackends = (List<Integer>) data.get('be').get('add_list')
 
@@ -596,6 +612,18 @@ class SuiteCluster {
     }
 
     // indices start from 1, not 0
+    // if not specific meta-service indices, then start all meta services
+    void startMetaServices(int... indices) {
+        runMsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // indices start from 1, not 0
+    // if not specific recycler indices, then start all recyclers
+    void startRecyclers(int... indices) {
+        runRecyclerCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // indices start from 1, not 0
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
         runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
@@ -606,6 +634,20 @@ class SuiteCluster {
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
         runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
+        waitHbChanged()
+    }
+
+    // indices start from 1, not 0
+    // if not specific meta-service indices, then stop all meta services
+    void stopMetaServices(int... indices) {
+        runMsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
+        waitHbChanged()
+    }
+
+    // indices start from 1, not 0
+    // if not specific recycler indices, then stop all recyclers
+    void stopRecyclers(int... indices) {
+        runRecyclerCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 

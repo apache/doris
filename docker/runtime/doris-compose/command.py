@@ -391,7 +391,7 @@ class UpCommand(Command):
         )
         group1.add_argument("--be-disks",
                             nargs="*",
-                            default=["HDD=1"],
+                            default=None,
                             type=str,
                             help="Specify each be disks, each group is \"disk_type=disk_num[,disk_capactity]\", "\
                                     "disk_type is HDD or SSD, disk_capactity is capactity limit in gb. default: HDD=1. "\
@@ -436,6 +436,14 @@ class UpCommand(Command):
             type=str,
             help=
             "Add custom host-to-IP mappings (host:ip). For example: --extra-hosts myhost1:192.168.10.1 myhost2:192.168.10.2 . Only use when creating new cluster."
+        )
+
+        parser.add_argument(
+            "--cloud-config",
+            nargs="*",
+            type=str,
+            help=
+            "Override cloud store config values. For example: --cloud-config DORIS_CLOUD_AK=xxx DORIS_CLOUD_BUCKET=yyy. Only use when creating new cloud cluster."
         )
 
         parser.add_argument("--coverage-dir",
@@ -490,7 +498,7 @@ class UpCommand(Command):
         parser.add_argument(
             "--fdb-version",
             type=str,
-            default="7.1.26",
+            default="7.3.69",
             help="fdb image version. Only use in cloud cluster.")
         parser.add_argument(
             "--fdb-image",
@@ -595,7 +603,9 @@ class UpCommand(Command):
                     args.add_recycle_num = 1
                 if not args.be_cluster:
                     args.be_cluster = "compute_cluster"
-                cloud_store_config = self._get_cloud_store_config()
+                cloud_store_config = self._merge_cloud_store_config(
+                    self._get_cloud_store_config(), args.cloud_config
+                )
             else:
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
@@ -618,7 +628,8 @@ class UpCommand(Command):
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
-                args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
+                args.be_disks if args.be_disks is not None else ["HDD=1"],
+                args.be_cluster, args.reg_be, args.extra_hosts,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
@@ -659,8 +670,18 @@ class UpCommand(Command):
                 related_nodes.append(node)
                 add_ids.append(node.id)
 
+        # If --be-disks is explicitly provided for an existing cluster,
+        # temporarily override cluster.be_disks so newly added BEs use
+        # the specified disk config instead of the original cluster config.
+        saved_be_disks = cluster.be_disks
+        if args.be_disks is not None:
+            cluster.be_disks = args.be_disks
+
         for node_type, add_num, add_ids in add_type_nums:
             do_add_node(node_type, add_num, add_ids)
+
+        # Restore original be_disks to avoid side effects
+        cluster.be_disks = saved_be_disks
 
         if args.IMAGE:
             for node in related_nodes:
@@ -796,8 +817,7 @@ class UpCommand(Command):
                     except Exception as e:
                         LOG.error(f"Failed to add BE {be_endpoint}: {str(e)}")
                 if is_new_cluster:
-                    cloud_store_config = self._get_cloud_store_config()
-                    db_mgr.create_default_storage_vault(cloud_store_config)
+                    db_mgr.create_default_storage_vault(cluster.cloud_store_config)
 
             if not cluster.is_host_network():
                 wait_service(True, args.wait_timeout, cluster, add_fe_ids,
@@ -872,6 +892,34 @@ class UpCommand(Command):
                     "Should provide none empty property '{}' in file {}".
                     format(key, CLUSTER.CLOUD_CFG_FILE))
         return config
+
+    @staticmethod
+    def _merge_cloud_store_config(base_config, overrides):
+        if not overrides:
+            return base_config
+
+        merged = dict(base_config)
+        for item in overrides:
+            pos = item.find('=')
+            if pos <= 0:
+                raise Exception(
+                    "cloud config override '{}' error format, should be like 'name=value'".
+                    format(item)
+                )
+            key = item[:pos].strip()
+            value = item[pos + 1:].strip()
+            if not key or not value:
+                raise Exception(
+                    "cloud config override '{}' error format, should be like 'name=value'".
+                    format(item)
+                )
+            if key not in merged:
+                raise Exception(
+                    "Unknown cloud config override '{}', available keys: {}".
+                    format(key, ", ".join(sorted(merged.keys())))
+                )
+            merged[key] = value
+        return merged
 
 
 class DownCommand(Command):

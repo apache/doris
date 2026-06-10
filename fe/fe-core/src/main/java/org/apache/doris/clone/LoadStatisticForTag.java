@@ -159,7 +159,8 @@ public class LoadStatisticForTag {
         // Only count the available be
         for (TStorageMedium medium : TStorageMedium.values()) {
             TreeMultimap<Long, Long> beByTotalReplicaCount = TreeMultimap.create();
-            beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).forEach(beStat ->
+            beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable)
+                    .filter(beStat -> beStat.hasMedium(medium)).forEach(beStat ->
                     beByTotalReplicaCount.put(beStat.getReplicaNum(medium), beStat.getBeId()));
             beByTotalReplicaCountMaps.put(medium, beByTotalReplicaCount);
         }
@@ -173,9 +174,17 @@ public class LoadStatisticForTag {
                     .filter(BackendLoadStatistic::isAvailable)
                     .map(BackendLoadStatistic::getBeId)
                     .collect(Collectors.toList());
+            Map<TStorageMedium, List<Long>> availableBeIdsByMedium = Maps.newHashMap();
+            for (TStorageMedium medium : TStorageMedium.values()) {
+                availableBeIdsByMedium.put(medium, beLoadStatistics.stream()
+                        .filter(BackendLoadStatistic::isAvailable)
+                        .filter(be -> be.hasMedium(medium))
+                        .map(BackendLoadStatistic::getBeId)
+                        .collect(Collectors.toList()));
+            }
             Map<Long, Pair<TabletMove, Long>> movesInProgress = rebalancer == null ? Maps.newHashMap()
                     : ((PartitionRebalancer) rebalancer).getMovesInProgress();
-            skewMaps = invertedIndex.buildPartitionInfoBySkew(availableBeIds, movesInProgress);
+            skewMaps = invertedIndex.buildPartitionInfoBySkew(availableBeIds, availableBeIdsByMedium, movesInProgress);
         }
     }
 

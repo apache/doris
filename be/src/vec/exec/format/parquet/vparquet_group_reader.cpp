@@ -256,7 +256,8 @@ bool RowGroupReader::is_dictionary_encoded(const tparquet::ColumnMetaData& colum
     if (column_metadata.__isset.encoding_stats) {
         // Condition #1 above
         for (const tparquet::PageEncodingStats& enc_stat : column_metadata.encoding_stats) {
-            if (enc_stat.page_type == tparquet::PageType::DATA_PAGE &&
+            if ((enc_stat.page_type == tparquet::PageType::DATA_PAGE ||
+                 enc_stat.page_type == tparquet::PageType::DATA_PAGE_V2) &&
                 (enc_stat.encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
                  enc_stat.encoding != tparquet::Encoding::RLE_DICTIONARY) &&
                 enc_stat.count > 0) {

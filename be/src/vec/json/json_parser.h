@@ -101,6 +101,7 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
 
 struct ParseConfig {
     bool enable_flatten_nested = false;
+    bool check_duplicate_json_path = false;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
@@ -122,7 +123,9 @@ private:
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
+        phmap::flat_hash_set<std::string> visited_path_names;
         bool enable_flatten_nested = false;
+        bool check_duplicate_json_path = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
     };
@@ -136,10 +139,12 @@ private:
         KeyToSizes nested_sizes_by_key;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
+        bool check_duplicate_json_path = false;
     };
     void traverse(const Element& element, ParseContext& ctx);
     void traverseObject(const JSONObject& object, ParseContext& ctx);
     void traverseArray(const JSONArray& array, ParseContext& ctx);
+    void appendValueIfNotDuplicate(ParseContext& ctx, const PathInData::Parts& path, Field&& value);
     void traverseArrayElement(const Element& element, ParseArrayContext& ctx);
     void checkAmbiguousStructure(const ParseArrayContext& ctx,
                                  const std::vector<PathInData::Parts>& paths);

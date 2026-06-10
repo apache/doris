@@ -20,6 +20,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <sstream>
@@ -105,6 +106,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 
     vectorized::ParseConfig config;
     config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
+    config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
     RETURN_IF_ERROR(
             vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
     return Status::OK();
@@ -235,6 +237,9 @@ Status SegmentFlusher::_flush_segment_writer(
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
 
+    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
+
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();
     int64_t inverted_index_file_size = 0;
@@ -309,6 +314,9 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
+
+    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
 
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();

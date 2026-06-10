@@ -67,6 +67,20 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         EXTERNAL
     }
 
+    /** Result of partition prune. */
+    public static final class PartitionPruneResult<K extends Comparable<K>> {
+        public final List<K> partitions;
+        public final Optional<Expression> prunedPartitionPredicate;
+        public final boolean hasPartitionPredicate;
+
+        public PartitionPruneResult(List<K> partitions, Optional<Expression> prunedPartitionPredicate,
+                boolean hasPartitionPredicate) {
+            this.partitions = partitions;
+            this.prunedPartitionPredicate = prunedPartitionPredicate;
+            this.hasPartitionPredicate = hasPartitionPredicate;
+        }
+    }
+
     private PartitionPruner(List<OnePartitionEvaluator<?>> partitions, Expression partitionPredicate) {
         this.partitions = Objects.requireNonNull(partitions, "partitions cannot be null");
         this.partitionPredicate = Objects.requireNonNull(partitionPredicate.accept(this, null),
@@ -128,14 +142,25 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, idToPartitions,
+        PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
                 cascadesContext, partitionTableType, Optional.empty());
+        return Pair.of(result.partitions, result.prunedPartitionPredicate);
     }
 
     /**
      * prune partition with `idToPartitions` as parameter.
      */
     public static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> prune(List<Slot> partitionSlots,
+            Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
+        PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
+                cascadesContext, partitionTableType, sortedPartitionRanges);
+        return Pair.of(result.partitions, result.prunedPartitionPredicate);
+    }
+
+    /** prune partition and return partition predicate info. */
+    public static <K extends Comparable<K>> PartitionPruneResult<K> pruneWithResult(List<Slot> partitionSlots,
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
@@ -152,7 +177,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
-    private static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> pruneInternal(
+    private static <K extends Comparable<K>> PartitionPruneResult<K> pruneInternal(
             List<Slot> partitionSlots,
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
@@ -169,10 +194,11 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
             // The partition column predicate is always true and can be deleted, the partition cannot be pruned
-            return Pair.of(Utils.fastToImmutableList(idToPartitions.keySet()), Optional.of(originalPartitionPredicate));
+            return new PartitionPruneResult<>(Utils.fastToImmutableList(idToPartitions.keySet()),
+                    Optional.of(originalPartitionPredicate), false);
         } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
             // The partition column predicate is always false, and all partitions can be pruned.
-            return Pair.of(ImmutableList.of(), Optional.empty());
+            return new PartitionPruneResult<>(ImmutableList.<K>of(), Optional.empty(), true);
         }
 
         if (sortedPartitionRanges.isPresent()) {
@@ -183,10 +209,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                         sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
+                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
                 if (res.second) {
-                    return Pair.of(res.first, Optional.of(originalPartitionPredicate));
+                    return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
+                            hasPartitionPredicate);
                 } else {
-                    return Pair.of(res.first, Optional.empty());
+                    return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
                 }
             }
         }
@@ -194,11 +222,18 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         Pair<List<K>, Boolean> res = sequentialFiltering(
                 idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold
         );
+        boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
         if (res.second) {
-            return Pair.of(res.first, Optional.of(originalPartitionPredicate));
+            return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
+                    hasPartitionPredicate);
         } else {
-            return Pair.of(res.first, Optional.empty());
+            return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
         }
+    }
+
+    private static <K extends Comparable<K>> boolean hasEffectivePartitionPredicate(
+            List<K> selectedPartitions, int totalPartitions) {
+        return selectedPartitions.size() != totalPartitions;
     }
 
     /**

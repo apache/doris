@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
@@ -91,6 +92,7 @@ import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -585,8 +587,23 @@ public class ConnectContext {
             LiteralExpr literalExpr = userVars.get(varName);
             if (literalExpr instanceof BoolLiteral) {
                 return Literal.of(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
-                return Literal.of(((IntLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof IntLiteral || literalExpr instanceof LargeIntLiteral) {
+                // the value in the IntLiteral should be int, but now is long in old planner literalExpr
+                // so type coercion to generate right new planner int Literal
+                switch (literalExpr.getType().getPrimitiveType()) {
+                    case LARGEINT:
+                        return Literal.of(new BigInteger(literalExpr.getStringValue()));
+                    case BIGINT:
+                        return Literal.of(((IntLiteral) literalExpr).getValue());
+                    case INT:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                    case SMALLINT:
+                        return Literal.of((short) ((IntLiteral) literalExpr).getValue());
+                    case TINYINT:
+                        return Literal.of((byte) ((IntLiteral) literalExpr).getValue());
+                    default:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                }
             } else if (literalExpr instanceof FloatLiteral) {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {

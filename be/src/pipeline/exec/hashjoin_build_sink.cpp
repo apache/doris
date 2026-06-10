@@ -237,7 +237,12 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
         if (p._use_shared_hash_table) {
             std::unique_lock lock(p._mutex);
-            p._signaled = true;
+            // Only signal non-builder tasks when the builder actually built the hash table.
+            // When the builder is terminated early, process_build_block() has not initialized the
+            // shared hash table or runtime filter wrappers, so non-builders must return EOF.
+            if (!_terminated) {
+                p._signaled = true;
+            }
             for (auto& dep : _shared_state->sink_deps) {
                 dep->set_ready();
             }
