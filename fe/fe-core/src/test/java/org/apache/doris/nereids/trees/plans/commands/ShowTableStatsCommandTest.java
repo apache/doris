@@ -198,5 +198,7 @@ public class ShowTableStatsCommandTest {
         Assertions.assertEquals("128", row.get(2));
         Assertions.assertEquals("", row.get(5));
         Assertions.assertEquals("false", row.get(7));
+        // last_analyze_time (index 9) should be empty for bootstrap stats.
+        Assertions.assertEquals("", row.get(9));
     }
 }

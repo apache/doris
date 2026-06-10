@@ -523,6 +523,9 @@ public class AnalysisManagerTest {
         Assertions.assertFalse(result.userInjected);
         // Bootstrap stats should not have a job type.
         Assertions.assertNull(result.jobType);
+        // Bootstrap should set updatedTime but leave lastAnalyzeTime as 0.
+        Assertions.assertTrue(result.updatedTime > 0);
+        Assertions.assertEquals(0L, result.lastAnalyzeTime);
     }
 
     private static OlapTable mockTable(long tableId, String tableName) {

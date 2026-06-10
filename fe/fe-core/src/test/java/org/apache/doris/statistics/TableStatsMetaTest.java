@@ -83,5 +83,8 @@ class TableStatsMetaTest {
         Assertions.assertEquals(123L, meta.getRowCount(100L));
         Assertions.assertTrue(meta.isColumnsStatsEmpty());
         Assertions.assertFalse(meta.userInjected);
+        // Bootstrap should record the current time as updatedTime but leave lastAnalyzeTime as 0.
+        Assertions.assertTrue(meta.updatedTime > 0);
+        Assertions.assertEquals(0L, meta.lastAnalyzeTime);
     }
 }

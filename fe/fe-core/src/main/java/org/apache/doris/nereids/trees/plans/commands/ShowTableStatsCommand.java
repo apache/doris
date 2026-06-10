@@ -260,7 +260,7 @@ public class ShowTableStatsCommand extends ShowCommand {
         row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
         row.add(table == null ? "N/A" : String.valueOf(table.autoAnalyzeEnabled()));
-        row.add(lastAnalyzeTime.format(formatter));
+        row.add(tableStatistic.lastAnalyzeTime == 0 ? "" : lastAnalyzeTime.format(formatter));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }

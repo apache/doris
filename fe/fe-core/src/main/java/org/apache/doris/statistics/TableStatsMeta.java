@@ -146,6 +146,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         tableStats.rowCount = rowCount;
         tableStats.updatedRows.set(updatedRows);
         tableStats.indexesRowCount.put(table.getBaseIndexId(), rowCount);
+        // Record the time when row count was bootstrapped so show table stats displays a reasonable update time,
+        // but leave lastAnalyzeTime as 0 since bootstrap is not an analyze operation.
+        tableStats.updatedTime = System.currentTimeMillis();
         return tableStats;
     }
 
