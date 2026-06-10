@@ -2807,7 +2807,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             useRowStore = olapTable.storeRowColumn()
                     && CollectionUtils.isEmpty(olapTable.getTableProperty().getCopiedRowStoreColumns());
         }
-        return useRowStore && canUseRowStoreForLazySlots(lazySlots);
+        return useRowStore && canUseRowStoreForLazySlots(lazySlots)
+                && !hasNestedAccessPaths(rel, lazySlots);
+    }
+
+    private boolean hasNestedAccessPaths(Relation rel, List<Slot> lazySlots) {
+        Set<Integer> lazyColumnUniqueIds = new HashSet<>();
+        for (Slot lazySlot : lazySlots) {
+            SlotReference slotReference = (SlotReference) lazySlot;
+            lazyColumnUniqueIds.add(slotReference.getOriginalColumn().get().getUniqueId());
+        }
+        for (Slot outputSlot : rel.getOutput()) {
+            if (outputSlot instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) outputSlot;
+                if (slotReference.getOriginalColumn().isPresent()
+                        && lazyColumnUniqueIds.contains(slotReference.getOriginalColumn().get().getUniqueId())
+                        && hasNestedAccessPaths(slotReference)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasNestedAccessPaths(SlotReference slotReference) {
+        return slotReference.getAllAccessPaths().map(paths -> !paths.isEmpty()).orElse(false)
+                || slotReference.getPredicateAccessPaths().map(paths -> !paths.isEmpty()).orElse(false);
     }
 
     @Override

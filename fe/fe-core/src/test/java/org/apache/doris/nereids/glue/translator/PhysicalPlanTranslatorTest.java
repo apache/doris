@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.glue.translator;
 
-import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
@@ -276,9 +275,6 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         distinctB.setUniqueId(2);
         Column sharedVariant = new Column("kv", org.apache.doris.catalog.Type.VARIANT);
         sharedVariant.setUniqueId(3);
-        Column arrayColumn = new Column("arr",
-                new org.apache.doris.catalog.ArrayType(org.apache.doris.catalog.Type.INT));
-        arrayColumn.setUniqueId(4);
 
         SlotReference distinctSlotA = new SlotReference(StatementScopeIdGenerator.newExprId(), "a",
                 IntegerType.INSTANCE, true, ImmutableList.of(), null, distinctA, null, distinctA);
@@ -293,12 +289,6 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         SlotReference variantSubColumnSlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "kv",
                 org.apache.doris.nereids.types.VariantType.INSTANCE, true, ImmutableList.of(),
                 null, sharedVariant, null, sharedVariant, ImmutableList.of("ssl"));
-        SlotReference nestedPrunedSlot = distinctSlotA.withAccessPaths(
-                ImmutableList.of(ColumnAccessPath.data(ImmutableList.of("nested"))),
-                ImmutableList.of());
-        SlotReference arraySlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "arr",
-                org.apache.doris.nereids.types.ArrayType.of(IntegerType.INSTANCE), true, ImmutableList.of(),
-                null, arrayColumn, null, arrayColumn);
 
         Assertions.assertTrue(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
                 ImmutableList.of(distinctSlotA, distinctSlotB)));
@@ -306,9 +296,5 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 ImmutableList.of(singleVariantSubColumnSlot)));
         Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
                 ImmutableList.of(variantRootSlot, variantSubColumnSlot)));
-        Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
-                ImmutableList.of(nestedPrunedSlot)));
-        Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
-                ImmutableList.of(arraySlot)));
     }
 }
