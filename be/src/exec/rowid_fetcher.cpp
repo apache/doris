@@ -720,8 +720,9 @@ const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
 
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
-        const std::shared_ptr<FileMapping>& file_mapping, const std::vector<SlotDescriptor>& slots,
-        const TUniqueId& query_id, const std::shared_ptr<RuntimeState>& runtime_state,
+        const std::shared_ptr<FileMapping>& file_mapping,
+        const std::vector<SlotDescriptor>& scan_slots, const TUniqueId& query_id,
+        const std::shared_ptr<RuntimeState>& runtime_state,
         std::vector<Block>& scan_blocks, std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
         std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
         const TFileScanRangeParams& rpc_scan_params,
@@ -732,6 +733,14 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
     signal::set_signal_task_id(query_id);
 
+    Defer defer([&] {
+        semaphore.release();
+        if (++producer_count == scan_rows_count) {
+            std::lock_guard<std::mutex> lock(mtx);
+            cv.notify_one();
+        }
+    });
+
     std::list<int64_t> read_ids;
     //Generate an ordered list with the help of the orderliness of the map.
     for (const auto& [row_id, result_block_idx] : row_ids) {
@@ -741,7 +750,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         row_id_block_idx[result_block_idx] = std::make_pair(idx, read_ids.size() - 1);
     }
 
-    scan_blocks[idx] = Block(slots, read_ids.size());
+    scan_blocks[idx] = Block(scan_slots, read_ids.size());
 
     auto& external_info = file_mapping->get_external_file_info();
     auto& scan_range_desc = external_info.scan_range_desc;
@@ -765,6 +774,24 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
                 &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
     }
 
+    if (scan_blocks[idx].rows() != read_ids.size()) {
+        return Status::InternalError(
+                "Row id fetch scan row count mismatch, "
+                "query_id={}, path={}, expected_rows={}, actual_rows={}",
+                print_id(query_id), scan_range_desc.path, read_ids.size(),
+                scan_blocks[idx].rows());
+    }
+    for (size_t column_id = 0; column_id < scan_blocks[idx].columns(); ++column_id) {
+        const auto& column = scan_blocks[idx].get_by_position(column_id);
+        if (column.column->size() != read_ids.size()) {
+            return Status::InternalError(
+                    "Row id fetch scan column row count mismatch, "
+                    "query_id={}, path={}, column={}, expected_rows={}, actual_rows={}",
+                    print_id(query_id), scan_range_desc.path, column.name, read_ids.size(),
+                    column.column->size());
+        }
+    }
+
     auto file_read_bytes_counter =
             sub_runtime_profile->get_counter(FileScanner::FileReadBytesProfile);
 
@@ -780,11 +807,6 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
                 file_read_times_counter->value(), file_read_times_counter->type());
     }
 
-    semaphore.release();
-    if (++producer_count == scan_rows_count) {
-        std::lock_guard<std::mutex> lock(mtx);
-        cv.notify_one();
-    }
     return Status::OK();
 }
 
@@ -798,11 +820,20 @@ Status RowIdStorageReader::read_batch_external_row(
     TupleDescriptor tuple_desc(request_block_desc.desc(), false);
     std::unordered_map<std::string, int> colname_to_slot_id;
     std::shared_ptr<RuntimeState> runtime_state = nullptr;
+    std::vector<SlotDescriptor> scan_slots;
+    std::vector<size_t> result_column_to_scan_column;
+    std::vector<uint32_t> scan_column_idxs;
 
     int max_file_scanners = 0;
     {
         if (result_block.is_empty_column()) [[likely]] {
             result_block = Block(slots, request_block_desc.row_id_size());
+        }
+        if (request_block_desc.column_idxs_size() != slots.size()) {
+            return Status::InternalError(
+                    "Row id fetch request has mismatched slots and column indexes, "
+                    "query_id={}, slots={}, column_idxs={}",
+                    print_id(query_id), slots.size(), request_block_desc.column_idxs_size());
         }
 
         auto& external_info = first_file_mapping->get_external_file_info();
@@ -819,13 +850,53 @@ Status RowIdStorageReader::read_batch_external_row(
 
         std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
                                     first_scan_range_desc.columns_from_path_keys.end());
+
+        std::unordered_map<std::string, size_t> source_column_to_scan_idx;
+        auto source_column_key = [](const SlotDescriptor& slot, uint32_t column_idx) {
+            fmt::memory_buffer key;
+            fmt::format_to(key, "{}:{}:{}", slot.col_name(), column_idx, slot.col_unique_id());
+            for (const auto& path : slot.column_paths()) {
+                fmt::format_to(key, ":{}", path);
+            }
+            for (const auto& path : slot.all_access_paths()) {
+                fmt::format_to(key, ":{}", path.type);
+                if (path.__isset.data_access_path) {
+                    for (const auto& item : path.data_access_path.path) {
+                        fmt::format_to(key, ":{}", item);
+                    }
+                }
+                if (path.__isset.meta_access_path) {
+                    for (const auto& item : path.meta_access_path.path) {
+                        fmt::format_to(key, ":{}", item);
+                    }
+                }
+            }
+            return fmt::to_string(key);
+        };
+
+        result_column_to_scan_column.reserve(slots.size());
+        scan_slots.reserve(slots.size());
+        scan_column_idxs.reserve(slots.size());
         for (auto slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-            auto& slot = slots[slot_idx];
+            const auto& slot = slots[slot_idx];
+            const auto column_idx = request_block_desc.column_idxs(slot_idx);
+            const auto key = source_column_key(slot, column_idx);
+            auto [it, inserted] =
+                    source_column_to_scan_idx.emplace(key, source_column_to_scan_idx.size());
+            result_column_to_scan_column.emplace_back(it->second);
+            if (inserted) {
+                scan_slots.emplace_back(slot);
+                scan_column_idxs.emplace_back(column_idx);
+            }
+        }
+
+        for (auto slot_idx = 0; slot_idx < scan_slots.size(); ++slot_idx) {
+            auto& slot = scan_slots[slot_idx];
             tuple_desc.add_slot(&slot);
-            colname_to_slot_id.emplace(slot.col_name(), slot.id());
+            colname_to_slot_id[slot.col_name()] = slot.id();
             TFileScanSlotInfo slot_info;
             slot_info.slot_id = slot.id();
-            auto column_idx = request_block_desc.column_idxs(slot_idx);
+            auto column_idx = scan_column_idxs[slot_idx];
             if (partition_name_set.contains(slot.col_name())) {
                 //This is partition column.
                 slot_info.is_file_slot = false;
@@ -916,6 +987,7 @@ Status RowIdStorageReader::read_batch_external_row(
     DCHECK(remote_scan_sched);
 
     int64_t scan_running_time = 0;
+    AtomicStatus scan_status;
     RETURN_IF_ERROR(scope_timer_run(
             [&]() -> Status {
                 // Make sure to insert data into result_block only after all scan tasks have been executed.
@@ -931,14 +1003,16 @@ Status RowIdStorageReader::read_batch_external_row(
                     semaphore.acquire();
                     RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
                             SimplifiedScanTask(
-                                    [&, idx, scan_info]() -> Status {
+                                    [&, idx, scan_info]() -> bool {
                                         const auto& [row_ids, file_mapping] = scan_info;
-                                        return read_external_row_from_file_mapping(
-                                                idx, row_ids, file_mapping, slots, query_id,
+                                        auto st = read_external_row_from_file_mapping(
+                                                idx, row_ids, file_mapping, scan_slots, query_id,
                                                 runtime_state, scan_blocks, row_id_block_idx,
                                                 fetch_statistics, rpc_scan_params,
                                                 colname_to_slot_id, producer_count,
                                                 scan_rows.size(), semaphore, cv, mtx, tuple_desc);
+                                        scan_status.update(st);
+                                        return true;
                                     },
                                     nullptr, nullptr),
                             fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
@@ -952,8 +1026,46 @@ Status RowIdStorageReader::read_batch_external_row(
                 return Status::OK();
             },
             &scan_running_time));
+    if (!scan_status.ok()) {
+        return scan_status.status();
+    }
 
-    scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
+    // Insert the read data into result_block. Use insert_indices_from() instead of
+    // scatter_scan_blocks_to_result_block()/insert_from_multi_column(), because
+    // scan_blocks may have fewer columns than result_block when duplicate physical columns
+    // are deduplicated, and insert_from_multi_column() cannot handle ColumnString
+    // cross-type (32/64) copies safely.
+    uint32_t scan_position = 0;
+    for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
+        auto dst_col_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
+
+        bool dst_is_nullable = dst_col->is_nullable();
+        std::vector<ColumnPtr> nullable_src_columns(scan_blocks.size());
+        auto scan_column_id = result_column_to_scan_column[column_id];
+        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
+            DCHECK(scan_blocks.size() > pos_block);
+            DCHECK(scan_blocks[pos_block].get_columns().size() > scan_column_id);
+            const auto& src_column_ptr =
+                    scan_blocks[pos_block].get_by_position(scan_column_id).column;
+            const auto* src_col = src_column_ptr.get();
+            if (dst_is_nullable && !src_col->is_nullable()) {
+                if (!nullable_src_columns[pos_block]) {
+                    nullable_src_columns[pos_block] = make_nullable(src_column_ptr);
+                }
+                src_col = nullable_src_columns[pos_block].get();
+            }
+            if (block_idx >= src_col->size()) {
+                return Status::InternalError(
+                        "Row id fetch source index out of range, query_id={}, column={}, "
+                        "source_block={}, source_rows={}, row_index={}",
+                        print_id(query_id), result_block.get_by_position(column_id).name, pos_block,
+                        src_col->size(), block_idx);
+            }
+            scan_position = cast_set<uint32_t>(block_idx);
+            dst_col->insert_indices_from(*src_col, &scan_position, &scan_position + 1);
+        }
+    }
 
     // Statistical runtime profile information.
     std::unique_ptr<RuntimeProfile> runtime_profile =
