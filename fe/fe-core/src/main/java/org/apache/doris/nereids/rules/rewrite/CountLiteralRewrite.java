@@ -59,13 +59,15 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
                     }
 
                     List<NamedExpression> projectFuncs = Lists.newArrayListWithCapacity(newExprs.size());
-                    Builder<NamedExpression> aggFuncsBuilder
-                            = ImmutableList.builderWithExpectedSize(newExprs.size());
+                    Builder<NamedExpression> aggFuncsBuilder = ImmutableList.builderWithExpectedSize(newExprs.size());
+                    boolean hasConstantExpr = false;
                     for (NamedExpression newExpr : newExprs) {
                         if (newExpr.isConstant()) {
+                            hasConstantExpr = true;
                             projectFuncs.add(newExpr);
                         } else {
                             aggFuncsBuilder.add(newExpr);
+                            projectFuncs.add(newExpr.toSlot());
                         }
                     }
 
@@ -78,10 +80,7 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
                         // project(0 as count(null))
                         // --Aggregate(k1, group by k1)
                         Plan plan = agg.withAggOutput(aggFuncs);
-                        if (!projectFuncs.isEmpty()) {
-                            for (NamedExpression aggFunc : aggFuncs) {
-                                projectFuncs.add(aggFunc.toSlot());
-                            }
+                        if (hasConstantExpr) {
                             plan = new LogicalProject<>(projectFuncs, plan);
                         }
                         return plan;

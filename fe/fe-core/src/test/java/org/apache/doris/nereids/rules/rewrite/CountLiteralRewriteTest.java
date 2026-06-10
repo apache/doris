@@ -107,6 +107,19 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
     }
 
     @Test
+    void testRewritePreservesOutputOrderWithConstants() {
+        PlanChecker.from(connectContext)
+                .analyze("select 'a' as c1, count(1) as c2, 'b' as c3 from student")
+                .rewrite()
+                .matches(logicalProject(logicalAggregate())
+                        .when(project -> project.getProjects().size() == 3
+                                && project.getProjects().get(0).isConstant()
+                                && !project.getProjects().get(1).isConstant()
+                                && project.getProjects().get(2).isConstant()))
+                .printlnTree();
+    }
+
+    @Test
     void testCountConstantExpressionMayEvaluateOnceAboveAggregate() {
         PlanChecker.from(connectContext)
                 .analyze("select count(json_extract('{\"id\":123}', '$.')) as c from student where false")
