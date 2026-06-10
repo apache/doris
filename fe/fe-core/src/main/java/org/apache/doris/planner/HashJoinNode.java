@@ -325,8 +325,10 @@ public class HashJoinNode extends JoinNodeBase {
             // a 4-BE cluster: identical plan and results vs BE-native, no crash).  Keeping the
             // check matches BE's intent and is in place should the framework later force the
             // exchange; a true rebalance of a non-serial probe is a perf-only follow-up.
-            boolean forcePassthrough = translatorContext.getConnectContext()
-                    .getSessionVariable().enableBroadcastJoinForcePassthrough;
+            // getConnectContext() can be null (unit-test mocks); treat as no force.
+            boolean forcePassthrough = translatorContext.getConnectContext() != null
+                    && translatorContext.getConnectContext().getSessionVariable()
+                            .enableBroadcastJoinForcePassthrough;
             boolean probeChildSerial = children.get(0).isSerialOperatorOnBe(
                     translatorContext.getConnectContext());
             boolean buildChildSerial = children.get(1).isSerialOperatorOnBe(

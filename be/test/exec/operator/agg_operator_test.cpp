@@ -161,7 +161,8 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_lo
 
     Pipeline pipeline(0, 4, 4);
     EXPECT_TRUE(pipeline.add_operator(child, 0).ok());
-    pipeline.set_data_distribution(DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE));
+    pipeline.set_data_distribution(
+            DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE));
     EXPECT_TRUE(pipeline.need_to_local_exchange(distribution, 1));
 }
 

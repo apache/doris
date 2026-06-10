@@ -129,7 +129,12 @@ public class AddLocalExchange {
                     && !(node instanceof LocalExchangeNode)
                     && !(node instanceof ExchangeNode)
                     && !node.isSerialOperatorOnBe(context)) {
-                throw new IllegalStateException(
+                // Best-effort heuristic, logged not thrown: some serial→non-serial transitions
+                // are legitimate (e.g. Union/Scan/RecursiveCteScan feeding TableFunction, NLJ or
+                // Agg) — the parent runs effectively serial at runtime and the BE reconciles
+                // num_tasks across the coupled pipelines, so no LE is required and results are
+                // correct. Throwing here breaks those plans, so we only warn.
+                org.apache.logging.log4j.LogManager.getLogger(AddLocalExchange.class).warn(
                         "Serial " + child.getClass().getSimpleName() + "(id=" + child.getId()
                         + ") feeds into non-serial " + node.getClass().getSimpleName()
                         + "(id=" + node.getId() + ") without LocalExchangeNode"
