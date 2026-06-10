@@ -22,14 +22,17 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <numeric>
 #include <shared_mutex>
 #include <utility>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -53,6 +56,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/task/index_builder.h"
+#include "util/debug_points.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -161,6 +165,17 @@ TabletColumn make_predefined_path_template(const std::string&, const VariantPath
     column_pb.set_is_key(false);
     column_pb.set_is_nullable(path_spec.nullable);
     column_pb.set_pattern_type(path_spec.pattern_type);
+    if (path_spec.type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        auto* child_pb = column_pb.add_children_columns();
+        child_pb->set_unique_id(-1);
+        child_pb->set_name(path_spec.path + ".item");
+        child_pb->set_type(TabletColumn::get_string_by_field_type(
+                path_spec.array_item_type.value_or(FieldType::OLAP_FIELD_TYPE_STRING)));
+        child_pb->set_is_key(false);
+        child_pb->set_is_nullable(path_spec.array_item_nullable);
+        child_pb->set_length(INT_MAX);
+        child_pb->set_index_length(0);
+    }
 
     TabletColumn subcolumn;
     subcolumn.init_from_pb(column_pb);
@@ -386,6 +401,35 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const VariantJs
     return Status::OK();
 }
 
+Status validate_direct_variant_column(const VariantColumnSpec& column_spec, const ColumnPtr& column,
+                                      size_t expected_rows, size_t variant_pos) {
+    if (!column) {
+        return Status::InvalidArgument("direct variant column {} is null", variant_pos);
+    }
+    if (column->size() != expected_rows) {
+        return Status::InvalidArgument(
+                "direct variant column {} row count mismatch: expected={}, actual={}",
+                column_spec.name, expected_rows, column->size());
+    }
+
+    const IColumn* nested_column = column.get();
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(nested_column)) {
+        if (!column_spec.nullable) {
+            return Status::InvalidArgument(
+                    "non-nullable variant column {} cannot use nullable direct column",
+                    column_spec.name);
+        }
+        nested_column = &nullable_column->get_nested_column();
+    }
+    if (check_and_get_column<ColumnVariant>(nested_column) == nullptr) {
+        return Status::InvalidArgument(
+                "direct variant column {} must be ColumnVariant or ColumnNullable(ColumnVariant), "
+                "actual={}",
+                column_spec.name, column->get_name());
+    }
+    return Status::OK();
+}
+
 Status fill_text_column(const VariantJsonBatch& batch, size_t column_pos,
                         MutableColumnPtr* output) {
     if (column_pos >= batch.text_values_by_column.size()) {
@@ -424,6 +468,22 @@ Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_o
 
     for (size_t variant_pos = 0; variant_pos < tablet_options.variant_columns.size();
          ++variant_pos, ++column_pos) {
+        if (!batch.variant_columns_by_column.empty()) {
+            RETURN_IF_ERROR(validate_direct_variant_column(
+                    tablet_options.variant_columns[variant_pos],
+                    batch.variant_columns_by_column[variant_pos], rows, variant_pos));
+            auto variant_column = batch.variant_columns_by_column[variant_pos]->clone_resized(rows);
+            if (tablet_options.variant_columns[variant_pos].nullable &&
+                !variant_column->is_nullable()) {
+                auto null_map = ColumnUInt8::create();
+                null_map->insert_many_defaults(rows);
+                variant_column =
+                        ColumnNullable::create(std::move(variant_column), std::move(null_map));
+            }
+            columns[column_pos] = std::move(variant_column);
+            continue;
+        }
+
         MutableColumnPtr variant_column;
         RETURN_IF_ERROR(fill_variant_column(tablet_options.variant_columns[variant_pos], batch,
                                             variant_pos, &variant_column));
@@ -628,6 +688,17 @@ VariantJsonBatch VariantJsonBatch::single_variant(std::vector<std::string> jsons
     return batch;
 }
 
+VariantJsonBatch VariantJsonBatch::single_variant_column(ColumnPtr column, int32_t first_key) {
+    VariantJsonBatch batch;
+    const auto rows = column->size();
+    batch.keys.reserve(rows);
+    for (size_t i = 0; i < rows; ++i) {
+        batch.keys.push_back(first_key + static_cast<int32_t>(i));
+    }
+    batch.variant_columns_by_column.emplace_back(std::move(column));
+    return batch;
+}
+
 size_t VariantJsonBatch::num_rows() const {
     if (!keys.empty()) {
         return keys.size();
@@ -637,6 +708,9 @@ size_t VariantJsonBatch::num_rows() const {
     }
     if (!variant_jsons_by_column.empty()) {
         return variant_jsons_by_column.front().size();
+    }
+    if (!variant_columns_by_column.empty()) {
+        return variant_columns_by_column.front() ? variant_columns_by_column.front()->size() : 0;
     }
     return 0;
 }
@@ -951,6 +1025,25 @@ void expect_index_files(const IndexRowsetProbe& probe, bool expected_present) {
     }
 }
 
+ScopedDebugPoint::ScopedDebugPoint(std::string name, std::map<std::string, std::string> params)
+        : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
+    config::enable_debug_points = true;
+    _debug_point = std::make_shared<DebugPoint>();
+    _debug_point->params = std::move(params);
+    _debug_point->execute_limit = std::numeric_limits<int64_t>::max();
+    DebugPoints::instance()->remove(_name);
+    DebugPoints::instance()->add(_name, _debug_point);
+}
+
+ScopedDebugPoint::~ScopedDebugPoint() {
+    DebugPoints::instance()->remove(_name);
+    config::enable_debug_points = _enable_debug_points;
+}
+
+int64_t ScopedDebugPoint::execute_num() const {
+    return _debug_point == nullptr ? 0 : _debug_point->execute_num.load();
+}
+
 IndexStorageTestFixture::~IndexStorageTestFixture() = default;
 
 void IndexStorageTestFixture::SetUp() {
@@ -1098,10 +1191,26 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
                     "text batch column count mismatch: expected={}, actual={}",
                     tablet_options.text_columns.size(), batch.text_values_by_column.size()));
         }
-        if (batch.variant_jsons_by_column.size() != tablet_options.variant_columns.size()) {
+        if (!batch.variant_jsons_by_column.empty() && !batch.variant_columns_by_column.empty()) {
+            return ResultError(Status::InvalidArgument(
+                    "variant batch cannot mix json values and direct columns"));
+        }
+        if (batch.variant_jsons_by_column.empty() && batch.variant_columns_by_column.empty() &&
+            !tablet_options.variant_columns.empty()) {
+            return ResultError(
+                    Status::InvalidArgument("variant batch does not contain variant values"));
+        }
+        if (!batch.variant_jsons_by_column.empty() &&
+            batch.variant_jsons_by_column.size() != tablet_options.variant_columns.size()) {
             return ResultError(Status::InvalidArgument(
                     "variant json batch column count mismatch: expected={}, actual={}",
                     tablet_options.variant_columns.size(), batch.variant_jsons_by_column.size()));
+        }
+        if (!batch.variant_columns_by_column.empty() &&
+            batch.variant_columns_by_column.size() != tablet_options.variant_columns.size()) {
+            return ResultError(Status::InvalidArgument(
+                    "variant direct column count mismatch: expected={}, actual={}",
+                    tablet_options.variant_columns.size(), batch.variant_columns_by_column.size()));
         }
 
         Block block = _tablet_schema->create_block();

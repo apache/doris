@@ -22,12 +22,10 @@
 #include <sstream>
 #include <string_view>
 
-#include "common/config.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/variant_util.h"
 #include "storage/predicate/predicate_creator.h"
 #include "testutil/index_storage_test_util.h"
-#include "util/debug_points.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -135,25 +133,6 @@ std::string dump_schema_paths(const TabletSchema& schema) {
     }
     return out.str();
 }
-
-class ScopedDebugPoint {
-public:
-    ScopedDebugPoint(std::string name, std::map<std::string, std::string> params)
-            : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
-        config::enable_debug_points = true;
-        DebugPoints::instance()->remove(_name);
-        DebugPoints::instance()->add_with_params(_name, params);
-    }
-
-    ~ScopedDebugPoint() {
-        DebugPoints::instance()->remove(_name);
-        config::enable_debug_points = _enable_debug_points;
-    }
-
-private:
-    std::string _name;
-    bool _enable_debug_points = false;
-};
 
 } // namespace
 
@@ -625,7 +604,12 @@ TEST_F(IndexStorageLifecycleTest, BuildAndDropVariantPathIndexAfterExistingRows)
     variant.unique_id = 2;
     variant.name = "v";
     variant.predefined_paths = {
-            VariantPathSpec {.path = "b", .type = FieldType::OLAP_FIELD_TYPE_STRING},
+            VariantPathSpec {.path = "b",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
     };
 
     const auto index_case =
@@ -754,8 +738,18 @@ TEST_F(IndexStorageLifecycleTest, DropOneVariantPathIndexKeepsSiblingPathIndexUs
     variant.unique_id = 2;
     variant.name = "v";
     variant.predefined_paths = {
-            VariantPathSpec {.path = "b", .type = FieldType::OLAP_FIELD_TYPE_STRING},
-            VariantPathSpec {.path = "c", .type = FieldType::OLAP_FIELD_TYPE_STRING},
+            VariantPathSpec {.path = "b",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+            VariantPathSpec {.path = "c",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
     };
 
     const auto index_case =
@@ -1035,7 +1029,12 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaAddDropVariantColumnCompactsNewRo
     added.nullable = true;
     added.max_subcolumns_count = 4;
     added.predefined_paths = {
-            VariantPathSpec {.path = "x", .type = FieldType::OLAP_FIELD_TYPE_STRING},
+            VariantPathSpec {.path = "x",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
     };
 
     IndexSchemaPatch patch;
@@ -1122,7 +1121,12 @@ TEST_F(IndexStorageLifecycleTest, VariantPathIndexHitAfterCumulativeCompaction) 
     variant.unique_id = 2;
     variant.name = "v";
     variant.predefined_paths = {
-            VariantPathSpec {.path = "b", .type = FieldType::OLAP_FIELD_TYPE_STRING},
+            VariantPathSpec {.path = "b",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
     };
     const auto index_case =
             IndexStorageCaseBuilder("variant_path_index_hit_after_cumulative_compaction")
@@ -1183,8 +1187,18 @@ TEST_F(IndexStorageLifecycleTest, WriteReadProbeAndCumulativeCompact) {
     options.variant_columns[0].max_subcolumns_count = 4;
     options.variant_columns[0].sparse_hash_shard_count = 2;
     options.variant_columns[0].predefined_paths = {
-            VariantPathSpec {.path = "a", .type = FieldType::OLAP_FIELD_TYPE_INT},
-            VariantPathSpec {.path = "b", .type = FieldType::OLAP_FIELD_TYPE_STRING},
+            VariantPathSpec {.path = "a",
+                             .type = FieldType::OLAP_FIELD_TYPE_INT,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+            VariantPathSpec {.path = "b",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
     };
     ASSERT_TRUE(create_tablet(options).ok());
 

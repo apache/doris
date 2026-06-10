@@ -43,6 +43,7 @@
 namespace doris {
 
 class DataDir;
+struct DebugPoint;
 class StorageEngine;
 
 namespace segment_v2 {
@@ -64,6 +65,8 @@ struct VariantPathSpec {
     FieldType type = FieldType::OLAP_FIELD_TYPE_STRING;
     bool nullable = true;
     PatternTypePB pattern_type = PatternTypePB::MATCH_NAME;
+    std::optional<FieldType> array_item_type;
+    bool array_item_nullable = true;
 };
 
 struct VariantColumnSpec {
@@ -107,12 +110,14 @@ struct VariantJsonBatch {
     std::vector<int32_t> keys;
     std::vector<std::vector<std::string>> text_values_by_column;
     std::vector<std::vector<std::string>> variant_jsons_by_column;
+    std::vector<ColumnPtr> variant_columns_by_column;
     bool deprecated_enable_flatten_nested = false;
     bool check_duplicate_json_path = false;
     ParseConfig::ParseTo parse_to = ParseConfig::ParseTo::OnlySubcolumns;
 
     static VariantJsonBatch single_text(std::vector<std::string> values, int32_t first_key = 0);
     static VariantJsonBatch single_variant(std::vector<std::string> jsons, int32_t first_key = 0);
+    static VariantJsonBatch single_variant_column(ColumnPtr column, int32_t first_key = 0);
     size_t num_rows() const;
 };
 
@@ -297,6 +302,19 @@ void expect_inverted_index_used(const IndexReadResult& result);
 void expect_inverted_index_fallback(const IndexReadResult& result);
 void expect_inverted_index_not_attempted(const IndexReadResult& result);
 void expect_index_files(const IndexRowsetProbe& probe, bool expected_present);
+
+class ScopedDebugPoint {
+public:
+    explicit ScopedDebugPoint(std::string name, std::map<std::string, std::string> params = {});
+    ~ScopedDebugPoint();
+
+    int64_t execute_num() const;
+
+private:
+    std::string _name;
+    bool _enable_debug_points = false;
+    std::shared_ptr<DebugPoint> _debug_point;
+};
 
 class IndexStorageTestFixture : public testing::Test {
 public:
