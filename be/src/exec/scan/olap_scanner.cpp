@@ -497,7 +497,7 @@ Status OlapScanner::_init_tablet_reader_params(
     } else if (_tablet_reader_params.direct_mode) {
         _tablet_reader_params.return_columns = _return_columns;
     } else {
-         // we need to fetch all key columns to do the right aggregation on storage engine side.
+        // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
             _tablet_reader_params.return_columns.push_back(i);
         }
