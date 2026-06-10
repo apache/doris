@@ -75,16 +75,10 @@ public:
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
     void set_resource_id(const std::string& resource_id) {
-        if (resource_id.empty()) {
-            _rowset_meta_pb.clear_resource_id();
-        } else {
-            _rowset_meta_pb.set_resource_id(resource_id);
-        }
+        _rowset_meta_pb.set_resource_id(resource_id);
     }
 
-    bool is_local() const {
-        return !_rowset_meta_pb.has_resource_id() || _rowset_meta_pb.resource_id().empty();
-    }
+    bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
     bool has_variant_type_in_schema() const;
 
