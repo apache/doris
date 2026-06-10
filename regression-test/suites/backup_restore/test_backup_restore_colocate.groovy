@@ -51,19 +51,6 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
         assertTrue(result.ColocateMismatchNum as int == 0)
     }
 
-    // The planner only produces a COLOCATE join once the colocate group is stable.
-    // Right after a restore the restored group may still be stabilizing, so poll the
-    // explain plan until COLOCATE shows up (bounded wait) before asserting on it.
-    def waitColocatePlan = { q ->
-        def plan = q.replaceAll(/;\s*$/, "")
-        for (int i = 0; i < 60; i++) {
-            if (sql("explain ${plan}").toString().contains("COLOCATE")) {
-                break
-            }
-            sleep(1000)
-        }
-    }
-
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
 
@@ -118,7 +105,7 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
-    waitColocatePlan(query)
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -224,8 +211,7 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
-
-    waitColocatePlan(query)
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -411,19 +397,6 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
         assertTrue(result.ColocateMismatchNum as int == 0)
     }
 
-    // The planner only produces a COLOCATE join once the colocate group is stable.
-    // Right after a restore the restored group may still be stabilizing, so poll the
-    // explain plan until COLOCATE shows up (bounded wait) before asserting on it.
-    def waitColocatePlan = { q ->
-        def plan = q.replaceAll(/;\s*$/, "")
-        for (int i = 0; i < 60; i++) {
-            if (sql("explain ${plan}").toString().contains("COLOCATE")) {
-                break
-            }
-            sleep(1000)
-        }
-    }
-
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
 
@@ -494,7 +467,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
-    waitColocatePlan(query)
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -598,8 +571,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
-
-    waitColocatePlan(query)
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -674,7 +646,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
 
     query = "select * from ${newDbName}.${tableName1} as t1, ${newDbName}.${tableName2} as t2 where t1.id=t2.id;"
 
-    waitColocatePlan(query)
+    waitForColocateGroupStable(newDbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
