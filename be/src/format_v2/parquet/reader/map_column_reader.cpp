@@ -825,8 +825,26 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     }
     int64_t value_count = 0;
     if (auto* scalar_value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get())) {
-        for (const int64_t level_idx : entry_level_indices) {
-            RETURN_IF_ERROR(scalar_value_reader->append_nested_value(level_idx, value_column));
+        const auto& value_def_levels = scalar_value_reader->nested_definition_levels();
+        const auto& value_rep_levels = scalar_value_reader->nested_repetition_levels();
+        const int64_t value_levels_written = scalar_value_reader->nested_levels_written();
+        const int16_t value_slot_definition_level =
+                static_cast<int16_t>(scalar_value_reader->descriptor()->max_definition_level() -
+                                     (scalar_value_reader->type()->is_nullable() ? 1 : 0));
+        int64_t value_level_idx = 0;
+        for (const int64_t key_level_idx : entry_level_indices) {
+            while (value_level_idx < value_levels_written &&
+                   (value_def_levels[value_level_idx] < value_slot_definition_level ||
+                    value_rep_levels[value_level_idx] != rep_levels[key_level_idx])) {
+                ++value_level_idx;
+            }
+            if (value_level_idx >= value_levels_written) {
+                return Status::Corruption(
+                        "Parquet MAP column {} value stream ended before key stream", _name);
+            }
+            RETURN_IF_ERROR(
+                    scalar_value_reader->append_nested_value(value_level_idx, value_column));
+            ++value_level_idx;
             ++value_count;
         }
     } else {
