@@ -759,16 +759,16 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         if (selectedIndexId != ((OlapTable) table).getBaseIndexId()) {
             return getOutputByIndex(selectedIndexId);
         }
-        List<Column> outputSchema = filterOutputColumns(table.getBaseSchema(true));
+        List<Column> baseSchema = table.getBaseSchema(true);
         boolean skipBinlogBeforeColumn = scanParams.isPresent()
                 && scanParams.get().getMapParams().get(OlapScanNode.OLAP_INCREMENT_TYPE) != null;
-        List<SlotReference> slotFromColumn = createSlotsVectorized(outputSchema, skipBinlogBeforeColumn);
+        List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema, skipBinlogBeforeColumn);
 
         Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
-        for (int i = 0; i < outputSchema.size(); i++) {
+        for (int i = 0; i < baseSchema.size(); i++) {
             final int index = i;
-            Column col = outputSchema.get(i);
+            Column col = baseSchema.get(i);
             if (skipBinlogBeforeColumn && col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
                 continue;
             }
@@ -779,7 +779,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 for (List<String> subPath : colToSubPathsMap.get(key.getValue())) {
                     if (!subPath.isEmpty()) {
                         SlotReference slotReference = SlotReference.fromColumn(
-                                exprIdGenerator.getNextId(), table, outputSchema.get(i), qualified()
+                                exprIdGenerator.getNextId(), table, baseSchema.get(i), qualified()
                         ).withSubPath(subPath);
                         slots.add(slotReference);
                         subPathToSlotMap.computeIfAbsent(slot, k -> Maps.newHashMap())
@@ -887,10 +887,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     public Optional<ScoreRangeInfo> getScoreRangeInfo() {
         return scoreRangeInfo;
-    }
-
-    protected List<Column> filterOutputColumns(List<Column> columns) {
-        return columns;
     }
 
     private List<SlotReference> createSlotsVectorized(List<Column> columns, boolean skipBinlogBeforeColumn) {

@@ -323,21 +323,10 @@ Status OlapScanner::_init_row_binlog_tso_predicates() {
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = tablet_schema->field_index(std::string(kRowBinlogTimestampColName));
-    if (tso_index < 0) {
-        auto source_tablet_schema = _tablet_reader_params.tablet->row_binlog_tablet_schema();
-        const int32_t source_tso_index =
-                source_tablet_schema->field_index(std::string(kRowBinlogTimestampColName));
-        if (source_tso_index < 0) {
-            return Status::InternalError("Column {} not found in tablet schema",
-                                         std::string(kRowBinlogTimestampColName));
-        }
-        tablet_schema->append_column(TabletColumn(source_tablet_schema->column(source_tso_index)));
-        tso_index = tablet_schema->field_index(std::string(kRowBinlogTimestampColName));
-    }
+    int32_t tso_index = tablet_schema->binlog_timestamp_col_idx();
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
-                                     std::string(kRowBinlogTimestampColName));
+                                     BINLOG_TIMESTAMP_COL);
     }
 
     auto data_type = std::make_shared<DataTypeInt64>();
@@ -466,6 +455,9 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     };
 
+    // For row-binlog scans that emit BEFORE/AFTER pairs (MIN_DELTA / DETAIL), we must read
+    // every key column, every requested value column, the binlog meta columns (op / lsn /
+    // tso) and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
     const bool need_before_columns =
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
@@ -502,7 +494,6 @@ Status OlapScanner::_init_tablet_reader_params(
     } else if (_tablet_reader_params.direct_mode) {
         _tablet_reader_params.return_columns = _return_columns;
     } else {
-        // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
             _tablet_reader_params.return_columns.push_back(i);
         }
@@ -548,7 +539,7 @@ Status OlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.return_columns.insert(
                         std::end(_tablet_reader_params.return_columns),
                         std::begin(return_seq_columns), std::end(return_seq_columns));
-            }
+            } // end of REPLACE-column sequence expansion
         }
     }
 

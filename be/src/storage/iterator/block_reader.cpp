@@ -77,6 +77,10 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
+// Lazily resolves the positions of the binlog meta columns (op / lsn / tso) inside the
+// merged source block, and builds _before_column_idx mapping each non-meta column to its
+// __BEFORE__ mirror. The resolved positions are reused across blocks; if the column
+// layout changes (detected via _binlog_op_pos sanity check), they are re-resolved.
 Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     if (_binlog_column_pos_inited) {
         if (_binlog_op_pos >= 0 && _binlog_op_pos < src_block.columns() &&
@@ -149,6 +153,10 @@ bool BlockReader::_is_binlog_meta_column(int idx) const {
     return idx == _binlog_op_pos || idx == _binlog_lsn_pos || idx == _binlog_timestamp_pos;
 }
 
+// Resolves which source-block column to read from for a given binlog row position.
+// When use_before is true and idx is a regular data column, return the index of its
+// __BEFORE__ mirror (built in _before_column_idx); otherwise return idx itself.
+// Binlog meta columns (op / lsn / tso) have no BEFORE mirror, so they always pass through.
 int BlockReader::_resolve_source_column_index(int idx, bool use_before) const {
     if (!use_before || _is_binlog_meta_column(idx)) {
         return idx;
@@ -164,6 +172,8 @@ void BlockReader::_init_pending_row_columns(const Block& block) {
     _pending_row_columns = block.clone_empty_columns();
 }
 
+// Drains the carry-over row produced on the previous batch boundary into the current
+// output block. Returns true if a row was emitted, false if no pending row exists.
 bool BlockReader::_emit_pending_row(MutableColumns& target_columns, size_t& output_row_count) {
     if (!_has_pending_row) {
         return false;
@@ -177,6 +187,9 @@ bool BlockReader::_emit_pending_row(MutableColumns& target_columns, size_t& outp
     return true;
 }
 
+// Copies one source row into target_columns with the given output op code, picking BEFORE
+// or AFTER values per column according to use_before. Used by _detail_change_next_block to
+// materialize the BEFORE / AFTER halves of an UPDATE pair (and INSERT / DELETE singletons).
 Status BlockReader::_append_change_row(MutableColumns& target_columns, const Block& src_block,
                                        size_t row_pos, int64_t output_op, bool use_before) {
     for (auto idx : _normal_columns_idx) {
@@ -195,6 +208,9 @@ Status BlockReader::_append_change_row(MutableColumns& target_columns, const Blo
     return Status::OK();
 }
 
+// MIN_DELTA reader: groups consecutive rows sharing the same primary key in
+// _stored_data_columns, then collapses the group into the minimum equivalent change
+// (SKIP / INSERT / DELETE / UPDATE_BEFORE+AFTER) via AggregateFunctionMinDelta.
 Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof && !_has_pending_row)) {
         *eof = true;
@@ -320,6 +336,9 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
+// DETAIL reader: emits every recorded binlog change verbatim. APPEND -> single INSERT row,
+// DELETE -> single DELETE row, UPDATE -> a BEFORE+AFTER pair. When the AFTER row would
+// overflow batch_max_rows(), it is parked in _pending_row_columns and flushed next call.
 Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof && !_has_pending_row)) {
         *eof = true;
@@ -579,10 +598,14 @@ Status BlockReader::init(const ReaderParams& read_params) {
         return status;
     }
 
+    // MIN_DELTA: collapse consecutive same-key changes to the minimum equivalent change set
+    // (e.g. INSERT+DELETE -> SKIP, INSERT+UPDATE -> INSERT). Reduces downstream traffic.
     if (read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA) {
         _next_block_func = &BlockReader::_min_delta_next_block;
         return Status::OK();
     }
+    // DETAIL: emit every recorded change as-is, with BEFORE+AFTER rows for UPDATE.
+    // Used when the consumer needs full change history rather than the net delta.
     if (read_params.binlog_scan_type == TBinlogScanType::DETAIL) {
         _next_block_func = &BlockReader::_detail_change_next_block;
         return Status::OK();

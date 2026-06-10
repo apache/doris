@@ -487,6 +487,7 @@ public class OlapScanNode extends ScanNode {
             // legacy support, will be removed after full olap table stream history function ready
             visibleVersion = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second;
         }
+        // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
 
         int useFixReplica = -1;

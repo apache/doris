@@ -634,29 +634,29 @@ public class Coordinator implements CoordInterface {
             return;
         }
 
-        // Collect (dbId, tableId) -> max(endTimestampMs)
-        Map<Pair<Long, Long>, Long> tableEndTimestampMs = new HashMap<>();
+        // Collect (dbId, tableId) -> max(endTSO)
+        Map<Pair<Long, Long>, Long> tableEndTSO = new HashMap<>();
         for (ScanNode scanNode : scanNodes) {
             if (scanNode instanceof OlapScanNode) {
                 OlapScanNode olapScanNode = (OlapScanNode) scanNode;
                 if (olapScanNode.isChangeScan()) {
                     long endTs = olapScanNode.getIncrementalScanEndTime();
                     if (endTs <= 0) {
-                        endTs = queryGlobals.getTimestampMs();
+                        endTs = TSOTimestamp.composeFullTimestamp(queryGlobals.getTimestampMs());
                     }
-                    addTableEndTimestamp(tableEndTimestampMs, olapScanNode.getOlapTable(), endTs);
+                    addTableEndTimestamp(tableEndTSO, olapScanNode.getOlapTable(), endTs);
                 }
             }
         }
-        if (tableEndTimestampMs.isEmpty()) {
+        if (tableEndTSO.isEmpty()) {
             return;
         }
 
         long deadlineMs = System.currentTimeMillis() + sessionVariable.getChangeVisibleTimeoutMs();
-        for (Map.Entry<Pair<Long, Long>, Long> entry : tableEndTimestampMs.entrySet()) {
+        for (Map.Entry<Pair<Long, Long>, Long> entry : tableEndTSO.entrySet()) {
             long dbId = entry.getKey().first;
             long tableId = entry.getKey().second;
-            long endTimestampMs = entry.getValue();
+            long endTSO = entry.getValue();
 
             List<TransactionState> committedTxns;
             try {
@@ -673,8 +673,7 @@ public class Coordinator implements CoordInterface {
                     continue;
                 }
 
-                long txnCommitTimeMs = extractTransactionCommitTimeMs(txn);
-                if (txnCommitTimeMs < 0 || txnCommitTimeMs > endTimestampMs) {
+                if (txn.getCommitTSO() < 0 || txn.getCommitTSO() > endTSO) {
                     continue;
                 }
 
@@ -682,8 +681,8 @@ public class Coordinator implements CoordInterface {
                 if (remainingMs <= 0) {
                     throw new UserException(String.format(
                             "timeout waiting committed transactions become visible for time-based read, "
-                                    + "dbId=%d tableId=%d endTimestampMs=%d",
-                            dbId, tableId, endTimestampMs));
+                                    + "dbId=%d tableId=%d endTSO=%d",
+                            dbId, tableId, endTSO));
                 }
 
                 while (txn.getTransactionStatus() == TransactionStatus.COMMITTED
@@ -699,8 +698,8 @@ public class Coordinator implements CoordInterface {
                 if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
                     throw new UserException(String.format(
                             "timeout waiting transaction become visible for time-based read, "
-                                    + "txnId=%d dbId=%d tableId=%d endTimestampMs=%d",
-                            txn.getTransactionId(), dbId, tableId, endTimestampMs));
+                                    + "txnId=%d dbId=%d tableId=%d endTSO=%d",
+                            txn.getTransactionId(), dbId, tableId, endTSO));
                 }
             }
         }
@@ -718,11 +717,6 @@ public class Coordinator implements CoordInterface {
         if (oldEnd == null || oldEnd < endTimestampMs) {
             tableEndTimestampMs.put(key, endTimestampMs);
         }
-    }
-
-    private static long extractTransactionCommitTimeMs(TransactionState txn) {
-        long tso = txn.getCommitTSO();
-        return TSOTimestamp.extractPhysicalTime(tso);
     }
 
     protected void processFragmentAssignmentAndParams() throws Exception {

@@ -1045,7 +1045,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
         if (table instanceof BaseTableStream) {
-            Env.getCurrentEnv().getTableStreamManager().removeStaleStream((BaseTableStream) table);
+            Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
