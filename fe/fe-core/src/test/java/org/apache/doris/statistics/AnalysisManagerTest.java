@@ -473,4 +473,76 @@ public class AnalysisManagerTest {
         Mockito.when(command.getAnalyzeProperties()).thenReturn(analyzeProperties);
         return command;
     }
+
+    @Test
+    void testBootstrapTableStatsIfAbsentWithZeroLoadedRows() {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(1000L);
+
+        // loadedRows <= 0 → should return immediately without creating stats.
+        manager.bootstrapTableStatsIfAbsent(table, 0);
+        Assertions.assertNull(manager.findTableStatsStatus(1000L));
+
+        manager.bootstrapTableStatsIfAbsent(table, -1);
+        Assertions.assertNull(manager.findTableStatsStatus(1000L));
+    }
+
+    @Test
+    void testBootstrapTableStatsIfAbsentWhenStatsAlreadyExist() {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        OlapTable table = mockTable(1000L, "test_tbl");
+
+        // Seed existing TableStatsMeta so bootstrap should short-circuit.
+        // Use replayUpdateTableStatsStatus to avoid touching edit log.
+        TableStatsMeta existing = TableStatsMeta.newBootstrapStats(table, 100L, 100L);
+        manager.replayUpdateTableStatsStatus(existing);
+
+        manager.bootstrapTableStatsIfAbsent(table, 200L);
+        TableStatsMeta result = manager.findTableStatsStatus(1000L);
+        Assertions.assertNotNull(result);
+        // Existing row count should be unchanged.
+        Assertions.assertEquals(100L, result.rowCount);
+    }
+
+    @Test
+    void testBootstrapTableStatsIfAbsentCreatesStats() {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        // Avoid touching edit log in unit tests.
+        Mockito.doNothing().when(manager).logCreateTableStats(Mockito.any(TableStatsMeta.class));
+
+        OlapTable table = mockTable(1000L, "test_tbl");
+
+        manager.bootstrapTableStatsIfAbsent(table, 128L);
+
+        TableStatsMeta result = manager.findTableStatsStatus(1000L);
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(128L, result.rowCount);
+        Assertions.assertEquals(128L, result.updatedRows.get());
+        // Bootstrap stats should not be marked as user-injected.
+        Assertions.assertFalse(result.userInjected);
+        // Bootstrap stats should not have a job type.
+        Assertions.assertNull(result.jobType);
+    }
+
+    private static OlapTable mockTable(long tableId, String tableName) {
+        org.apache.doris.datasource.CatalogIf catalog = Mockito.mock(org.apache.doris.datasource.CatalogIf.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+
+        org.apache.doris.catalog.Database database = Mockito.mock(org.apache.doris.catalog.Database.class);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getId()).thenReturn(100L);
+        Mockito.when(database.getFullName()).thenReturn("default_cluster:test_db");
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getBaseIndexId()).thenReturn(200L);
+        Mockito.when(table.getRowCountForIndex(Mockito.anyLong(), Mockito.anyBoolean())).thenReturn(-1L);
+        Mockito.when(table.getRowCount()).thenReturn(-1L);
+        return table;
+    }
 }
+
