@@ -104,6 +104,11 @@ void expect_corruption(const Status& status) {
     EXPECT_EQ(ErrorCode::CORRUPTION, status.code()) << status;
 }
 
+void expect_data_quality_error(const Status& status) {
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::DATA_QUALITY_ERROR, status.code()) << status;
+}
+
 void expect_column_strings(const IDataType& type, const IColumn& column,
                            const std::vector<std::string>& expected) {
     ASSERT_EQ(expected.size(), column.size());
@@ -744,6 +749,34 @@ TEST(DataTypeSerDeDecodedValuesTest, DateTimeV2RejectsMissingValuesWhenNonNullEx
     auto result = read_column(type, view);
 
     expect_corruption(result.status);
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, DateTimeV2RejectsOutOfRangeEpochWithoutAbort) {
+    auto type = std::make_shared<DataTypeDateTimeV2>(6);
+    std::vector<int64_t> values = {0, -377673580800000001LL};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values);
+    view.time_unit = DecodedTimeUnit::MICROS;
+
+    auto result = read_column(type, view);
+
+    expect_data_quality_error(result.status);
+    EXPECT_EQ(0, result.column->size());
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NullableDateTimeV2RejectsOutOfRangeEpochAndRollsBack) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTimeV2>(6));
+    std::vector<int64_t> values = {0, -377673580800000001LL};
+    std::vector<uint8_t> null_map = {0, 0};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values, &null_map);
+    view.time_unit = DecodedTimeUnit::MICROS;
+
+    auto result = read_column(type, view);
+
+    expect_data_quality_error(result.status);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    EXPECT_EQ(0, nullable_column.size());
+    EXPECT_EQ(0, nullable_column.get_null_map_data().size());
+    EXPECT_EQ(0, nullable_column.get_nested_column().size());
 }
 
 // ----------------------------------------------------------------------
