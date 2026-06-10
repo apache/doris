@@ -29,7 +29,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -51,6 +53,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
@@ -231,10 +234,48 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
 
     @Test
     void testAddWithDoubleLiteral() {
-        // Add/Subtract should still be allowed with float/double
+        // Float/double arithmetic may be imprecise, reject for all ops
+        Slot id = scan1.getOutput().get(0);
+        Assertions.assertFalse(SimplifyAggGroupBy.isBinaryArithmeticSlot(
+                new Add(id, new DoubleLiteral(1.0))));
+    }
+
+    @Test
+    void testAddWithFloatLiteral() {
+        Slot id = scan1.getOutput().get(0);
+        Assertions.assertFalse(SimplifyAggGroupBy.isBinaryArithmeticSlot(
+                new Add(id, new FloatLiteral(1.0f))));
+    }
+
+    @Test
+    void testSubtractWithDoubleLiteral() {
+        Slot id = scan1.getOutput().get(0);
+        Assertions.assertFalse(SimplifyAggGroupBy.isBinaryArithmeticSlot(
+                new Subtract(id, new DoubleLiteral(1.0))));
+    }
+
+    @Test
+    void testMultiplyWithDecimalLiteral() {
+        // Small decimal multiply should pass (precision fits)
         Slot id = scan1.getOutput().get(0);
         Assertions.assertTrue(SimplifyAggGroupBy.isBinaryArithmeticSlot(
-                new Add(id, new DoubleLiteral(1.0))));
+                new Multiply(id, new DecimalLiteral(new BigDecimal("2.0")))));
+    }
+
+    @Test
+    void testDivideWithDecimalLiteral() {
+        // Divide with decimal: precision overflow too extreme to worry about
+        Slot id = scan1.getOutput().get(0);
+        Assertions.assertTrue(SimplifyAggGroupBy.isBinaryArithmeticSlot(
+                new Divide(id, new DecimalLiteral(new BigDecimal("2.0")))));
+    }
+
+    @Test
+    void testAddWithDecimalLiteral() {
+        // Add/Subtract with decimal are exact, should pass
+        Slot id = scan1.getOutput().get(0);
+        Assertions.assertTrue(SimplifyAggGroupBy.isBinaryArithmeticSlot(
+                new Add(id, new DecimalLiteral(new BigDecimal("1.0")))));
     }
 
     // ========== tests for isLosslessWidening ==========
@@ -249,14 +290,6 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
                 IntegerType.INSTANCE, TinyIntType.INSTANCE));
         Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
                 BigIntType.INSTANCE, IntegerType.INSTANCE));
-    }
-
-    @Test
-    void testFloatWidening() {
-        Assertions.assertTrue(SimplifyAggGroupBy.isLosslessWidening(
-                FloatType.INSTANCE, DoubleType.INSTANCE));
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                DoubleType.INSTANCE, FloatType.INSTANCE));
     }
 
     @Test

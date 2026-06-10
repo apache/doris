@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -86,12 +85,10 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
             return false;
         }
 
-        // Multiply / Divide: both sides must not be float/double
-        if (expr instanceof Multiply || expr instanceof Divide) {
-            if (expr.child(0).getDataType().isFloatLikeType()
-                    || expr.child(1).getDataType().isFloatLikeType()) {
-                return false;
-            }
+        // Float/double arithmetic: precision loss for all operations
+        if (expr.child(0).getDataType().isFloatLikeType()
+                || expr.child(1).getDataType().isFloatLikeType()) {
+            return false;
         }
 
         Expression slotExpr;
@@ -142,9 +139,6 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
     @VisibleForTesting
     protected static boolean isLosslessWidening(DataType src, DataType tgt) {
         if (src instanceof IntegralType && tgt instanceof IntegralType) {
-            return src.width() <= tgt.width();
-        }
-        if (src instanceof FractionalType && tgt instanceof FractionalType) {
             return src.width() <= tgt.width();
         }
         if (src.isDecimalLikeType() && tgt.isDecimalLikeType()) {
