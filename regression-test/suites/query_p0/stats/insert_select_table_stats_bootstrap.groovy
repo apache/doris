@@ -126,4 +126,36 @@ suite("insert_select_table_stats_bootstrap", "nonConcurrent") {
             assertTrue((explainStr =~ /DistributionSpecReplicated[\s\S]*table=smallb/).find())
         }
     }
+
+    // Verify that bootstrap stats do not interfere with subsequent manual analyze.
+    // After analyze completes, column-level stats should be available and the plan should remain correct.
+    sql "analyze table biga with sync"
+
+    def tableStatsAfterAnalyze = sql "show table stats biga"
+    assertEquals(1, tableStatsAfterAnalyze.size())
+    // Analyze should produce column-level stats for the table; the columns field (index 4)
+    // should list column names such as 'biga.k'.
+    assertTrue(tableStatsAfterAnalyze[0][4].toString().contains("biga"))
+    // trigger (index 5) should be populated (e.g. MANUAL).
+    assertTrue(!tableStatsAfterAnalyze[0][5].toString().isEmpty())
+    assertEquals("false", tableStatsAfterAnalyze[0][7])       // user_injected (index 7)
+
+    // Ensure the optimizer still correctly uses the row count from full stats.
+    explain {
+        sql """
+            physical plan
+            select a.k, b.v
+            from smallb b
+            join biga a
+            on cast(a.k as bigint) = cast(b.k1 + b.k2 as bigint)
+        """
+        contains("table=biga")
+        contains("table=smallb")
+        contains("stats=262,144")
+        contains("distributionSpec=DistributionSpecReplicated")
+        check { explainStr ->
+            // smallb should still be the broadcast side.
+            assertTrue((explainStr =~ /DistributionSpecReplicated[\s\S]*table=smallb/).find())
+        }
+    }
 }
