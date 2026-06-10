@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.RuntimeFilterTypeHelper;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
@@ -66,7 +67,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -260,7 +260,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
+        List<TRuntimeFilterType> legalTypes = RuntimeFilterTypeHelper.getSupportedRuntimeFilterTypes().stream()
                 .filter(type -> ctx.getSessionVariable().allowedRuntimeFilterType(type))
                 .collect(Collectors.toList());
 
@@ -805,7 +805,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
+        List<TRuntimeFilterType> legalTypes = RuntimeFilterTypeHelper.getSupportedRuntimeFilterTypes().stream()
                 .filter(type -> ctx.getSessionVariable().allowedRuntimeFilterType(type))
                 .collect(Collectors.toList());
 
