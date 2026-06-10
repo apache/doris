@@ -862,6 +862,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
     public static final String ENABLE_INVERTED_INDEX_QUERY_CACHE = "enable_inverted_index_query_cache";
     public static final String ENABLE_ANN_INDEX_RESULT_CACHE = "enable_ann_index_result_cache";
+    public static final String ENABLE_ANN_TOPN_PREDICATE_PREFILTER = "enable_ann_topn_predicate_prefilter";
 
     public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
 
@@ -3493,6 +3494,15 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableAnnIndexResultCache = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_ANN_TOPN_PREDICATE_PREFILTER, needForward = true, description = {
+        "开启后，带列谓词的 ANN TopN 查询会先把谓词求值成候选位图喂给 ANN 索引（IDSelector），"
+                + "而不是退化为暴力距离扫描",
+        "When enabled, an ANN TopN query that carries a column predicate pre-filters the predicate "
+                + "into a candidate bitmap fed to the ANN index (IDSelector), instead of falling back "
+                + "to a brute-force distance scan."
+    })
+    public boolean enableAnnTopnPredicatePrefilter = true;
+
     @VarAttrDef.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in 条件 value 数量大于这个 threshold 后将不会走 fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
@@ -5775,6 +5785,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
         tResult.setEnableInvertedIndexQueryCache(enableInvertedIndexQueryCache);
         tResult.setEnableAnnIndexResultCache(enableAnnIndexResultCache);
+        tResult.setEnableAnnTopnPredicatePrefilter(enableAnnTopnPredicatePrefilter);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setQuerySlotCount(wgQuerySlotCount);
