@@ -541,11 +541,9 @@ message TabletSchemaPB {
     optional TabletStorageFormatPB storage_format = 36;
 
     // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
-    // Mirrors delete_sign_idx / sequence_col_idx / version_col_idx pattern.
     optional int32 binlog_timestamp_col_idx = 37 [default = -1];
 
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
-    // Mirrors delete_sign_idx / sequence_col_idx / version_col_idx pattern.
     optional int32 binlog_lsn_col_idx = 38 [default = -1];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
