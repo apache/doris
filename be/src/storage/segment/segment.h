@@ -260,6 +260,11 @@ private:
 
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
+    // The path used to open the segment data file (e.g. "data/{tablet_id}/{rowset_id}_{seg}.dat").
+    // It must be used to derive the inverted index file path instead of `_file_reader->path()`,
+    // because the latter may be normalized to an absolute path (e.g. "s3://bucket/prefix/data/...")
+    // which would not match the relative keys recorded in PackedFileSystem's index map.
+    std::string _seg_path;
     uint32_t _segment_id;
     uint32_t _num_rows;
     AtomicStatus _healthy_status;

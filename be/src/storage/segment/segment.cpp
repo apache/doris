@@ -121,6 +121,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
     TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
     std::shared_ptr<Segment> segment(
             new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
+    segment->_seg_path = path;
     if (st) {
         segment->_fs = fs;
         segment->_file_reader = std::move(file_reader);
@@ -240,10 +241,12 @@ Status Segment::_open(OlapReaderStatistics* stats) {
 }
 
 Status Segment::_open_index_file_reader() {
+    // Use `_seg_path` (the path passed to `open`) rather than `_file_reader->path()` to derive the
+    // index file path prefix. `_file_reader->path()` may be normalized to an absolute path, which
+    // would not match the relative keys recorded in PackedFileSystem's index map and cause the
+    // inverted index file (packed into a shared file) to be read as a standalone object (404).
     _index_file_reader = std::make_shared<IndexFileReader>(
-            _fs,
-            std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                    _file_reader->path().native())},
+            _fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(_seg_path)},
             _tablet_schema->get_inverted_index_storage_format(), _idx_file_info, _tablet_id);
     return Status::OK();
 }
