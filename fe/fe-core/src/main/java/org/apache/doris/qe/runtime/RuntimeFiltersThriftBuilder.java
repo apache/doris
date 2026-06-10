@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -36,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 /** RuntimeFiltersThriftBuilder */
@@ -43,19 +45,17 @@ public class RuntimeFiltersThriftBuilder {
     public final TNetworkAddress mergeAddress;
 
     private final List<RuntimeFilter> runtimeFilters;
-    private final AssignedJob mergeInstance;
     private final Set<Integer> broadcastRuntimeFilterIds;
     private final Map<RuntimeFilterId, List<RuntimeFilterTarget>> ridToTargets;
     private final Map<RuntimeFilterId, Integer> ridToBuilderNum;
 
     private RuntimeFiltersThriftBuilder(
             TNetworkAddress mergeAddress, List<RuntimeFilter> runtimeFilters,
-            AssignedJob mergeInstance, Set<Integer> broadcastRuntimeFilterIds,
+            Set<Integer> broadcastRuntimeFilterIds,
             Map<RuntimeFilterId, List<RuntimeFilterTarget>> ridToTargets,
             Map<RuntimeFilterId, Integer> ridToBuilderNum) {
         this.mergeAddress = mergeAddress;
         this.runtimeFilters = runtimeFilters;
-        this.mergeInstance = mergeInstance;
         this.broadcastRuntimeFilterIds = broadcastRuntimeFilterIds;
         this.ridToTargets = ridToTargets;
         this.ridToBuilderNum = ridToBuilderNum;
@@ -100,9 +100,7 @@ public class RuntimeFiltersThriftBuilder {
 
     public static RuntimeFiltersThriftBuilder compute(
             List<RuntimeFilter> runtimeFilters, List<PipelineDistributedPlan> distributedPlans) {
-        PipelineDistributedPlan topMostPlan = distributedPlans.get(distributedPlans.size() - 1);
-        AssignedJob mergeInstance = topMostPlan.getInstanceJobs().get(0);
-        BackendWorker worker = (BackendWorker) mergeInstance.getAssignedWorker();
+        BackendWorker worker = selectMergeWorker(distributedPlans);
         TNetworkAddress mergeAddress = new TNetworkAddress(worker.host(), worker.brpcPort());
 
         Set<Integer> broadcastRuntimeFilterIds = runtimeFilters
@@ -139,8 +137,23 @@ public class RuntimeFiltersThriftBuilder {
             }
         }
         return new RuntimeFiltersThriftBuilder(
-                mergeAddress, runtimeFilters, mergeInstance,
-                broadcastRuntimeFilterIds, ridToTargetParam, ridToBuilderNum);
+                mergeAddress, runtimeFilters, broadcastRuntimeFilterIds, ridToTargetParam, ridToBuilderNum);
+    }
+
+    static BackendWorker selectMergeWorker(List<PipelineDistributedPlan> distributedPlans) {
+        List<BackendWorker> workers = collectMergeWorkerCandidates(distributedPlans);
+        return workers.get(ThreadLocalRandom.current().nextInt(workers.size()));
+    }
+
+    static List<BackendWorker> collectMergeWorkerCandidates(List<PipelineDistributedPlan> distributedPlans) {
+        PipelineDistributedPlan topMostPlan = distributedPlans.get(distributedPlans.size() - 1);
+        Map<Long, BackendWorker> candidateWorkers = Maps.newLinkedHashMap();
+        for (AssignedJob instanceJob : topMostPlan.getInstanceJobs()) {
+            BackendWorker worker = (BackendWorker) instanceJob.getAssignedWorker();
+            candidateWorkers.putIfAbsent(worker.id(), worker);
+        }
+        Preconditions.checkState(!candidateWorkers.isEmpty(), "runtime filter merge worker is empty");
+        return new ArrayList<>(candidateWorkers.values());
     }
 
     public static class RuntimeFilterTarget {

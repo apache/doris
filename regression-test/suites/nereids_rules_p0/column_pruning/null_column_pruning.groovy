@@ -24,7 +24,7 @@
 //   nested columns:  <col>: all access paths: [<col>.NULL]
 //
 // When the same column is also accessed for data (e.g., projected or used in
-// struct_element), the NULL-only path must be stripped from allAccessPaths and
+// element_at), the NULL-only path must be stripped from allAccessPaths and
 // predicateAccessPaths unless the same path is still present in allAccessPaths.
 
 suite("null_column_pruning") {
@@ -188,7 +188,7 @@ suite("null_column_pruning") {
     order_qt_10 "select int_col from ncp_tbl where int_col is null";
 
     // ─── Mixed: struct IS NULL + partial field access ───────────────────────────
-    // struct_col IS NULL in WHERE + struct_element in SELECT → child data is also needed.
+    // struct_col IS NULL in WHERE + element_at in SELECT → child data is also needed.
     // The parent struct_col.NULL path must NOT stay in allAccessPaths with child paths.
     // BE StructFileColumnIterator treats a leading NULL sub-path as NULL_MAP_ONLY; if
     // allAccessPaths were [struct_col.NULL, struct_col.city], BE would skip the city
@@ -196,13 +196,13 @@ suite("null_column_pruning") {
     // read materializes the parent null map together with child data, and
     // predicateAccessPaths is filtered so it remains a subset of allAccessPaths.
     explain {
-        sql "select struct_element(struct_col, 'city') from ncp_tbl where struct_col is null"
+        sql "select element_at(struct_col, 'city') from ncp_tbl where struct_col is null"
         contains "nested columns"
         contains "all access paths: [struct_col.city]"
         notContains "predicate access paths:"
     }
 
-    order_qt_11 "select struct_element(struct_col, 'city') from ncp_tbl where struct_col is null";
+    order_qt_11 "select element_at(struct_col, 'city') from ncp_tbl where struct_col is null";
 
     // This query verifies the real correctness risk: one branch needs the parent null
     // map, another branch needs a child null map, and the projection needs another
@@ -210,13 +210,13 @@ suite("null_column_pruning") {
     // NULL_MAP_ONLY mode for the whole struct and return the default zip value instead
     // of reading the zip child column.
     explain {
-        sql "select struct_element(struct_col, 'zip') from ncp_tbl where struct_col is null or struct_element(struct_col, 'city') is null"
+        sql "select element_at(struct_col, 'zip') from ncp_tbl where struct_col is null or element_at(struct_col, 'city') is null"
         contains "nested columns"
         contains "all access paths: [struct_col.city.NULL, struct_col.zip]"
         contains "predicate access paths: [struct_col.city.NULL]"
     }
 
-    order_qt_parent_null_with_child_data "select struct_element(struct_col, 'zip') from ncp_tbl where struct_col is null or struct_element(struct_col, 'city') is null";
+    order_qt_parent_null_with_child_data "select element_at(struct_col, 'zip') from ncp_tbl where struct_col is null or element_at(struct_col, 'city') is null";
 
     // ─── Non-optimizable: struct IS NULL + full struct projected ────────────────
     // Full struct access covers its own null flag, so [struct_col.NULL] is stripped
@@ -231,22 +231,22 @@ suite("null_column_pruning") {
     order_qt_12 "select struct_col from ncp_tbl where struct_col is null";
 
     // ─── Nested struct field IS NULL ────────────────────────────────────────────
-    // struct_element(struct_col, 'city') IS NULL should produce a null-flag-only
+    // element_at(struct_col, 'city') IS NULL should produce a null-flag-only
     // predicate path [struct_col.city.NULL] while the projection reads city data.
     // [struct_col.city.NULL] is stripped from allAccessPaths because [struct_col.city]
     // covers the same prefix (full city data includes its null flag).
     explain {
-        sql "select struct_element(struct_col, 'city') from ncp_tbl where struct_element(struct_col, 'city') is null"
+        sql "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null"
         contains "nested columns"
         contains "all access paths: [struct_col.city]"
         notContains "predicate access paths:"
     }
 
-    order_qt_13 "select struct_element(struct_col, 'city') from ncp_tbl where struct_element(struct_col, 'city') is null";
+    order_qt_13 "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null";
 
     // =========================================================================
     // IS NULL on nested-type extraction functions (map_keys, map_values,
-    // element_at, struct_element, and nested combinations)
+    // element_at, and nested combinations)
     // =========================================================================
 
     // ─── map_keys(map_col) IS NULL ─────────────────────────────────────────────
@@ -365,32 +365,32 @@ suite("null_column_pruning") {
 
     order_qt_21 "select count(1) from ncp_tbl where map_col['a'] is not null";
 
-    // ─── struct_element(struct_col, 'city') IS NULL only (no projection) ────────
+    // ─── element_at(struct_col, 'city') IS NULL only (no projection) ────────
     explain {
-        sql "select count(1) from ncp_tbl where struct_element(struct_col, 'city') is null"
+        sql "select count(1) from ncp_tbl where element_at(struct_col, 'city') is null"
         contains "nested columns"
         contains "struct_col.city.NULL"
     }
 
-    order_qt_22 "select count(1) from ncp_tbl where struct_element(struct_col, 'city') is null";
+    order_qt_22 "select count(1) from ncp_tbl where element_at(struct_col, 'city') is null";
 
-    // ─── struct_element(struct_col, 'zip') IS NULL ──────────────────────────────
+    // ─── element_at(struct_col, 'zip') IS NULL ──────────────────────────────
     explain {
-        sql "select count(1) from ncp_tbl where struct_element(struct_col, 'zip') is null"
+        sql "select count(1) from ncp_tbl where element_at(struct_col, 'zip') is null"
         contains "nested columns"
         contains "struct_col.zip.NULL"
     }
 
-    order_qt_23 "select count(1) from ncp_tbl where struct_element(struct_col, 'zip') is null";
+    order_qt_23 "select count(1) from ncp_tbl where element_at(struct_col, 'zip') is null";
 
-    // ─── struct_element IS NOT NULL ─────────────────────────────────────────────
+    // ─── element_at IS NOT NULL ─────────────────────────────────────────────
     explain {
-        sql "select count(1) from ncp_tbl where struct_element(struct_col, 'city') is not null"
+        sql "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null"
         contains "nested columns"
         contains "struct_col.city.NULL"
     }
 
-    order_qt_24 "select count(1) from ncp_tbl where struct_element(struct_col, 'city') is not null";
+    order_qt_24 "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null";
 
     // ─── Mixed: map_keys IS NULL + map_keys projected ──────────────────────────
     // Projection needs key data, while the predicate checks whether the parent map
@@ -438,43 +438,43 @@ suite("null_column_pruning") {
             map('k', array(1, 2))
     """
 
-    // ─── struct_element → map field IS NULL ─────────────────────────────────────
+    // ─── element_at → map field IS NULL ─────────────────────────────────────
     explain {
-        sql "select count(1) from ncp_nested_tbl where struct_element(nested_struct, 'inner_map') is null"
+        sql "select count(1) from ncp_nested_tbl where element_at(nested_struct, 'inner_map') is null"
         contains "nested columns"
         contains "nested_struct.inner_map.NULL"
     }
 
-    order_qt_27 "select count(1) from ncp_nested_tbl where struct_element(nested_struct, 'inner_map') is null";
+    order_qt_27 "select count(1) from ncp_nested_tbl where element_at(nested_struct, 'inner_map') is null";
 
-    // ─── struct_element → array field IS NULL ───────────────────────────────────
+    // ─── element_at → array field IS NULL ───────────────────────────────────
     explain {
-        sql "select count(1) from ncp_nested_tbl where struct_element(nested_struct, 'inner_arr') is null"
+        sql "select count(1) from ncp_nested_tbl where element_at(nested_struct, 'inner_arr') is null"
         contains "nested columns"
         contains "nested_struct.inner_arr.NULL"
     }
 
-    order_qt_28 "select count(1) from ncp_nested_tbl where struct_element(nested_struct, 'inner_arr') is null";
+    order_qt_28 "select count(1) from ncp_nested_tbl where element_at(nested_struct, 'inner_arr') is null";
 
-    // ─── map_keys through struct_element IS NULL ────────────────────────────────
+    // ─── map_keys through element_at IS NULL ────────────────────────────────
     explain {
-        sql "select count(1) from ncp_nested_tbl where map_keys(struct_element(nested_struct, 'inner_map')) is null"
+        sql "select count(1) from ncp_nested_tbl where map_keys(element_at(nested_struct, 'inner_map')) is null"
         contains "nested columns"
         contains "nested_struct.inner_map.NULL"
         notContains "nested_struct.inner_map.KEYS.NULL"
     }
 
-    order_qt_29 "select count(1) from ncp_nested_tbl where map_keys(struct_element(nested_struct, 'inner_map')) is null";
+    order_qt_29 "select count(1) from ncp_nested_tbl where map_keys(element_at(nested_struct, 'inner_map')) is null";
 
-    // ─── map_values through struct_element IS NULL ──────────────────────────────
+    // ─── map_values through element_at IS NULL ──────────────────────────────
     explain {
-        sql "select count(1) from ncp_nested_tbl where map_values(struct_element(nested_struct, 'inner_map')) is null"
+        sql "select count(1) from ncp_nested_tbl where map_values(element_at(nested_struct, 'inner_map')) is null"
         contains "nested columns"
         contains "nested_struct.inner_map.NULL"
         notContains "nested_struct.inner_map.VALUES.NULL"
     }
 
-    order_qt_30 "select count(1) from ncp_nested_tbl where map_values(struct_element(nested_struct, 'inner_map')) is null";
+    order_qt_30 "select count(1) from ncp_nested_tbl where map_values(element_at(nested_struct, 'inner_map')) is null";
 
     // ─── map_values(map_of_arrs) IS NULL ────────────────────────────────────────
     explain {

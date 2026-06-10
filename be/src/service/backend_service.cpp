@@ -244,7 +244,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
                   &total_download_bytes, &total_download_files, &elapsed_time_map]() {
         g_ingest_binlog_latency << watch.elapsed_time_microseconds();
-        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
+        auto elapsed_time_ms = watch.elapsed_time_milliseconds();
         double copy_rate = 0.0;
         if (elapsed_time_ms > 0) {
             copy_rate = (double)total_download_bytes / ((double)elapsed_time_ms) / 1000;

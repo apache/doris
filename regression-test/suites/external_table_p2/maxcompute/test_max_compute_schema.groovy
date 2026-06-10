@@ -106,7 +106,8 @@ suite("test_max_compute_schema", "p2,external") {
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
                 "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
-                "mc.enable.namespace.schema" = "true"
+                "mc.enable.namespace.schema" = "true",
+                "test_connection" = "true"
             );
         """
 

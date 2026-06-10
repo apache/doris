@@ -27,11 +27,14 @@
 namespace doris {
 class S3CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
 public:
-    S3CustomRetryStrategy(int maxRetries);
+    S3CustomRetryStrategy(int maxRetries, bool retry_slow_down = true);
     ~S3CustomRetryStrategy() override;
 
     bool ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
                      long attemptedRetries) const override;
+
+private:
+    bool _retry_slow_down;
 };
 
 #ifdef USE_AZURE
