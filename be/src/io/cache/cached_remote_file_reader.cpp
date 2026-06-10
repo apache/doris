@@ -348,8 +348,7 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
                    const std::string& file_path, size_t file_sz, bool is_doris,
                    std::shared_ptr<CloudWarmUpManager> manager,
                    std::vector<doris::PeerCandidate> candidates, int64_t tablet_id,
-                   std::string resource_id,
-                   std::shared_ptr<ResourceContext> parent_resource_ctx) {
+                   std::string resource_id, std::shared_ptr<ResourceContext> parent_resource_ctx) {
     std::unique_ptr<AttachTask> attach_task;
     if (parent_resource_ctx != nullptr) {
         attach_task = std::make_unique<AttachTask>(parent_resource_ctx);

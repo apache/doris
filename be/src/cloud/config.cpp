@@ -171,7 +171,7 @@ DEFINE_mBool(enable_cache_read_from_peer, "false");
 // Winner race between peer read and S3 read for cross compute group scenarios
 DEFINE_mBool(enable_peer_s3_race, "true");
 DEFINE_mInt32(max_concurrent_peer_races, "64");
-DEFINE_mInt32(peer_race_hedge_delay_ms, "0");
+DEFINE_mInt32(peer_race_hedge_delay_ms, "20");
 DEFINE_mString(peer_cache_fill_compute_group_id, "");
 DEFINE_mBool(enable_peer_server_cache_fill, "true");
 // Peer server fill pulls the missing block from remote storage before serving it back to the

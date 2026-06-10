@@ -119,8 +119,9 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     // groups (e.g. the colocate proc display) fetch each group's backends only once.
     public long getColocatedBeId(String clusterId, List<Backend> clusterBackends) throws ComputeGroupException {
         CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
-        List<Backend> bes = clusterBackends.stream()
-                .filter(be -> be.isQueryAvailable()).collect(Collectors.toList());
+        // Do not filter by isQueryAvailable() here. Recently-dead BEs must stay in
+        // the hash ring during the grace period to avoid unnecessary full rehash.
+        List<Backend> bes = clusterBackends;
         String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
             LOG.warn("failed to get available be, cluster: {}-{}", clusterName, clusterId);
@@ -569,6 +570,25 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     public List<Backend> getAllPrimaryBes() {
         List<Backend> result = new ArrayList<Backend>();
+        if (isColocated()) {
+            List<String> clusterIds = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIds();
+            for (String clusterId : clusterIds) {
+                try {
+                    long beId = getColocatedBeId(clusterId);
+                    if (beId != -1) {
+                        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                        if (backend != null) {
+                            result.add(backend);
+                        }
+                    }
+                } catch (ComputeGroupException e) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("failed to get colocated be for cluster {}, replica {}", clusterId, this, e);
+                    }
+                }
+            }
+            return result;
+        }
         primaryClusterToBackend.forEach((clusterId, beId) -> {
             if (beId != -1) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(beId);

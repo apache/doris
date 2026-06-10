@@ -118,7 +118,7 @@ suite('test_peer_fetch_concurrent_same_block', 'docker') {
         }
 
         def clearFileCacheOnBE = { backend ->
-            def (code, out, err) = curl("GET", "http://${backend.Host}:${backend.HttpPort}/api/file_cache?op=clear&sync=true")
+            def (code, out, err) = curl("GET", "http://${backend.Host}:${backend.HttpPort}/api/file_cache?op=clear&sync=false")
             assertTrue(code == 0 && (out.contains("OK") || out.contains("success") || err == null),
                     "failed to clear file cache on ${backend.Host}:${backend.HttpPort}: code=${code}, out=${out}, err=${err}")
         }

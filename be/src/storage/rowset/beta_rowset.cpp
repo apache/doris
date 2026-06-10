@@ -626,8 +626,9 @@ Status BetaRowset::check_current_rowset_segment() {
 
         std::shared_ptr<segment_v2::Segment> segment;
         io::FileReaderOptions reader_options;
-        reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                              : io::FileCachePolicy::NO_CACHE;
+        reader_options.cache_type = config::enable_file_cache
+                                            ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                            : io::FileCachePolicy::NO_CACHE;
         reader_options.is_doris_table = true;
         reader_options.file_size = _rowset_meta->segment_file_size(seg_id);
         reader_options.tablet_id = _rowset_meta->tablet_id();

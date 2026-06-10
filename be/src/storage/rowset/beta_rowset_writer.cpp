@@ -680,9 +680,9 @@ Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
     if (exists) {
         io::FileReaderSPtr file_reader;
         io::FileReaderOptions reader_options;
-        reader_options.cache_type =
-                config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                          : io::FileCachePolicy::NO_CACHE;
+        reader_options.cache_type = config::enable_file_cache
+                                            ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                            : io::FileCachePolicy::NO_CACHE;
         reader_options.is_doris_table = true;
         reader_options.file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id));
         reader_options.tablet_id = _rowset_meta->tablet_id();
