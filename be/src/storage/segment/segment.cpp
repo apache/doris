@@ -253,19 +253,23 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
     }
-    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
+    auto iterator_read_options = read_options;
+    if (iterator_read_options.project_columns == nullptr) {
+        iterator_read_options.project_columns = &schema->column_ids();
+    }
+    RETURN_IF_ERROR(_create_column_meta_once(iterator_read_options.stats));
 
-    read_options.stats->total_segment_number++;
+    iterator_read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
-    for (const auto& entry : read_options.col_id_to_predicates) {
+    for (const auto& entry : iterator_read_options.col_id_to_predicates) {
         int32_t column_id = entry.first;
         // schema change
         if (_tablet_schema->num_columns() <= column_id) {
             continue;
         }
-        const TabletColumn& col = read_options.tablet_schema->column(column_id);
+        const TabletColumn& col = iterator_read_options.tablet_schema->column(column_id);
         std::shared_ptr<ColumnReader> reader;
-        Status st = get_column_reader(col, &reader, read_options.stats);
+        Status st = get_column_reader(col, &reader, iterator_read_options.stats);
         // not found in this segment, skip
         if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
@@ -276,41 +280,42 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (!reader->has_zone_map()) {
             continue;
         }
-        if (read_options.col_id_to_predicates.contains(column_id) &&
+        if (iterator_read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id, *schema,
-                                       read_options.target_cast_type_for_variants, read_options)) {
+                                       iterator_read_options.target_cast_type_for_variants,
+                                       iterator_read_options)) {
             bool matched = true;
             RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
             if (!matched) {
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
+                iterator_read_options.stats->filtered_segment_number++;
                 return Status::OK();
             }
         }
     }
 
     {
-        SCOPED_RAW_TIMER(&read_options.stats->segment_load_index_timer_ns);
-        RETURN_IF_ERROR(load_index(read_options.stats));
+        SCOPED_RAW_TIMER(&iterator_read_options.stats->segment_load_index_timer_ns);
+        RETURN_IF_ERROR(load_index(iterator_read_options.stats));
     }
 
-    if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+    if (iterator_read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
+        iterator_read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
+        iterator_read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
 
     // TODO: Valid the opt not only in ReaderType::READER_QUERY
-    if (read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
-        !read_options.column_predicates.empty()) {
-        auto pruned_predicates = read_options.column_predicates;
+    if (iterator_read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
+        !iterator_read_options.column_predicates.empty()) {
+        auto pruned_predicates = iterator_read_options.column_predicates;
         auto pruned = false;
         for (auto& it : _column_reader_cache->get_available_readers(false)) {
             const auto uid = it.first;
-            const auto column_id = read_options.tablet_schema->field_index(uid);
+            const auto column_id = iterator_read_options.tablet_schema->field_index(uid);
             bool tmp_pruned = false;
             RETURN_IF_ERROR(it.second->prune_predicates_by_zone_map(pruned_predicates, column_id,
                                                                     &tmp_pruned));
@@ -318,7 +323,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
 
         if (pruned) {
-            auto options_with_pruned_predicates = read_options;
+            auto options_with_pruned_predicates = iterator_read_options;
             options_with_pruned_predicates.column_predicates = pruned_predicates;
             //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
             options_with_pruned_predicates.col_id_to_predicates.clear();
@@ -334,7 +339,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             return iter->get()->init(options_with_pruned_predicates);
         }
     }
-    return iter->get()->init(read_options);
+    return iter->get()->init(iterator_read_options);
 }
 
 Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,

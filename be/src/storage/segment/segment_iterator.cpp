@@ -480,7 +480,8 @@ void SegmentIterator::_init_schema_block_id_map() {
 
 void SegmentIterator::_init_project_schema() {
     _init_schema_block_id_map();
-    if (_opts.project_columns == nullptr || *_opts.project_columns == _schema->column_ids()) {
+    DORIS_CHECK(_opts.project_columns != nullptr);
+    if (*_opts.project_columns == _schema->column_ids()) {
         _project_schema = _schema;
     } else {
         _project_schema =
@@ -488,11 +489,9 @@ void SegmentIterator::_init_project_schema() {
     }
 }
 
-Block* SegmentIterator::_build_project_block(Block* block, Block* project_block) {
+void SegmentIterator::_build_project_block(Block* block, Block* project_block) {
     DORIS_CHECK(_project_schema != nullptr);
-    if (_project_schema == _schema) {
-        return block;
-    }
+    DORIS_CHECK(_project_schema != _schema);
 
     project_block->clear();
     const auto& project_column_ids = _project_schema->column_ids();
@@ -509,7 +508,6 @@ Block* SegmentIterator::_build_project_block(Block* block, Block* project_block)
         }
         project_block->insert({std::move(column), type, _schema->column(cid)->name()});
     }
-    return project_block;
 }
 
 void SegmentIterator::_initialize_predicate_results() {
@@ -928,6 +926,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 
     VLOG_DEBUG << fmt::format("Try apply ann topn: {}", _ann_topn_runtime->debug_string());
     size_t src_col_idx = _ann_topn_runtime->get_src_column_idx();
+    // AnnTopNRuntime keeps VSlotRef::column_id(), which is the project block ordinal.
     ColumnId src_cid = _project_schema->column_id(src_col_idx);
     IndexIterator* ann_index_iterator = _index_iterators[src_cid].get();
     bool has_ann_index = _column_has_ann_index(src_cid);
@@ -3108,7 +3107,11 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_common_expr_ctxs_push_down.empty());
     Block project_block;
-    Block* expr_block = _build_project_block(block, &project_block);
+    Block* expr_block = block;
+    if (_project_schema != _schema) {
+        _build_project_block(block, &project_block);
+        expr_block = &project_block;
+    }
     std::vector<VExprContext*> common_ctxs;
     common_ctxs.reserve(_common_expr_ctxs_push_down.size());
     for (auto& ctx : _common_expr_ctxs_push_down) {
@@ -3495,8 +3498,12 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
     }
 
     Block project_block;
-    Block* materialize_block = _build_project_block(block, &project_block);
     const bool materialize_on_project_block = _project_schema != _schema;
+    Block* materialize_block = block;
+    if (materialize_on_project_block) {
+        _build_project_block(block, &project_block);
+        materialize_block = &project_block;
+    }
     for (const auto& cid_and_expr : _virtual_column_exprs) {
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;

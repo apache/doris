@@ -100,6 +100,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
+    DORIS_CHECK(_read_context->return_columns != nullptr);
+    // Direct RowsetReader users do not expand return_columns, so return_columns is already
+    // the project layout. TabletReader sets origin_return_columns before any expansion.
     _read_options.project_columns = _read_context->origin_return_columns != nullptr
                                             ? _read_context->origin_return_columns
                                             : _read_context->return_columns;

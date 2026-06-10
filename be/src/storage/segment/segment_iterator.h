@@ -276,7 +276,7 @@ private:
 
     void _init_schema_block_id_map();
     void _init_project_schema();
-    Block* _build_project_block(Block* block, Block* project_block);
+    void _build_project_block(Block* block, Block* project_block);
     [[nodiscard]] Status _extract_common_expr_columns(const VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               Block* block);
