@@ -483,7 +483,7 @@ protected:
             ColumnPtr column;
             RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
                                                         &column));
-            block->replace_by_position(idx, std::move(column));
+            block->replace_by_position(idx, IColumn::mutate(std::move(column)));
             idx++;
         }
         RETURN_IF_ERROR(materialize_virtual_columns(block));
@@ -552,6 +552,11 @@ protected:
         return true;
     }
 
+    static ColumnPtr _detach_column(ColumnPtr column) {
+        DORIS_CHECK(column.get() != nullptr);
+        return IColumn::mutate(std::move(column));
+    }
+
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
         if (mapping.has_complex_projection && mapping.file_local_id.has_value() &&
@@ -559,21 +564,24 @@ protected:
             DCHECK(mapping.projection != nullptr);
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
-            RETURN_IF_ERROR(_materialize_complex_mapping_column(
-                    mapping, current_block->get_columns()[res_id], rows, column));
+            ColumnPtr result_column = current_block->get_by_position(res_id).column;
+            RETURN_IF_ERROR(
+                    _materialize_complex_mapping_column(mapping, result_column, rows, column));
             return Status::OK();
         }
         if (mapping.projection != nullptr) {
             int res_id;
             RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
-            *column = current_block->get_columns()[res_id];
+            ColumnPtr result_column = current_block->get_by_position(res_id).column;
+            *column = _detach_column(std::move(result_column));
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
             if (current_block->rows() == rows) {
                 int res_id;
                 RETURN_IF_ERROR(mapping.default_expr->execute(current_block, &res_id));
-                *column = current_block->get_columns()[res_id];
+                ColumnPtr result_column = current_block->get_by_position(res_id).column;
+                *column = _detach_column(std::move(result_column));
             } else {
                 DORIS_CHECK(mapping.constant_index.has_value());
                 Block eval_block;
@@ -581,11 +589,13 @@ protected:
                                    mapping.table_type, "__table_reader_const_rows"});
                 int res_id;
                 RETURN_IF_ERROR(mapping.default_expr->execute(&eval_block, &res_id));
-                *column = eval_block.get_columns()[res_id];
+                ColumnPtr result_column = eval_block.get_by_position(res_id).column;
+                *column = _detach_column(std::move(result_column));
             }
             return Status::OK();
         }
-        *column = mapping.table_type->create_column_const_with_default_value(rows);
+        ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
+        *column = _detach_column(std::move(result_column));
         return Status::OK();
     }
 
@@ -606,7 +616,7 @@ protected:
             RETURN_IF_ERROR(_materialize_map_mapping_column(mapping, file_column, rows, column));
             break;
         default:
-            *column = file_column;
+            *column = _detach_column(file_column);
             break;
         }
         return Status::OK();

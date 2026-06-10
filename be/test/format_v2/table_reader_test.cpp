@@ -431,6 +431,45 @@ void write_struct_parquet_file(const std::string& file_path, const std::vector<i
                                                       writer_builder.build()));
 }
 
+void write_struct_with_nullable_child_parquet_file(const std::string& file_path) {
+    auto struct_type = arrow::struct_({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("note", arrow::utf8(), true),
+    });
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+    auto id_builder = std::make_unique<arrow::Int32Builder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(id_builder)));
+    auto note_builder = std::make_unique<arrow::StringBuilder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(note_builder)));
+    arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                 std::move(field_builders));
+    auto* struct_id_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+    auto* struct_note_builder = assert_cast<arrow::StringBuilder*>(builder.field_builder(1));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_id_builder->Append(7).ok());
+    EXPECT_TRUE(struct_note_builder->Append("seven").ok());
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_id_builder->Append(8).ok());
+    EXPECT_TRUE(struct_note_builder->AppendNull().ok());
+
+    auto schema = arrow::schema({
+            arrow::field("s", struct_type, false),
+    });
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
+                                                      writer_builder.build()));
+}
+
 void write_list_struct_parquet_file(const std::string& file_path) {
     auto struct_type = arrow::struct_(
             {arrow::field("a", arrow::int32(), false), arrow::field("b", arrow::int32(), false)});
@@ -625,6 +664,16 @@ void expect_nullable_int64_column_values(const IColumn& column,
     ASSERT_EQ(nullable_column.size(), expected_values.size());
     for (size_t row = 0; row < expected_values.size(); ++row) {
         EXPECT_EQ(nullable_column.get_null_map_data()[row], 0);
+        EXPECT_EQ(values[row], expected_values[row]);
+    }
+}
+
+void expect_int32_column_values(const IColumn& column,
+                                const std::vector<int32_t>& expected_values) {
+    const auto full_column = column.convert_to_full_column_if_const();
+    const auto& values = assert_cast<const ColumnInt32&>(*full_column).get_data();
+    ASSERT_EQ(values.size(), expected_values.size());
+    for (size_t row = 0; row < expected_values.size(); ++row) {
         EXPECT_EQ(values[row], expected_values[row]);
     }
 }
@@ -2078,6 +2127,64 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ReusedBlockClearsProjectedStructWithNullableChild) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_struct_nullable_child_reuse_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_struct_with_nullable_child_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    auto id_child = make_table_column(0, "id", int_type);
+    auto note_child = make_table_column(1, "note", nullable_string_type);
+    auto missing_child = make_table_column(99, "missing_child", string_type);
+    auto struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, nullable_string_type, string_type},
+            Strings {"id", "note", "missing_child"});
+    auto struct_column = make_table_column(100, "s", struct_type);
+    struct_column.children = {id_child, note_child, missing_child};
+    std::vector<ColumnDefinition> projected_columns = {struct_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                            })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
+    const auto& notes = assert_cast<const ColumnNullable&>(struct_result.get_column(1));
+    EXPECT_FALSE(notes.is_null_at(0));
+    EXPECT_TRUE(notes.is_null_at(1));
+
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 0);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_partition_value_test";
@@ -2119,10 +2226,10 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& partition_value =
-            assert_cast<const ColumnString&>(*block.get_by_position(0).column);
-    ASSERT_EQ(partition_value.size(), 1);
-    EXPECT_EQ(partition_value.get_data_at(0).to_string(), "p1");
+    const auto partition_value = block.get_by_position(0).column->convert_to_full_column_if_const();
+    const auto& partition_value_data = assert_cast<const ColumnString&>(*partition_value);
+    ASSERT_EQ(partition_value_data.size(), 1);
+    EXPECT_EQ(partition_value_data.get_data_at(0).to_string(), "p1");
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -2213,9 +2320,7 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& partition_value = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    ASSERT_EQ(partition_value.size(), 1);
-    EXPECT_EQ(partition_value.get_element(0), 7);
+    expect_int32_column_values(*block.get_by_position(0).column, {7});
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
