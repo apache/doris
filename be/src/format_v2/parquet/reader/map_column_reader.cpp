@@ -777,7 +777,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     const int64_t levels_written = _key_reader->nested_levels_written();
 
     std::vector<uint64_t> entry_counts;
-    std::vector<int64_t> entry_level_indices;
+    std::vector<int64_t> map_level_indices;
     NullMap parent_nulls;
     *values_read = 0;
     for (int64_t level_idx = 0; level_idx < levels_written && *values_read < length_upper_bound;
@@ -787,6 +787,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
             continue;
         }
+        map_level_indices.push_back(level_idx);
         if (rep_level == _repetition_level) {
             if (entry_counts.empty()) {
                 return Status::Corruption("Invalid repeated level for parquet MAP column {}",
@@ -794,7 +795,6 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
             }
             if (def_level >= _definition_level) {
                 ++entry_counts.back();
-                entry_level_indices.push_back(level_idx);
             }
             continue;
         }
@@ -806,9 +806,6 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         }
         parent_nulls.push_back(parent_is_null);
         entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
-        if (def_level >= _definition_level) {
-            entry_level_indices.push_back(level_idx);
-        }
         ++*values_read;
     }
 
@@ -825,27 +822,24 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     }
     int64_t value_count = 0;
     if (auto* scalar_value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get())) {
-        const auto& value_def_levels = scalar_value_reader->nested_definition_levels();
         const auto& value_rep_levels = scalar_value_reader->nested_repetition_levels();
         const int64_t value_levels_written = scalar_value_reader->nested_levels_written();
-        const int16_t value_slot_definition_level =
-                static_cast<int16_t>(scalar_value_reader->descriptor()->max_definition_level() -
-                                     (scalar_value_reader->type()->is_nullable() ? 1 : 0));
         int64_t value_level_idx = 0;
-        for (const int64_t key_level_idx : entry_level_indices) {
+        for (const int64_t key_level_idx : map_level_indices) {
             while (value_level_idx < value_levels_written &&
-                   (value_def_levels[value_level_idx] < value_slot_definition_level ||
-                    value_rep_levels[value_level_idx] != rep_levels[key_level_idx])) {
+                   value_rep_levels[value_level_idx] != rep_levels[key_level_idx]) {
                 ++value_level_idx;
             }
             if (value_level_idx >= value_levels_written) {
                 return Status::Corruption(
                         "Parquet MAP column {} value stream ended before key stream", _name);
             }
-            RETURN_IF_ERROR(
-                    scalar_value_reader->append_nested_value(value_level_idx, value_column));
+            if (def_levels[key_level_idx] >= _definition_level) {
+                RETURN_IF_ERROR(
+                        scalar_value_reader->append_nested_value(value_level_idx, value_column));
+                ++value_count;
+            }
             ++value_level_idx;
-            ++value_count;
         }
     } else {
         RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
