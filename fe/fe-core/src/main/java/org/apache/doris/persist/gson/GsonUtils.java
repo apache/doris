@@ -144,6 +144,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -474,6 +475,8 @@ public class GsonUtils {
             .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName())
             .registerSubtype(PluginDrivenExternalTable.class,
                     PluginDrivenExternalTable.class.getSimpleName())
+            .registerSubtype(PluginDrivenMvccExternalTable.class,
+                    PluginDrivenMvccExternalTable.class.getSimpleName())
             .registerCompatibleSubtype(
                     PluginDrivenExternalTable.class, "EsExternalTable")
             .registerCompatibleSubtype(

@@ -97,7 +97,7 @@ public class PaimonConnector implements Connector {
     /**
      * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning and time travel
      * (FOR TIME TRAVEL / FOR VERSION AS OF). The B5 fe-core MvccTable wiring keys off these to call
-     * {@link PaimonConnectorMetadata#beginQuerySnapshot} / {@code getSnapshotAt} / {@code getSnapshotById}.
+     * {@link PaimonConnectorMetadata#beginQuerySnapshot} / {@code resolveTimeTravel}.
      * No write capability is declared: paimon write is not migrated.
      */
     @Override

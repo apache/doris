@@ -31,6 +31,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
@@ -39,6 +40,8 @@ import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -175,6 +178,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     static List<String> resolveRequiredPartitions(SelectedPartitions selectedPartitions) {
         if (selectedPartitions == null || !selectedPartitions.isPruned) {
+            return null;
+        }
+        // A pruned-but-EMPTY selection over an EMPTY partition universe (totalPartitionNum == 0) means FE
+        // never enumerated any partitions to prune against — e.g. an MVCC time-travel pin (FOR VERSION/TIME
+        // AS OF, @tag, @branch) whose snapshot deliberately carries an empty partition-item map and defers
+        // partition resolution to the connector's predicate pushdown. Treat it as scan-all (null) so the
+        // getSplits() short-circuit does NOT fire and planScan runs, mirroring legacy PaimonScanNode (which
+        // ignores selectedPartitions and re-plans through the SDK with the pushed predicate). A GENUINE
+        // prune-to-zero over a NON-empty universe (totalPartitionNum > 0, e.g. MaxCompute WHERE
+        // part=<absent value>) keeps the empty set so getSplits() short-circuits to zero rows — the
+        // existing MaxCompute parity behavior (FIX-NONPART-PRUNE-DATALOSS sibling). NB: for a partitioned
+        // MaxCompute table that genuinely has ZERO partitions this scan-all is row-equivalent to legacy's
+        // unconditional empty short-circuit — MaxComputeScanPlanProvider.planScan returns no splits when
+        // getFileNum() <= 0, still zero rows.
+        if (selectedPartitions.selectedPartitions.isEmpty() && selectedPartitions.totalPartitionNum == 0) {
             return null;
         }
         return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
@@ -435,6 +453,44 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Threads the pinned MVCC snapshot (if any) onto the table handle via the SPI
+     * {@link ConnectorMetadata#applySnapshot} protocol. WHY: an MVCC-capable connector (e.g. a
+     * time-travel / MTMV-consistent read) must consume the SAME pinned point-in-time snapshot at
+     * every scan-side consumption of the handle ({@code planScan} and the serialized-table /
+     * {@code getScanNodeProperties} path); the pin therefore has to be threaded onto the handle
+     * BEFORE each of those points or one path silently reads LATEST. {@code applySnapshot} is
+     * idempotent (it re-derives the scan options from the snapshot each call), so calling this at
+     * every consumption site is safe. A missing pin — before the connector is MVCC-cutover, or a
+     * non-MVCC table, or a foreign (non-plugin) snapshot — leaves the handle unchanged (reads latest).
+     *
+     * <p>Package-private static so the correctness-critical pin-vs-skip decision is unit-testable
+     * directly on Mockito mocks, without constructing a {@link FileQueryScanNode} (the call-site
+     * wiring is covered by live e2e — see DV-019).
+     */
+    static ConnectorTableHandle applyMvccSnapshotPin(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle handle, Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            ConnectorMvccSnapshot connectorSnapshot =
+                    ((PluginDrivenMvccSnapshot) snapshot.get()).getConnectorSnapshot();
+            return metadata.applySnapshot(session, handle, connectorSnapshot);
+        }
+        // No pin in context, or a non-plugin snapshot -> read latest (unchanged handle).
+        return handle;
+    }
+
+    /**
+     * Resolves the pinned MVCC snapshot from the statement context and threads it onto
+     * {@link #currentHandle} (mutates the handle exactly like {@link #tryPushDownProjection} /
+     * {@link #tryPushDownLimit}). Called at every scan-side handle-consumption point so both the
+     * split path and the serialized-table path read at the pinned snapshot.
+     */
+    private void pinMvccSnapshot() throws UserException {
+        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable());
+        currentHandle = applyMvccSnapshotPin(metadata, connectorSession, currentHandle, snapshot);
+    }
+
+    /**
      * Fail-loud guard for plugin system-table scans: a {@link PluginDrivenSysExternalTable} must
      * reject {@code FOR TIME AS OF} (snapshot) and {@code @incr}/scan-params queries rather than
      * silently ignore them. Mirrors legacy {@code PaimonScanNode.getProcessedTable}, which throws the
@@ -492,6 +548,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         List<ConnectorColumnHandle> columns = buildColumnHandles();
         tryPushDownProjection(columns);
         Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        // Pin the MVCC snapshot onto currentHandle AFTER projection/filter pushdown rebuilt it and
+        // immediately before planScan consumes it, so the native split path reads at the pinned
+        // snapshot. getSplits already declares UserException, so a getTargetTable() failure propagates.
+        pinMvccSnapshot();
 
         // If buildRemainingFilter stripped non-pushable (CAST) conjuncts (filteredToOriginalIndex
         // != null), suppress source-side LIMIT pushdown: the connector now sees a filter that no
@@ -626,6 +686,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         final List<ConnectorColumnHandle> columns = buildColumnHandles();
         tryPushDownProjection(columns);
         final Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        // Pin the MVCC snapshot onto currentHandle before the resolved handle is captured below, so
+        // the async batch path (planScanForPartitionBatch) reads at the pinned snapshot. startSplit
+        // cannot throw checked exceptions, so surface a getTargetTable() failure through the
+        // SplitAssignment error channel (same protocol as checkSysTableScanConstraints above).
+        try {
+            pinMvccSnapshot();
+        } catch (UserException e) {
+            splitAssignment.setException(e);
+            return;
+        }
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         final List<String> allPartitions =
@@ -795,6 +865,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             if (scanProvider != null) {
                 List<ConnectorColumnHandle> columns = buildColumnHandles();
                 Optional<ConnectorExpression> filter = buildRemainingFilter();
+                // Pin the MVCC snapshot onto currentHandle before getScanNodePropertiesResult
+                // consumes it: this single cached result feeds the serialized-table (JNI) path,
+                // scan-level params, explain, and file attributes, so the pin must land here or the
+                // serialized-table path silently reads LATEST while the split path reads the pin.
+                // This method is private and called from contexts that do not declare UserException
+                // (e.g. getNodeExplainString), so a getTargetTable() failure is surfaced by wrapping
+                // it in a RuntimeException (same unchecked error channel as create() above) rather
+                // than dropped.
+                try {
+                    pinMvccSnapshot();
+                } catch (UserException e) {
+                    throw new RuntimeException("Failed to pin MVCC snapshot for plugin-driven scan", e);
+                }
                 cachedPropertiesResult = scanProvider.getScanNodePropertiesResult(
                         connectorSession, currentHandle, columns, filter);
             }

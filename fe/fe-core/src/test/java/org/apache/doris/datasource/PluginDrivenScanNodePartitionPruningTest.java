@@ -99,11 +99,29 @@ public class PluginDrivenScanNodePartitionPruningTest {
         // returns unconditional true precisely so PruneFileScanPartition leaves non-partitioned tables
         // NOT_PRUNED (see PluginDrivenExternalTablePartitionTest
         // #testNonPartitionedTableReportsNoPartitionsButStillOptsIntoPruning).
+        // totalPartitionNum=5 (> 0): a GENUINE prune-to-zero over a non-empty universe.
         SelectedPartitions emptyPruned = new SelectedPartitions(5, Collections.emptyMap(), true);
 
         List<String> result = PluginDrivenScanNode.resolveRequiredPartitions(emptyPruned);
 
         Assertions.assertNotNull(result);
         Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testPrunedEmptyOverEmptyUniverseScansAll() {
+        // RD-1 (B5b-4): a pruned-but-empty selection whose partition UNIVERSE was ALSO empty
+        // (totalPartitionNum == 0) is NOT a genuine prune-to-zero. It is an MVCC time-travel pin
+        // (FOR VERSION/TIME AS OF, @tag, @branch) whose snapshot deliberately carries an empty
+        // partition-item map and defers partition pruning to the connector's predicate pushdown.
+        // It must map to null (scan-all) so getSplits() does NOT short-circuit and planScan runs,
+        // mirroring legacy PaimonScanNode (which ignores selectedPartitions and re-plans via the SDK).
+        // MUTATION: returning the empty list (like the totalPartitionNum>0 case above) short-circuits
+        // to zero splits -> silent data loss for partitioned time-travel + a partition predicate, and
+        // this assertion goes red.
+        SelectedPartitions emptyUniverse = new SelectedPartitions(0, Collections.emptyMap(), true);
+
+        Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(emptyUniverse),
+                "a pruned-empty selection over an empty partition universe (time-travel pin) must scan all");
     }
 }

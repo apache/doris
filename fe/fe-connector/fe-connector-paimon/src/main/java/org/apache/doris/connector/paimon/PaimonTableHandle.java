@@ -22,7 +22,9 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.paimon.table.Table;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -33,11 +35,16 @@ import java.util.Objects;
  * system handle {@link #sysTableName} is the bare sys-table name (no {@code "$"}) and
  * {@link #isSystemTable()} returns true; {@link #forceJni} carries the name-forced JNI hint
  * computed by {@link PaimonConnectorMetadata#getSysTableHandle}. This class is Java
- * {@link java.io.Serializable} only (there is no GSON registration for it): {@link #sysTableName}
- * and {@link #forceJni} are non-transient so they survive a Java serialization round-trip, while
- * the resolved {@link Table} stays {@code transient} and is re-loaded (a sys handle via the 4-arg
- * sys {@code Identifier}) when null. Normal handles keep {@code sysTableName == null} and
- * {@code forceJni == false}.
+ * {@link java.io.Serializable} only (there is no GSON registration for it): {@link #sysTableName},
+ * {@link #forceJni}, {@link #scanOptions} and {@link #branchName} are non-transient so they survive
+ * a Java serialization round-trip, while the resolved {@link Table} stays {@code transient} and is
+ * re-loaded (a sys handle via the 4-arg sys {@code Identifier}, a branch handle via the 3-arg branch
+ * {@code Identifier}) when null. Normal handles keep {@code sysTableName == null},
+ * {@code forceJni == false} and {@code branchName == null}.
+ *
+ * <p>{@link #scanOptions} carries paimon scan options (e.g. {@code {"scan.snapshot-id": "5"}}) for
+ * a time-travel / MVCC-pinned read. It is empty for a normal/sys handle; a pinned handle is built
+ * via {@link #withScanOptions(Map)} and the scan path applies it with {@code Table.copy(options)}.
  */
 public class PaimonTableHandle implements ConnectorTableHandle {
 
@@ -55,10 +62,28 @@ public class PaimonTableHandle implements ConnectorTableHandle {
     private final String sysTableName;
 
     /**
+     * Branch name for a branch time-travel read ({@code @branch('name')}), or {@code null} for a
+     * normal/base handle. A branch is a DIFFERENT table identity than its base (independent schema +
+     * snapshots), so it is part of {@link #equals}/{@link #hashCode} (exactly like {@link
+     * #sysTableName}) and a non-null branch reloads via the 3-arg branch Identifier (see
+     * {@link PaimonTableResolver#resolve}). Serializable: a deserialized branch handle must still
+     * reload the branch table. Branch and sys are mutually exclusive in practice.
+     */
+    private final String branchName;
+
+    /**
      * Name-forced JNI hint for system tables (legacy parity: true only for {@code binlog} /
      * {@code audit_log}). Always {@code false} for a normal handle. Serializable.
      */
     private final boolean forceJni;
+
+    /**
+     * Paimon scan options for a time-travel / MVCC-pinned read (e.g. {@code scan.snapshot-id=5}).
+     * Empty for a normal/sys handle; populated only via {@link #withScanOptions(Map)} when the
+     * engine threads a pinned snapshot in. Serializable (survives the FE/BE round-trip) so the JNI
+     * serialized-table read pins to the same version as the planned splits.
+     */
+    private final Map<String, String> scanOptions;
 
     /** Transient Paimon Table reference; not serialized. Set by PaimonConnectorMetadata. */
     private transient Table paimonTable;
@@ -70,17 +95,33 @@ public class PaimonTableHandle implements ConnectorTableHandle {
 
     /**
      * Full constructor including the system-table fields. Use
-     * {@link #forSystemTable(String, String, String, boolean)} to build a sys handle.
+     * {@link #forSystemTable(String, String, String, boolean)} to build a sys handle. scanOptions
+     * defaults to empty (a normal/sys handle is not snapshot-pinned).
      */
     public PaimonTableHandle(String databaseName, String tableName,
             List<String> partitionKeys, List<String> primaryKeys,
             String sysTableName, boolean forceJni) {
+        this(databaseName, tableName, partitionKeys, primaryKeys, sysTableName, forceJni,
+                Collections.emptyMap(), null);
+    }
+
+    private PaimonTableHandle(String databaseName, String tableName,
+            List<String> partitionKeys, List<String> primaryKeys,
+            String sysTableName, boolean forceJni, Map<String, String> scanOptions,
+            String branchName) {
         this.databaseName = Objects.requireNonNull(databaseName, "databaseName");
         this.tableName = Objects.requireNonNull(tableName, "tableName");
         this.partitionKeys = partitionKeys;
         this.primaryKeys = primaryKeys;
         this.sysTableName = sysTableName;
         this.forceJni = forceJni;
+        this.branchName = branchName;
+        // Defensive immutable copy (codebase convention, cf. ConnectorPartitionInfo /
+        // ConnectorMvccSnapshot): the HashMap-backed unmodifiable map stays Serializable so the
+        // Java-serialization round-trip is preserved.
+        this.scanOptions = scanOptions == null
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new HashMap<>(scanOptions));
     }
 
     /**
@@ -120,9 +161,49 @@ public class PaimonTableHandle implements ConnectorTableHandle {
         return sysTableName != null;
     }
 
+    /** Branch name for a branch time-travel read, or {@code null} for a normal/base handle. */
+    public String getBranchName() {
+        return branchName;
+    }
+
     /** Name-forced JNI hint (true only for {@code binlog} / {@code audit_log} sys tables). */
     public boolean isForceJni() {
         return forceJni;
+    }
+
+    /** Paimon scan options for a pinned read (empty for a normal/sys handle). */
+    public Map<String, String> getScanOptions() {
+        return scanOptions;
+    }
+
+    /**
+     * Returns a NEW handle identical to this one (db/table/partitionKeys/primaryKeys/sysTableName/
+     * forceJni/branchName and the transient {@link Table} are preserved) but carrying the given
+     * scanOptions — the snapshot-pinned read variant. The transient Table is copied over as-is; the
+     * scan path applies {@code Table.copy(scanOptions)} at resolution time. branchName is preserved
+     * because it is part of the handle identity.
+     */
+    public PaimonTableHandle withScanOptions(Map<String, String> options) {
+        PaimonTableHandle copy = new PaimonTableHandle(databaseName, tableName,
+                partitionKeys, primaryKeys, sysTableName, forceJni, options, branchName);
+        copy.paimonTable = this.paimonTable;
+        return copy;
+    }
+
+    /**
+     * Returns a NEW handle identical to this one (db/table/partitionKeys/primaryKeys/sysTableName/
+     * forceJni/scanOptions preserved) but carrying the given {@code branchName} — the branch
+     * time-travel read variant.
+     *
+     * <p>CRITICAL: unlike {@link #withScanOptions(Map)}, this does NOT copy the transient
+     * {@link Table} over. A branch is a DIFFERENT table (independent schema + snapshots), so the
+     * transient reference is left {@code null} and {@link PaimonTableResolver#resolve} reloads the
+     * BRANCH table via the 3-arg branch Identifier. Copying the base Table over would make the
+     * branch read return the BASE table's rows — a silent data error.
+     */
+    public PaimonTableHandle withBranch(String branchName) {
+        return new PaimonTableHandle(databaseName, tableName,
+                partitionKeys, primaryKeys, sysTableName, forceJni, scanOptions, branchName);
     }
 
     /** Returns the transient Paimon Table reference, or null if not set. */
@@ -144,21 +225,26 @@ public class PaimonTableHandle implements ConnectorTableHandle {
             return false;
         }
         PaimonTableHandle that = (PaimonTableHandle) o;
-        // sysTableName is part of identity so a sys handle (db.table$snapshots) never equals its
-        // base handle (db.table) — they are distinct tables to the engine.
+        // sysTableName AND branchName are part of identity: a sys handle (db.table$snapshots) never
+        // equals its base handle (db.table), and a branch handle (db.table@branch) never equals its
+        // base — all are distinct tables to the engine (independent schema/snapshots). scanOptions is
+        // intentionally NOT part of identity: a snapshot-pinned handle is the SAME table, just read
+        // at a version, so it must equal/hash identically to its base handle.
         return databaseName.equals(that.databaseName) && tableName.equals(that.tableName)
-                && Objects.equals(sysTableName, that.sysTableName);
+                && Objects.equals(sysTableName, that.sysTableName)
+                && Objects.equals(branchName, that.branchName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(databaseName, tableName, sysTableName);
+        return Objects.hash(databaseName, tableName, sysTableName, branchName);
     }
 
     @Override
     public String toString() {
-        return sysTableName == null
+        String base = sysTableName == null
                 ? databaseName + "." + tableName
                 : databaseName + "." + tableName + "$" + sysTableName;
+        return branchName == null ? base : base + "@" + branchName;
     }
 }

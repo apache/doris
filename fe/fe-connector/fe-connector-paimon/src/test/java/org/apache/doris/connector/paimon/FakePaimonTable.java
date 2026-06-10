@@ -60,6 +60,15 @@ final class FakePaimonTable implements Table {
     private final List<String> primaryKeys;
     private Map<String, String> options = Collections.emptyMap();
 
+    /**
+     * The dynamic options passed to the most recent {@link #copy(Map)} call, or {@code null} if
+     * {@code copy} was never invoked. Lets the scan tests assert the snapshot pin was applied via
+     * {@code Table.copy(scanOptions)} rather than scanning the un-pinned table.
+     */
+    Map<String, String> lastCopyOptions;
+    /** The table returned by {@link #copy(Map)}; defaults to {@code this} when unset. */
+    Table copyResult;
+
     FakePaimonTable(String name, RowType rowType,
             List<String> partitionKeys, List<String> primaryKeys) {
         this.name = name;
@@ -117,7 +126,11 @@ final class FakePaimonTable implements Table {
 
     @Override
     public Table copy(Map<String, String> dynamicOptions) {
-        throw new UnsupportedOperationException();
+        // Records the scan-pin options the scan path layers on via Table.copy(scanOptions). Returns
+        // a configurable result table (defaults to this) so the test can prove the COPIED table —
+        // not the un-pinned original — is what gets planned/serialized.
+        this.lastCopyOptions = dynamicOptions;
+        return copyResult != null ? copyResult : this;
     }
 
     @Override

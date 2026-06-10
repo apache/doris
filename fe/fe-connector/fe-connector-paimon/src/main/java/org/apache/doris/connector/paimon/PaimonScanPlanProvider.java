@@ -80,10 +80,13 @@ import java.util.stream.Collectors;
  * session needs explicit {@code PartitionSpec}s and therefore consumes {@code requiredPartitions});
  * for Paimon the engine set would be redundant with the predicate it already pushes. The SPI
  * default chain (6-arg &rarr; 5-arg &rarr; 4-arg) routes correctly with {@code requiredPartitions}
- * dropped. Consequence: FE EXPLAIN shows {@code partition=0/0} (no engine-level partition count)
- * because the FE currently treats Paimon tables as non-partitioned; that is a known display gap
- * tracked with the {@code partition_columns} wiring deferred to a later batch (B5), and does not
- * affect read-row correctness.
+ * dropped. As of B5 the connector emits {@code partition_columns} (see
+ * {@code PaimonConnectorMetadata.buildTableSchema}), so FE now treats Paimon tables as partitioned and
+ * the Nereids-pruned set feeds FE EXPLAIN ({@code partition=N/M}) and the generic scan node's
+ * pruned-empty short-circuit only &mdash; never {@code planScan}. For an explicit time-travel pin the
+ * connector deliberately reports an empty partition-item map and defers pruning to this predicate
+ * pushdown; {@code PluginDrivenScanNode.resolveRequiredPartitions} is guarded so that empty-universe
+ * pin scans-all rather than short-circuiting to zero splits. None of this affects read-row correctness.
  */
 public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -123,6 +126,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
+    /**
+     * Resolves the live {@link Table} for the SCAN path and pins it to the handle's snapshot when
+     * the handle carries scan options (set by {@code applySnapshot}'s time-travel / MVCC pin). The
+     * pin is applied here (NOT in the metadata {@code resolveTable}) so BOTH the planned splits AND
+     * the JNI serialized-table read see the same pinned version, while schema/column/partition
+     * metadata reads keep resolving the latest table.
+     *
+     * <p>{@code Table.copy(dynamicOptions)} layers the paimon scan options (e.g.
+     * {@code scan.snapshot-id}) over the resolved table — the same mechanism legacy paimon used.
+     */
+    Table resolveScanTable(PaimonTableHandle paimonHandle) {
+        Table table = resolveTable(paimonHandle);
+        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        if (scanOptions != null && !scanOptions.isEmpty()) {
+            return table.copy(scanOptions);
+        }
+        return table;
+    }
+
     @Override
     public List<ConnectorScanRange> planScan(
             ConnectorSession session,
@@ -131,7 +153,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
-        Table table = resolveTable(paimonHandle);
+        Table table = resolveScanTable(paimonHandle);
 
         // Build predicates from filter expression
         RowType rowType = table.rowType();
@@ -240,7 +262,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
-        Table table = resolveTable(paimonHandle);
+        Table table = resolveScanTable(paimonHandle);
 
         Map<String, String> props = new LinkedHashMap<>();
 

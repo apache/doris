@@ -56,6 +56,13 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
      * base and sys lookups.
      */
     Table sysTable;
+    /**
+     * Optional override returned by {@link #getTable} when the requested Identifier denotes a real
+     * (non-main, non-sys) branch (3-arg branch Identifier). When set, a branch load returns a
+     * DIFFERENT table double than the base {@link #table}, so a branch read can be proven to operate
+     * on the branch's own schema/snapshots. When unset, {@link #table} is returned.
+     */
+    Table branchTable;
 
     boolean throwDatabaseNotExist;
     boolean throwTableNotExist;
@@ -86,6 +93,28 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     boolean snapshotExists;
     /** The table the metadata layer passed to the most recent MVCC seam call. */
     Table lastMvccTable;
+    /** The timestamp (millis) the metadata layer passed to the most recent snapshotIdAtOrBefore. */
+    long snapshotIdAtOrBeforeArg;
+
+    // ---- B5b-2a explicit time-travel seam: configurable results + call capture ----
+    /** schemaId returned by snapshotSchemaId (default empty => stamps -1). */
+    OptionalLong snapshotSchemaId = OptionalLong.empty();
+    /** tag resolution returned by getSnapshotByTag (default null => empty => not found). */
+    PaimonCatalogOps.TagSnapshot tagSnapshot;
+    /** schema returned by schemaAt (set per-test to drive the at-schemaId column mapping). */
+    PaimonCatalogOps.PaimonSchemaSnapshot schemaAt;
+    /** The arguments the metadata layer passed to the most recent time-travel seam call. */
+    long lastSnapshotSchemaIdArg;
+    String lastTagNameArg;
+    long lastSchemaAtArg;
+
+    // ---- B5b-2c branch time-travel seam: configurable result + call capture ----
+    /** Whether the configured branch is reported to exist by {@link #branchExists}. */
+    boolean branchExists;
+    /** The branch name the metadata layer passed to the most recent {@link #branchExists} call. */
+    String lastBranchExistsArg;
+    /** The base table the metadata layer passed to the most recent {@link #branchExists} call. */
+    Table lastBranchExistsTable;
 
     @Override
     public List<String> listDatabases() {
@@ -124,6 +153,15 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         // sys-handle schema/columns can be built from a DIFFERENT rowType than the base table.
         if (sysTable != null && identifier.getSystemTableName() != null) {
             return sysTable;
+        }
+        // A 3-arg branch Identifier carries a non-"main" branch and no system-table name; serve
+        // branchTable when set so a branch load returns a DIFFERENT table double than the base.
+        // getBranchNameOrDefault() returns "main" for a base/sys identifier and the real branch name
+        // for a 3-arg branch identifier — robustly distinguishing the branch load.
+        if (branchTable != null
+                && identifier.getSystemTableName() == null
+                && !"main".equals(identifier.getBranchNameOrDefault())) {
+            return branchTable;
         }
         return table;
     }
@@ -198,6 +236,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     public OptionalLong snapshotIdAtOrBefore(Table table, long timestampMillis) {
         log.add("snapshotIdAtOrBefore:" + timestampMillis);
         lastMvccTable = table;
+        snapshotIdAtOrBeforeArg = timestampMillis;
         return snapshotIdAtOrBefore;
     }
 
@@ -206,6 +245,41 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         log.add("snapshotExists:" + snapshotId);
         lastMvccTable = table;
         return snapshotExists;
+    }
+
+    @Override
+    public OptionalLong snapshotSchemaId(Table table, long snapshotId) {
+        log.add("snapshotSchemaId:" + snapshotId);
+        lastMvccTable = table;
+        lastSnapshotSchemaIdArg = snapshotId;
+        return snapshotSchemaId;
+    }
+
+    @Override
+    public java.util.Optional<PaimonCatalogOps.TagSnapshot> getSnapshotByTag(Table table, String tagName) {
+        log.add("getSnapshotByTag:" + tagName);
+        lastMvccTable = table;
+        lastTagNameArg = tagName;
+        return java.util.Optional.ofNullable(tagSnapshot);
+    }
+
+    @Override
+    public PaimonCatalogOps.PaimonSchemaSnapshot schemaAt(Table table, long schemaId) {
+        log.add("schemaAt:" + schemaId);
+        lastMvccTable = table;
+        lastSchemaAtArg = schemaId;
+        return schemaAt;
+    }
+
+    @Override
+    public boolean branchExists(Table table, String branchName) {
+        log.add("branchExists:" + branchName);
+        // Capture which table validation ran against (must be the BASE table, mirroring legacy
+        // resolvePaimonBranch which validates the branch on the base table's branchManager).
+        // Kept in a DEDICATED field so lastMvccTable stays a pure MVCC-seam artifact.
+        lastBranchExistsTable = table;
+        lastBranchExistsArg = branchName;
+        return branchExists;
     }
 
     @Override

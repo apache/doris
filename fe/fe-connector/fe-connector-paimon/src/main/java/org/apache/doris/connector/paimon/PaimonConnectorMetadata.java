@@ -28,6 +28,7 @@ import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.THiveTable;
@@ -36,6 +37,7 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
@@ -148,25 +150,71 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // resolveTable branches on isSystemTable() to pick the 4-arg sys Identifier vs the 2-arg
         // base Identifier on a transient-table-null reload, so a sys handle reads its OWN rowType.
         Table table = resolveTable(paimonHandle);
-        RowType rowType = table.rowType();
-        List<String> primaryKeys = table.primaryKeys();
-        List<ConnectorColumn> columns = mapFields(rowType, primaryKeys);
+        // The LATEST path keys partition_columns off the HANDLE's partitionKeys (the handle was
+        // built from the latest table.partitionKeys()); fields + primaryKeys come from the live
+        // table. Sharing buildTableSchema with the at-snapshot path keeps the two from drifting.
+        return buildTableSchema(
+                paimonHandle.getTableName(),
+                table.rowType().getFields(),
+                paimonHandle.getPartitionKeys(),
+                table.primaryKeys());
+    }
+
+    /**
+     * Returns the schema AS OF {@code snapshot.getSchemaId()} (the pinned schema version, for
+     * time-travel reads under schema evolution). Falls back to the LATEST schema
+     * ({@link #getTableSchema(ConnectorSession, ConnectorTableHandle)}) when there is no pinned
+     * schema id (null snapshot or {@code schemaId < 0}), which also covers system tables (their
+     * synthetic rowType is their own and has no schema-version history).
+     *
+     * <p>When a pinned schema id IS present, the schema at that version is resolved through the
+     * {@link PaimonCatalogOps#schemaAt} seam and mapped with the SAME field mapping AND the same
+     * {@code partition_columns}/{@code primary_keys} property emission as the latest path (via the
+     * shared {@link #buildTableSchema}). Unlike the latest path, the partition keys come from the
+     * RESOLVED historical schema (not the handle), because under schema evolution the partition set
+     * may itself differ at the pinned version — mirroring legacy {@code initSchema(schemaId)}, which
+     * read {@code tableSchema.partitionKeys()} of the pinned schema.
+     */
+    @Override
+    public ConnectorTableSchema getTableSchema(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        if (snapshot == null || snapshot.getSchemaId() < 0) {
+            return getTableSchema(session, handle);
+        }
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Table table = resolveTable(paimonHandle);
+        PaimonCatalogOps.PaimonSchemaSnapshot schema =
+                catalogOps.schemaAt(table, snapshot.getSchemaId());
+        return buildTableSchema(
+                paimonHandle.getTableName(),
+                schema.fields(),
+                schema.partitionKeys(),
+                schema.primaryKeys());
+    }
+
+    /**
+     * Maps paimon {@code fields} to Doris columns and emits the {@code partition_columns} /
+     * {@code primary_keys} schema properties exactly the way the latest path always has. Factored
+     * out so the latest path and the at-snapshot path ({@link #getTableSchema(ConnectorSession,
+     * ConnectorTableHandle, ConnectorMvccSnapshot)}) share ONE mapping and cannot drift.
+     */
+    private ConnectorTableSchema buildTableSchema(String tableName, List<DataField> fields,
+            List<String> partitionKeys, List<String> primaryKeys) {
+        List<ConnectorColumn> columns = mapFields(fields, primaryKeys);
 
         Map<String, String> schemaProps = new HashMap<>();
-        if (paimonHandle.getPartitionKeys() != null
-                && !paimonHandle.getPartitionKeys().isEmpty()) {
-            schemaProps.put("partition_keys",
-                    String.join(",", paimonHandle.getPartitionKeys()));
+        if (partitionKeys != null && !partitionKeys.isEmpty()) {
+            // Emit "partition_columns" (NOT "partition_keys"): the generic fe-core consumer
+            // PluginDrivenExternalTable.initSchema reads "partition_columns" — keying it under
+            // "partition_keys" left the FE treating paimon as non-partitioned. Mirrors MaxCompute.
+            schemaProps.put("partition_columns", String.join(",", partitionKeys));
         }
         if (primaryKeys != null && !primaryKeys.isEmpty()) {
             schemaProps.put("primary_keys", String.join(",", primaryKeys));
         }
 
-        return new ConnectorTableSchema(
-                paimonHandle.getTableName(),
-                columns,
-                "PAIMON",
-                schemaProps);
+        return new ConnectorTableSchema(tableName, columns, "PAIMON", schemaProps);
     }
 
     // ==================== E7: System Tables ====================
@@ -279,56 +327,268 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Time-travel by snapshot id. Returns the pinned snapshot when it exists, else
-     * {@link Optional#empty()} per the SPI Javadoc ("or empty if none").
+     * Resolves an explicit time-travel {@code spec} into a pinned {@link ConnectorMvccSnapshot},
+     * owning ALL paimon-specific parsing (snapshot-id lookup, datetime parse, tag resolution). This
+     * is the unified seam that supersedes the retired {@code getSnapshotById}/{@code getSnapshotAt}
+     * (B5b). The returned snapshot carries (a) the resolved {@code snapshotId}, (b) the resolved
+     * {@code schemaId} so schema-at-snapshot reads pick the historical schema, and (c) the
+     * connector's scan-option {@code properties} (which {@link #applySnapshot} threads into the
+     * scan handle).
      *
-     * <p>CONTRACT DIFFERENCE (intentional, documented): legacy
-     * {@code PaimonUtil.getPaimonSnapshotBySnapshotId} THREW a {@code UserException}
-     * ("can't find snapshot by id") when the id was absent. The SPI contract here is empty-if-none,
-     * so surfacing the user-facing "not found" error is the B5 fe-core consumer's responsibility —
-     * this is NOT a silent data bug.
+     * <p>Maps each {@link ConnectorTimeTravelSpec.Kind} to legacy
+     * {@code PaimonExternalTable.getPaimonSnapshotCacheValue} (lines 124-144):
+     * <ul>
+     *   <li>{@code SNAPSHOT_ID} — {@code Long.parseLong(stringValue)}; if the snapshot does not
+     *       exist returns {@link Optional#empty()}; pins {@code scan.snapshot-id}.</li>
+     *   <li>{@code TIMESTAMP} — derives epoch-millis (digital ⇒ {@code Long.parseLong}; else paimon
+     *       {@code DateTimeUtils.parseTimestampData(value, 3, sessionTZ)}, the byte-parity datetime
+     *       parse), then the at-or-before snapshot; empty when none; pins {@code scan.snapshot-id}.
+     *       </li>
+     *   <li>{@code TAG} — resolves the tag's snapshot; empty when absent; pins {@code scan.tag-name}
+     *       to the tag NAME (legacy pins the name, not the id).</li>
+     *   <li>{@code INCREMENTAL} — {@code @incr(...)} read: validates the raw window params via
+     *       {@link PaimonIncrementalScanParams#validate} (the ~180-line legacy validation, ported
+     *       byte-faithfully) and pins at the LATEST snapshot (legacy {@code @incr} reads latest with
+     *       EMPTY partition info and applies the {@code incremental-between*} options at scan time).
+     *       The validated options are carried as {@code properties}; because that map is non-empty,
+     *       {@link #applySnapshot} threads exactly those options and does NOT inject
+     *       {@code scan.snapshot-id} (which would conflict with {@code incremental-between}).</li>
+     *   <li>{@code BRANCH} — {@code @branch('name')} read: validates the branch on the BASE table via
+     *       {@link PaimonCatalogOps#branchExists} (empty-if-absent, like snapshot/tag not-found), then
+     *       loads the branch as its OWN table (independent schema/snapshots, via the 3-arg branch
+     *       Identifier through {@link PaimonTableHandle#withBranch}) and pins its LATEST snapshot —
+     *       branches have NO in-branch time-travel (legacy {@code PaimonExternalTable} reads the
+     *       branch's {@code latestSnapshot()} only). The branch identity is carried to
+     *       {@link #applySnapshot} via an internal sentinel ({@code CoreOptions.BRANCH} key, NOT a
+     *       scan-copy option); no {@code scan.snapshot-id} is pinned (the branch reads its own latest).
+     *       An empty branch (no snapshot) pins {@code snapshotId=-1} and {@code schemaId=-1}: a benign
+     *       divergence from legacy's {@code schemaId=0L} — the resulting schema is identical (both
+     *       resolve to the branch's current schema), mirroring the INCREMENTAL empty-table -1 note.</li>
+     * </ul>
      *
-     * <p>System tables do not expose time-travel -> {@link Optional#empty()}.
+     * <p>CONTRACT DIFFERENCE (intentional, documented): legacy {@code PaimonUtil} THREW a
+     * {@code UserException} when the id/timestamp/tag was not found. The SPI contract here is
+     * empty-if-none; the B5b-3 fe-core consumer translates {@link Optional#empty()} into the
+     * user-facing error. Not-found is returned as empty; only a malformed spec (e.g. a non-digital
+     * snapshot id) propagates as an exception, matching legacy {@code Long.parseLong}.
+     *
+     * <p>System tables do not expose time-travel (same guard as {@link #beginQuerySnapshot}) →
+     * {@link Optional#empty()}.
      */
     @Override
-    public Optional<ConnectorMvccSnapshot> getSnapshotById(
-            ConnectorSession session, ConnectorTableHandle handle, long snapshotId) {
+    public Optional<ConnectorMvccSnapshot> resolveTimeTravel(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorTimeTravelSpec spec) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         if (paimonHandle.isSystemTable()) {
             return Optional.empty();
         }
         Table table = resolveTable(paimonHandle);
-        if (!catalogOps.snapshotExists(table, snapshotId)) {
-            return Optional.empty();
+        switch (spec.getKind()) {
+            case SNAPSHOT_ID: {
+                long id = Long.parseLong(spec.getStringValue());
+                if (!catalogOps.snapshotExists(table, id)) {
+                    return Optional.empty();
+                }
+                long schemaId = catalogOps.snapshotSchemaId(table, id).orElse(-1L);
+                return Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(id)
+                        .schemaId(schemaId)
+                        .property(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(id))
+                        .build());
+            }
+            case TIMESTAMP: {
+                long millis = parseTimestampMillis(session, spec);
+                OptionalLong id = catalogOps.snapshotIdAtOrBefore(table, millis);
+                if (!id.isPresent()) {
+                    return Optional.empty();
+                }
+                long snapshotId = id.getAsLong();
+                long schemaId = catalogOps.snapshotSchemaId(table, snapshotId).orElse(-1L);
+                return Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(snapshotId)
+                        .schemaId(schemaId)
+                        .property(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId))
+                        .build());
+            }
+            case TAG: {
+                String tagName = spec.getStringValue();
+                Optional<PaimonCatalogOps.TagSnapshot> tag =
+                        catalogOps.getSnapshotByTag(table, tagName);
+                if (!tag.isPresent()) {
+                    return Optional.empty();
+                }
+                // Legacy pins the tag NAME (scan.tag-name=value), NOT the snapshot id
+                // (PaimonExternalTable.java:137), so a later schema/data change to the tag is honored.
+                return Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(tag.get().snapshotId())
+                        .schemaId(tag.get().schemaId())
+                        .property(CoreOptions.SCAN_TAG_NAME.key(), tagName)
+                        .build());
+            }
+            case INCREMENTAL: {
+                // Validate the raw @incr window params and produce the paimon scan options. This is
+                // the ~180-line legacy validation, ported byte-faithfully into the connector
+                // (PaimonIncrementalScanParams). The produced opts hold incremental-between* keys ONLY
+                // (the legacy null-valued scan.snapshot-id/scan.mode resets are stripped — see that
+                // class's javadoc for why that's byte-parity on a freshly-loaded base table).
+                Map<String, String> opts = PaimonIncrementalScanParams.validate(spec.getIncrementalParams());
+                // Legacy @incr reads at the LATEST snapshot and applies incremental-between at scan time:
+                // PaimonExternalTable.getPaimonSnapshotCacheValue falls through (neither tag/branch nor
+                // FOR VERSION/TIME AS OF) to getLatestSnapshotCacheValue (the LATEST partition view + LATEST
+                // schema), and PaimonScanNode.getProcessedTable copies the incremental options onto the base
+                // table. fe-core (PluginDrivenMvccExternalTable.loadSnapshot) mirrors this: the INCREMENTAL
+                // kind lists the LATEST partitions and uses the LATEST schema, carrying these incremental scan
+                // options on the pin. Pin latest; an empty table (no snapshot) falls back to -1.
+                long snapshotId = catalogOps.latestSnapshotId(table).orElse(-1L);
+                long schemaId = snapshotId < 0
+                        ? -1L
+                        : catalogOps.snapshotSchemaId(table, snapshotId).orElse(-1L);
+                // opts is NON-EMPTY, so applySnapshot threads exactly these (incremental-between*) and
+                // does NOT inject scan.snapshot-id (which would conflict with incremental-between).
+                return Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(snapshotId)
+                        .schemaId(schemaId)
+                        .properties(opts)
+                        .build());
+            }
+            case BRANCH: {
+                String branchName = spec.getStringValue();
+                // Validate on the BASE table (legacy resolvePaimonBranch validates the branch against
+                // the base table's branchManager). Graceful empty-if-absent (fe-core B5b-3 translates
+                // to the "can't find branch" UserException), consistent with snapshot/tag not-found.
+                if (!catalogOps.branchExists(table, branchName)) {
+                    return Optional.empty();
+                }
+                // Load the branch as its OWN table (independent schema/snapshots) and pin its LATEST
+                // snapshot — branches do not support in-branch time-travel (legacy reads
+                // latestSnapshot() only).
+                Table branchTable = resolveTable(paimonHandle.withBranch(branchName));
+                long snapshotId = catalogOps.latestSnapshotId(branchTable).orElse(-1L);
+                long schemaId = snapshotId < 0
+                        ? -1L
+                        : catalogOps.snapshotSchemaId(branchTable, snapshotId).orElse(-1L);
+                // Carry the branch identity to applySnapshot via an internal sentinel
+                // (CoreOptions.BRANCH key). Branch is a handle-IDENTITY change, not a scan-copy
+                // option: applySnapshot reads this sentinel and routes it to handle.withBranch (it is
+                // never threaded into Table.copy). No scan.snapshot-id is pinned (the branch table
+                // natively reads its own latest).
+                return Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(snapshotId)
+                        .schemaId(schemaId)
+                        .property(CoreOptions.BRANCH.key(), branchName)
+                        .build());
+            }
+            default:
+                throw new UnsupportedOperationException(
+                        "unsupported time-travel kind: " + spec.getKind());
         }
-        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(snapshotId).build());
     }
 
     /**
-     * Time-travel by wall-clock time. Returns the latest snapshot committed at or before
-     * {@code timestampMillis}, else {@link Optional#empty()} when none qualifies.
+     * Derives epoch-millis from a {@code TIMESTAMP} spec, byte-faithful to legacy
+     * {@code PaimonUtil.getPaimonSnapshotByTimestamp}: a digital value is {@code Long.parseLong};
+     * a non-digital value is parsed by paimon {@code DateTimeUtils.parseTimestampData(value, 3, TZ)}
+     * where TZ is the SESSION time zone.
      *
-     * <p>CONTRACT DIFFERENCE (intentional, documented): legacy
-     * {@code PaimonUtil.getPaimonSnapshotByTimestamp} THREW a {@code UserException} (with the
-     * earliest-snapshot's timestamp hint) when no snapshot was at-or-before the time. The SPI
-     * contract here is empty-if-none, so the B5 fe-core consumer is responsible for surfacing that
-     * user-facing error — this is NOT a silent data bug.
+     * <p>BYTE-PARITY TZ DECISION: legacy passed {@code TimeUtils.getTimeZone()} =
+     * {@code TimeZone.getTimeZone(ZoneId.of(sessionTz, dorisAliasMap))}. The connector cannot import
+     * the fe-core Doris alias map, so it derives the zone from {@link ConnectorSession#getTimeZone()}
+     * via {@code TimeZone.getTimeZone(ZoneId.of(tz))} — identical to legacy for every standard zone
+     * id (e.g. "Asia/Shanghai", "UTC").
      *
-     * <p>System tables do not expose time-travel -> {@link Optional#empty()}.
+     * <p>FAIL-LOUD on unsupported alias (NOT silent degrade): time-travel is STRICTER than predicate
+     * pushdown. Doris-specific aliases that {@link java.time.ZoneId#of} rejects (e.g. "CST", "PST",
+     * "EST") are a KNOWN LIMITATION for datetime-string time-travel — the connector cannot import the
+     * fe-core alias map to resolve them. Rather than silently falling back to another zone (a wrong
+     * zone would resolve the WRONG snapshot -> silently wrong rows), such an alias is rejected with a
+     * clear, actionable {@link DorisConnectorException}. (This deliberately does NOT follow the
+     * MaxComputePredicateConverter pattern of degrading to NO_PREDICATE on a bad alias: that is safe
+     * only because BE re-applies the predicate, whereas a mis-resolved time-travel zone has no such
+     * safety net.) The legacy {@code millis < 0} guard is preserved.
+     */
+    private long parseTimestampMillis(ConnectorSession session, ConnectorTimeTravelSpec spec) {
+        String value = spec.getStringValue();
+        if (spec.isDigital()) {
+            return Long.parseLong(value);
+        }
+        // Resolve the session zone ONLY inside this catch so a legitimate
+        // DateTimeUtils.parseTimestampData("can't parse time") below is NOT swallowed: an unsupported
+        // Doris-alias zone (e.g. "CST"/"PST", which ZoneId.of rejects with a DateTimeException) must
+        // fail loud with actionable guidance, never silently degrade to a wrong zone (a wrong zone
+        // selects the WRONG snapshot -> silently wrong rows).
+        java.time.ZoneId zoneId;
+        try {
+            zoneId = java.time.ZoneId.of(session.getTimeZone());
+        } catch (java.time.DateTimeException e) {
+            throw new DorisConnectorException(
+                    "session time zone '" + session.getTimeZone() + "' is not a standard zone id and "
+                            + "cannot be used for FOR TIME AS OF with a datetime string; use a standard "
+                            + "IANA zone id (e.g. 'Asia/Shanghai', 'UTC'), or specify epoch "
+                            + "milliseconds, or use FOR VERSION AS OF <snapshot-id|tag>.", e);
+        }
+        java.util.TimeZone tz = java.util.TimeZone.getTimeZone(zoneId);
+        long millis = DateTimeUtils.parseTimestampData(value, 3, tz).getMillisecond();
+        if (millis < 0) {
+            throw new java.time.DateTimeException("can't parse time: " + value);
+        }
+        return millis;
+    }
+
+    /**
+     * Threads a pinned MVCC / time-travel {@code snapshot} into the handle BEFORE planScan: returns
+     * a copy of {@code handle} carrying the connector's resolved scan options so the scan path reads
+     * at that snapshot/tag (the scan provider applies them via {@code Table.copy}).
+     *
+     * <p>Threads the FULL {@code snapshot.getProperties()} map: this may be
+     * {@code scan.snapshot-id=<id>} (snapshot-id / timestamp time-travel) OR
+     * {@code scan.tag-name=<name>} (tag time-travel), whichever {@link #resolveTimeTravel} pinned.
+     * When {@code properties} is empty (the {@link #beginQuerySnapshot} latest-pin path, which
+     * carries no properties) it falls back to {@code scan.snapshot-id=<snapshotId>} for B5a parity.
+     *
+     * <p>BRANCH is special: when the snapshot carries the {@code CoreOptions.BRANCH} sentinel (set by
+     * {@link #resolveTimeTravel}'s BRANCH case), it is a handle-IDENTITY change, not a scan option —
+     * it is detected FIRST and routed to {@link PaimonTableHandle#withBranch} (which clears the
+     * transient base Table so the branch reloads), never threaded into {@code Table.copy}.
+     *
+     * <p>System tables have no MVCC (they are synthetic metadata views — same guard as
+     * {@link #beginQuerySnapshot}), so a sys handle is returned unchanged.
      */
     @Override
-    public Optional<ConnectorMvccSnapshot> getSnapshotAt(
-            ConnectorSession session, ConnectorTableHandle handle, long timestampMillis) {
+    public ConnectorTableHandle applySnapshot(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         if (paimonHandle.isSystemTable()) {
-            return Optional.empty();
+            return paimonHandle;
         }
-        Table table = resolveTable(paimonHandle);
-        OptionalLong id = catalogOps.snapshotIdAtOrBefore(table, timestampMillis);
-        if (!id.isPresent()) {
-            return Optional.empty();
+        if (snapshot != null) {
+            String branch = snapshot.getProperties().get(CoreOptions.BRANCH.key());
+            if (branch != null) {
+                // Branch time-travel is a handle-identity change (a different table load), not a scan
+                // option: route to withBranch (which clears the transient base Table so resolveTable
+                // reloads the branch). The branch reads its own latest, so no scan.snapshot-id is
+                // pinned. Detected BEFORE the generic properties path so the branch sentinel never
+                // becomes a scan-copy option.
+                return paimonHandle.withBranch(branch);
+            }
+            if (!snapshot.getProperties().isEmpty()) {
+                // Explicit time-travel: the connector already resolved the exact scan options
+                // (scan.snapshot-id OR scan.tag-name etc.) in resolveTimeTravel — thread them verbatim.
+                return paimonHandle.withScanOptions(snapshot.getProperties());
+            }
         }
-        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id.getAsLong()).build());
+        // Empty-properties latest-pin (beginQuerySnapshot) path. Empty-table / query-begin parity:
+        // beginQuerySnapshot pins INVALID_SNAPSHOT_ID (-1) for an empty table rather than
+        // Optional.empty(). A -1 (or a null snapshot) must NOT become scan.snapshot-id=-1, because
+        // Table.copy(scan.snapshot-id=-1) resolves to a non-existent snapshot in the paimon SDK
+        // (confusing "snapshot/file not found"). Legacy never copied an invalid id: its empty /
+        // query-begin path reads latest WITHOUT a copy. So return the handle UNCHANGED (read latest).
+        if (snapshot == null || snapshot.getSnapshotId() < 0) {
+            return paimonHandle;
+        }
+        Map<String, String> scanOptions = Collections.singletonMap(
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.getSnapshotId()));
+        return paimonHandle.withScanOptions(scanOptions);
     }
 
     /**
@@ -577,6 +837,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
 
+        // Partition enumeration is intentionally BASE-only: branch / time-travel reads carry EMPTY
+        // partition info (legacy PaimonPartitionInfo.EMPTY) and never reach this path, so for the
+        // (non-branch) handles that do, resolveTable returns the base table and the base-Identifier
+        // listing below is consistent. (A branch handle would otherwise mix branch schema metadata
+        // here with the base partition list — but that combination does not occur by design.)
         Table table = resolveTable(paimonHandle);
         Identifier identifier = Identifier.create(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName());
@@ -652,8 +917,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
     }
 
-    private List<ConnectorColumn> mapFields(RowType rowType, List<String> primaryKeys) {
-        List<DataField> fields = rowType.getFields();
+    private List<ConnectorColumn> mapFields(List<DataField> fields, List<String> primaryKeys) {
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         for (DataField field : fields) {
             ConnectorType connectorType = PaimonTypeMapping.toConnectorType(

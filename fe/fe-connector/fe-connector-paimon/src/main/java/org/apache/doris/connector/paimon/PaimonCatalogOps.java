@@ -23,12 +23,17 @@ import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.tag.Tag;
+import org.apache.paimon.types.DataField;
 
 import java.io.FileNotFoundException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
@@ -98,7 +103,105 @@ public interface PaimonCatalogOps {
      */
     boolean snapshotExists(Table table, long snapshotId);
 
+    // ---- B5b-2a: explicit time-travel resolution (SNAPSHOT_ID / TIMESTAMP / TAG) ----
+    // Like the T20 lookups above, these return plain {@code long}s / small immutable structs (never
+    // a raw paimon {@code Snapshot} / {@code Tag} / {@code TableSchema}) so the metadata layer's
+    // resolution logic is unit-testable offline with {@code RecordingPaimonCatalogOps}.
+
+    /**
+     * Returns the schema version (schemaId) of the snapshot with {@code snapshotId}
+     * ({@code snapshotManager().snapshot(id).schemaId()}), or empty when it cannot be resolved.
+     * Used to stamp {@link org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot#getSchemaId()}
+     * for snapshot-id / timestamp time-travel so schema-at-snapshot reads pick the historical schema.
+     */
+    OptionalLong snapshotSchemaId(Table table, long snapshotId);
+
+    /**
+     * Resolves the named tag to its snapshot id + schema id ({@code tagManager().get(tagName)};
+     * a paimon {@code Tag} IS-A {@code Snapshot}, so {@code tag.id()} / {@code tag.schemaId()}), or
+     * empty when no tag with {@code tagName} exists. Legacy
+     * {@code PaimonUtil.getPaimonSnapshotByTag} threw on absent; this returns empty (the metadata
+     * layer maps empty → {@link java.util.Optional#empty()} per the SPI empty-if-none contract).
+     */
+    Optional<TagSnapshot> getSnapshotByTag(Table table, String tagName);
+
+    /**
+     * Returns the schema AS OF {@code schemaId} ({@code schemaManager().schema(schemaId)}), reduced
+     * to the fields + partition keys + primary keys the metadata layer needs to build Doris columns.
+     * Mirrors legacy {@code PaimonExternalTable.initSchema(schemaId)}, which read the same
+     * {@code tableSchema.fields()} / {@code tableSchema.partitionKeys()} of the pinned version.
+     */
+    PaimonSchemaSnapshot schemaAt(Table table, long schemaId);
+
+    // ---- B5b-2c: branch time-travel resolution ----
+
+    /**
+     * Returns true iff {@code branchName} exists on {@code table}. The base table must be a
+     * {@code FileStoreTable} (cast + {@code branchManager().branchExists(name)}, mirroring legacy
+     * PaimonUtil.resolvePaimonBranch); a non-FileStoreTable backend (e.g. jdbc-only) cannot have
+     * branches, so this returns {@code false} gracefully (the metadata layer maps that to
+     * Optional.empty(), which the fe-core consumer later translates to "can't find branch").
+     */
+    boolean branchExists(Table table, String branchName);
+
     void close() throws Exception;
+
+    /**
+     * Immutable carrier for a resolved tag: the tag's snapshot id and schema id. Lets the metadata
+     * layer pin without depending on a concrete paimon {@code Tag} (impractical to fake offline).
+     */
+    final class TagSnapshot {
+        private final long snapshotId;
+        private final long schemaId;
+
+        public TagSnapshot(long snapshotId, long schemaId) {
+            this.snapshotId = snapshotId;
+            this.schemaId = schemaId;
+        }
+
+        /** The tag's snapshot id ({@code tag.id()}). */
+        public long snapshotId() {
+            return snapshotId;
+        }
+
+        /** The tag's schema id ({@code tag.schemaId()}). */
+        public long schemaId() {
+            return schemaId;
+        }
+    }
+
+    /**
+     * Immutable carrier for a schema AS OF a schemaId: the paimon fields plus the partition-key and
+     * primary-key name lists. Returned by {@link #schemaAt} so the metadata layer can map columns
+     * offline without faking a concrete paimon {@code TableSchema}.
+     */
+    final class PaimonSchemaSnapshot {
+        private final List<DataField> fields;
+        private final List<String> partitionKeys;
+        private final List<String> primaryKeys;
+
+        public PaimonSchemaSnapshot(List<DataField> fields, List<String> partitionKeys,
+                List<String> primaryKeys) {
+            this.fields = fields;
+            this.partitionKeys = partitionKeys;
+            this.primaryKeys = primaryKeys;
+        }
+
+        /** The schema's fields ({@code tableSchema.fields()}). */
+        public List<DataField> fields() {
+            return fields;
+        }
+
+        /** The schema's partition key names ({@code tableSchema.partitionKeys()}). */
+        public List<String> partitionKeys() {
+            return partitionKeys;
+        }
+
+        /** The schema's primary key names ({@code tableSchema.primaryKeys()}). */
+        public List<String> primaryKeys() {
+            return primaryKeys;
+        }
+    }
 
     /**
      * Default implementation backing the seam with a real Paimon {@link Catalog}.
@@ -185,6 +288,41 @@ public interface PaimonCatalogOps {
             } catch (FileNotFoundException e) {
                 return false;
             }
+        }
+
+        @Override
+        public OptionalLong snapshotSchemaId(Table table, long snapshotId) {
+            // snapshotManager() is only on DataTable (same cast legacy PaimonUtil uses). snapshot(id)
+            // returns the Snapshot whose schemaId is the version pinned for schema-at-snapshot.
+            Snapshot snapshot = ((DataTable) table).snapshotManager().snapshot(snapshotId);
+            return snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.schemaId());
+        }
+
+        @Override
+        public Optional<TagSnapshot> getSnapshotByTag(Table table, String tagName) {
+            // tagManager() is only on DataTable. A paimon Tag IS-A Snapshot, so id()/schemaId() are
+            // inherited (legacy PaimonUtil.getPaimonSnapshotByTag read the Tag the same way).
+            Optional<Tag> tag = ((DataTable) table).tagManager().get(tagName);
+            return tag.map(t -> new TagSnapshot(t.id(), t.schemaId()));
+        }
+
+        @Override
+        public PaimonSchemaSnapshot schemaAt(Table table, long schemaId) {
+            // schemaManager() is only on DataTable. schema(schemaId) is the historical TableSchema
+            // (legacy PaimonExternalTable.initSchema(schemaId) reads the same accessors).
+            TableSchema tableSchema = ((DataTable) table).schemaManager().schema(schemaId);
+            return new PaimonSchemaSnapshot(
+                    tableSchema.fields(), tableSchema.partitionKeys(), tableSchema.primaryKeys());
+        }
+
+        @Override
+        public boolean branchExists(Table table, String branchName) {
+            // Mirrors legacy PaimonUtil.resolvePaimonBranch: only a FileStoreTable has a
+            // branchManager(); a non-FileStoreTable backend (e.g. jdbc-only) cannot have branches.
+            if (!(table instanceof FileStoreTable)) {
+                return false;
+            }
+            return ((FileStoreTable) table).branchManager().branchExists(branchName);
         }
 
         @Override

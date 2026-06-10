@@ -20,6 +20,7 @@ package org.apache.doris.connector.api;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import java.util.Collections;
@@ -70,6 +71,20 @@ public interface ConnectorTableOps {
             ConnectorSession session, ConnectorTableHandle handle) {
         throw new DorisConnectorException(
                 "getTableSchema not implemented");
+    }
+
+    /**
+     * Returns the schema AT {@code snapshot.getSchemaId()} &mdash; the schema as of the
+     * pinned snapshot, for time-travel reads under schema evolution.
+     *
+     * <p>The default ignores the snapshot and returns the latest schema via
+     * {@link #getTableSchema(ConnectorSession, ConnectorTableHandle)}. A connector that
+     * supports schema-at-snapshot overrides this to resolve the schema version.</p>
+     */
+    default ConnectorTableSchema getTableSchema(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        return getTableSchema(session, handle);
     }
 
     /** Returns a name-to-handle map for all columns of the table. */

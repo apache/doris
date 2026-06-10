@@ -163,6 +163,63 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void resolveScanTableAppliesSnapshotPinViaCopy() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        // The pinned (copied) table is a DISTINCT instance so we can prove the scan uses the COPY,
+        // not the un-pinned base.
+        FakePaimonTable pinned = new FakePaimonTable(
+                "t1@5", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        base.copyResult = pinned;
+
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+        // A snapshot-pinned handle: applySnapshot would have produced exactly this scanOptions map.
+        PaimonTableHandle pinnedHandle = handle.withScanOptions(
+                Collections.singletonMap("scan.snapshot-id", "5"));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        Table scanTable = provider.resolveScanTable(pinnedHandle);
+
+        // WHY: a snapshot-pinned handle must read at the pinned version on BOTH the planned-splits
+        // and the JNI serialized-table paths. The scan provider applies the pin by layering the
+        // handle's scanOptions onto the resolved table via Table.copy(scanOptions). MUTATION:
+        // skipping the copy (using the un-pinned resolveTable result) -> scanTable is `base`, not
+        // `pinned`, and lastCopyOptions stays null -> red; passing the wrong options -> the
+        // scan.snapshot-id assertion below -> red.
+        Assertions.assertSame(pinned, scanTable,
+                "the scan path must use the snapshot-pinned (copied) table, not the un-pinned base");
+        Assertions.assertEquals(Collections.singletonMap("scan.snapshot-id", "5"),
+                base.lastCopyOptions,
+                "the scan path must layer the handle's scanOptions via Table.copy(scanOptions)");
+    }
+
+    @Test
+    public void resolveScanTableWithoutScanOptionsDoesNotCopy() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        // A normal (un-pinned) handle: empty scanOptions.
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        Table scanTable = provider.resolveScanTable(handle);
+
+        // WHY: a normal read must NOT call Table.copy at all — copying with empty options is wasted
+        // work and, more importantly, the un-pinned path must return the resolved table verbatim.
+        // MUTATION: unconditionally calling copy(scanOptions) -> lastCopyOptions becomes non-null
+        // (and FakePaimonTable.copy would be hit) -> red.
+        Assertions.assertSame(base, scanTable,
+                "an un-pinned handle must return the resolved table without a copy");
+        Assertions.assertNull(base.lastCopyOptions,
+                "an un-pinned handle must NOT invoke Table.copy");
+    }
+
+    @Test
     public void resolveTableUsesTransientWithoutReload() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(

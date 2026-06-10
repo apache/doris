@@ -33,7 +33,10 @@ import org.apache.paimon.table.Table;
  * <p>Contract: prefer the handle's transient {@link Table}; on null reload from the catalog seam —
  * a {@linkplain PaimonTableHandle#isSystemTable() system handle} via the 4-arg sys
  * {@link Identifier} {@code (db, table, "main", sysName)} (so the SYSTEM table is re-fetched, not
- * the base table), a normal handle via the 2-arg {@code Identifier.create(db, table)}.
+ * the base table), a {@linkplain PaimonTableHandle#getBranchName() branch handle} via the 3-arg
+ * branch {@link Identifier} {@code (db, table, branch)} (so the BRANCH table — independent schema +
+ * snapshots — is fetched, not the base table), a normal handle via the 2-arg
+ * {@code Identifier.create(db, table)}.
  *
  * <p>NOTE: this resolver only picks the correct (sys) Table on reload. It does NOT do
  * {@code forceJni} native-vs-JNI routing or fail-loud guards — those remain T19.
@@ -47,7 +50,8 @@ final class PaimonTableResolver {
      * Returns the handle's transient Paimon {@link Table}, or reloads it from {@code catalogOps}
      * when the transient reference is null (e.g. after a serialization round-trip across the FE/BE
      * boundary or plan reuse). A system handle reloads via the 4-arg sys {@link Identifier}; a
-     * normal handle via the 2-arg base {@link Identifier}.
+     * branch handle via the 3-arg branch {@link Identifier}; a normal handle via the 2-arg base
+     * {@link Identifier}.
      *
      * <p>This method does NOT wrap the reload failure: each call site keeps its own
      * exception-handling/wrapping. The only checked surface is the seam's
@@ -63,11 +67,21 @@ final class PaimonTableResolver {
             return table;
         }
         // Fallback reload. A sys handle MUST reload via the 4-arg sys Identifier so the SYSTEM
-        // table is re-fetched, not the base table.
-        Identifier id = handle.isSystemTable()
-                ? new Identifier(handle.getDatabaseName(), handle.getTableName(),
-                        "main", handle.getSysTableName())
-                : Identifier.create(handle.getDatabaseName(), handle.getTableName());
+        // table is re-fetched, not the base table. A branch handle MUST reload via the 3-arg branch
+        // Identifier so the BRANCH table (independent schema/snapshots) is fetched, not the base.
+        Identifier id;
+        if (handle.isSystemTable()) {
+            id = new Identifier(handle.getDatabaseName(), handle.getTableName(),
+                    "main", handle.getSysTableName());
+        } else if (handle.getBranchName() != null) {
+            // A branch read loads a DIFFERENT table (independent schema/snapshots) via the 3-arg
+            // branch Identifier, mirroring legacy
+            // PaimonExternalCatalog.getPaimonTable(mapping, branch, null).
+            id = new Identifier(handle.getDatabaseName(), handle.getTableName(),
+                    handle.getBranchName());
+        } else {
+            id = Identifier.create(handle.getDatabaseName(), handle.getTableName());
+        }
         return catalogOps.getTable(id);
     }
 }

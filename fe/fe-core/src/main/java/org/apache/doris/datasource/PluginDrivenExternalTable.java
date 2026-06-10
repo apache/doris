@@ -169,7 +169,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
 
         ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
+        return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
+    }
 
+    /**
+     * Converts a connector {@link ConnectorTableSchema} into a {@link PluginDrivenSchemaCacheValue}:
+     * applies identifier mapping to the column names and derives the partition-column views from the
+     * {@code partition_columns} property. Shared by {@link #initSchema()} (latest schema) and the
+     * MVCC subclass (schema AS OF a pinned snapshot), so both produce byte-identical cache values.
+     */
+    protected PluginDrivenSchemaCacheValue toSchemaCacheValue(ConnectorMetadata metadata,
+            ConnectorSession session, String dbName, String tableName, ConnectorTableSchema tableSchema) {
         // Apply identifier mapping to column names (lowercase / explicit mapping)
         List<ConnectorColumn> mappedColumns = new ArrayList<>(tableSchema.getColumns().size());
         for (ConnectorColumn col : tableSchema.getColumns()) {
@@ -211,7 +221,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 }
             }
         }
-        return Optional.of(new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames));
+        return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames);
     }
 
     @Override
