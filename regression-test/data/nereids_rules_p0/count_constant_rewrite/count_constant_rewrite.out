@@ -5,6 +5,9 @@
 -- !count_constant_non_json_expr --
 4
 
+-- !count_constant_required_const_arg_expr --
+4
+
 -- !count_constant_json_extract_null --
 0
 
@@ -18,16 +21,16 @@
 -- !count_non_constant_json_extract --
 2
 
--- !count_constant_error_expr_empty_table --
+-- !count_constant_expr_empty_table --
 0
 
--- !count_constant_error_expr_empty_table_nested --
+-- !count_constant_expr_empty_table_nested --
 1
 
--- !count_constant_error_expr_runtime_empty --
+-- !count_constant_expr_runtime_empty --
 0
 
--- !count_constant_error_expr_runtime_empty_group_by --
+-- !count_constant_expr_runtime_empty_group_by --
 
--- !count_constant_error_expr_runtime_empty_nested --
+-- !count_constant_expr_runtime_empty_nested --
 1

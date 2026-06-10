@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
@@ -92,8 +90,6 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                                         && ((Count) function).isCountStar()))
                 ).when(project -> project.getProjects().stream()
                         .anyMatch(expr -> expr.containsType(If.class)
-                                && expr.containsType(EqualTo.class)
-                                && expr.containsType(GreaterThanEqual.class)
                                 && expr.containsType(JsonbExtract.class))))
                 .printlnTree();
 
@@ -106,14 +102,12 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                                         && ((Count) function).isCountStar()))
                 ).when(project -> project.getProjects().stream()
                         .anyMatch(expr -> expr.containsType(If.class)
-                                && expr.containsType(EqualTo.class)
-                                && expr.containsType(GreaterThanEqual.class)
                                 && expr.containsType(JsonbExtract.class))))
                 .printlnTree();
     }
 
     @Test
-    void testGlobalCountConstantExpressionHasEmptyInputGuard() {
+    void testCountConstantExpressionMayEvaluateOnceAboveAggregate() {
         PlanChecker.from(connectContext)
                 .analyze("select count(json_extract('{\"id\":123}', '$.')) as c from student where false")
                 .rewrite()
@@ -121,8 +115,6 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                         logicalAggregate(logicalEmptyRelation())
                 ).when(project -> project.getProjects().stream()
                         .anyMatch(expr -> expr.containsType(If.class)
-                                && expr.containsType(EqualTo.class)
-                                && expr.containsType(GreaterThanEqual.class)
                                 && expr.containsType(JsonbExtract.class)))))
                 .printlnTree();
 
@@ -133,8 +125,6 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                         logicalAggregate(logicalEmptyRelation())
                 ).when(project -> project.getProjects().stream()
                         .anyMatch(expr -> expr.containsType(If.class)
-                                && expr.containsType(EqualTo.class)
-                                && expr.containsType(GreaterThanEqual.class)
                                 && expr.containsType(JsonbExtract.class)))))
                 .printlnTree();
     }

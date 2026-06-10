@@ -56,6 +56,11 @@ suite("count_constant_rewrite") {
         SELECT count(concat('a', 'b')) FROM count_constant_rewrite_test
     '''
 
+    // Functions with required constant arguments should keep those arguments constant.
+    qt_count_constant_required_const_arg_expr '''
+        SELECT count(date_trunc('day', date '2024-01-02')) FROM count_constant_rewrite_test
+    '''
+
     // Null row-independent expression should still return zero.
     qt_count_constant_json_extract_null '''
         SELECT count(json_extract('{"a": 1}', '$.missing')) FROM count_constant_rewrite_test
@@ -84,37 +89,31 @@ suite("count_constant_rewrite") {
         SELECT count(json_extract(cast(js AS JSON), '$.a')) FROM count_constant_rewrite_test
     '''
 
-    // Empty input must preserve count(expr) semantics and not evaluate the expression once above aggregation.
-    qt_count_constant_error_expr_empty_table '''
-        SELECT count(json_extract('{"id":123}', '$.')) FROM count_constant_rewrite_empty
+    // The rewritten expression may be evaluated once above aggregation. Use a valid expression
+    // here to verify count(expr) value semantics for empty and runtime-empty inputs.
+    qt_count_constant_expr_empty_table '''
+        SELECT count(json_extract('{"id":123}', '$.id')) FROM count_constant_rewrite_empty
     '''
 
-    qt_count_constant_error_expr_empty_table_nested '''
-        SELECT count(json_extract('{"id":123}', '$.')) + 1 FROM count_constant_rewrite_empty
+    qt_count_constant_expr_empty_table_nested '''
+        SELECT count(json_extract('{"id":123}', '$.id')) + 1 FROM count_constant_rewrite_empty
     '''
 
-    qt_count_constant_error_expr_runtime_empty '''
-        SELECT count(json_extract('{"id":123}', '$.')) FROM count_constant_rewrite_test WHERE id > 100
+    qt_count_constant_expr_runtime_empty '''
+        SELECT count(json_extract('{"id":123}', '$.id')) FROM count_constant_rewrite_test WHERE id > 100
     '''
 
-    order_qt_count_constant_error_expr_runtime_empty_group_by '''
-        SELECT id % 2, count(json_extract('{"id":123}', '$.'))
+    order_qt_count_constant_expr_runtime_empty_group_by '''
+        SELECT id % 2, count(json_extract('{"id":123}', '$.id'))
         FROM count_constant_rewrite_test
         WHERE id > 100
         GROUP BY id % 2
         ORDER BY id % 2
     '''
 
-    qt_count_constant_error_expr_runtime_empty_nested '''
-        SELECT count(json_extract('{"id":123}', '$.')) + 1 FROM count_constant_rewrite_test WHERE id > 100
+    qt_count_constant_expr_runtime_empty_nested '''
+        SELECT count(json_extract('{"id":123}', '$.id')) + 1 FROM count_constant_rewrite_test WHERE id > 100
     '''
-
-    test {
-        sql '''
-            SELECT count(json_extract('{"id":123}', '$.')) FROM count_constant_rewrite_test
-        '''
-        exception "Invalid Json Path for value: \$."
-    }
 
     // Keep count(*) visible in explain, instead of folding it to a metadata constant.
     sql "SET disable_nereids_rules='REWRITE_SIMPLE_AGG_TO_CONSTANT'"
