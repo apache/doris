@@ -48,6 +48,7 @@
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
+#include "storage/predicate/null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
 namespace doris::format {
@@ -344,6 +345,93 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
     default:
         return false;
     }
+}
+
+static bool is_null_predicate_function(const VExprSPtr& expr, bool* is_null) {
+    DORIS_CHECK(is_null != nullptr);
+    if (expr == nullptr || expr->node_type() != TExprNodeType::FUNCTION_CALL ||
+        expr->get_num_children() != 1) {
+        return false;
+    }
+    if (expr->fn().name.function_name == "is_null_pred") {
+        *is_null = true;
+        return true;
+    }
+    if (expr->fn().name.function_name == "is_not_null_pred") {
+        *is_null = false;
+        return true;
+    }
+    return false;
+}
+
+static bool is_signed_integer_type(PrimitiveType type) {
+    switch (type) {
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_LARGEINT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static int primitive_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_TINYINT:
+        return 1;
+    case TYPE_SMALLINT:
+        return 2;
+    case TYPE_INT:
+        return 4;
+    case TYPE_BIGINT:
+        return 8;
+    case TYPE_LARGEINT:
+        return 16;
+    default:
+        return 0;
+    }
+}
+
+static bool is_decimal_type(PrimitiveType type) {
+    switch (type) {
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool is_order_preserving_safe_cast(const DataTypePtr& from_type,
+                                          const DataTypePtr& to_type) {
+    if (from_type == nullptr || to_type == nullptr) {
+        return false;
+    }
+    const auto from_nested_type = remove_nullable(from_type);
+    const auto to_nested_type = remove_nullable(to_type);
+    if (from_nested_type->equals(*to_nested_type)) {
+        return true;
+    }
+
+    const auto from_primitive_type = from_nested_type->get_primitive_type();
+    const auto to_primitive_type = to_nested_type->get_primitive_type();
+    if (is_signed_integer_type(from_primitive_type) && is_signed_integer_type(to_primitive_type)) {
+        return primitive_integer_width(to_primitive_type) >=
+               primitive_integer_width(from_primitive_type);
+    }
+    if (from_primitive_type == TYPE_FLOAT && to_primitive_type == TYPE_DOUBLE) {
+        return true;
+    }
+    if (is_decimal_type(from_primitive_type) && is_decimal_type(to_primitive_type)) {
+        return from_nested_type->get_scale() == to_nested_type->get_scale() &&
+               to_nested_type->get_precision() >= from_nested_type->get_precision();
+    }
+    return false;
 }
 
 std::string TableColumnMapperOptions::debug_string() const {
@@ -696,6 +784,24 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
     return true;
 }
 
+static bool extract_nested_struct_path_for_pruning(const VExprSPtr& expr, NestedStructPath* path) {
+    DORIS_CHECK(path != nullptr);
+    if (extract_nested_struct_path(expr, path)) {
+        return true;
+    }
+    if (!is_cast_expr(expr) || expr->get_num_children() != 1) {
+        return false;
+    }
+    const auto& child = expr->children()[0];
+    if (!is_order_preserving_safe_cast(child->data_type(), expr->data_type())) {
+        return false;
+    }
+    // A safe widening cast is null-preserving and keeps the comparison ordering of the nested
+    // primitive leaf, so file-layer pruning can target the original leaf statistics. The row-level
+    // filter still evaluates the original cast expression after read.
+    return extract_nested_struct_path_for_pruning(child, path);
+}
+
 static void collect_nested_struct_paths(const VExprSPtr& expr,
                                         std::vector<NestedStructPath>* paths) {
     DORIS_CHECK(paths != nullptr);
@@ -703,7 +809,7 @@ static void collect_nested_struct_paths(const VExprSPtr& expr,
         return;
     }
     NestedStructPath path;
-    if (extract_nested_struct_path(expr, &path)) {
+    if (extract_nested_struct_path_for_pruning(expr, &path)) {
         paths->push_back(std::move(path));
         return;
     }
@@ -1249,6 +1355,30 @@ static std::shared_ptr<ColumnPredicate> build_nested_in_list_predicate(
     }
 }
 
+static std::shared_ptr<ColumnPredicate> build_nested_null_predicate(
+        bool is_null, LocalColumnId root_file_column_id, const std::string& leaf_name,
+        const DataTypePtr& file_leaf_type) {
+    if (file_leaf_type == nullptr) {
+        return nullptr;
+    }
+    const auto leaf_primitive_type = remove_nullable(file_leaf_type)->get_primitive_type();
+    return NullPredicate::create_shared(cast_set<uint32_t>(root_file_column_id.value()), leaf_name,
+                                        is_null, leaf_primitive_type);
+}
+
+static bool set_nested_column_filter_target(const NestedPredicateTarget& target,
+                                            FileColumnPredicateFilter* column_filter) {
+    DORIS_CHECK(column_filter != nullptr);
+    std::vector<int32_t> file_child_id_path;
+    if (!extract_child_id_path_from_projection(target.file_projection, &file_child_id_path)) {
+        return false;
+    }
+    column_filter->file_column_id = target.file_projection.column_id();
+    column_filter->file_child_id_path = std::move(file_child_id_path);
+    column_filter->target = target.file_target;
+    return true;
+}
+
 static bool extract_nested_binary_comparison_filter(const VExprSPtr& expr,
                                                     const std::vector<ColumnMapping>& mappings,
                                                     FileColumnPredicateFilter* column_filter) {
@@ -1259,10 +1389,10 @@ static bool extract_nested_binary_comparison_filter(const VExprSPtr& expr,
     NestedStructPath path;
     VExprSPtr literal_expr;
     TExprOpcode::type opcode = expr->op();
-    if (extract_nested_struct_path(expr->children()[0], &path) &&
+    if (extract_nested_struct_path_for_pruning(expr->children()[0], &path) &&
         expr->children()[1]->is_literal()) {
         literal_expr = expr->children()[1];
-    } else if (extract_nested_struct_path(expr->children()[1], &path) &&
+    } else if (extract_nested_struct_path_for_pruning(expr->children()[1], &path) &&
                expr->children()[0]->is_literal()) {
         literal_expr = expr->children()[0];
         opcode = reverse_comparison_opcode(opcode);
@@ -1280,13 +1410,9 @@ static bool extract_nested_binary_comparison_filter(const VExprSPtr& expr,
     if (predicate == nullptr) {
         return false;
     }
-    std::vector<int32_t> file_child_id_path;
-    if (!extract_child_id_path_from_projection(target.file_projection, &file_child_id_path)) {
+    if (!set_nested_column_filter_target(target, column_filter)) {
         return false;
     }
-    column_filter->file_column_id = target.file_projection.column_id();
-    column_filter->file_child_id_path = std::move(file_child_id_path);
-    column_filter->target = std::move(target.file_target);
     column_filter->predicates.push_back(std::move(predicate));
     return true;
 }
@@ -1305,7 +1431,7 @@ static bool extract_nested_in_list_filter(const VExprSPtr& expr,
     }
 
     NestedStructPath path;
-    if (!extract_nested_struct_path(expr->children()[0], &path)) {
+    if (!extract_nested_struct_path_for_pruning(expr->children()[0], &path)) {
         return false;
     }
 
@@ -1327,13 +1453,39 @@ static bool extract_nested_in_list_filter(const VExprSPtr& expr,
     if (predicate == nullptr) {
         return false;
     }
-    std::vector<int32_t> file_child_id_path;
-    if (!extract_child_id_path_from_projection(target.file_projection, &file_child_id_path)) {
+    if (!set_nested_column_filter_target(target, column_filter)) {
         return false;
     }
-    column_filter->file_column_id = target.file_projection.column_id();
-    column_filter->file_child_id_path = std::move(file_child_id_path);
-    column_filter->target = std::move(target.file_target);
+    column_filter->predicates.push_back(std::move(predicate));
+    return true;
+}
+
+static bool extract_nested_null_filter(const VExprSPtr& expr,
+                                       const std::vector<ColumnMapping>& mappings,
+                                       FileColumnPredicateFilter* column_filter) {
+    DORIS_CHECK(column_filter != nullptr);
+    bool is_null = false;
+    if (!is_null_predicate_function(expr, &is_null)) {
+        return false;
+    }
+
+    NestedStructPath path;
+    if (!extract_nested_struct_path_for_pruning(expr->children()[0], &path)) {
+        return false;
+    }
+
+    NestedPredicateTarget target;
+    if (!resolve_nested_predicate_target(path, mappings, &target)) {
+        return false;
+    }
+    auto predicate = build_nested_null_predicate(is_null, target.file_projection.column_id(),
+                                                 target.leaf_name, target.leaf_type);
+    if (predicate == nullptr) {
+        return false;
+    }
+    if (!set_nested_column_filter_target(target, column_filter)) {
+        return false;
+    }
     column_filter->predicates.push_back(std::move(predicate));
     return true;
 }
@@ -1369,7 +1521,8 @@ static void collect_nested_column_predicate_filters(
     }
     FileColumnPredicateFilter column_filter;
     if (extract_nested_binary_comparison_filter(expr, mappings, &column_filter) ||
-        extract_nested_in_list_filter(expr, mappings, &column_filter)) {
+        extract_nested_in_list_filter(expr, mappings, &column_filter) ||
+        extract_nested_null_filter(expr, mappings, &column_filter)) {
         merge_column_predicate_filter(std::move(column_filter), filters);
     }
 }
