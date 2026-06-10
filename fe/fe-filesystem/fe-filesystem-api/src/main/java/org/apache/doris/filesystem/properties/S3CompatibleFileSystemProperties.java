@@ -65,9 +65,39 @@ public interface S3CompatibleFileSystemProperties extends FileSystemProperties {
     /** Returns whether path-style bucket addressing is enabled, as a raw provider property value. */
     String getUsePathStyle();
 
-    /** Returns path-style bucket addressing as a parsed boolean (single conversion point). */
+    /**
+     * Returns path-style bucket addressing as a parsed boolean (single conversion point).
+     *
+     * <p>Blank or absent means {@code false}. Any other value than {@code true}/{@code false}
+     * (case-insensitive) is rejected instead of being silently coerced to {@code false}, so a
+     * typo cannot accidentally disable path-style addressing. Providers call
+     * {@link #hasInvalidUsePathStyle()} from {@code validate()}, so an invalid value fails
+     * fast at property-binding time rather than on first use.
+     */
     default boolean isUsePathStyle() {
-        return Boolean.parseBoolean(getUsePathStyle());
+        String value = getUsePathStyle();
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String normalized = value.trim();
+        if ("true".equalsIgnoreCase(normalized)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(normalized)) {
+            return false;
+        }
+        throw new IllegalArgumentException(
+                "Invalid use_path_style value: '" + value + "' (expected true or false)");
+    }
+
+    /** Returns true when the raw use_path_style value cannot be parsed by {@link #isUsePathStyle()}. */
+    default boolean hasInvalidUsePathStyle() {
+        try {
+            isUsePathStyle();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return true;
+        }
     }
 
     /** Returns true when a static AK/SK credential pair is present. */

@@ -42,7 +42,7 @@ public interface FileSystem extends AutoCloseable {
      * interfaces so callers do not depend on concrete filesystem implementations.
      */
     default <T extends Capability> Optional<T> capability(Class<T> capabilityType) {
-        Objects.requireNonNull(capabilityType, "capabilityType");
+        Objects.requireNonNull(capabilityType, "capabilityType must not be null");
         return Optional.empty();
     }
 
@@ -51,7 +51,7 @@ public interface FileSystem extends AutoCloseable {
      * expose it.
      */
     default <T extends Capability> T requireCapability(Class<T> capabilityType) {
-        Objects.requireNonNull(capabilityType, "capabilityType");
+        Objects.requireNonNull(capabilityType, "capabilityType must not be null");
         return capability(capabilityType).orElseThrow(() -> new UnsupportedOperationException(
                 getClass().getSimpleName() + " does not support " + capabilityType.getSimpleName()));
     }

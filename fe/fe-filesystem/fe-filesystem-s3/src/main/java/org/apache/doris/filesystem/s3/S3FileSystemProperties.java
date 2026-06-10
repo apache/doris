@@ -208,6 +208,8 @@ public final class S3FileSystemProperties
                         "Unsupported s3.credentials_provider_type: " + credentialsProviderType)
                 .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
                         "Either s3.endpoint or s3.region must be set")
+                .check(this::hasInvalidUsePathStyle,
+                        "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
                 .validate("Invalid S3 filesystem properties");
     }
 

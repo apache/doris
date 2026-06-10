@@ -184,6 +184,8 @@ public final class ObsFileSystemProperties
                 .check(() -> StringUtils.isBlank(region),
                         "Region is not set. If you are using a standard endpoint, the region "
                                 + "will be detected automatically. Otherwise, please specify it explicitly.")
+                .check(this::hasInvalidUsePathStyle,
+                        "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
                 .validate("Invalid OBS filesystem properties");
     }
 

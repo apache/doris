@@ -171,6 +171,8 @@ public final class CosFileSystemProperties
                                 + "will be detected automatically. Otherwise, please specify it explicitly.")
                 .check(() -> StringUtils.isBlank(endpoint),
                         "Endpoint is not set. Please specify it explicitly.")
+                .check(this::hasInvalidUsePathStyle,
+                        "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
                 .validate("Invalid COS filesystem properties");
     }
 
