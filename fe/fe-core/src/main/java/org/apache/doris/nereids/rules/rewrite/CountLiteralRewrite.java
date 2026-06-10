@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -28,7 +30,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -44,7 +48,7 @@ import java.util.Set;
 /**
  * count(1) ==> count(*)
  * count(null) ==> 0
- * count(const_expr) ==> if(const_expr is null, 0, count(*))
+ * count(const_expr) ==> if(count(*) = 0, 0, if(const_expr is null, 0, count(*)))
  */
 public class CountLiteralRewrite extends OneRewriteRuleFactory {
     @Override
@@ -126,6 +130,7 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
                 && !arg.containsNondeterministic()
                 && !arg.containsVolatileExpression()
                 && arg.getInputSlots().isEmpty()
+                && !arg.containsType(Sleep.class)
                 && !arg.containsType(AggregateFunction.class, SubqueryExpr.class,
                         TableGeneratingFunction.class, WindowExpression.class);
     }
@@ -135,8 +140,49 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
             return new BigIntLiteral(0);
         }
         if (!count.child(0).isLiteral()) {
-            return new If(new IsNull(count.child(0)), new BigIntLiteral(0), new Count());
+            Expression countStar = new Count();
+            Expression constExpr = deferConstantEvaluation(count.child(0));
+            Expression ifConstantExprIsNull = new If(new IsNull(constExpr), new BigIntLiteral(0), countStar);
+            return new If(new EqualTo(countStar, new BigIntLiteral(0)), new BigIntLiteral(0), ifConstantExprIsNull);
         }
         return new Count();
+    }
+
+    /*
+     * count(const_expr) should not evaluate const_expr when the aggregate input is empty.
+     * The outer count(*) = 0 guard handles that at execution time, but BE opens constant
+     * expression trees eagerly. Add an unreachable count(*) dependency inside each constant
+     * subtree so that it is no longer treated as a fragment-local constant before the guard
+     * can short-circuit it.
+     */
+    private Expression deferConstantEvaluation(Expression expression) {
+        if (expression.isLiteral()) {
+            return expression;
+        }
+        List<Expression> children = expression.children();
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        boolean changed = false;
+        for (Expression child : children) {
+            Expression newChild = deferConstantEvaluation(child);
+            newChildren.add(newChild);
+            changed |= newChild != child;
+        }
+
+        Expression rewritten = changed ? expression.withChildren(newChildren) : expression;
+        if (rewritten.isConstant() && !rewritten.isLiteral() && !rewritten.children().isEmpty()) {
+            newChildren = Lists.newArrayList(rewritten.children());
+            newChildren.set(0, dependOnCountStar(newChildren.get(0)));
+            rewritten = rewritten.withChildren(newChildren);
+        }
+        return rewritten;
+    }
+
+    /*
+     * count(*) is always non-negative, so the NULL branch is unreachable. It is still needed
+     * to keep simplification from reducing the wrapper back to the original expression.
+     */
+    private Expression dependOnCountStar(Expression expression) {
+        return new If(new GreaterThanEqual(new Count(), new BigIntLiteral(0)),
+                expression, new NullLiteral(expression.getDataType()));
     }
 }

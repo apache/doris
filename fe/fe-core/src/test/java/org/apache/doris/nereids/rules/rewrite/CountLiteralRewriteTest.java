@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.BigIntType;
@@ -89,6 +92,8 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                                         && ((Count) function).isCountStar()))
                 ).when(project -> project.getProjects().stream()
                         .anyMatch(expr -> expr.containsType(If.class)
+                                && expr.containsType(EqualTo.class)
+                                && expr.containsType(GreaterThanEqual.class)
                                 && expr.containsType(JsonbExtract.class))))
                 .printlnTree();
 
@@ -101,20 +106,49 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                                         && ((Count) function).isCountStar()))
                 ).when(project -> project.getProjects().stream()
                         .anyMatch(expr -> expr.containsType(If.class)
+                                && expr.containsType(EqualTo.class)
+                                && expr.containsType(GreaterThanEqual.class)
                                 && expr.containsType(JsonbExtract.class))))
                 .printlnTree();
     }
 
     @Test
-    void testCountConstantExpressionOnEmptyInputNotEvaluateArgument() {
+    void testGlobalCountConstantExpressionHasEmptyInputGuard() {
         PlanChecker.from(connectContext)
                 .analyze("select count(json_extract('{\"id\":123}', '$.')) as c from student where false")
                 .rewrite()
-                .matches(logicalProject(
+                .matches(logicalResultSink(logicalProject(
                         logicalAggregate(logicalEmptyRelation())
                 ).when(project -> project.getProjects().stream()
-                        .anyMatch(expr -> expr.containsType(BigIntLiteral.class)
-                                && !expr.containsType(JsonbExtract.class))))
+                        .anyMatch(expr -> expr.containsType(If.class)
+                                && expr.containsType(EqualTo.class)
+                                && expr.containsType(GreaterThanEqual.class)
+                                && expr.containsType(JsonbExtract.class)))))
+                .printlnTree();
+
+        PlanChecker.from(connectContext)
+                .analyze("select count(json_extract('{\"id\":123}', '$.')) + 1 as c from student where false")
+                .rewrite()
+                .matches(logicalResultSink(logicalProject(
+                        logicalAggregate(logicalEmptyRelation())
+                ).when(project -> project.getProjects().stream()
+                        .anyMatch(expr -> expr.containsType(If.class)
+                                && expr.containsType(EqualTo.class)
+                                && expr.containsType(GreaterThanEqual.class)
+                                && expr.containsType(JsonbExtract.class)))))
+                .printlnTree();
+    }
+
+    @Test
+    void testCountRuntimeSensitiveConstantExpressionNotRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select count(sleep(1)) as c from student")
+                .rewrite()
+                .matches(logicalResultSink(logicalAggregate(logicalProject())
+                        .when(agg -> agg.getAggregateFunctions().stream()
+                                .anyMatch(function -> function instanceof Count
+                                        && !((Count) function).isCountStar()
+                                        && function.containsType(Sleep.class)))))
                 .printlnTree();
     }
 

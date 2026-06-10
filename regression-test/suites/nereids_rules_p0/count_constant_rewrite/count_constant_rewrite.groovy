@@ -47,12 +47,16 @@ suite("count_constant_rewrite") {
         PROPERTIES('replication_num' = '1');
     """
 
-    // Non-null row-independent json_extract should be equivalent to count(*).
+    // Non-null row-independent expression should be equivalent to count(*).
     qt_count_constant_json_extract_non_null '''
         SELECT count(json_extract('{"a": 1}', '$.a')) FROM count_constant_rewrite_test
     '''
 
-    // Null row-independent json_extract should still return zero.
+    qt_count_constant_non_json_expr '''
+        SELECT count(concat('a', 'b')) FROM count_constant_rewrite_test
+    '''
+
+    // Null row-independent expression should still return zero.
     qt_count_constant_json_extract_null '''
         SELECT count(json_extract('{"a": 1}', '$.missing')) FROM count_constant_rewrite_test
     '''
@@ -81,8 +85,28 @@ suite("count_constant_rewrite") {
     '''
 
     // Empty input must preserve count(expr) semantics and not evaluate the expression once above aggregation.
-    qt_count_constant_invalid_json_path_empty '''
+    qt_count_constant_error_expr_empty_table '''
         SELECT count(json_extract('{"id":123}', '$.')) FROM count_constant_rewrite_empty
+    '''
+
+    qt_count_constant_error_expr_empty_table_nested '''
+        SELECT count(json_extract('{"id":123}', '$.')) + 1 FROM count_constant_rewrite_empty
+    '''
+
+    qt_count_constant_error_expr_runtime_empty '''
+        SELECT count(json_extract('{"id":123}', '$.')) FROM count_constant_rewrite_test WHERE id > 100
+    '''
+
+    order_qt_count_constant_error_expr_runtime_empty_group_by '''
+        SELECT id % 2, count(json_extract('{"id":123}', '$.'))
+        FROM count_constant_rewrite_test
+        WHERE id > 100
+        GROUP BY id % 2
+        ORDER BY id % 2
+    '''
+
+    qt_count_constant_error_expr_runtime_empty_nested '''
+        SELECT count(json_extract('{"id":123}', '$.')) + 1 FROM count_constant_rewrite_test WHERE id > 100
     '''
 
     test {
@@ -114,5 +138,12 @@ suite("count_constant_rewrite") {
             SELECT count(json_extract(cast(js AS JSON), '$.a')) FROM count_constant_rewrite_test
         ''')
         contains "pushAggOp=NONE"
+    }
+
+    explain {
+        sql('''
+            SELECT count(sleep(1)) FROM count_constant_rewrite_test
+        ''')
+        contains "count(sleep(1))"
     }
 }

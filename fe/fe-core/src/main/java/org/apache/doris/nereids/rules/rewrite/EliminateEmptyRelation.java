@@ -23,14 +23,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -43,11 +38,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -81,9 +73,6 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     ConnectContext.get().getStatementContext().getNextRelationId(),
                     agg.getOutput())
                 ).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
-            logicalProject(logicalAggregate(logicalEmptyRelation()))
-                    .thenApply(ctx -> rewriteCountLiteralOnEmptyAggregate(ctx.root))
-                    .toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // proj->empty
             logicalProject(logicalEmptyRelation())
                     .thenApply(ctx -> {
@@ -239,48 +228,6 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
 
     private boolean bothChildrenEmpty(LogicalJoin<?, ?> join) {
         return join.left() instanceof EmptyRelation && join.right() instanceof EmptyRelation;
-    }
-
-    private Plan rewriteCountLiteralOnEmptyAggregate(LogicalProject<LogicalAggregate<LogicalEmptyRelation>> project) {
-        LogicalAggregate<LogicalEmptyRelation> aggregate = project.child();
-        if (!aggregate.getGroupByExpressions().isEmpty()) {
-            return null;
-        }
-
-        Set<ExprId> countStarSlots = new HashSet<>();
-        for (NamedExpression output : aggregate.getOutputExpressions()) {
-            if (output.anyMatch(expr -> expr instanceof Count && ((Count) expr).isCountStar())) {
-                countStarSlots.add(output.toSlot().getExprId());
-            }
-        }
-        if (countStarSlots.isEmpty()) {
-            return null;
-        }
-
-        boolean changed = false;
-        List<NamedExpression> newProjects = new ArrayList<>(project.getProjects().size());
-        for (NamedExpression projectExpr : project.getProjects()) {
-            if (projectExpr instanceof Alias
-                    && isCountLiteralRewriteResult(((Alias) projectExpr).child(), countStarSlots)) {
-                newProjects.add(((Alias) projectExpr).withChildren(ImmutableList.of(new BigIntLiteral(0))));
-                changed = true;
-            } else {
-                newProjects.add(projectExpr);
-            }
-        }
-        return changed ? new LogicalProject<>(newProjects, aggregate) : null;
-    }
-
-    private boolean isCountLiteralRewriteResult(Expression expr, Set<ExprId> countStarSlots) {
-        if (!(expr instanceof If)) {
-            return false;
-        }
-        If ifExpr = (If) expr;
-        return ifExpr.getCondition() instanceof IsNull
-                && ifExpr.getTrueValue() instanceof BigIntLiteral
-                && ((BigIntLiteral) ifExpr.getTrueValue()).getValue() == 0
-                && ifExpr.getFalseValue() instanceof Slot
-                && countStarSlots.contains(((Slot) ifExpr.getFalseValue()).getExprId());
     }
 
     private boolean canReplaceJoinByEmptyRelation(LogicalJoin<?, ?> join) {
