@@ -17,12 +17,12 @@
 
 package org.apache.doris.filesystem.obs;
 
-import org.apache.doris.filesystem.spi.ObjectStorageFileSystem;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 /**
  * OBS filesystem using the shared object-store file semantics with native OBS SDK I/O.
  */
-public class ObsFileSystem extends ObjectStorageFileSystem {
+public class ObsFileSystem extends S3CompatibleFileSystem {
 
     public ObsFileSystem(ObsObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle());

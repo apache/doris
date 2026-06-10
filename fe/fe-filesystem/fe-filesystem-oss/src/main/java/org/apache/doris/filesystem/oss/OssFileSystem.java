@@ -17,12 +17,12 @@
 
 package org.apache.doris.filesystem.oss;
 
-import org.apache.doris.filesystem.spi.ObjectStorageFileSystem;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 /**
  * OSS filesystem using the shared object-store file semantics with native OSS SDK I/O.
  */
-public class OssFileSystem extends ObjectStorageFileSystem {
+public class OssFileSystem extends S3CompatibleFileSystem {
 
     public OssFileSystem(OssObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle());

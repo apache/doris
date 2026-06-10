@@ -37,17 +37,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/* Object-storage-backed FileSystem implementation for the Doris FE filesystem SPI.
- * Does not depend on fe-core, fe-common, or fe-catalog.
+/**
+ * Shared {@link org.apache.doris.filesystem.FileSystem} base for S3-compatible object stores
+ * (S3, OBS, OSS, COS).
+ *
+ * <p>"S3-compatible" refers to configuration and addressing semantics — S3-style properties,
+ * path-style vs virtual-hosted-style URIs, trailing-slash directory markers — not the transport:
+ * each provider talks to its service through its own native SDK via {@link ObjStorage}.
+ * Azure Blob differs in these semantics (no path-style concept, different 404 and rename
+ * behavior), so {@code AzureFileSystem} extends {@link ObjFileSystem} directly instead.
+ *
+ * <p>Does not depend on fe-core, fe-common, or fe-catalog.
  */
-public class ObjectStorageFileSystem extends ObjFileSystem {
+public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
 
     private final boolean usePathStyle;
 
-    protected ObjectStorageFileSystem(ObjStorage<?> objStorage, boolean usePathStyle) {
+    protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle) {
         super(objStorage);
         this.usePathStyle = usePathStyle;
     }

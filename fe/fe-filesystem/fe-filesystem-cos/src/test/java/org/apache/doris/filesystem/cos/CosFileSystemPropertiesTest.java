@@ -22,7 +22,7 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
-import org.apache.doris.filesystem.spi.ObjectStorageFileSystem;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -155,7 +155,7 @@ class CosFileSystemPropertiesTest {
         Assertions.assertEquals(StorageKind.OBJECT_STORAGE, properties.kind());
         Assertions.assertEquals(FileSystemType.S3, properties.type());
         Assertions.assertInstanceOf(CosFileSystem.class, fileSystem);
-        Assertions.assertEquals(ObjectStorageFileSystem.class, fileSystem.getClass().getSuperclass());
+        Assertions.assertEquals(S3CompatibleFileSystem.class, fileSystem.getClass().getSuperclass());
     }
 
     @Test

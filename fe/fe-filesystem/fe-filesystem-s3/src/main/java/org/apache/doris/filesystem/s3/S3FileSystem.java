@@ -17,14 +17,14 @@
 
 package org.apache.doris.filesystem.s3;
 
-import org.apache.doris.filesystem.spi.ObjectStorageFileSystem;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 import java.util.Optional;
 
 /**
  * S3 filesystem backed by the AWS S3 SDK.
  */
-public class S3FileSystem extends ObjectStorageFileSystem {
+public class S3FileSystem extends S3CompatibleFileSystem {
 
     private final S3FileSystemProperties properties;
 
@@ -47,14 +47,14 @@ public class S3FileSystem extends ObjectStorageFileSystem {
     }
 
     protected static boolean isSingleLevelGlob(String pathStr) {
-        return ObjectStorageFileSystem.isSingleLevelGlob(pathStr);
+        return S3CompatibleFileSystem.isSingleLevelGlob(pathStr);
     }
 
     protected static String longestNonGlobPrefix(String globPattern) {
-        return ObjectStorageFileSystem.longestNonGlobPrefix(globPattern);
+        return S3CompatibleFileSystem.longestNonGlobPrefix(globPattern);
     }
 
     protected static String globToRegex(String glob) {
-        return ObjectStorageFileSystem.globToRegex(glob);
+        return S3CompatibleFileSystem.globToRegex(glob);
     }
 }

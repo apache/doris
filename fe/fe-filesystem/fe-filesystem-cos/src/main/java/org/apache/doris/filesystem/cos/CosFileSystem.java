@@ -17,12 +17,12 @@
 
 package org.apache.doris.filesystem.cos;
 
-import org.apache.doris.filesystem.spi.ObjectStorageFileSystem;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 /**
  * COS filesystem using the shared object-store file semantics with native COS SDK I/O.
  */
-public class CosFileSystem extends ObjectStorageFileSystem {
+public class CosFileSystem extends S3CompatibleFileSystem {
 
     public CosFileSystem(CosObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle());
