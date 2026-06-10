@@ -19,6 +19,7 @@ package org.apache.doris.fs.io.hdfs;
 
 import org.apache.doris.fs.io.DorisInput;
 import org.apache.doris.fs.io.DorisInputFile;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 
@@ -35,6 +36,7 @@ public class HdfsInput implements DorisInput {
     private final FSDataInputStream stream;
     // The DorisInputFile representing the file.
     private final DorisInputFile inputFile;
+    private final DFSFileSystem.FileSystemLease lease;
     // Indicates whether the input has been closed.
     private boolean closed;
 
@@ -44,9 +46,11 @@ public class HdfsInput implements DorisInput {
      * @param stream the underlying Hadoop FSDataInputStream
      * @param inputFile the DorisInputFile representing the file
      */
-    public HdfsInput(FSDataInputStream stream, DorisInputFile inputFile) {
+    public HdfsInput(FSDataInputStream stream, DorisInputFile inputFile,
+            DFSFileSystem.FileSystemLease lease) {
         this.stream = Objects.requireNonNull(stream, "stream is null");
         this.inputFile = Objects.requireNonNull(inputFile, "inputFile is null");
+        this.lease = Objects.requireNonNull(lease, "lease is null");
     }
 
     /**
@@ -91,8 +95,15 @@ public class HdfsInput implements DorisInput {
      */
     @Override
     public void close() throws IOException {
+        if (closed) {
+            return;
+        }
         closed = true;
-        stream.close();
+        try {
+            stream.close();
+        } finally {
+            lease.close();
+        }
     }
 
     /**

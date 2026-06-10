@@ -59,7 +59,7 @@ public class HdfsOutputFile implements DorisOutputFile {
      */
     @Override
     public OutputStream create() throws IOException {
-        return dfs.createFile(hadoopPath, false);
+        return createFile(false);
     }
 
     /**
@@ -70,7 +70,17 @@ public class HdfsOutputFile implements DorisOutputFile {
      */
     @Override
     public OutputStream createOrOverwrite() throws IOException {
-        return dfs.createFile(hadoopPath, true);
+        return createFile(true);
+    }
+
+    private OutputStream createFile(boolean overwrite) throws IOException {
+        DFSFileSystem.FileSystemLease lease = dfs.acquireFileSystemLease(hadoopPath);
+        try {
+            return new HdfsOutputStream(path, dfs.createFile(hadoopPath, overwrite, lease), dfs, lease);
+        } catch (IOException | RuntimeException e) {
+            lease.close();
+            throw e;
+        }
     }
 
     /**

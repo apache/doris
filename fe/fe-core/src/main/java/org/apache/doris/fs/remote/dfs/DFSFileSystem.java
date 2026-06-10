@@ -69,9 +69,8 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     public static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
-    private HDFSFileOperations operations = null;
     private final HdfsCompatibleProperties hdfsProperties;
-    protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
+    private volatile DFSFileSystemResource resource = null;
 
     public DFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
         super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
@@ -88,14 +87,17 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         try {
             Path locatedPath = new Path(remotePath);
-            org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(locatedPath);
-            RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
-            while (locatedFiles.hasNext()) {
-                LocatedFileStatus fileStatus = locatedFiles.next();
-                RemoteFile location = new RemoteFile(
-                        fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
-                        fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
-                result.add(location);
+            try (FileSystemLease lease = acquireFileSystemLease(locatedPath)) {
+                org.apache.hadoop.fs.FileSystem fileSystem = lease.fileSystem();
+                RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
+                while (locatedFiles.hasNext()) {
+                    LocatedFileStatus fileStatus = locatedFiles.next();
+                    RemoteFile location = new RemoteFile(
+                            fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                            fileStatus.getBlockSize(), fileStatus.getModificationTime(),
+                            fileStatus.getBlockLocations());
+                    result.add(location);
+                }
             }
         } catch (FileNotFoundException e) {
             return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
@@ -110,13 +112,15 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status listDirectories(String remotePath, Set<String> result) {
         try {
             Path locatedPath = new Path(remotePath);
-            FileSystem fileSystem = nativeFileSystem(locatedPath);
-            FileStatus[] fileStatuses = getFileStatuses(locatedPath, fileSystem);
-            result.addAll(
-                    Arrays.stream(fileStatuses)
-                            .filter(FileStatus::isDirectory)
-                            .map(file -> file.getPath().toString() + "/")
-                            .collect(ImmutableSet.toImmutableSet()));
+            try (FileSystemLease lease = acquireFileSystemLease(locatedPath)) {
+                FileSystem fileSystem = lease.fileSystem();
+                FileStatus[] fileStatuses = getFileStatuses(locatedPath, fileSystem);
+                result.addAll(
+                        Arrays.stream(fileStatuses)
+                                .filter(FileStatus::isDirectory)
+                                .map(file -> file.getPath().toString() + "/")
+                                .collect(ImmutableSet.toImmutableSet()));
+            }
         } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
@@ -129,45 +133,51 @@ public class DFSFileSystem extends RemoteFileSystem {
         this.hdfsProperties = hdfsProperties;
     }
 
-    @VisibleForTesting
-    public FileSystem nativeFileSystem(Path remotePath) throws IOException {
+    public synchronized FileSystemLease acquireFileSystemLease(Path remotePath) throws IOException {
         if (closed.get()) {
             throw new IOException("FileSystem is closed.");
         }
-        if (dfsFileSystem == null) {
-            synchronized (this) {
-                if (closed.get()) {
-                    throw new IOException("FileSystem is closed.");
-                }
-                if (dfsFileSystem == null) {
-                    try {
-                        dfsFileSystem = hdfsProperties.getHadoopAuthenticator().doAs(() -> {
-                            try {
-                                Configuration originalConf = hdfsProperties.getHadoopStorageConfig();
-                                // Create a copy of the original configuration to avoid modifying global settings
-                                Configuration confCopy = new Configuration(originalConf);
-                                // Disable FileSystem caching to ensure a new instance is created every time
-                                // Reason: We manage the lifecycle of FileSystem instances manually.
-                                // Even if the caller doesn't explicitly close the instance, we will do so when needed.
-                                // However, since Hadoop caches FileSystem instances by default,
-                                // other parts of the system may still be using the same instance.
-                                // If we close the shared instance here, it could break those other users.
-                                // Therefore, we disable the cache to ensure isolated, non-shared instances.
-                                confCopy.setBoolean("fs.hdfs.impl.disable.cache", true);
-                                return FileSystem.get(remotePath.toUri(), confCopy);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        });
-                        operations = new HDFSFileOperations(dfsFileSystem);
-                        RemoteFSPhantomManager.registerPhantomReference(this);
-                    } catch (Exception e) {
-                        throw new IOException("Failed to get dfs FileSystem for " + e.getMessage(), e);
-                    }
-                }
-            }
+        if (resource == null) {
+            DFSFileSystemResource newResource = createResource(remotePath);
+            RemoteFSPhantomManager.registerPhantomReference(this, newResource);
+            resource = newResource;
         }
-        return dfsFileSystem;
+        return resource.acquire();
+    }
+
+    private DFSFileSystemResource createResource(Path remotePath) throws IOException {
+        try {
+            FileSystem fileSystem = hdfsProperties.getHadoopAuthenticator().doAs(() -> {
+                try {
+                    Configuration originalConf = hdfsProperties.getHadoopStorageConfig();
+                    // Create a copy of the original configuration to avoid modifying global settings
+                    Configuration confCopy = new Configuration(originalConf);
+                    // Disable FileSystem caching to ensure a new instance is created every time
+                    // Reason: We manage the lifecycle of FileSystem instances manually.
+                    // Even if the caller doesn't explicitly close the instance, we will do so when needed.
+                    // However, since Hadoop caches FileSystem instances by default,
+                    // other parts of the system may still be using the same instance.
+                    // If we close the shared instance here, it could break those other users.
+                    // Therefore, we disable the cache to ensure isolated, non-shared instances.
+                    confCopy.setBoolean("fs.hdfs.impl.disable.cache", true);
+                    return FileSystem.get(remotePath.toUri(), confCopy);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            return new DFSFileSystemResource(fileSystem);
+        } catch (Exception e) {
+            throw new IOException("Failed to get dfs FileSystem for " + e.getMessage(), e);
+        }
+    }
+
+    public interface FileSystemLease extends AutoCloseable {
+        FileSystem fileSystem();
+
+        HDFSFileOperations operations();
+
+        @Override
+        void close();
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
@@ -194,81 +204,92 @@ public class DFSFileSystem extends RemoteFileSystem {
             LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
         }
         final long start = System.currentTimeMillis();
-        HDFSOpParams hdfsOpParams = OpParams.of(remoteFilePath);
-        Status st = operations.openReader(hdfsOpParams);
-        if (st != Status.OK) {
-            return st;
-        }
-        FSDataInputStream fsDataInputStream = hdfsOpParams.fsDataInputStream();
-        LOG.info("finished to open reader. download {} to {}.", remoteFilePath, localFilePath);
+        try (FileSystemLease lease = acquireFileSystemLease(new Path(remoteFilePath))) {
+            HDFSFileOperations operations = lease.operations();
+            HDFSOpParams hdfsOpParams = OpParams.of(remoteFilePath);
+            Status st = operations.openReader(hdfsOpParams);
+            if (st != Status.OK) {
+                return st;
+            }
+            FSDataInputStream fsDataInputStream = hdfsOpParams.fsDataInputStream();
+            LOG.info("finished to open reader. download {} to {}.", remoteFilePath, localFilePath);
 
-        // delete local file if exist
-        File localFile = new File(localFilePath);
-        if (localFile.exists()) {
+            Status status = Status.OK;
             try {
-                Files.walk(Paths.get(localFilePath), FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder())
-                        .map(java.nio.file.Path::toFile).forEach(File::delete);
-            } catch (IOException e) {
-                return new Status(Status.ErrCode.COMMON_ERROR,
-                        "failed to delete exist local file: " + localFilePath + ", msg: " + e.getMessage());
-            }
-        }
-        // create local file
-        try {
-            if (!localFile.createNewFile()) {
-                return new Status(Status.ErrCode.COMMON_ERROR, "failed to create local file: " + localFilePath);
-            }
-        } catch (IOException e) {
-            return new Status(Status.ErrCode.COMMON_ERROR,
-                    "failed to create local file: " + localFilePath + ", msg: " + e.getMessage());
-        }
-
-        String lastErrMsg;
-        Status status = Status.OK;
-        try (BufferedOutputStream out = new BufferedOutputStream(Files.newOutputStream(localFile.toPath()))) {
-            final long bufSize = 1024 * 1024; // 1MB
-            long leftSize = fileSize;
-            long readOffset = 0;
-            while (leftSize > 0) {
-                long readLen = Math.min(leftSize, bufSize);
-                try {
-                    ByteBuffer data = readStreamBuffer(fsDataInputStream, readOffset, readLen);
-                    if (readLen != data.array().length) {
-                        LOG.warn(
-                                "the actual read length does not equal to "
-                                        + "the expected read length: {} vs. {}, file: {}",
-                                data.array().length, readLen, remoteFilePath);
+                // delete local file if exist
+                File localFile = new File(localFilePath);
+                if (localFile.exists()) {
+                    try {
+                        Files.walk(Paths.get(localFilePath), FileVisitOption.FOLLOW_LINKS)
+                                .sorted(Comparator.reverseOrder())
+                                .map(java.nio.file.Path::toFile)
+                                .forEach(File::delete);
+                    } catch (IOException e) {
+                        return new Status(Status.ErrCode.COMMON_ERROR,
+                                "failed to delete exist local file: " + localFilePath + ", msg: " + e.getMessage());
                     }
-                    // write local file
-                    out.write(data.array());
-                    readOffset += data.array().length;
-                    leftSize -= data.array().length;
-                } catch (Exception e) {
-                    lastErrMsg = String.format(
-                            "failed to read. " + "current read offset: %d, read length: %d,"
-                                    + " file size: %d, file: %s. msg: %s",
-                            readOffset, readLen, fileSize, remoteFilePath, e.getMessage());
-                    LOG.warn(lastErrMsg);
-                    status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
-                    break;
                 }
-            }
-        } catch (IOException e) {
-            return new Status(Status.ErrCode.COMMON_ERROR, "Got exception: " + e.getMessage());
-        } finally {
-            Status closeStatus = operations.closeReader(OpParams.of(fsDataInputStream));
-            if (!closeStatus.ok()) {
-                LOG.warn(closeStatus.getErrMsg());
-                if (status.ok()) {
-                    // we return close write error only if no other error has been encountered.
-                    status = closeStatus;
+                // create local file
+                try {
+                    if (!localFile.createNewFile()) {
+                        return new Status(Status.ErrCode.COMMON_ERROR, "failed to create local file: " + localFilePath);
+                    }
+                } catch (IOException e) {
+                    return new Status(Status.ErrCode.COMMON_ERROR,
+                            "failed to create local file: " + localFilePath + ", msg: " + e.getMessage());
                 }
-            }
-        }
 
-        LOG.info("finished to download from {} to {} with size: {}. cost {} ms", remoteFilePath, localFilePath,
-                fileSize, (System.currentTimeMillis() - start));
-        return status;
+                String lastErrMsg;
+                try (BufferedOutputStream out = new BufferedOutputStream(Files.newOutputStream(localFile.toPath()))) {
+                    final long bufSize = 1024 * 1024; // 1MB
+                    long leftSize = fileSize;
+                    long readOffset = 0;
+                    while (leftSize > 0) {
+                        long readLen = Math.min(leftSize, bufSize);
+                        try {
+                            ByteBuffer data = readStreamBuffer(fsDataInputStream, readOffset, readLen);
+                            if (readLen != data.array().length) {
+                                LOG.warn(
+                                        "the actual read length does not equal to "
+                                                + "the expected read length: {} vs. {}, file: {}",
+                                        data.array().length, readLen, remoteFilePath);
+                            }
+                            // write local file
+                            out.write(data.array());
+                            readOffset += data.array().length;
+                            leftSize -= data.array().length;
+                        } catch (Exception e) {
+                            lastErrMsg = String.format(
+                                    "failed to read. " + "current read offset: %d, read length: %d,"
+                                            + " file size: %d, file: %s. msg: %s",
+                                    readOffset, readLen, fileSize, remoteFilePath, e.getMessage());
+                            LOG.warn(lastErrMsg);
+                            status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
+                            break;
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                return new Status(Status.ErrCode.COMMON_ERROR, "Got exception: " + e.getMessage());
+            } finally {
+                Status closeStatus = operations.closeReader(OpParams.of(fsDataInputStream));
+                if (!closeStatus.ok()) {
+                    LOG.warn(closeStatus.getErrMsg());
+                    if (status.ok()) {
+                        // we return close write error only if no other error has been encountered.
+                        status = closeStatus;
+                    }
+                }
+            }
+
+            LOG.info("finished to download from {} to {} with size: {}. cost {} ms", remoteFilePath, localFilePath,
+                    fileSize, (System.currentTimeMillis() - start));
+            return status;
+        } catch (IOException e) {
+            LOG.warn("errors while download from {} to {}", remoteFilePath, localFilePath, e);
+            return new Status(Status.ErrCode.COMMON_ERROR,
+                    "failed to download remote file: " + remoteFilePath + ", msg: " + e.getMessage());
+        }
     }
 
     /**
@@ -349,10 +370,13 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getLocation());
-            FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            boolean isPathExist = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.exists(inputFilePath));
-            if (!isPathExist) {
-                return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
+            try (FileSystemLease lease = acquireFileSystemLease(inputFilePath)) {
+                FileSystem fileSystem = lease.fileSystem();
+                boolean isPathExist = hdfsProperties.getHadoopAuthenticator().doAs(
+                        () -> fileSystem.exists(inputFilePath));
+                if (!isPathExist) {
+                    return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
+                }
             }
             return Status.OK;
         } catch (Exception e) {
@@ -364,30 +388,37 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public Status directUpload(String content, String remoteFile) {
-        HDFSOpParams hdfsOpParams = OpParams.of(remoteFile);
-        Status wst = operations.openWriter(hdfsOpParams);
-        if (wst != Status.OK) {
-            return wst;
-        }
-        FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
-        LOG.info("finished to open writer. directly upload to remote path {}.", remoteFile);
+        try (FileSystemLease lease = acquireFileSystemLease(new Path(remoteFile))) {
+            HDFSFileOperations operations = lease.operations();
+            HDFSOpParams hdfsOpParams = OpParams.of(remoteFile);
+            Status wst = operations.openWriter(hdfsOpParams);
+            if (wst != Status.OK) {
+                return wst;
+            }
+            FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
+            LOG.info("finished to open writer. directly upload to remote path {}.", remoteFile);
 
-        Status status = Status.OK;
-        try {
-            fsDataOutputStream.writeBytes(content);
-        } catch (IOException e) {
-            LOG.warn("errors while write data to output stream", e);
-            status = new Status(Status.ErrCode.COMMON_ERROR, "write exception: " + e.getMessage());
-        } finally {
-            Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
-            if (!closeStatus.ok()) {
-                LOG.warn(closeStatus.getErrMsg());
-                if (status.ok()) {
-                    status = closeStatus;
+            Status status = Status.OK;
+            try {
+                fsDataOutputStream.writeBytes(content);
+            } catch (IOException e) {
+                LOG.warn("errors while write data to output stream", e);
+                status = new Status(Status.ErrCode.COMMON_ERROR, "write exception: " + e.getMessage());
+            } finally {
+                Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
+                if (!closeStatus.ok()) {
+                    LOG.warn(closeStatus.getErrMsg());
+                    if (status.ok()) {
+                        status = closeStatus;
+                    }
                 }
             }
+            return status;
+        } catch (IOException e) {
+            LOG.warn("errors while direct upload to {}", remoteFile, e);
+            return new Status(Status.ErrCode.COMMON_ERROR,
+                    "failed to direct upload remote file: " + remoteFile + ", msg: " + e.getMessage());
         }
-        return status;
     }
 
     @Override
@@ -396,61 +427,70 @@ public class DFSFileSystem extends RemoteFileSystem {
         if (LOG.isDebugEnabled()) {
             LOG.debug("local path {}, remote path {}", localPath, remotePath);
         }
-        HDFSOpParams hdfsOpParams = OpParams.of(remotePath);
-        Status wst = operations.openWriter(hdfsOpParams);
-        if (wst != Status.OK) {
-            return wst;
-        }
-        FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
-        LOG.info("finished to open writer. directly upload to remote path {}.", remotePath);
-        // read local file and write remote
-        File localFile = new File(localPath);
-        long fileLength = localFile.length();
-        byte[] readBuf = new byte[1024];
-        Status status = new Status(Status.ErrCode.OK, "");
-        try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(localFile))) {
-            // save the last err msg
-            String lastErrMsg = null;
-            // save the current write offset of remote file
-            long writeOffset = 0;
-            // read local file, 1MB at a time
-            int bytesRead;
-            while ((bytesRead = in.read(readBuf)) != -1) {
-                try {
-                    fsDataOutputStream.write(readBuf, 0, bytesRead);
-                } catch (IOException e) {
-                    LOG.warn("errors while write data to output stream", e);
-                    lastErrMsg = String.format(
-                            "failed to write hdfs. current write offset: %d, write length: %d, "
-                                    + "file length: %d, file: %s, msg: errors while write data to output stream",
-                            writeOffset, bytesRead, fileLength, remotePath);
-                    status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
-                    break;
-                }
+        try (FileSystemLease lease = acquireFileSystemLease(new Path(remotePath))) {
+            HDFSFileOperations operations = lease.operations();
+            HDFSOpParams hdfsOpParams = OpParams.of(remotePath);
+            Status wst = operations.openWriter(hdfsOpParams);
+            if (wst != Status.OK) {
+                return wst;
+            }
+            FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
+            LOG.info("finished to open writer. directly upload to remote path {}.", remotePath);
+            // read local file and write remote
+            File localFile = new File(localPath);
+            long fileLength = localFile.length();
+            byte[] readBuf = new byte[1024];
+            Status status = new Status(Status.ErrCode.OK, "");
+            try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(localFile))) {
+                // save the last err msg
+                String lastErrMsg = null;
+                // save the current write offset of remote file
+                long writeOffset = 0;
+                // read local file, 1MB at a time
+                int bytesRead;
+                while ((bytesRead = in.read(readBuf)) != -1) {
+                    try {
+                        fsDataOutputStream.write(readBuf, 0, bytesRead);
+                    } catch (IOException e) {
+                        LOG.warn("errors while write data to output stream", e);
+                        lastErrMsg = String.format(
+                                "failed to write hdfs. current write offset: %d, write length: %d, "
+                                        + "file length: %d, file: %s, "
+                                        + "msg: errors while write data to output stream",
+                                writeOffset, bytesRead, fileLength, remotePath);
+                        status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
+                        break;
+                    }
 
-                // write succeed, update current write offset
-                writeOffset += bytesRead;
-            } // end of read local file loop
-        } catch (FileNotFoundException e1) {
-            return new Status(Status.ErrCode.COMMON_ERROR, "encounter file not found exception: " + e1.getMessage());
-        } catch (IOException e1) {
-            return new Status(Status.ErrCode.COMMON_ERROR, "encounter io exception: " + e1.getMessage());
-        } finally {
-            Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
-            if (!closeStatus.ok()) {
-                LOG.warn(closeStatus.getErrMsg());
-                if (status.ok()) {
-                    // we return close write error only if no other error has been encountered.
-                    status = closeStatus;
+                    // write succeed, update current write offset
+                    writeOffset += bytesRead;
+                } // end of read local file loop
+            } catch (FileNotFoundException e1) {
+                return new Status(Status.ErrCode.COMMON_ERROR,
+                        "encounter file not found exception: " + e1.getMessage());
+            } catch (IOException e1) {
+                return new Status(Status.ErrCode.COMMON_ERROR, "encounter io exception: " + e1.getMessage());
+            } finally {
+                Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
+                if (!closeStatus.ok()) {
+                    LOG.warn(closeStatus.getErrMsg());
+                    if (status.ok()) {
+                        // we return close write error only if no other error has been encountered.
+                        status = closeStatus;
+                    }
                 }
             }
-        }
 
-        if (status.ok()) {
-            LOG.info("finished to upload {} to remote path {}. cost: {} ms", localPath, remotePath,
-                    (System.currentTimeMillis() - start));
+            if (status.ok()) {
+                LOG.info("finished to upload {} to remote path {}. cost: {} ms", localPath, remotePath,
+                        (System.currentTimeMillis() - start));
+            }
+            return status;
+        } catch (IOException e) {
+            LOG.warn("errors while upload {} to {}", localPath, remotePath, e);
+            return new Status(Status.ErrCode.COMMON_ERROR,
+                    "failed to upload remote file: " + remotePath + ", msg: " + e.getMessage());
         }
-        return status;
     }
 
     @Override
@@ -462,13 +502,15 @@ public class DFSFileSystem extends RemoteFileSystem {
             if (!srcPathUri.getAuthority().trim().equals(destPathUri.getAuthority().trim())) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "only allow rename in same file system");
             }
-            FileSystem fileSystem = nativeFileSystem(new Path(destPath));
-            Path srcfilePath = new Path(srcPathUri.getPath());
-            Path destfilePath = new Path(destPathUri.getPath());
-            boolean isRenameSuccess = hdfsProperties.getHadoopAuthenticator().doAs(()
-                    -> fileSystem.rename(srcfilePath, destfilePath));
-            if (!isRenameSuccess) {
-                return new Status(Status.ErrCode.COMMON_ERROR, "failed to rename " + srcPath + " to " + destPath);
+            try (FileSystemLease lease = acquireFileSystemLease(new Path(destPath))) {
+                FileSystem fileSystem = lease.fileSystem();
+                Path srcfilePath = new Path(srcPathUri.getPath());
+                Path destfilePath = new Path(destPathUri.getPath());
+                boolean isRenameSuccess = hdfsProperties.getHadoopAuthenticator().doAs(()
+                        -> fileSystem.rename(srcfilePath, destfilePath));
+                if (!isRenameSuccess) {
+                    return new Status(Status.ErrCode.COMMON_ERROR, "failed to rename " + srcPath + " to " + destPath);
+                }
             }
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
@@ -486,8 +528,10 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getLocation());
-            FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.delete(inputFilePath, true));
+            try (FileSystemLease lease = acquireFileSystemLease(inputFilePath)) {
+                FileSystem fileSystem = lease.fileSystem();
+                hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.delete(inputFilePath, true));
+            }
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         } catch (IOException e) {
@@ -512,18 +556,21 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path pathPattern = new Path(S3Util.extendGlobs(pathUri.getLocation()));
-            FileSystem fileSystem = nativeFileSystem(pathPattern);
-            FileStatus[] files = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.globStatus(pathPattern));
-            if (files == null) {
-                LOG.info("no files in path " + remotePath);
-                return Status.OK;
-            }
-            for (FileStatus fileStatus : files) {
-                RemoteFile remoteFile = new RemoteFile(
-                        fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
-                        !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
-                        fileStatus.getBlockSize(), fileStatus.getModificationTime());
-                result.add(remoteFile);
+            try (FileSystemLease lease = acquireFileSystemLease(pathPattern)) {
+                FileSystem fileSystem = lease.fileSystem();
+                FileStatus[] files = hdfsProperties.getHadoopAuthenticator().doAs(
+                        () -> fileSystem.globStatus(pathPattern));
+                if (files == null) {
+                    LOG.info("no files in path " + remotePath);
+                    return Status.OK;
+                }
+                for (FileStatus fileStatus : files) {
+                    RemoteFile remoteFile = new RemoteFile(
+                            fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
+                            !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
+                            fileStatus.getBlockSize(), fileStatus.getModificationTime());
+                    result.add(remoteFile);
+                }
             }
         } catch (FileNotFoundException e) {
             LOG.info("file not found: " + e.getMessage());
@@ -540,10 +587,12 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status makeDir(String remotePath) {
         try {
             Path locatedPath = new Path(remotePath);
-            FileSystem fileSystem = nativeFileSystem(locatedPath);
-            if (!hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.mkdirs(locatedPath))) {
-                LOG.warn("failed to make dir for " + remotePath);
-                return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
+            try (FileSystemLease lease = acquireFileSystemLease(locatedPath)) {
+                FileSystem fileSystem = lease.fileSystem();
+                if (!hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.mkdirs(locatedPath))) {
+                    LOG.warn("failed to make dir for " + remotePath);
+                    return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
+                }
             }
         } catch (Exception e) {
             LOG.warn("failed to make dir for {}, exception:", remotePath, e);
@@ -559,29 +608,34 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public void close() throws IOException {
-        if (closed.compareAndSet(false, true)) {
-            try {
-                if (dfsFileSystem != null) {
-                    dfsFileSystem.close();
-                }
-            } catch (IOException e) {
-                LOG.warn("Failed to close DFSFileSystem: {}", e.getMessage(), e);
+        DFSFileSystemResource current;
+        synchronized (this) {
+            if (closed.get()) {
+                return;
             }
+            closed.set(true);
+            current = resource;
+        }
+        // Close outside the DFSFileSystem lock because closing the Hadoop FileSystem can be slow.
+        if (current != null) {
+            current.requestClose();
         }
     }
 
     public FileStatus getFileStatus(Path path) throws IOException {
-        FileSystem fileSystem = nativeFileSystem(path);
-        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.getFileStatus(path));
+        try (FileSystemLease lease = acquireFileSystemLease(path)) {
+            FileSystem fileSystem = lease.fileSystem();
+            return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.getFileStatus(path));
+        }
     }
 
-    public FSDataInputStream openFile(Path path) throws IOException {
-        FileSystem fileSystem = nativeFileSystem(path);
+    public FSDataInputStream openFile(Path path, FileSystemLease lease) throws IOException {
+        FileSystem fileSystem = lease.fileSystem();
         return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.open(path));
     }
 
-    public FSDataOutputStream createFile(Path path, boolean overwrite) throws IOException {
-        FileSystem fileSystem = nativeFileSystem(path);
+    public FSDataOutputStream createFile(Path path, boolean overwrite, FileSystemLease lease) throws IOException {
+        FileSystem fileSystem = lease.fileSystem();
         return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.create(path, overwrite));
     }
 
