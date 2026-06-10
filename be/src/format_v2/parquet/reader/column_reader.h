@@ -40,6 +40,10 @@ class RecordReader;
 } // namespace internal
 } // namespace parquet
 
+namespace cctz {
+class time_zone;
+} // namespace cctz
+
 namespace doris {
 class IColumn;
 
@@ -111,6 +115,7 @@ public:
                                int num_leaf_columns,
                                const std::map<int, ParquetPageSkipPlan>* page_skip_plans = nullptr,
                                ParquetPageSkipProfile page_skip_profile = {},
+                               const cctz::time_zone* timezone = nullptr,
                                ParquetColumnReaderProfile column_reader_profile = {});
 
     // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
@@ -160,6 +165,7 @@ private:
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>> _record_readers;
     const std::map<int, ParquetPageSkipPlan>* _page_skip_plans = nullptr;
     ParquetPageSkipProfile _page_skip_profile;
+    const cctz::time_zone* _timezone = nullptr;
     ParquetColumnReaderProfile _column_reader_profile;
 };
 

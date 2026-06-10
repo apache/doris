@@ -36,6 +36,10 @@ class RecordReader;
 } // namespace internal
 } // namespace parquet
 
+namespace cctz {
+class time_zone;
+} // namespace cctz
+
 namespace doris::parquet {
 
 struct NestedScalarBatch;
@@ -47,6 +51,7 @@ struct ArrowLeafReaderContext {
     std::string name;
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
     ParquetColumnReaderProfile profile;
+    const cctz::time_zone* timezone = nullptr;
 
     const std::string& column_name() const { return name; }
     const DataTypePtr& data_type() const { return type; }

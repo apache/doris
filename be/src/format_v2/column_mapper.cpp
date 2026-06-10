@@ -313,10 +313,6 @@ private:
 static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
                                       const FileSlotRewriteInfo& rewrite_info,
                                       RewriteContext* rewrite_context) {
-    DCHECK(remove_nullable(slot_ref.data_type())->equals(*remove_nullable(rewrite_info.file_type)))
-            << rewrite_info.file_type->get_name() << "  " << slot_ref.data_type()->get_name() << " "
-            << rewrite_info.table_type->get_name() << " " << rewrite_info.block_position << ' '
-            << rewrite_info.file_column_name;
     auto ref = TableSlotRef::create_shared(slot_ref.slot_id(),
                                            cast_set<int>(rewrite_info.block_position), -1,
                                            rewrite_info.file_type, rewrite_info.file_column_name);

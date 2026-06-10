@@ -238,6 +238,8 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
     view.decimal_precision = context.type_descriptor.decimal_precision;
     view.decimal_scale = context.type_descriptor.decimal_scale;
     view.fixed_length = context.type_descriptor.fixed_length;
+    view.timestamp_is_adjusted_to_utc = context.type_descriptor.timestamp_is_adjusted_to_utc;
+    view.timezone = context.timezone;
     view.null_map = null_map == nullptr || null_map->empty() ? nullptr : null_map->data();
     const bool read_dense_for_nullable =
             record_reader.read_dense_for_nullable() && view.null_map != nullptr;
@@ -351,25 +353,68 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
         std::copy(rep_levels, rep_levels + batch->levels_written, batch->rep_levels.begin());
     }
 
-    batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
-    int64_t value_idx = 0;
-    const bool dense_value_slots = values_written == batch->levels_written;
+    const int16_t leaf_definition_level = context.descriptor->max_definition_level();
+    int64_t value_slot_count = 0;
+    int64_t leaf_value_count = 0;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
         if (batch->def_levels[level_idx] < value_slot_definition_level ||
             batch->rep_levels[level_idx] > value_slot_repetition_level) {
             continue;
         }
-        if (dense_value_slots) {
-            batch->value_indices[static_cast<size_t>(level_idx)] = level_idx;
-        } else {
-            if (value_idx >= values_written) {
-                return Status::Corruption(
-                        "Nested parquet reader returned fewer values than definition levels for "
-                        "column {}",
-                        context.column_name());
-            }
-            batch->value_indices[static_cast<size_t>(level_idx)] = value_idx++;
+        ++value_slot_count;
+        if (batch->def_levels[level_idx] == leaf_definition_level) {
+            ++leaf_value_count;
         }
+    }
+
+    enum class ValueLayout { LEVELS, VALUE_SLOTS, LEAF_VALUES };
+    ValueLayout value_layout = ValueLayout::LEAF_VALUES;
+    if (values_written == batch->levels_written) {
+        value_layout = ValueLayout::LEVELS;
+    } else if (values_written == value_slot_count) {
+        value_layout = ValueLayout::VALUE_SLOTS;
+    } else if (values_written == leaf_value_count) {
+        value_layout = ValueLayout::LEAF_VALUES;
+    } else {
+        return Status::Corruption(
+                "Nested parquet reader returned inconsistent value count for column {}: values={}, "
+                "levels={}, slots={}, leaf_values={}",
+                context.column_name(), values_written, batch->levels_written, value_slot_count,
+                leaf_value_count);
+    }
+
+    batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
+    NullMap value_nulls(static_cast<size_t>(values_written), 1);
+    int64_t value_idx = 0;
+    for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
+        if (batch->def_levels[level_idx] < value_slot_definition_level ||
+            batch->rep_levels[level_idx] > value_slot_repetition_level) {
+            continue;
+        }
+        const bool has_leaf_value = batch->def_levels[level_idx] == leaf_definition_level;
+        int64_t decoded_value_idx = -1;
+        if (value_layout == ValueLayout::LEVELS) {
+            decoded_value_idx = level_idx;
+        } else if (value_layout == ValueLayout::VALUE_SLOTS) {
+            decoded_value_idx = value_idx++;
+        } else {
+            if (!has_leaf_value) {
+                continue;
+            }
+            decoded_value_idx = value_idx++;
+        }
+        DORIS_CHECK(decoded_value_idx >= 0);
+        DORIS_CHECK(decoded_value_idx < values_written);
+        if (has_leaf_value) {
+            batch->value_indices[static_cast<size_t>(level_idx)] = decoded_value_idx;
+            value_nulls[static_cast<size_t>(decoded_value_idx)] = 0;
+        }
+    }
+    if (value_layout != ValueLayout::LEVELS && value_idx != values_written) {
+        return Status::Corruption(
+                "Nested parquet reader value cursor stopped early for column {}: values={}, "
+                "visited={}",
+                context.column_name(), values_written, value_idx);
     }
 
     const auto value_type = remove_nullable(context.data_type());
@@ -377,8 +422,8 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
     if (values_written > 0) {
         ArrowLeafReaderContext value_context = context;
         value_context.type = value_type;
-        RETURN_IF_ERROR(append_leaf_values(value_context, *record_reader, values_written, nullptr,
-                                           batch->values_column));
+        RETURN_IF_ERROR(append_leaf_values(value_context, *record_reader, values_written,
+                                           &value_nulls, batch->values_column));
     }
     return Status::OK();
 }

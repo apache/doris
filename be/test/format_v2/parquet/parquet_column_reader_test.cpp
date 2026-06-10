@@ -177,6 +177,35 @@ protected:
         return finish_array(&builder);
     }
 
+    std::shared_ptr<arrow::Array> build_nullable_struct_with_decimal_array() {
+        auto decimal_type = arrow::decimal128(38, 6);
+        auto struct_type = arrow::struct_(
+                {arrow::field("a", arrow::int32(), false), arrow::field("d", decimal_type, true)});
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+        auto a_array_builder = std::make_unique<arrow::Int32Builder>();
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(a_array_builder)));
+        auto d_array_builder = std::make_unique<arrow::Decimal128Builder>(
+                decimal_type, arrow::default_memory_pool());
+        field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(d_array_builder)));
+        arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                     std::move(field_builders));
+        auto* a_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(0));
+        auto* d_builder = assert_cast<arrow::Decimal128Builder*>(builder.field_builder(1));
+
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(301).ok());
+        EXPECT_TRUE(d_builder->Append(arrow::Decimal128(123456789)).ok());
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(303).ok());
+        EXPECT_TRUE(d_builder->AppendNull().ok());
+        EXPECT_TRUE(builder.Append().ok());
+        EXPECT_TRUE(a_builder->Append(304).ok());
+        EXPECT_TRUE(d_builder->Append(arrow::Decimal128(-987654321)).ok());
+        EXPECT_TRUE(builder.AppendNull().ok());
+        return finish_array(&builder);
+    }
+
     std::shared_ptr<arrow::Array> build_nullable_struct_with_list_array() {
         auto list_type = arrow::list(arrow::field("element", arrow::int32(), true));
         auto struct_type = arrow::struct_(
@@ -797,6 +826,41 @@ protected:
                       EXPECT_FALSE(b_values.is_null_at(3));
                       EXPECT_EQ(b_nested.get_data_at(0).to_string(), "nsa");
                       EXPECT_EQ(b_nested.get_data_at(3).to_string(), "nsd");
+                  });
+        add_field(arrow::field("nullable_struct_decimal_col",
+                               arrow::struct_({
+                                       arrow::field("a", arrow::int32(), false),
+                                       arrow::field("d", arrow::decimal128(38, 6), true),
+                               }),
+                               true),
+                  build_nullable_struct_with_decimal_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_TRUE(nullable_column.is_null_at(4));
+
+                      const auto& struct_column =
+                              assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
+                      ASSERT_EQ(struct_column.get_columns().size(), 2);
+                      const auto& a_values =
+                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                      const auto& d_values =
+                              assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+                      const auto& d_nested =
+                              assert_cast<const ColumnDecimal128V3&>(d_values.get_nested_column());
+                      EXPECT_EQ(a_values.get_element(0), 301);
+                      EXPECT_EQ(a_values.get_element(2), 303);
+                      EXPECT_EQ(a_values.get_element(3), 304);
+                      EXPECT_FALSE(d_values.is_null_at(0));
+                      EXPECT_TRUE(d_values.is_null_at(2));
+                      EXPECT_FALSE(d_values.is_null_at(3));
+                      EXPECT_EQ(d_nested.get_element(0), Decimal128V3(123456789));
+                      EXPECT_EQ(d_nested.get_element(3), Decimal128V3(-987654321));
                   });
         auto struct_list_type = arrow::struct_({
                 arrow::field("a", arrow::int32(), false),
@@ -1433,6 +1497,7 @@ TEST_F(ParquetColumnReaderTest, TransformUnsignedIntegerStatistics) {
 TEST_F(ParquetColumnReaderTest, ReadSupportedComplexTypes) {
     read_and_validate(find_field_idx("struct_col"));
     read_and_validate(find_field_idx("nullable_struct_col"));
+    read_and_validate(find_field_idx("nullable_struct_decimal_col"));
     read_and_validate(find_field_idx("list_int_col"));
     read_and_validate(find_field_idx("nullable_list_int_col"));
     read_and_validate(find_field_idx("required_nullable_list_int_col"));
