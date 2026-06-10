@@ -640,11 +640,12 @@ public class Coordinator implements CoordInterface {
             if (scanNode instanceof OlapScanNode) {
                 OlapScanNode olapScanNode = (OlapScanNode) scanNode;
                 if (olapScanNode.isChangeScan()) {
-                    long endTs = olapScanNode.getIncrementalScanEndTime();
-                    if (endTs <= 0) {
-                        endTs = TSOTimestamp.composeFullTimestamp(queryGlobals.getTimestampMs());
+                    long endTsMs = olapScanNode.getIncrementalScanEndTime();
+                    if (endTsMs <= 0) {
+                        endTsMs = queryGlobals.getTimestampMs();
                     }
-                    addTableEndTimestamp(tableEndTSO, olapScanNode.getOlapTable(), endTs);
+                    long endTSO = TSOTimestamp.composeFullTimestamp(endTsMs);
+                    addTableEndTimestamp(tableEndTSO, olapScanNode.getOlapTable(), endTSO);
                 }
             }
         }
