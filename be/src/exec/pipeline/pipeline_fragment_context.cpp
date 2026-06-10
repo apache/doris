@@ -814,99 +814,88 @@ void PipelineFragmentContext::_propagate_local_exchange_num_tasks() {
     if (_deferred_exchangers.empty()) {
         return;
     }
-    // Fix num_tasks mismatches between paired pipelines created by pipeline-splitting
-    // operators (AGG, SORT, JOIN).  These pairs share state via inject_shared_state and
-    // must have consistent num_tasks; otherwise instance 1+ tasks access null shared_state.
-    //
-    // Pass 1 (upward): when FE inserts LOCAL_EXCHANGE_NODE below a splitting operator,
-    // the LE pipeline gets _num_instances but ancestor pipelines still have the reduced
-    // count.  Raise them to _num_instances (skip serial source operators).
-    //
-    // Pass 2 (downward): when a serial Exchange feeds a splitting operator (e.g., scalar
-    // merge-finalize AGG), the sink pipeline has 1 task but the source pipeline may have
-    // been raised (by LE or by inheriting _num_instances from add_pipeline).  Lower it
-    // to match, unless it contains LocalExchangeSource (deliberately raised by LE).
-    std::unordered_map<PipelineId, PipelinePtr> id_to_pipe;
+    // Reconcile num_tasks across paired pipelines created by pipeline-splitting operators
+    // (AGG, SORT, JOIN): they share state via inject_shared_state and must agree, or
+    // instance 1+ tasks access null shared_state.  A pipeline's num_tasks is fully
+    // determined by its source operator plus its upstreams:
+    //   - LocalExchangeSource  -> _num_instances (the LE re-parallelizes)
+    //   - serial source        -> its reduced count (kept as-is, typically 1)
+    //   - otherwise (splitter) -> inherit from upstreams: raise to _num_instances if any
+    //                             upstream was raised by an LE, then lower to a serial
+    //                             upstream's count (lower wins).
+    // Visiting each pipeline only after all its upstreams (topological order over _dag) lets
+    // a single sweep reach the same fixpoint the previous two while-loops iterated to — those
+    // only existed to reconcile the top-down build's parent-inherited num_tasks guesses.
+    std::map<PipelineId, PipelinePtr> id_to_pipe;
+    std::map<PipelineId, std::vector<PipelineId>> downstreams_of;
+    std::map<PipelineId, int> in_degree;
     for (auto& p : _pipelines) {
         id_to_pipe[p->id()] = p;
+        in_degree.try_emplace(p->id(), 0);
     }
-
-    // Pass 1 (upward): raise downstream pipelines to _num_instances when any upstream
-    // dependency was already raised by LOCAL_EXCHANGE.
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (const auto& [downstream_id, upstream_ids] : _dag) {
-            auto dit = id_to_pipe.find(downstream_id);
-            if (dit == id_to_pipe.end()) {
-                continue;
-            }
-            auto& downstream = dit->second;
-            if (downstream->num_tasks() >= _num_instances) {
-                continue;
-            }
-            if (!downstream->operators().empty() &&
-                downstream->operators().front()->is_serial_operator()) {
-                continue;
-            }
-            for (auto upstream_id : upstream_ids) {
-                auto uit = id_to_pipe.find(upstream_id);
-                if (uit != id_to_pipe.end() && uit->second->num_tasks() >= _num_instances) {
-                    downstream->set_num_tasks(_num_instances);
-                    changed = true;
-                    break;
+    for (const auto& [downstream_id, upstream_ids] : _dag) {
+        for (auto upstream_id : upstream_ids) {
+            downstreams_of[upstream_id].push_back(downstream_id);
+            in_degree[downstream_id]++;
+        }
+    }
+    std::vector<PipelineId> ready;
+    for (const auto& [id, deg] : in_degree) {
+        if (deg == 0) {
+            ready.push_back(id);
+        }
+    }
+    size_t visited = 0;
+    while (!ready.empty()) {
+        const auto id = ready.back();
+        ready.pop_back();
+        visited++;
+        auto pit = id_to_pipe.find(id);
+        if (pit != id_to_pipe.end()) {
+            auto& pipe = pit->second;
+            const auto& ops = pipe->operators();
+            const bool le_source =
+                    !ops.empty() && dynamic_cast<LocalExchangeSourceOperatorX*>(ops.front().get());
+            const bool serial_source = !ops.empty() && ops.front()->is_serial_operator();
+            if (le_source) {
+                pipe->set_num_tasks(_num_instances);
+            } else if (!serial_source) {
+                int target = pipe->num_tasks();
+                const auto up_it = _dag.find(id);
+                if (up_it != _dag.end()) {
+                    // raise: any upstream already at _num_instances (e.g. an LE source)
+                    for (auto upstream_id : up_it->second) {
+                        auto uit = id_to_pipe.find(upstream_id);
+                        if (uit != id_to_pipe.end() && uit->second->num_tasks() >= _num_instances) {
+                            target = _num_instances;
+                            break;
+                        }
+                    }
+                    // lower: a serial upstream with fewer tasks (wins over the raise above)
+                    for (auto upstream_id : up_it->second) {
+                        auto uit = id_to_pipe.find(upstream_id);
+                        if (uit != id_to_pipe.end() && uit->second->num_tasks() < target &&
+                            !uit->second->operators().empty() &&
+                            uit->second->operators().front()->is_serial_operator()) {
+                            target = uit->second->num_tasks();
+                        }
+                    }
                 }
+                pipe->set_num_tasks(target);
+            }
+        }
+        for (auto down : downstreams_of[id]) {
+            if (--in_degree[down] == 0) {
+                ready.push_back(down);
             }
         }
     }
-
-    // Pass 2 (downward): when a pipeline-splitting operator (AGG, SORT, JOIN) creates
-    // paired pipelines (source + sink), they share state via inject_shared_state and must
-    // have consistent num_tasks.  If the sink pipeline has a serial source (Exchange) with
-    // num_tasks < _num_instances, but the source pipeline was raised (by inheriting from
-    // an LE-fixed parent during add_pipeline), lower the source pipeline to match.
-    // Skip pipelines containing LocalExchangeSource — they were deliberately raised.
-    //
-    // Example: serial Exchange → AGG(merge finalize) → LOCAL_EXCHANGE → NLJ
-    //   P_sink  = [Exchange, AGGSink]   num_tasks=1  (serial)
-    //   P_source = [AGGSource]          num_tasks=_num_instances (inherited)
-    //   → lower P_source to 1; the LE above fans out the 1 result to N NLJ tasks.
-    changed = true;
-    while (changed) {
-        changed = false;
-        for (const auto& [downstream_id, upstream_ids] : _dag) {
-            auto dit = id_to_pipe.find(downstream_id);
-            if (dit == id_to_pipe.end()) {
-                continue;
-            }
-            auto& downstream = dit->second;
-            if (downstream->num_tasks() <= 1) {
-                continue;
-            }
-            // Don't lower pipelines that contain LocalExchangeSource — they were
-            // deliberately raised to _num_instances by LOCAL_EXCHANGE processing.
-            bool has_le_source = false;
-            for (auto& op : downstream->operators()) {
-                if (dynamic_cast<LocalExchangeSourceOperatorX*>(op.get())) {
-                    has_le_source = true;
-                    break;
-                }
-            }
-            if (has_le_source) {
-                continue;
-            }
-            for (auto upstream_id : upstream_ids) {
-                auto uit = id_to_pipe.find(upstream_id);
-                if (uit != id_to_pipe.end() && uit->second->num_tasks() < downstream->num_tasks() &&
-                    !uit->second->operators().empty() &&
-                    uit->second->operators().front()->is_serial_operator()) {
-                    downstream->set_num_tasks(uit->second->num_tasks());
-                    changed = true;
-                    break;
-                }
-            }
-        }
-    }
+    // The pipeline DAG is acyclic; if a future change introduces a back-edge, some pipelines
+    // stay unvisited (in_degree never reaches 0) — fail loudly rather than silently leaving
+    // their num_tasks unreconciled.
+    DCHECK_EQ(visited, in_degree.size())
+            << "pipeline num_tasks topological sweep visited " << visited << " of "
+            << in_degree.size() << " pipelines (cycle in _dag?)";
 }
 
 Status PipelineFragmentContext::_create_tree_helper(
