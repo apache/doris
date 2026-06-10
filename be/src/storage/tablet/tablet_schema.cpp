@@ -1008,6 +1008,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _skip_bitmap_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_TIMESTAMP_COL)) {
         _binlog_timestamp_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == BINLOG_LSN_COL)) {
+        _binlog_lsn_col_idx = _num_columns;
     } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
         _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
@@ -1216,6 +1218,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _version_col_idx = schema.version_col_idx();
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _binlog_timestamp_col_idx = schema.binlog_timestamp_col_idx();
+    _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1391,6 +1394,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
     _binlog_timestamp_col_idx = -1;
+    _binlog_lsn_col_idx = -1;
     _cluster_key_uids.clear();
     for (const auto& i : ori_tablet_schema._cluster_key_uids) {
         _cluster_key_uids.push_back(i);
@@ -1418,6 +1422,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _skip_bitmap_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_TIMESTAMP_COL)) {
             _binlog_timestamp_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == BINLOG_LSN_COL)) {
+            _binlog_lsn_col_idx = _num_columns;
         }
         // Reuse TabletColumn object from pool to reduce memory consumption
         TabletColumnPtr new_column;
@@ -1571,6 +1577,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_binlog_timestamp_col_idx(_binlog_timestamp_col_idx);
+    tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());

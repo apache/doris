@@ -313,6 +313,10 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
     return Status::OK();
 }
 
+// For binlog partition-based incremental read. Pushes down [start_tso, end_tso] range
+// predicates onto the binlog timestamp column for row-binlog scans. Also ensures the
+// timestamp column is part of return_columns so the predicates can be evaluated by the
+// storage layer.
 Status OlapScanner::_init_row_binlog_tso_predicates() {
     if (_tablet_reader_params.reader_type != ReaderType::READER_BINLOG) {
         return Status::OK();
@@ -473,8 +477,7 @@ Status OlapScanner::_init_tablet_reader_params(
             op_idx >= 0) {
             add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
-        if (int32_t lsn_idx = tablet_schema->field_index(std::string(kRowBinlogLsnColName));
-            lsn_idx >= 0) {
+        if (int32_t lsn_idx = tablet_schema->binlog_lsn_col_idx(); lsn_idx >= 0) {
             add_return_column_if_absent(static_cast<uint32_t>(lsn_idx));
         }
 
@@ -501,6 +504,7 @@ Status OlapScanner::_init_tablet_reader_params(
             if (tablet_schema->column(index).is_key()) {
                 continue;
             }
+            // we need to fetch all key columns to do the right aggregation on storage engine side.
             _tablet_reader_params.return_columns.push_back(index);
         }
         // expand the sequence column
@@ -545,6 +549,10 @@ Status OlapScanner::_init_tablet_reader_params(
 
     RETURN_IF_ERROR(_init_row_binlog_tso_predicates());
 
+    // For any row-binlog scan, force the storage layer to deliver rows strictly in primary-key
+    // order so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit
+    // BEFORE/AFTER pairs in deterministic order (DETAIL). Disable ORDER BY / TopN pushdowns
+    // and reset their related params, since they would otherwise re-order the stream.
     if (_tablet_reader_params.binlog_scan_type != TBinlogScanType::NONE) {
         _tablet_reader_params.read_orderby_key = true;
         _tablet_reader_params.read_orderby_key_reverse = false;

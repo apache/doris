@@ -698,8 +698,7 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
             }
         }
 
-        int32_t lsn_col_id =
-                _reader->_tablet_schema->field_index(std::string(kRowBinlogLsnColName));
+        int32_t lsn_col_id = _reader->_tablet_schema->binlog_lsn_col_idx();
         if (lsn_col_id >= 0) {
             DCHECK(sequence_loc == -1);
             for (int loc = 0; loc < _reader->_return_columns.size(); ++loc) {

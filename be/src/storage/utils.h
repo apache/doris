@@ -40,6 +40,7 @@ static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 static const std::string BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TIMESTAMP__";
+static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
 
 // 用来加速运算
 const static int32_t g_power_table[] = {1,      10,      100,      1000,      10000,

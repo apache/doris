@@ -509,6 +509,7 @@ public:
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     int32_t binlog_timestamp_col_idx() const { return _binlog_timestamp_col_idx; }
+    int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
@@ -809,6 +810,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _binlog_timestamp_col_idx = -1;
+    int32_t _binlog_lsn_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;

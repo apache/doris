@@ -52,7 +52,8 @@ constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
 constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
-constexpr std::string_view kRowBinlogLsnColName = "__DORIS_BINLOG_LSN__";
+// Alias to BINLOG_LSN_COL in storage/utils.h to keep a single source of truth.
+static const std::string& kRowBinlogLsnColName = BINLOG_LSN_COL;
 // Alias to BINLOG_TIMESTAMP_COL in storage/utils.h to keep a single source of truth.
 static const std::string& kRowBinlogTimestampColName = BINLOG_TIMESTAMP_COL;
 constexpr std::string_view kRowBinlogOpColName = "__DORIS_BINLOG_OP__";

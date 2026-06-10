@@ -65,7 +65,7 @@ Status RowBinlogSegmentWriter::init() {
         return Status::InternalError("binlog<row> writer missing source_tablet_schema");
     }
 
-    int lsn_col_id = _tablet_schema->field_index(std::string(kRowBinlogLsnColName));
+    int lsn_col_id = _tablet_schema->binlog_lsn_col_idx();
     CHECK(lsn_col_id >= 0) << "binlog<row> schema missing __DORIS_BINLOG_LSN__";
     _binlog_col_start_id = static_cast<uint32_t>(lsn_col_id);
     _normal_col_start_id = lsn_col_id == 0 ? BINLOG_COLNUM : 0;
