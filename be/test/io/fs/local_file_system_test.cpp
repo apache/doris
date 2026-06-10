@@ -172,6 +172,12 @@ TEST_F(LocalFileSystemTest, WriteReadIOBuf) {
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(bytes_read, sizeof(buf));
     EXPECT_EQ(std::string_view(buf, sizeof(buf)), "abcdefgh");
+
+    butil::IOBuf read_buf;
+    st = file_reader->read_at_iobuf(2, 4, &read_buf, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, 4);
+    EXPECT_EQ(read_buf.to_string(), "cdef");
 }
 
 TEST_F(LocalFileSystemTest, AppendEmptyIOBuf) {
