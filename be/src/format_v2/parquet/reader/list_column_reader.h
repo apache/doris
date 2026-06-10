@@ -54,15 +54,7 @@ public:
     ParquetColumnReader* element_reader() const { return _element_reader.get(); }
 
 private:
-    Status read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
-                         const std::vector<ParquetNullShapeSink>* ancestor_shapes);
-
     std::unique_ptr<ParquetColumnReader> _element_reader;
-    NestedScalarOverflow _element_overflow;
-    NestedStructOverflow _struct_element_overflow;
-    NestedScalarOverflow _map_key_overflow;
-    NestedScalarOverflow _map_value_overflow;
-    NestedStructOverflow _map_struct_value_overflow;
 };
 
 } // namespace doris::parquet
