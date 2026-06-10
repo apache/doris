@@ -97,6 +97,8 @@ public class HeartbeatMgr extends MasterDaemon {
         TMasterInfo tMasterInfo = new TMasterInfo(
                 new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
+        // small_file_mgr at BE downloads from FE using this port,
+        // by trying http then fallback to https(for http_port=0 cases).
         tMasterInfo.setHttpPort(HttpURLUtil.getHttpPort());
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
