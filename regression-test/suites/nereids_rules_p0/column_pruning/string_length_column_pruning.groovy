@@ -682,7 +682,7 @@ suite("string_length_column_pruning") {
         contains "arr_col.OFFSET"
         notContains "arr_col.NULL"
     }
-    sql "select cardinality(arr_col), arr_col is null from slcp_str_tbl"
+    order_qt_cardinality_arr_col "select cardinality(arr_col), arr_col is null from slcp_str_tbl"
 
     // Map root: cardinality(map_col) -> [map_col.OFFSET]
     //           map_col IS NULL      -> [map_col.NULL]
@@ -693,7 +693,7 @@ suite("string_length_column_pruning") {
         contains "map_col.OFFSET"
         notContains "map_col.NULL"
     }
-    sql "select cardinality(map_col), map_col is null from slcp_str_tbl"
+    order_qt_cardinality_map_col "select cardinality(map_col), map_col is null from slcp_str_tbl"
 
     // Struct string subfield: length(element_at(struct_col, 'f3')) -> [struct_col.f3.OFFSET]
     //                         element_at(struct_col, 'f3') IS NULL  -> [struct_col.f3.NULL]
@@ -706,7 +706,8 @@ suite("string_length_column_pruning") {
         contains "OFFSET"
         notContains "struct_col.f3.NULL"
     }
-    sql """select length(element_at(struct_col, 'f3')),
+    order_qt_length_struct_f3 """
+          select length(element_at(struct_col, 'f3')),
                  element_at(struct_col, 'f3') is null
           from slcp_str_tbl"""
 
@@ -721,7 +722,7 @@ suite("string_length_column_pruning") {
         contains "OFFSET"
         notContains "s.arr.NULL"
     }
-    sql """select cardinality(element_at(s, 'arr')),
+    order_qt_cardinality_struct_arr """select cardinality(element_at(s, 'arr')),
                  element_at(s, 'arr') is null
           from slcp_struct_root_tbl"""
 
@@ -736,7 +737,7 @@ suite("string_length_column_pruning") {
         contains "OFFSET"
         notContains "s.m.NULL"
     }
-    sql """select cardinality(element_at(s, 'm')),
+    order_qt_cardinality_struct_m """select cardinality(element_at(s, 'm')),
                  element_at(s, 'm') is null
           from slcp_struct_root_tbl"""
 }

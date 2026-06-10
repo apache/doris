@@ -65,3 +65,18 @@ true
 4
 5
 
+-- !cardinality_arr_col --
+3	false
+
+-- !cardinality_map_col --
+2	false
+
+-- !length_struct_f3 --
+5	false
+
+-- !cardinality_struct_arr --
+2	false
+
+-- !cardinality_struct_m --
+2	false
+
