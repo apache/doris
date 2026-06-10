@@ -75,6 +75,10 @@ public final class AzureFileSystemProperties
             "blob.core.cloudapi.de"
     };
 
+    // In each @ConnectorProperty below, the first name is the canonical key, kept as a
+    // constant because other code references it. The remaining literal names are legacy
+    // aliases accepted for compatibility only and referenced nowhere else, so they are not
+    // promoted to constants.
     @ConnectorProperty(names = {ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
             "AZURE_ENDPOINT"},
             required = false,
@@ -145,6 +149,8 @@ public final class AzureFileSystemProperties
     private final Map<String, String> matchedProperties;
 
     private AzureFileSystemProperties(Map<String, String> rawProperties) {
+        // Defensive copy before wrapping: unmodifiableMap alone is only a read-only view,
+        // so without the copy later mutations of the caller's map would leak through.
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
         this.matchedProperties = Collections.unmodifiableMap(collectMatchedProperties(rawProperties));
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
@@ -217,6 +223,11 @@ public final class AzureFileSystemProperties
 
     @Override
     public Map<String, String> toMap() {
+        // OAuth2 has no AK/SK equivalent that the BE S3-compatible adapter can consume;
+        // OAuth2 access currently only works through the Hadoop ABFS connector (the Iceberg
+        // REST catalog / OneLake path), so hand over the fs.azure.* OAuth config instead of
+        // S3-style params. Mirrors legacy AzureProperties.getBackendConfigProperties();
+        // native-SDK OAuth2 support may replace this in the future.
         if (isOauth2Auth()) {
             return toHadoopConfigurationMap();
         }

@@ -19,6 +19,19 @@ package org.apache.doris.filesystem.spi;
 
 /**
  * Parsed object-storage URI. Extracts bucket and key without any fe-core dependency.
+ *
+ * <p>FIXME: this should be an interface, with each provider implementing its own
+ * {@code normalize}. The current single shared parser is essentially the legacy approach:
+ * historically OBS/COS/OSS/S3 URIs all had to be normalized into S3 form, either to hand
+ * to the BE or for the FE's own use. With per-provider native SDKs that constraint no
+ * longer holds. {@code pathStyleAccess} is part of the same legacy and should not appear
+ * here either — it is an S3-family endpoint concern that belongs in the provider
+ * implementations, not in generic URI parsing.
+ *
+ * <p>FIXME: the input is a plain {@code String} that is then split on {@code '/'} below,
+ * so URI escaping must already have been applied before a value can be used as input here
+ * (see the note on {@link #parse}). An interface-based design should take a properly
+ * typed/encoded URI instead of a raw string.
  */
 public final class ObjectStorageUri {
 
