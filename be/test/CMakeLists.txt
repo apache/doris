@@ -30,6 +30,7 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     exec/*.cpp
     exprs/*.cpp
     format/*.cpp
+    format_v2/*.cpp
     gutil/*.cpp
     io/*.cpp
     load/*.cpp

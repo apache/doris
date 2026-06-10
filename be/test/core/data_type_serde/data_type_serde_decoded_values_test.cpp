@@ -314,10 +314,10 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadNullableDecimalBinaryValues) {
 TEST(DataTypeSerDeDecodedValuesTest, RejectMismatchedValueKind) {
     auto type = std::make_shared<DataTypeInt32>();
     auto column = type->create_column();
-    const int64_t values[] = {1};
+    const double values[] = {1.0};
 
     DecodedColumnView view;
-    view.value_kind = DecodedValueKind::INT64;
+    view.value_kind = DecodedValueKind::DOUBLE;
     view.row_count = 1;
     view.values = reinterpret_cast<const uint8_t*>(values);
 
