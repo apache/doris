@@ -992,6 +992,21 @@ class Suite implements GroovyInterceptable {
         throw new RuntimeException("dictionary ${dictName} are not ready, status: ${result}")
     }
 
+    void waitForColocateGroupStable(String groupName, int timeoutSeconds = 60) {
+        waitForColocateGroupStable(context.dbName, groupName, timeoutSeconds)
+    }
+
+    void waitForColocateGroupStable(String dbName, String groupName, int timeoutSeconds = 60) {
+        String fullGroupName = "${dbName}.${groupName}"
+        logger.info("wait colocate group ${fullGroupName} stable")
+        awaitUntil(timeoutSeconds) {
+            def groups = sql_return_maparray("SHOW PROC '/colocation_group'")
+            def group = groups.find { it.GroupName == fullGroupName }
+            return group != null && group.IsStable == "true"
+        }
+        logger.info("colocate group ${fullGroupName} is stable")
+    }
+
     void flightRecord(Closure actionSupplier) {
         runAction(new FlightRecordAction(context), actionSupplier)
     }
