@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -350,18 +349,9 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      */
     public Plan pushPartitionLimitThroughWindow(WindowExpression windowFunc,
             long partitionLimit, boolean hasGlobalLimit) {
-        // Prune order keys that repeat a partition key from the generated PartitionTopN: they are constant within
-        // each partition, so BE does not need to sort by them. The window above is pruned independently by the
-        // EliminateOrderByKey rule (which also benefits windows that never become a PartitionTopN); doing the
-        // PartitionTopN side here makes it robust to rewrite ordering (the topn may be created before the window
-        // is pruned), and both ends up consistent on the partition-key dimension.
-        List<OrderExpression> orderKeys = windowFunc.getOrderKeys().stream()
-                .filter(orderKey -> !windowFunc.getPartitionKeys().contains(orderKey.getOrderKey().getExpr()))
-                .collect(ImmutableList.toImmutableList());
-        LogicalPartitionTopN<Plan> partitionTopN = new LogicalPartitionTopN<>(windowFunc.getFunction(),
-                windowFunc.getPartitionKeys(), orderKeys, hasGlobalLimit, partitionLimit,
-                Optional.empty(), Optional.empty(), child(0));
-        return withExpressionsAndChild(windowExpressions, partitionTopN);
+        LogicalWindow<?> window = (LogicalWindow<?>) withChildren(new LogicalPartitionTopN<>(windowFunc, hasGlobalLimit,
+                partitionLimit, child(0)));
+        return window;
     }
 
     private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {
