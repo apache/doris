@@ -295,42 +295,6 @@ Status read_nested_list_values(const std::string& column_name, const DataTypePtr
             move_nested_scalar_tail, start_parent, append_repeated, rows_read);
 }
 
-Status skip_scalar_list_values(const std::string& column_name, int16_t repeated_level,
-                               int16_t value_slot_definition_level,
-                               ScalarColumnReader& element_reader,
-                               NestedScalarOverflow* element_overflow, int64_t rows,
-                               int64_t* rows_read) {
-    DORIS_CHECK(element_overflow != nullptr);
-    DORIS_CHECK(rows_read != nullptr);
-    auto read_batch = [&](int64_t batch_rows, NestedScalarBatch* batch) {
-        return read_nested_scalar_batch(element_reader, batch_rows, value_slot_definition_level,
-                                        batch);
-    };
-    auto start_parent = [](const NestedScalarBatch&, int64_t) { return Status::OK(); };
-    auto append_repeated = [](const NestedScalarBatch&, int64_t) { return Status::OK(); };
-    return consume_list_level_stream<NestedScalarBatch>(
-            column_name, repeated_level, rows, element_overflow, read_batch,
-            move_nested_scalar_tail, start_parent, append_repeated, rows_read);
-}
-
-Status skip_struct_list_values(const std::string& column_name, int16_t repeated_level,
-                               int16_t value_slot_definition_level,
-                               StructColumnReader& element_reader,
-                               NestedStructOverflow* element_overflow, int64_t rows,
-                               int64_t* rows_read) {
-    DORIS_CHECK(element_overflow != nullptr);
-    DORIS_CHECK(rows_read != nullptr);
-    auto read_batch = [&](int64_t batch_rows, NestedStructBatch* batch) {
-        return read_nested_struct_batch(element_reader, batch_rows, value_slot_definition_level,
-                                        batch);
-    };
-    auto start_parent = [](const NestedStructBatch&, int64_t) { return Status::OK(); };
-    auto append_repeated = [](const NestedStructBatch&, int64_t) { return Status::OK(); };
-    return consume_list_level_stream<NestedStructBatch>(
-            column_name, repeated_level, rows, element_overflow, read_batch,
-            move_nested_struct_tail, start_parent, append_repeated, rows_read);
-}
-
 } // namespace
 
 Status ListColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, int64_t* rows_read,
@@ -413,9 +377,6 @@ Status ListColumnReader::read_internal(int64_t rows, MutableColumnPtr& column, i
 }
 
 Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
-    if (dynamic_cast<MapColumnReader*>(_element_reader.get()) == nullptr) {
-        return read_internal(rows, column, rows_read, nullptr);
-    }
     RETURN_IF_ERROR(load_nested_batch(rows));
     return build_nested_column(rows, column, rows_read);
 }
@@ -454,44 +415,21 @@ Status ListColumnReader::skip(int64_t rows) {
     if (rows <= 0) {
         return Status::OK();
     }
+    auto scratch_column = _type->create_column();
+    RETURN_IF_ERROR(load_nested_batch(rows));
     int64_t rows_read = 0;
-    if (auto* element_reader = dynamic_cast<ScalarColumnReader*>(_element_reader.get())) {
-        RETURN_IF_ERROR(skip_scalar_list_values(_name, _repeated_repetition_level,
-                                                _nullable_definition_level + 1, *element_reader,
-                                                &_element_overflow, rows, &rows_read));
-    } else if (auto* struct_element_reader =
-                       dynamic_cast<StructColumnReader*>(_element_reader.get())) {
-        RETURN_IF_ERROR(skip_struct_list_values(
-                _name, _repeated_repetition_level, _nullable_definition_level + 1,
-                *struct_element_reader, &_struct_element_overflow, rows, &rows_read));
-    } else if (auto* list_element_reader = dynamic_cast<ListColumnReader*>(_element_reader.get())) {
-        auto* scalar_nested_element_reader =
-                dynamic_cast<ScalarColumnReader*>(list_element_reader->_element_reader.get());
-        if (scalar_nested_element_reader == nullptr) {
-            return Status::NotSupported(
-                    "Current parquet nested LIST skip only supports scalar nested elements for "
-                    "column {}",
-                    _name);
-        }
-        RETURN_IF_ERROR(skip_scalar_list_values(_name, _repeated_repetition_level,
-                                                list_element_reader->_nullable_definition_level + 1,
-                                                *scalar_nested_element_reader, &_element_overflow,
-                                                rows, &rows_read));
-    } else {
-        return Status::NotSupported(
-                "Current parquet LIST reader only supports scalar, scalar-child STRUCT, or nested "
-                "LIST elements for column {}",
-                _name);
-    }
+    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &rows_read));
     if (rows_read != rows) {
         return Status::Corruption("Failed to skip parquet LIST column {}: skipped {} of {} rows",
                                   _name, rows_read, rows);
     }
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 
 Status ListColumnReader::load_nested_batch(int64_t rows) {
     DORIS_CHECK(_element_reader != nullptr);
+    reset_nested_build_level_cursor();
     return _element_reader->load_nested_batch(rows);
 }
 
@@ -514,10 +452,15 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
     std::vector<uint64_t> entry_counts;
     NullMap parent_nulls;
     *values_read = 0;
-    for (int64_t level_idx = 0; level_idx < levels_written && *values_read < length_upper_bound;
-         ++level_idx) {
+    int64_t level_idx = nested_build_level_cursor();
+    while (level_idx < levels_written) {
         const int16_t def_level = def_levels[level_idx];
         const int16_t rep_level = rep_levels[level_idx];
+        const bool starts_parent = rep_level < _repetition_level;
+        if (starts_parent && *values_read >= length_upper_bound) {
+            break;
+        }
+        ++level_idx;
         if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
             continue;
         }
@@ -541,6 +484,7 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
         entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
         ++*values_read;
     }
+    set_nested_build_level_cursor(level_idx);
 
     int64_t child_value_count = 0;
     uint64_t total_entries = 0;

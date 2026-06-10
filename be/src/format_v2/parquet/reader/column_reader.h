@@ -116,10 +116,18 @@ public:
     virtual Status load_nested_batch(int64_t rows);
     virtual Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                        int64_t* values_read);
+    virtual Status skip_nested_column(int64_t rows);
     virtual const std::vector<int16_t>& nested_definition_levels() const;
     virtual const std::vector<int16_t>& nested_repetition_levels() const;
     virtual int64_t nested_levels_written() const;
     virtual bool is_or_has_repeated_child() const;
+
+    int64_t nested_build_level_cursor() const { return _nested_build_level_cursor; }
+    void set_nested_build_level_cursor(int64_t cursor) {
+        DORIS_CHECK(cursor >= 0);
+        _nested_build_level_cursor = cursor;
+    }
+    void reset_nested_build_level_cursor() { _nested_build_level_cursor = 0; }
 
 protected:
     ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type,
@@ -138,6 +146,7 @@ protected:
     const int16_t _repeated_ancestor_definition_level = 0;
     const DataTypePtr _type;
     const std::string _name;
+    int64_t _nested_build_level_cursor = 0;
 };
 
 // Parquet column reader 工厂。

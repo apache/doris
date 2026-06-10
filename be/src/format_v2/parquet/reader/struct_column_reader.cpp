@@ -430,7 +430,8 @@ Status StructColumnReader::read_internal(int64_t rows, MutableColumnPtr& column,
 }
 
 Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
-    return read_internal(rows, column, rows_read, nullptr);
+    RETURN_IF_ERROR(load_nested_batch(rows));
+    return build_nested_column(rows, column, rows_read);
 }
 
 Status StructColumnReader::read_with_ancestor_shape(int64_t rows,
@@ -467,9 +468,15 @@ Status StructColumnReader::skip(int64_t rows) {
     if (rows <= 0) {
         return Status::OK();
     }
-    for (auto& child_reader : _children) {
-        RETURN_IF_ERROR(child_reader->skip(rows));
+    auto scratch_column = _type->create_column();
+    RETURN_IF_ERROR(load_nested_batch(rows));
+    int64_t rows_read = 0;
+    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &rows_read));
+    if (rows_read != rows) {
+        return Status::Corruption("Failed to skip parquet STRUCT column {}: skipped {} of {} rows",
+                                  _name, rows_read, rows);
     }
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 
@@ -488,6 +495,7 @@ Status StructColumnReader::skip_non_scalar_children(int64_t rows) {
 }
 
 Status StructColumnReader::load_nested_batch(int64_t rows) {
+    reset_nested_build_level_cursor();
     for (auto& child_reader : _children) {
         DORIS_CHECK(child_reader != nullptr);
         RETURN_IF_ERROR(child_reader->load_nested_batch(rows));
@@ -516,11 +524,19 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     const int64_t levels_written = shape_reader->nested_levels_written();
 
     NullMap parent_nulls;
+    std::vector<int64_t> parent_level_indices;
     *values_read = 0;
-    for (int64_t level_idx = 0; level_idx < levels_written && *values_read < length_upper_bound;
-         ++level_idx) {
+    int64_t level_idx = nested_build_level_cursor();
+    while (level_idx < levels_written) {
+        const int64_t current_level_idx = level_idx;
         const int16_t def_level = def_levels[level_idx];
         const int16_t rep_level = rep_levels[level_idx];
+        const bool starts_parent =
+                !shape_reader->is_or_has_repeated_child() || rep_level <= _repetition_level;
+        if (starts_parent && *values_read >= length_upper_bound) {
+            break;
+        }
+        ++level_idx;
         if (def_level < _repeated_ancestor_definition_level) {
             continue;
         }
@@ -533,8 +549,10 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
                     "Parquet STRUCT column {} contains null for non-nullable struct", _name);
         }
         parent_nulls.push_back(parent_is_null);
+        parent_level_indices.push_back(current_level_idx);
         ++*values_read;
     }
+    set_nested_build_level_cursor(level_idx);
 
     std::vector<MutableColumnPtr> child_columns;
     child_columns.reserve(struct_column->get_columns().size());
@@ -546,13 +564,61 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
         if (output_idx < 0) {
             continue;
         }
-        int64_t child_values_read = 0;
-        RETURN_IF_ERROR(_children[child_idx]->build_nested_column(
-                *values_read, child_columns[output_idx], &child_values_read));
-        if (child_values_read != *values_read) {
+        // STRUCT owns row alignment. Child readers consume only present parent rows from their
+        // level streams; null STRUCT parents become default placeholders in every child column.
+        // This mirrors Arrow's separation between struct validity and child array materialization,
+        // and avoids asking scalar/list/map children to invent values for an absent parent.
+        int64_t pending_present_rows = 0;
+        int64_t total_child_rows = 0;
+        auto flush_present_rows = [&]() -> Status {
+            if (pending_present_rows == 0) {
+                return Status::OK();
+            }
+            int64_t child_rows = 0;
+            RETURN_IF_ERROR(_children[child_idx]->build_nested_column(
+                    pending_present_rows, child_columns[output_idx], &child_rows));
+            if (child_rows != pending_present_rows) {
+                return Status::Corruption(
+                        "Parquet STRUCT child {} built {} rows, expected {} for column {}",
+                        _children[child_idx]->name(), child_rows, pending_present_rows, _name);
+            }
+            total_child_rows += child_rows;
+            pending_present_rows = 0;
+            return Status::OK();
+        };
+        for (size_t parent_idx = 0; parent_idx < parent_nulls.size(); ++parent_idx) {
+            const auto parent_is_null = parent_nulls[parent_idx];
+            if (!parent_is_null) {
+                ++pending_present_rows;
+                continue;
+            }
+            RETURN_IF_ERROR(flush_present_rows());
+            child_columns[output_idx]->insert_default();
+            if (auto* scalar_child =
+                        dynamic_cast<ScalarColumnReader*>(_children[child_idx].get())) {
+                // Scalar struct children have one level slot for a null struct parent, but that
+                // slot is below the scalar value threshold. Advance past the exact parent level,
+                // not just one slot from the current child cursor: the cursor may be parked before
+                // ancestor LIST/MAP null/empty shape slots after a previous present-row flush.
+                const int64_t child_cursor = scalar_child->nested_build_level_cursor();
+                const int64_t next_child_cursor = parent_level_indices[parent_idx] + 1;
+                if (next_child_cursor > scalar_child->nested_levels_written()) {
+                    return Status::Corruption(
+                            "Parquet STRUCT child {} ended before null parent row in column {}",
+                            scalar_child->name(), _name);
+                }
+                scalar_child->set_nested_build_level_cursor(
+                        std::max(child_cursor, next_child_cursor));
+            } else {
+                RETURN_IF_ERROR(_children[child_idx]->skip_nested_column(1));
+            }
+            ++total_child_rows;
+        }
+        RETURN_IF_ERROR(flush_present_rows());
+        if (total_child_rows != *values_read) {
             return Status::Corruption(
                     "Parquet STRUCT child {} built {} rows, expected {} for column {}",
-                    _children[child_idx]->name(), child_values_read, *values_read, _name);
+                    _children[child_idx]->name(), total_child_rows, *values_read, _name);
         }
     }
     for (size_t child_idx = 0; child_idx < child_columns.size(); ++child_idx) {

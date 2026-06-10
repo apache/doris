@@ -531,6 +531,12 @@ Status ParquetColumnReader::build_nested_column(int64_t, MutableColumnPtr&, int6
                                 _name);
 }
 
+Status ParquetColumnReader::skip_nested_column(int64_t rows) {
+    auto scratch_column = _type->create_column();
+    int64_t values_read = 0;
+    return build_nested_column(rows, scratch_column, &values_read);
+}
+
 const std::vector<int16_t>& ParquetColumnReader::nested_definition_levels() const {
     static const std::vector<int16_t> empty;
     return empty;

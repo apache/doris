@@ -415,20 +415,41 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
     }
 
     const int16_t leaf_definition_level = context.descriptor->max_definition_level();
-    int64_t value_slot_count = 0;
+    // Arrow's RecordReader may emit value placeholders for null ancestors that are below the
+    // Doris materialization threshold. Those slots must still advance the payload value index;
+    // otherwise the next defined child level points at the placeholder instead of its real value.
+    auto count_value_slots = [&](int16_t slot_definition_level) {
+        int64_t slot_count = 0;
+        for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
+            if (batch->def_levels[level_idx] >= slot_definition_level &&
+                batch->rep_levels[level_idx] <= value_slot_repetition_level) {
+                ++slot_count;
+            }
+        }
+        return slot_count;
+    };
+
+    const int64_t value_slot_count = count_value_slots(value_slot_definition_level);
+    int16_t payload_slot_definition_level = value_slot_definition_level;
+    int64_t payload_value_slot_count = value_slot_count;
+    while (payload_slot_definition_level > 0 &&
+           payload_value_slot_count < values_written) {
+        --payload_slot_definition_level;
+        payload_value_slot_count = count_value_slots(payload_slot_definition_level);
+    }
+
     int64_t leaf_value_count = 0;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
         if (batch->def_levels[level_idx] < value_slot_definition_level ||
             batch->rep_levels[level_idx] > value_slot_repetition_level) {
             continue;
         }
-        ++value_slot_count;
         if (batch->def_levels[level_idx] == leaf_definition_level) {
             ++leaf_value_count;
         }
     }
 
-    enum class ValueLayout { LEVELS, VALUE_SLOTS, LEAF_VALUES };
+    enum class ValueLayout { LEVELS, VALUE_SLOTS, LEAF_VALUES, PAYLOAD_VALUE_SLOTS };
     ValueLayout value_layout = ValueLayout::LEAF_VALUES;
     if (values_written == batch->levels_written) {
         value_layout = ValueLayout::LEVELS;
@@ -436,19 +457,25 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
         value_layout = ValueLayout::VALUE_SLOTS;
     } else if (values_written == leaf_value_count) {
         value_layout = ValueLayout::LEAF_VALUES;
+    } else if (values_written == payload_value_slot_count) {
+        value_layout = ValueLayout::PAYLOAD_VALUE_SLOTS;
     } else {
         return Status::Corruption(
                 "Nested parquet reader returned inconsistent value count for column {}: values={}, "
-                "levels={}, slots={}, leaf_values={}",
+                "levels={}, slots={}, leaf_values={}, payload_slots={}, "
+                "payload_slot_definition_level={}",
                 context.column_name(), values_written, batch->levels_written, value_slot_count,
-                leaf_value_count);
+                leaf_value_count, payload_value_slot_count, payload_slot_definition_level);
     }
 
     batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
     NullMap value_nulls(static_cast<size_t>(values_written), 1);
     int64_t value_idx = 0;
+    const int16_t decoded_slot_definition_level =
+            value_layout == ValueLayout::PAYLOAD_VALUE_SLOTS ? payload_slot_definition_level
+                                                             : value_slot_definition_level;
     for (int64_t level_idx = 0; level_idx < batch->levels_written; ++level_idx) {
-        if (batch->def_levels[level_idx] < value_slot_definition_level ||
+        if (batch->def_levels[level_idx] < decoded_slot_definition_level ||
             batch->rep_levels[level_idx] > value_slot_repetition_level) {
             continue;
         }
@@ -457,6 +484,8 @@ Status read_nested_leaf_batch(const ArrowLeafReaderContext& context, int64_t bat
         if (value_layout == ValueLayout::LEVELS) {
             decoded_value_idx = level_idx;
         } else if (value_layout == ValueLayout::VALUE_SLOTS) {
+            decoded_value_idx = value_idx++;
+        } else if (value_layout == ValueLayout::PAYLOAD_VALUE_SLOTS) {
             decoded_value_idx = value_idx++;
         } else {
             if (!has_leaf_value) {

@@ -166,6 +166,7 @@ Status ScalarColumnReader::skip(int64_t rows) {
 
 Status ScalarColumnReader::load_nested_batch(int64_t rows) {
     DORIS_CHECK(_nested_batch != nullptr);
+    reset_nested_build_level_cursor();
     // Nullable scalar leaves materialize one slot for both non-null values and null placeholders.
     // The value index stream must advance on those null slots, otherwise later payload values shift.
     const int16_t materialized_slot_definition_level =
@@ -185,16 +186,17 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     NestedScalarValueCursor value_cursor(_nested_batch.get());
     const int16_t materialized_slot_definition_level = _nested_batch->value_slot_definition_level;
     *values_read = 0;
-    for (int64_t level_idx = 0;
-         level_idx < _nested_batch->levels_written && *values_read < length_upper_bound;
-         ++level_idx) {
-        const int16_t def_level = _nested_batch->def_levels[level_idx];
-        const int16_t rep_level = _nested_batch->rep_levels[level_idx];
+    int64_t level_idx = nested_build_level_cursor();
+    while (level_idx < _nested_batch->levels_written && *values_read < length_upper_bound) {
+        const int64_t current_level_idx = level_idx;
+        const int16_t def_level = _nested_batch->def_levels[current_level_idx];
+        const int16_t rep_level = _nested_batch->rep_levels[current_level_idx];
+        ++level_idx;
         if (def_level < materialized_slot_definition_level || rep_level > _repetition_level) {
             continue;
         }
         if (def_level == _definition_level) {
-            RETURN_IF_ERROR(append_scalar_batch_value(*this, *_nested_batch, level_idx,
+            RETURN_IF_ERROR(append_scalar_batch_value(*this, *_nested_batch, current_level_idx,
                                                       &value_cursor, column));
         } else {
             if (!_type->is_nullable() && def_level >= _nullable_definition_level) {
@@ -205,6 +207,7 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
         }
         ++*values_read;
     }
+    set_nested_build_level_cursor(level_idx);
     return Status::OK();
 }
 
