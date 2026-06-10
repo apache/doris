@@ -58,6 +58,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -77,6 +78,7 @@ public class StreamLoadHandler {
     private List<OlapTable> tables = Lists.newArrayList();
     private long timeoutMs;
     private List fragmentParams = Lists.newArrayList();
+    private final Instant statementStartTime;
 
     public StreamLoadHandler(TStreamLoadPutRequest request, AtomicInteger indexId,
             TStreamLoadPutResult result, String clientAddr) {
@@ -86,6 +88,7 @@ public class StreamLoadHandler {
         this.multiTableFragmentInstanceIdIndex = indexId;
         this.result = result;
         this.clientAddr = clientAddr;
+        this.statementStartTime = Instant.now();
     }
 
     /**
@@ -262,6 +265,7 @@ public class StreamLoadHandler {
         }
         try {
             NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
+            streamLoadTask.setStatementStartTime(statementStartTime);
             if (isMultiTableRequest) {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }

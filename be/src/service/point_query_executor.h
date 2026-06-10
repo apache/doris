@@ -100,6 +100,8 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
+    void update_runtime_state(const PTabletKeyLookupRequest& request);
+
     // delete sign idx in block
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
 

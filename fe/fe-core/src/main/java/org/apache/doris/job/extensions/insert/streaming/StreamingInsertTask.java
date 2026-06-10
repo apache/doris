@@ -44,6 +44,7 @@ import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -95,7 +96,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
             ctx.setCloudCluster(cloudCluster);
         }
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = new StatementContext(ctx, null, Instant.now());
         ctx.setStatementContext(statementContext);
 
         this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);

@@ -51,6 +51,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.MessageFormat;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -273,6 +274,8 @@ public abstract class BaseAnalysisTask {
 
     protected AnalysisJob job;
 
+    protected Instant statementStartTime = Instant.now();
+
     @VisibleForTesting
     public BaseAnalysisTask() {
 
@@ -302,6 +305,7 @@ public abstract class BaseAnalysisTask {
     }
 
     public void execute() throws Exception {
+        statementStartTime = Instant.now();
         prepareExecution();
         try {
             doExecute();
@@ -646,7 +650,7 @@ public abstract class BaseAnalysisTask {
         String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
-            stmtExecutor = new StmtExecutor(a.connectContext, sql);
+            stmtExecutor = new StmtExecutor(a.connectContext, sql, statementStartTime);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
                 if (MetricRepo.isInit) {
@@ -685,7 +689,7 @@ public abstract class BaseAnalysisTask {
 
     protected void runInsert(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            stmtExecutor = new StmtExecutor(r.connectContext, sql, statementStartTime);
             try {
                 stmtExecutor.execute();
                 QueryState queryState = stmtExecutor.getContext().getState();

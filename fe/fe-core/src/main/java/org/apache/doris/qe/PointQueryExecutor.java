@@ -412,12 +412,7 @@ public class PointQueryExecutor implements CoordInterface {
                     .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions);
         }
 
-        // Set timezone for functions like from_unixtime
-        String timeZone = ConnectContext.get().getSessionVariable().getTimeZone();
-        if ("CST".equals(timeZone)) {
-            timeZone = "Asia/Shanghai";
-        }
-        requestBuilder.setTimeZone(timeZone);
+        setQueryGlobals(requestBuilder, ConnectContext.get());
 
         if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
             requestBuilder.setVersion(snapshotVisibleVersions.get(0));
@@ -435,6 +430,14 @@ public class PointQueryExecutor implements CoordInterface {
 
         addKeyTuples(requestBuilder);
         return requestBuilder.build();
+    }
+
+    static void setQueryGlobals(InternalService.PTabletKeyLookupRequest.Builder requestBuilder,
+            ConnectContext connectContext) {
+        StatementContext statementContext = connectContext.getStatementContext();
+        requestBuilder.setTimeZone(statementContext.getStatementTimeZone().getId());
+        requestBuilder.setTimestampMs(statementContext.getStatementStartTimeMillis());
+        requestBuilder.setNanoSeconds(statementContext.getStatementStartTimeNanoSeconds());
     }
 
     private InternalService.PTabletKeyLookupResponse fetchTabletData(

@@ -200,6 +200,31 @@ std::shared_ptr<TabletSchema> ReusableTestHelper::tablet_schema = []() {
     return schema;
 }();
 
+TEST(ReusableTest, PQTestUpdateRuntimeStateForEachRequest) {
+    auto reusable = ReusableTestHelper::create_reusable();
+    ASSERT_NE(reusable, nullptr);
+
+    PTabletKeyLookupRequest first_request;
+    first_request.set_time_zone("Asia/Shanghai");
+    first_request.set_timestamp_ms(1001);
+    first_request.set_nano_seconds(123456000);
+    reusable->update_runtime_state(first_request);
+
+    EXPECT_EQ(reusable->runtime_state()->timezone(), "Asia/Shanghai");
+    EXPECT_EQ(reusable->runtime_state()->timestamp_ms(), 1001);
+    EXPECT_EQ(reusable->runtime_state()->nano_seconds(), 123456000);
+
+    PTabletKeyLookupRequest second_request;
+    second_request.set_time_zone("UTC");
+    second_request.set_timestamp_ms(2002);
+    second_request.set_nano_seconds(654321000);
+    reusable->update_runtime_state(second_request);
+
+    EXPECT_EQ(reusable->runtime_state()->timezone(), "UTC");
+    EXPECT_EQ(reusable->runtime_state()->timestamp_ms(), 2002);
+    EXPECT_EQ(reusable->runtime_state()->nano_seconds(), 654321000);
+}
+
 // RowCache test class
 class RowCacheTest : public testing::Test {
 protected:

@@ -212,6 +212,10 @@ public:
         _timezone = timezone;
         TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     }
+    void set_query_time(int64_t timestamp_ms, int32_t nano_seconds) {
+        _timestamp_ms = timestamp_ms;
+        _nano_seconds = nano_seconds;
+    }
     const std::string& lc_time_names() const { return _lc_time_names; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }

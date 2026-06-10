@@ -28,6 +28,7 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.DataPartition;
@@ -49,6 +50,8 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -82,6 +85,7 @@ public class NereidsLoadingTaskPlanner {
     // Output params
     private List<PlanFragment> fragments = Lists.newArrayList();
     private List<ScanNode> scanNodes = Lists.newArrayList();
+    private Instant statementStartTime;
 
     /**
      * NereidsLoadingTaskPlanner
@@ -101,7 +105,7 @@ public class NereidsLoadingTaskPlanner {
         this.strictMode = strictMode;
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
-        this.timezone = timezone;
+        this.timezone = TimeUtils.getCanonicalTimeZoneId(timezone);
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
@@ -142,14 +146,6 @@ public class NereidsLoadingTaskPlanner {
 
         Preconditions.checkState(!fileGroups.isEmpty() && fileGroups.size() == fileStatusesList.size());
 
-        // make sure StatementContext is set in ConnectContext
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getStatementContext() == null) {
-            StatementContext statementContext = new StatementContext();
-            connectContext.setStatementContext(statementContext);
-            statementContext.setConnectContext(connectContext);
-        }
-
         PartitionNamesInfo partitionNamesInfo = getPartitionNamesInfo();
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeoutS() : timeoutS;
         if (txnTimeout > Integer.MAX_VALUE) {
@@ -157,58 +153,80 @@ public class NereidsLoadingTaskPlanner {
         }
         NereidsBrokerLoadTask nereidsBrokerLoadTask = new NereidsBrokerLoadTask(txnId, (int) txnTimeout,
                 sendBatchParallelism,
-                strictMode, enableMemtableOnSinkNode, singleTabletLoadPerSink, partitionNamesInfo);
+                strictMode, enableMemtableOnSinkNode, singleTabletLoadPerSink, partitionNamesInfo, timezone);
+        statementStartTime = nereidsBrokerLoadTask.getStatementStartTime();
 
-        TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor();
-        scanTupleDesc.setTable(table);
-        // Collect all file group infos, contexts, and load plan infos
-        List<NereidsFileGroupInfo> fileGroupInfos = new ArrayList<>(fileGroups.size());
-        List<NereidsParamCreateContext> contexts = new ArrayList<>(fileGroups.size());
-        List<NereidsLoadPlanInfoCollector.LoadPlanInfo> loadPlanInfos =
-                new ArrayList<>(fileGroups.size());
-
-        // Create a separate plan for each file group
-        for (int i = 0; i < fileGroups.size(); ++i) {
-            NereidsFileGroupInfo fileGroupInfo = new NereidsFileGroupInfo(loadJobId, txnId, table, brokerDesc,
-                    fileGroups.get(i), fileStatusesList.get(i), filesAdded, strictMode, loadParallelism);
-            NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
-                    partialUpdateInputColumns);
-            NereidsParamCreateContext context = loadScanProvider.createLoadContext();
-            LogicalPlan loadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNamesInfo, context,
-                    isPartialUpdate, partialUpdateNewKeyPolicy);
-
-            NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(table,
-                    nereidsBrokerLoadTask, loadId, dbId,
-                    isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
-                    partialUpdateNewKeyPolicy, partialUpdateInputColumns, context.exprMap);
-            NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(loadPlan,
-                    descTable, scanTupleDesc);
-
-            fileGroupInfos.add(fileGroupInfo);
-            contexts.add(context);
-            loadPlanInfos.add(loadPlanInfo);
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext originalStatementContext = null;
+        if (connectContext != null) {
+            originalStatementContext = installBrokerLoadStatementContext(connectContext, nereidsBrokerLoadTask);
         }
 
-        // Create a single FileLoadScanNode for all file groups
-        String clusterName = ConnectContext.get() == null ? ""
-                : ConnectContext.get().getSessionVariable().resolveCloudClusterName();
-        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfos.get(0).getDestTuple(),
-                ScanContext.builder().clusterName(clusterName).build());
-        fileScanNode.finalizeForNereids(loadId, fileGroupInfos, contexts, loadPlanInfos);
-        scanNodes.add(fileScanNode);
+        try {
+            TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor();
+            scanTupleDesc.setTable(table);
+            // Collect all file group infos, contexts, and load plan infos
+            List<NereidsFileGroupInfo> fileGroupInfos = new ArrayList<>(fileGroups.size());
+            List<NereidsParamCreateContext> contexts = new ArrayList<>(fileGroups.size());
+            List<NereidsLoadPlanInfoCollector.LoadPlanInfo> loadPlanInfos =
+                    new ArrayList<>(fileGroups.size());
 
-        // Create plan fragment
-        PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), fileScanNode, DataPartition.RANDOM);
-        sinkFragment.setParallelExecNum(loadParallelism);
-        sinkFragment.setSink(loadPlanInfos.get(0).getOlapTableSink());
+            // Create a separate plan for each file group
+            for (int i = 0; i < fileGroups.size(); ++i) {
+                NereidsFileGroupInfo fileGroupInfo = new NereidsFileGroupInfo(loadJobId, txnId, table, brokerDesc,
+                        fileGroups.get(i), fileStatusesList.get(i), filesAdded, strictMode, loadParallelism);
+                NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
+                        partialUpdateInputColumns);
+                NereidsParamCreateContext context = loadScanProvider.createLoadContext();
+                LogicalPlan loadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNamesInfo, context,
+                        isPartialUpdate, partialUpdateNewKeyPolicy);
 
-        fragments.add(sinkFragment);
+                NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(table,
+                        nereidsBrokerLoadTask, loadId, dbId,
+                        isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
+                        partialUpdateNewKeyPolicy, partialUpdateInputColumns, context.exprMap);
+                NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(
+                        loadPlan, descTable, scanTupleDesc);
 
-        // finalize
-        for (PlanFragment fragment : fragments) {
-            fragment.finalize(null);
+                fileGroupInfos.add(fileGroupInfo);
+                contexts.add(context);
+                loadPlanInfos.add(loadPlanInfo);
+            }
+
+            // Create a single FileLoadScanNode for all file groups
+            String clusterName = ConnectContext.get() == null ? ""
+                    : ConnectContext.get().getSessionVariable().resolveCloudClusterName();
+            FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0),
+                    loadPlanInfos.get(0).getDestTuple(), ScanContext.builder().clusterName(clusterName).build());
+            fileScanNode.finalizeForNereids(loadId, fileGroupInfos, contexts, loadPlanInfos);
+            scanNodes.add(fileScanNode);
+
+            // Create plan fragment
+            PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), fileScanNode, DataPartition.RANDOM);
+            sinkFragment.setParallelExecNum(loadParallelism);
+            sinkFragment.setSink(loadPlanInfos.get(0).getOlapTableSink());
+
+            fragments.add(sinkFragment);
+
+            // finalize
+            for (PlanFragment fragment : fragments) {
+                fragment.finalize(null);
+            }
+            Collections.reverse(fragments);
+        } finally {
+            NereidsStreamLoadPlanner.restoreStatementContext(connectContext, originalStatementContext);
         }
-        Collections.reverse(fragments);
+    }
+
+    static StatementContext installBrokerLoadStatementContext(ConnectContext connectContext,
+            NereidsBrokerLoadTask nereidsBrokerLoadTask) {
+        StatementContext originalStatementContext = connectContext.getStatementContext();
+        StatementContext statementContext = new StatementContext(connectContext, null,
+                nereidsBrokerLoadTask.getStatementStartTime(),
+                ZoneId.of(nereidsBrokerLoadTask.getTimezone(), TimeUtils.timeZoneAliasMap));
+        connectContext.setStatementContext(statementContext);
+        statementContext.setConnectContext(connectContext);
+        return originalStatementContext;
     }
 
     public DescriptorTable getDescTable() {
@@ -221,6 +239,10 @@ public class NereidsLoadingTaskPlanner {
 
     public List<ScanNode> getScanNodes() {
         return scanNodes;
+    }
+
+    public Instant getStatementStartTime() {
+        return statementStartTime;
     }
 
     public String getTimezone() {

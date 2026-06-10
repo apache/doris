@@ -56,6 +56,13 @@ jobs:
           max-size: "5G"
           restore-keys: BE-UT-macOS-
 
+      - name: Set up JDK 17
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Run UT ${{ github.ref }}
         if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
         run: |
@@ -96,5 +103,5 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          export JAVA_HOME="${JAVA_HOME%\/}"
           ./run-be-ut.sh --run -j "$(nproc)" --clean

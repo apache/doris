@@ -156,7 +156,7 @@ import org.jetbrains.annotations.NotNull;
 import org.joda.time.DateTime;
 
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -365,15 +365,11 @@ public class Coordinator implements CoordInterface {
         }
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        Instant statementStartTime = CoordinatorContext.getStatementStartTimeOrNow(context);
+        String statementTimeZone = CoordinatorContext.getStatementTimeZoneOrDefault(context);
+        CoordinatorContext.setQueryTime(this.queryGlobals, statementStartTime, statementTimeZone);
         this.queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
+        this.queryGlobals.setTimeZone(statementTimeZone);
         this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
@@ -389,6 +385,13 @@ public class Coordinator implements CoordInterface {
     // Constructor of Coordinator is too complicated.
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        this(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile,
+                Instant.now());
+    }
+
+    public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile,
+            Instant statementStartTime) {
         this.jobId = jobId;
         this.queryId = queryId;
         this.descTable = DescriptorToThriftConverter.toThrift(descTable);
@@ -397,9 +400,9 @@ public class Coordinator implements CoordInterface {
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryOptions.setProfileLevel(2);
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setTimeZone(timezone);
+        String canonicalTimeZone = TimeUtils.getCanonicalTimeZoneId(timezone);
+        CoordinatorContext.setQueryTime(this.queryGlobals, statementStartTime, canonicalTimeZone);
+        this.queryGlobals.setTimeZone(canonicalTimeZone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
 

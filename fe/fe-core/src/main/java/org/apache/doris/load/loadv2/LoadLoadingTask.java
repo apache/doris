@@ -162,7 +162,7 @@ public class LoadLoadingTask extends LoadTask {
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
-                enableProfile);
+                enableProfile, planner.getStatementStartTime());
         if (enableProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }

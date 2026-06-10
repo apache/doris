@@ -42,6 +42,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -65,7 +66,8 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -208,14 +210,19 @@ public class NereidsStreamLoadPlanner {
             }
         }
 
-        // make sure StatementContext is set in ConnectContext
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getStatementContext() == null) {
-            StatementContext statementContext = new StatementContext();
-            connectContext.setStatementContext(statementContext);
-            statementContext.setConnectContext(connectContext);
+        StatementContext originalStatementContext = installTaskStatementContext(connectContext,
+                taskInfo.getStatementStartTime(), taskInfo.getTimezone());
+        try {
+            return planWithTaskStatementContext(loadId, fragmentInstanceIdIndex, uniquekeyUpdateMode,
+                    partialUpdateInputColumns);
+        } finally {
+            restoreStatementContext(connectContext, originalStatementContext);
         }
+    }
 
+    private TPipelineFragmentParams planWithTaskStatementContext(TUniqueId loadId, int fragmentInstanceIdIndex,
+            TUniqueKeyUpdateMode uniquekeyUpdateMode, HashSet<String> partialUpdateInputColumns) throws UserException {
         // 1. create file group
         NereidsDataDescription dataDescription = new NereidsDataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
@@ -324,20 +331,41 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setNewVersionUnixTimestamp(true);
         queryOptions.setNewVersionPercentile(true);
         params.setQueryOptions(queryOptions);
+        params.setQueryGlobals(createQueryGlobals());
+        params.setTableName(destTable.getName());
+        params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
+        return params;
+    }
+
+    static StatementContext installTaskStatementContext(ConnectContext connectContext, Instant statementStartTime,
+            String timeZone) {
+        if (connectContext == null) {
+            return null;
+        }
+        StatementContext originalStatementContext = connectContext.getStatementContext();
+        StatementContext statementContext = new StatementContext(connectContext, null, statementStartTime,
+                ZoneId.of(timeZone, TimeUtils.timeZoneAliasMap));
+        connectContext.setStatementContext(statementContext);
+        statementContext.setConnectContext(connectContext);
+        return originalStatementContext;
+    }
+
+    static void restoreStatementContext(ConnectContext connectContext, StatementContext originalStatementContext) {
+        if (connectContext != null) {
+            connectContext.setStatementContext(originalStatementContext);
+        }
+    }
+
+    TQueryGlobals createQueryGlobals() {
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
-        queryGlobals.setTimeZone(taskInfo.getTimezone());
+        String timeZone = TimeUtils.getCanonicalTimeZoneId(taskInfo.getTimezone());
+        CoordinatorContext.setQueryTime(queryGlobals, taskInfo.getStatementStartTime(), timeZone);
+        queryGlobals.setTimeZone(timeZone);
         if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
             queryGlobals.setLoadZeroTolerance(false);
         } else {
             queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
         }
-        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
-
-        params.setQueryGlobals(queryGlobals);
-        params.setTableName(destTable.getName());
-        params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
-        return params;
+        return queryGlobals;
     }
 }

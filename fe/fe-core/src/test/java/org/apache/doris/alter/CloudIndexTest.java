@@ -41,6 +41,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
@@ -59,8 +60,6 @@ import org.apache.doris.utframe.MockedMetaServerFactory;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -74,9 +73,6 @@ import java.util.List;
 import java.util.Map;
 
 public class CloudIndexTest {
-    private static final Logger LOG = LogManager.getLogger(CloudIndexTest.class);
-
-    private static String fileName = "./CloudIndexTest";
 
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
@@ -234,6 +230,8 @@ public class CloudIndexTest {
         FakeEnv.setEnv(masterEnv);
 
         ctx = new ConnectContext();
+        StatementContext statementContext = new StatementContext(ctx, null);
+        ctx.setStatementContext(statementContext);
         ctx.setEnv(masterEnv);
         UserIdentity rootUser = new UserIdentity("root", "%");
         rootUser.setIsAnalyzed();

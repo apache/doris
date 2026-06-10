@@ -68,7 +68,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -303,7 +303,7 @@ public class CoordinatorContext {
             List<ScanNode> scanNodes,
             DescriptorTable descTable,
             String timezone, boolean loadZeroTolerance,
-            boolean enableProfile) {
+            boolean enableProfile, Instant statementStartTime) {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setEnableProfile(enableProfile);
         queryOptions.setProfileLevel(2);
@@ -312,9 +312,9 @@ public class CoordinatorContext {
         queryOptions.setNewVersionPercentile(true);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
-        queryGlobals.setTimeZone(timezone);
+        String canonicalTimeZone = TimeUtils.getCanonicalTimeZoneId(timezone);
+        setQueryTime(queryGlobals, statementStartTime, canonicalTimeZone);
+        queryGlobals.setTimeZone(canonicalTimeZone);
         queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
 
         ExecutionProfile executionProfile = new ExecutionProfile(
@@ -346,17 +346,41 @@ public class CoordinatorContext {
 
     public static TQueryGlobals createQueryGlobals(ConnectContext context) {
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
-        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        Instant statementStartTime = getStatementStartTimeOrNow(context);
+        String statementTimeZone = getStatementTimeZoneOrDefault(context);
+        setQueryTime(queryGlobals, statementStartTime, statementTimeZone);
         queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
+        queryGlobals.setTimeZone(statementTimeZone);
         queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         return queryGlobals;
+    }
+
+    public static void setQueryTime(TQueryGlobals queryGlobals, Instant statementStartTime) {
+        queryGlobals.setTimestampMs(statementStartTime.toEpochMilli());
+        queryGlobals.setNanoSeconds(statementStartTime.getNano());
+    }
+
+    public static void setQueryTime(TQueryGlobals queryGlobals, Instant statementStartTime, String timeZone) {
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatFromTimeZone(timeZone).format(statementStartTime));
+        setQueryTime(queryGlobals, statementStartTime);
+    }
+
+    public static Instant getStatementStartTimeOrNow(ConnectContext context) {
+        if (context != null && context.getStatementContext() != null
+                && context.getStatementContext().getStatementStartTime() != null) {
+            return context.getStatementContext().getStatementStartTime();
+        }
+        return Instant.now();
+    }
+
+    public static String getStatementTimeZoneOrDefault(ConnectContext context) {
+        if (context != null && context.getStatementContext() != null
+                && context.getStatementContext().getStatementTimeZone() != null) {
+            return context.getStatementContext().getStatementTimeZone().getId();
+        }
+        String timeZone = context == null || context.getSessionVariable() == null
+                ? TimeUtils.DEFAULT_TIME_ZONE : context.getSessionVariable().getTimeZone();
+        return TimeUtils.getCanonicalTimeZoneId(timeZone);
     }
 
     private static void setOptionsFromUserProperty(ConnectContext connectContext, TQueryOptions queryOptions) {

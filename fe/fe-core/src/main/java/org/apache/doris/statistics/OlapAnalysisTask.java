@@ -144,7 +144,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
         ResultRow resultRow;
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            stmtExecutor = new StmtExecutor(r.connectContext, sql, statementStartTime);
             resultRow = stmtExecutor.executeInternalQuery().get(0);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime) + " Min max SQL: "

@@ -65,17 +65,24 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -85,10 +92,13 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -106,6 +116,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -134,6 +148,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     }
 
     public static Expression evaluate(Expression expression, ExpressionRewriteContext expressionRewriteContext) {
+        if (expressionRewriteContext != null && expressionRewriteContext.cascadesContext.getConnectContext()
+                .getSessionVariable().isDebugSkipFoldConstant()) {
+            return expression;
+        }
         return VISITOR_INSTANCE.rewrite(expression, expressionRewriteContext);
     }
 
@@ -170,6 +188,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Or.class, this::visitOr),
                 matches(TryCast.class, this::visitTryCast),
                 matches(Cast.class, this::visitCast),
+                matches(Now.class, this::visitNow),
                 matches(BoundFunction.class, this::visitBoundFunction),
                 matches(BinaryArithmetic.class, this::visitBinaryArithmetic),
                 matches(CaseWhen.class, this::visitCaseWhen),
@@ -548,13 +567,124 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     }
 
     @Override
+    public Expression visitNow(Now now, ExpressionRewriteContext context) {
+        now = rewriteChildren(now, context);
+        Optional<Expression> checkedExpr = preProcess(now);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        Optional<ZoneId> statementTimeZone = getStatementTimeZone(context);
+        Optional<Integer> precision = getIntegerPrecision(now);
+        if (!statementStartTime.isPresent() || !statementTimeZone.isPresent() || !precision.isPresent()) {
+            return now;
+        }
+        return DateTimeV2Literal.fromJavaDateType(
+                LocalDateTime.ofInstant(statementStartTime.get(), statementTimeZone.get()),
+                precision.get());
+    }
+
+    @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = rewriteChildren(boundFunction, context);
         Optional<Expression> checkedExpr = preProcess(boundFunction);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
+        Optional<Expression> statementTimeExpression = evaluateStatementTimeFunction(boundFunction, context);
+        if (statementTimeExpression.isPresent()) {
+            return statementTimeExpression.get();
+        }
         return ExpressionEvaluator.INSTANCE.eval(boundFunction);
+    }
+
+    private Optional<Expression> evaluateStatementTimeFunction(BoundFunction function,
+            ExpressionRewriteContext context) {
+        if (!isStatementTimeFunction(function)) {
+            return Optional.empty();
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        Optional<ZoneId> statementTimeZone = getStatementTimeZone(context);
+        if (!statementStartTime.isPresent() || !statementTimeZone.isPresent()) {
+            return Optional.of(function);
+        }
+
+        Instant instant = statementStartTime.get();
+        if (function instanceof CurrentDate) {
+            return Optional.of(DateV2Literal.fromJavaDateType(
+                    LocalDateTime.ofInstant(instant, statementTimeZone.get())));
+        } else if (function instanceof CurrentTime) {
+            LocalDateTime dateTime = LocalDateTime.ofInstant(instant, statementTimeZone.get());
+            if (function.arity() == 0) {
+                return Optional.of(TimeV2Literal.fromJavaDateType(dateTime));
+            }
+            Optional<Integer> precision = getTinyIntPrecision(function);
+            return precision.isPresent()
+                    ? Optional.of(TimeV2Literal.fromJavaDateType(dateTime, precision.get()))
+                    : Optional.of(function);
+        } else if (function instanceof UnixTimestamp) {
+            return Optional.of(new BigIntLiteral(instant.getEpochSecond()));
+        } else if (function instanceof UtcDate) {
+            return Optional.of(DateV2Literal.fromJavaDateType(
+                    LocalDateTime.ofInstant(instant, ZoneOffset.UTC)));
+        } else if (function instanceof UtcTime) {
+            LocalDateTime dateTime = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+            if (function.arity() == 0) {
+                return Optional.of(TimeV2Literal.fromJavaDateType(dateTime));
+            }
+            Optional<Integer> precision = getIntegerPrecision(function);
+            return precision.isPresent()
+                    ? Optional.of(TimeV2Literal.fromJavaDateType(dateTime, precision.get()))
+                    : Optional.of(function);
+        } else {
+            LocalDateTime dateTime = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+            Optional<Integer> precision = getIntegerPrecision(function);
+            return precision.isPresent()
+                    ? Optional.of(DateTimeV2Literal.fromJavaDateType(dateTime, precision.get()))
+                    : Optional.of(function);
+        }
+    }
+
+    private boolean isStatementTimeFunction(BoundFunction function) {
+        return function instanceof CurrentDate
+                || function instanceof CurrentTime
+                || (function instanceof UnixTimestamp && function.arity() == 0)
+                || function instanceof UtcDate
+                || function instanceof UtcTime
+                || function instanceof UtcTimestamp;
+    }
+
+    private Optional<Instant> getStatementStartTime(ExpressionRewriteContext context) {
+        if (context == null
+                || context.cascadesContext == null
+                || context.cascadesContext.getStatementContext() == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(context.cascadesContext.getStatementContext().getStatementStartTime());
+    }
+
+    private Optional<ZoneId> getStatementTimeZone(ExpressionRewriteContext context) {
+        if (context == null
+                || context.cascadesContext == null
+                || context.cascadesContext.getStatementContext() == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(context.cascadesContext.getStatementContext().getStatementTimeZone());
+    }
+
+    private Optional<Integer> getIntegerPrecision(BoundFunction function) {
+        if (function.arity() == 0) {
+            return Optional.of(0);
+        }
+        return function.child(0) instanceof IntegerLiteral
+                ? Optional.of(((IntegerLiteral) function.child(0)).getValue())
+                : Optional.empty();
+    }
+
+    private Optional<Integer> getTinyIntPrecision(BoundFunction function) {
+        return function.child(0) instanceof TinyIntLiteral
+                ? Optional.of((int) ((TinyIntLiteral) function.child(0)).getValue())
+                : Optional.empty();
     }
 
     @Override

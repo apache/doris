@@ -142,6 +142,10 @@ public class TimeUtils {
         return getTimeZone().toZoneId();
     }
 
+    public static String getCanonicalTimeZoneId(String timeZone) {
+        return ZoneId.of(timeZone, timeZoneAliasMap).getId();
+    }
+
     public static TimeZone getUTCTimeZone() {
         return TimeZone.getTimeZone(UTC_TIME_ZONE);
     }
@@ -400,4 +404,3 @@ public class TimeUtils {
         return convertToDateV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }
-

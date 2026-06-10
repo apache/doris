@@ -546,21 +546,41 @@ suite("test_point_query") {
         qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
 
-        // test prepared statement should not be short-circuited plan which use nondeterministic function
-        try (PreparedStatement pstmt = prepareStatement("select now(3) data_time from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = 'feature'")) {
-            def result1 = ""
-            def result2 = ""
+        // Test each prepared point-query execution uses its own statement time.
+        try (PreparedStatement pstmt = prepareStatement("select now(6), now(6) from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = 'feature'")) {
+            def result1
+            def result2
             try (ResultSet rs = pstmt.executeQuery()) {
-                result1 = JdbcUtils.toList(rs).v1
-                logger.info("result: {}", result1)
+                assertTrue(rs.next())
+                result1 = [rs.getTimestamp(1), rs.getTimestamp(2)]
             }
+            assertEquals(result1[0], result1[1])
             sleep(100)
             try (ResultSet rs = pstmt.executeQuery()) {
-                result2 = JdbcUtils.toList(rs).v1
-                logger.info("result: {}", result2)
+                assertTrue(rs.next())
+                result2 = [rs.getTimestamp(1), rs.getTimestamp(2)]
             }
-            assertNotEquals(result1, result2)
+            assertEquals(result2[0], result2[1])
+            assertNotEquals(result1[0], result2[0])
         }
+
+        // The second execution reuses the cached direct point-query path. SET_VAR must still
+        // be applied before building the lightweight lookup request.
+        sql "set time_zone = '+08:00'"
+        try (PreparedStatement pstmt = prepareStatement("select /*+ SET_VAR(time_zone='+00:00') */ "
+                + "from_unixtime(col1) from regression_test_point_query_p0.table_3821461 "
+                + "where col1 = ? and col2 = ? and loc3 = 'aabc'")) {
+            pstmt.setInt(1, 20)
+            pstmt.setInt(2, 30)
+            for (int i = 0; i < 2; i++) {
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    assertTrue(rs.next())
+                    assertEquals("1970-01-01 00:00:20", rs.getString(1))
+                }
+            }
+        }
+        def sessionTimeZone = sql "select @@time_zone"
+        assertEquals("+08:00", sessionTimeZone[0][0])
     }
     // test shrink char type
     sql "DROP TABLE IF EXISTS table_with_chars"

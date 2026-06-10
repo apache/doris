@@ -216,6 +216,15 @@ void Reusable::return_block(std::unique_ptr<Block>& block) {
     }
 }
 
+void Reusable::update_runtime_state(const PTabletKeyLookupRequest& request) {
+    if (request.has_time_zone() && !request.time_zone().empty()) {
+        _runtime_state->set_timezone(request.time_zone());
+    }
+    if (request.has_timestamp_ms()) {
+        _runtime_state->set_query_time(request.timestamp_ms(), request.nano_seconds());
+    }
+}
+
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
     DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
     auto* res = new LookupConnectionCache(capacity);
@@ -361,10 +370,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         }
     }
     _init_remote_scan_cache_write_limiter();
-    // Set timezone from request for functions like from_unixtime()
-    if (request->has_time_zone() && !request->time_zone().empty()) {
-        _reusable->runtime_state()->set_timezone(request->time_zone());
-    }
+    _reusable->update_runtime_state(*request);
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();
     }

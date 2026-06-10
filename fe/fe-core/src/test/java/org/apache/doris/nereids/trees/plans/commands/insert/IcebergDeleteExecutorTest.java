@@ -27,6 +27,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.BaseExternalTableDataSink;
 import org.apache.doris.planner.IcebergDeleteSink;
 import org.apache.doris.planner.PlanNodeId;
@@ -93,6 +94,8 @@ public class IcebergDeleteExecutorTest {
         IcebergExternalTable table = mockIcebergExternalTable(3, transactionManager);
         NereidsPlanner planner = mockPlanner(Collections.singletonList(scanNode));
         ConnectContext ctx = new ConnectContext();
+        StatementContext statementContext = new StatementContext(ctx, null);
+        ctx.setStatementContext(statementContext);
         ctx.setQueryId(new TUniqueId(1L, 2L));
         ctx.getSessionVariable().setEnableNereidsDistributePlanner(false);
         ctx.setThreadLocalInfo();

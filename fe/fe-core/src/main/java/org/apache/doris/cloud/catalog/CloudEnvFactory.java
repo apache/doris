@@ -41,6 +41,7 @@ import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -53,6 +54,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -61,6 +63,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import java.lang.reflect.Type;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -177,12 +180,24 @@ public class CloudEnvFactory extends EnvFactory {
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        return createCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
+                enableProfile, CoordinatorContext.getStatementStartTimeOrNow(ConnectContext.get()));
+    }
+
+    @Override
+    public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+                                         List<PlanFragment> fragments, List<ScanNode> scanNodes,
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile,
+                                         Instant statementStartTime) {
+        String canonicalTimeZone = TimeUtils.getCanonicalTimeZoneId(timezone);
         if (SessionVariable.canUseNereidsDistributePlanner()) {
             return super.createCoordinator(
-                    jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile);
+                    jobId, queryId, descTable, fragments, scanNodes, canonicalTimeZone, loadZeroTolerance,
+                    enableProfile,
+                    statementStartTime);
         }
-        return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
-                                enableProfile);
+        return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, canonicalTimeZone,
+                loadZeroTolerance, enableProfile, statementStartTime);
     }
 
     @Override
