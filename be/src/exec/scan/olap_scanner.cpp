@@ -543,7 +543,7 @@ Status OlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.return_columns.insert(
                         std::end(_tablet_reader_params.return_columns),
                         std::begin(return_seq_columns), std::end(return_seq_columns));
-            } // end of REPLACE-column sequence expansion
+            }
         }
     }
 
