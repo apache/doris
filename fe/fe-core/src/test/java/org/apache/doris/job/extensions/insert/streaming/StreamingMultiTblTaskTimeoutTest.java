@@ -17,12 +17,10 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import org.apache.doris.common.Config;
 import org.apache.doris.job.cdc.StreamingTaskProgress;
 
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -56,30 +54,30 @@ public class StreamingMultiTblTaskTimeoutTest {
     @Test
     public void readAdvancingRenewsDeadline() {
         StreamingMultiTblTask t = newTask(10 * 3600_000L, 60L);
-        assertFalse(t.isTimeout(prog(2000)));
+        Assert.assertFalse(t.isTimeout(prog(2000)));
     }
 
     @Test
     public void noProgressWithinBudgetNotTimeout() {
         StreamingMultiTblTask t = newTask(5 * 60_000L, 60L);
-        assertFalse(t.isTimeout(prog(1000)));
+        Assert.assertFalse(t.isTimeout(prog(1000)));
     }
 
     @Test
     public void noProgressOverBudgetTimeout() {
         StreamingMultiTblTask t = newTask(11 * 60_000L, 60L);
-        assertTrue(t.isTimeout(prog(1000)));
+        Assert.assertTrue(t.isTimeout(prog(1000)));
     }
 
     @Test
     public void smallIntervalFlooredByMinTimeout() {
         StreamingMultiTblTask t = newTask(4 * 60_000L, 1L);
-        assertFalse(t.isTimeout(prog(1000)));
+        Assert.assertFalse(t.isTimeout(prog(1000)));
     }
 
     @Test
     public void nullProgressBehavesLikeOldTimeout() {
         StreamingMultiTblTask t = newTask(11 * 60_000L, 60L);
-        assertTrue(t.isTimeout(null));
+        Assert.assertTrue(t.isTimeout(null));
     }
 }
