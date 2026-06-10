@@ -84,7 +84,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long loadBytes = 0L;
     private long filteredRows = 0L;
     private long loadedRows = 0L;
-    private long runningBackendId;
+    private volatile long runningBackendId;
     long lastScannedRows = -1;
     long lastProgressMs = 0;
 
@@ -114,9 +114,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.info("streaming multi task has been canceled, task id is {}", getTaskId());
             return;
         }
-        this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
         this.lastProgressMs = this.startTimeMs;
+        this.status = TaskStatus.RUNNING;
         this.runningOffset = offsetProvider.getNextOffset(null, sourceProperties);
         log.info("streaming multi task {} get running offset: {}", taskId, runningOffset.toString());
     }
