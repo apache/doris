@@ -42,6 +42,7 @@ enum class ParquetExtraTypeInfo {
     UNIT_MICROS,
     UNIT_NS,
     IMPALA_TIMESTAMP,
+    FLOAT16,
 };
 
 enum class ParquetTimeUnit {

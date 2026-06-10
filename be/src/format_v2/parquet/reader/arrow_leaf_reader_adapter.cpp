@@ -23,6 +23,8 @@
 #include <parquet/exception.h>
 
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <cstring>
 #include <exception>
 #include <limits>
@@ -172,6 +174,56 @@ Status build_binary_values(const ArrowLeafReaderContext& context,
     return Status::OK();
 }
 
+float half_to_float(uint16_t value) {
+    const uint32_t sign = (value & 0x8000U) << 16;
+    const uint32_t exponent = (value & 0x7C00U) >> 10;
+    const uint32_t mantissa = value & 0x03FFU;
+
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            return std::bit_cast<float>(sign);
+        }
+        const float subnormal = std::ldexp(static_cast<float>(mantissa), -24);
+        return sign == 0 ? subnormal : -subnormal;
+    }
+    if (exponent == 0x1FU) {
+        return std::bit_cast<float>(sign | 0x7F800000U | (mantissa << 13));
+    }
+    return std::bit_cast<float>(sign | ((exponent + 112U) << 23) | (mantissa << 13));
+}
+
+Status build_float16_values(const ArrowLeafReaderContext& context,
+                            const std::vector<StringRef>& binary_values, int64_t row_count,
+                            std::vector<float>* float_values) {
+    if (context.type_descriptor.fixed_length != 2) {
+        return Status::Corruption("Invalid parquet Float16 length for column {}: {}",
+                                  context.column_name(), context.type_descriptor.fixed_length);
+    }
+    if (binary_values.size() != static_cast<size_t>(row_count)) {
+        return Status::Corruption(
+                "Invalid parquet Float16 value count for column {}: values={}, rows={}",
+                context.column_name(), binary_values.size(), row_count);
+    }
+    float_values->resize(static_cast<size_t>(row_count));
+    for (int64_t row = 0; row < row_count; ++row) {
+        const auto& binary_value = binary_values[static_cast<size_t>(row)];
+        if (binary_value.data == nullptr && binary_value.size == 0) {
+            (*float_values)[static_cast<size_t>(row)] = 0;
+            continue;
+        }
+        if (binary_value.data == nullptr || binary_value.size != 2) {
+            return Status::Corruption(
+                    "Invalid parquet Float16 value for column {} at row {}: data={}, size={}",
+                    context.column_name(), row, binary_value.data == nullptr ? "null" : "non-null",
+                    binary_value.size);
+        }
+        uint16_t raw_value = 0;
+        std::memcpy(&raw_value, binary_value.data, sizeof(raw_value));
+        (*float_values)[static_cast<size_t>(row)] = half_to_float(raw_value);
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 Status read_leaf_records(const ArrowLeafReaderContext& context, int64_t batch_rows,
@@ -231,6 +283,7 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
     std::vector<StringRef> binary_values;
     std::vector<std::shared_ptr<::arrow::Array>> binary_chunks;
     std::vector<uint8_t> spaced_values;
+    std::vector<float> float_values;
     DecodedColumnView view;
     view.value_kind = decoded_value_kind(context.type_descriptor);
     view.time_unit = decoded_time_unit(context.type_descriptor.time_unit);
@@ -244,8 +297,15 @@ Status append_leaf_values(const ArrowLeafReaderContext& context,
     view.null_map = null_map == nullptr || null_map->empty() ? nullptr : null_map->data();
     const bool read_dense_for_nullable =
             record_reader.read_dense_for_nullable() && view.null_map != nullptr;
-    if (view.value_kind == DecodedValueKind::BINARY ||
-        view.value_kind == DecodedValueKind::FIXED_BINARY) {
+    if (context.type_descriptor.extra_type_info == ParquetExtraTypeInfo::FLOAT16) {
+        RETURN_IF_ERROR(get_binary_chunks(context, record_reader, &binary_chunks));
+        RETURN_IF_ERROR(build_binary_values(context, binary_chunks, row_count, null_map,
+                                            read_dense_for_nullable, &binary_values));
+        RETURN_IF_ERROR(build_float16_values(context, binary_values, row_count, &float_values));
+        view.value_kind = DecodedValueKind::FLOAT;
+        view.values = reinterpret_cast<const uint8_t*>(float_values.data());
+    } else if (view.value_kind == DecodedValueKind::BINARY ||
+               view.value_kind == DecodedValueKind::FIXED_BINARY) {
         RETURN_IF_ERROR(get_binary_chunks(context, record_reader, &binary_chunks));
         RETURN_IF_ERROR(build_binary_values(context, binary_chunks, row_count, null_map,
                                             read_dense_for_nullable, &binary_values));

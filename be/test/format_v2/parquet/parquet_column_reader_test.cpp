@@ -21,6 +21,7 @@
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <limits>
@@ -125,6 +126,16 @@ protected:
         EXPECT_TRUE(builder.Append(3).ok());
         EXPECT_TRUE(builder.AppendNull().ok());
         EXPECT_TRUE(builder.Append(5).ok());
+        return finish_array(&builder);
+    }
+
+    std::shared_ptr<arrow::Array> build_nullable_float16_array() {
+        arrow::HalfFloatBuilder builder;
+        EXPECT_TRUE(builder.AppendNull().ok());
+        EXPECT_TRUE(builder.Append(0x0000).ok()); // +0.0
+        EXPECT_TRUE(builder.Append(0x8000).ok()); // -0.0
+        EXPECT_TRUE(builder.Append(0x3E00).ok()); // 1.5
+        EXPECT_TRUE(builder.Append(0x7E00).ok()); // quiet NaN
         return finish_array(&builder);
     }
 
@@ -658,6 +669,34 @@ protected:
                       const auto& values = assert_cast<const ColumnFloat64&>(column);
                       EXPECT_DOUBLE_EQ(values.get_element(0), 3.5);
                       EXPECT_DOUBLE_EQ(values.get_element(1), -4.75);
+                  });
+        add_field(arrow::field("nullable_float16_col", arrow::float16(), true),
+                  build_nullable_float16_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_EQ(schema.type_descriptor.physical_type,
+                                ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
+                      EXPECT_EQ(schema.type_descriptor.fixed_length, 2);
+                      EXPECT_EQ(schema.type_descriptor.extra_type_info,
+                                ParquetExtraTypeInfo::FLOAT16);
+                      EXPECT_FALSE(schema.type_descriptor.is_string_like);
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_FLOAT);
+
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_TRUE(nullable_column.is_null_at(0));
+                      EXPECT_FALSE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_FALSE(nullable_column.is_null_at(4));
+
+                      const auto& values =
+                              assert_cast<const ColumnFloat32&>(nullable_column.get_nested_column());
+                      EXPECT_FLOAT_EQ(values.get_element(1), 0.0F);
+                      EXPECT_FALSE(std::signbit(values.get_element(1)));
+                      EXPECT_FLOAT_EQ(values.get_element(2), -0.0F);
+                      EXPECT_TRUE(std::signbit(values.get_element(2)));
+                      EXPECT_FLOAT_EQ(values.get_element(3), 1.5F);
+                      EXPECT_TRUE(std::isnan(values.get_element(4)));
                   });
         add_field(arrow::field("binary_col", arrow::binary(), false),
                   build_binary_array({"bin_a", "bin_b", "bin_c", "bin_d", "bin_e"}),
@@ -2631,6 +2670,10 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
                     "required_float", ::parquet::Repetition::REQUIRED, ::parquet::Type::FLOAT),
             ::parquet::schema::PrimitiveNode::Make(
                     "required_double", ::parquet::Repetition::REQUIRED, ::parquet::Type::DOUBLE),
+            ::parquet::schema::PrimitiveNode::Make("optional_float16",
+                                                   ::parquet::Repetition::OPTIONAL,
+                                                   ::parquet::LogicalType::Float16(),
+                                                   ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 2),
             ::parquet::schema::PrimitiveNode::Make("required_binary",
                                                    ::parquet::Repetition::REQUIRED,
                                                    ::parquet::Type::BYTE_ARRAY),
@@ -2723,6 +2766,12 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
         ASSERT_NE(field->type, nullptr);
         if (field->name == "int96_timestamp") {
             ASSERT_EQ(remove_nullable(field->type)->get_primitive_type(), TYPE_DATETIMEV2);
+        }
+        if (field->name == "optional_float16") {
+            ASSERT_TRUE(field->type->is_nullable());
+            ASSERT_EQ(remove_nullable(field->type)->get_primitive_type(), TYPE_FLOAT);
+            ASSERT_EQ(field->type_descriptor.extra_type_info, ParquetExtraTypeInfo::FLOAT16);
+            ASSERT_FALSE(field->type_descriptor.is_string_like);
         }
     }
 }

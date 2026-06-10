@@ -564,17 +564,8 @@ protected:
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(column->get() != nullptr);
         DORIS_CHECK(table_type != nullptr);
-        if (const auto* const_column = check_and_get_column<ColumnConst>(column->get())) {
-            ColumnPtr data_column = const_column->get_data_column_ptr();
-            RETURN_IF_ERROR(_align_column_nullability(&data_column, table_type));
-            ColumnPtr aligned_column = ColumnConst::create(data_column, const_column->size());
-            if (table_type->is_nullable()) {
-                *column = aligned_column->convert_to_full_column_if_const();
-            } else {
-                *column = aligned_column;
-            }
-            return Status::OK();
-        }
+        // Must return non-const column
+        *column = (*column)->convert_to_full_column_if_const();
         if (table_type->is_nullable()) {
             const auto& nested_type =
                     assert_cast<const DataTypeNullable&>(*table_type).get_nested_type();
@@ -911,6 +902,7 @@ protected:
                                                 const FileAggregateResult& file_result,
                                                 Block* block) {
         if (agg_type == TPushAggOp::type::COUNT) {
+            LOG(WARNING) << "==========1 " << file_result.count;
             // COUNT pushdown is not a final count value. It emits `count` default rows so the
             // upper COUNT(*) aggregate can count them and produce the final result, including
             // zero rows when count is 0.
