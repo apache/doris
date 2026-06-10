@@ -17,9 +17,13 @@
 
 #include "storage/index/inverted/inverted_index_writer.h"
 
+#include <CLucene/config/repl_wchar.h>
+
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
+#include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/inverted_index_term_bloom_filter.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -42,6 +46,11 @@ InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::stri
           _index_file_writer(index_file_writer) {
     _should_analyzer =
             inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta->properties());
+    // token-exists Bloom Filter is only meaningful for analyzed (fulltext) indexes; the
+    // keyword/exact path is intentionally left out (see A4 read-side guard).
+    _enable_term_bf =
+            _should_analyzer && get_parser_token_bf_from_properties(_index_meta->properties()) ==
+                                        INVERTED_INDEX_PARSER_TOKEN_BF_YES;
     _value_key_coder = get_key_coder(field_type);
     _field_name = StringUtil::string_to_wstring(field_name);
 }
@@ -585,6 +594,92 @@ void InvertedIndexColumnWriter<field_type>::write_null_bitmap(
 }
 
 template <FieldType field_type>
+void InvertedIndexColumnWriter<field_type>::write_term_bloom_filter() {
+    // Preconditions (assert correctness): only the analyzed slice path reaches here, the
+    // writer must already be closed/flushed, and the directory must still be open.
+    DCHECK(_enable_term_bf);
+    DCHECK(_index_writer == nullptr);
+    DCHECK(_dir != nullptr);
+
+    // Open a reader over the just-flushed segment without taking ownership of _dir
+    // (closeDirectoryOnCleanup=false). _dir's logical close already ran inside the earlier
+    // _index_writer->close() cascade; it stays usable here only because DorisFSDirectory::close()
+    // is a no-op and the writer never owned _dir (bOwnsDirectory=false), so the _dir unique_ptr
+    // keeps sole ownership. finish()'s FINALLY does NOT touch _dir on this (slice) path. If
+    // DorisFSDirectory::close() ever frees resources, this reuse must be revisited.
+    lucene::index::IndexReader* reader = nullptr;
+    lucene::index::TermEnum* term_enum = nullptr;
+    std::unique_ptr<lucene::store::IndexOutput> term_bf_out = nullptr;
+    try {
+        reader = lucene::index::IndexReader::open(_dir.get(), /*closeDirectoryOnCleanup=*/false);
+
+        // First pass: count distinct terms in this field to size the Bloom Filter.
+        uint64_t distinct_terms = 0;
+        term_enum = reader->terms();
+        while (term_enum->next()) {
+            const auto* term = term_enum->term(false);
+            if (term->field() == _field_name) {
+                ++distinct_terms;
+            }
+        }
+        term_enum->close();
+        _CLDELETE(term_enum);
+        term_enum = nullptr;
+
+        auto bf_res = InvertedIndexTermBloomFilter::create_for_write(
+                distinct_terms, compute_analyzer_sig(_analyzer_config));
+        if (!bf_res.has_value()) {
+            LOG(WARNING) << "Inverted index term bloom filter create error: "
+                         << bf_res.error().to_string();
+            reader->close();
+            _CLDELETE(reader);
+            return;
+        }
+        auto bf = std::move(bf_res.value());
+
+        // Second pass: feed every analyzed token from the term dictionary. These are exactly
+        // the tokens the query path looks up (same analyzed form, no re-tokenization), and the
+        // dictionary includes the zero-length keyword token where applicable (A5).
+        term_enum = reader->terms();
+        while (term_enum->next()) {
+            const auto* term = term_enum->term(false);
+            if (term->field() != _field_name) {
+                continue;
+            }
+            std::string token = lucene_wcstoutf8string(term->text(), term->textLength());
+            bf->add_token(token.data(), token.size());
+        }
+        term_enum->close();
+        _CLDELETE(term_enum);
+        term_enum = nullptr;
+
+        term_bf_out = std::unique_ptr<lucene::store::IndexOutput>(
+                _dir->createOutput(InvertedIndexDescriptor::get_temporary_term_bf_file_name()));
+        bf->serialize(term_bf_out.get());
+        term_bf_out->close();
+        term_bf_out.reset();
+
+        reader->close();
+        _CLDELETE(reader);
+    } catch (CLuceneError& e) {
+        // A failure to build the optional BF must not fail index writing: the read path
+        // treats a missing/invalid "tbf" as "unknown" and falls back to a normal lookup.
+        LOG(WARNING) << "Inverted index term bloom filter write error: " << e.what();
+        if (term_enum != nullptr) {
+            term_enum->close();
+            _CLDELETE(term_enum);
+        }
+        if (term_bf_out != nullptr) {
+            term_bf_out->close();
+        }
+        if (reader != nullptr) {
+            reader->close();
+            _CLDELETE(reader);
+        }
+    }
+}
+
+template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::finish() {
     if (_dir != nullptr) {
         std::unique_ptr<lucene::store::IndexOutput> null_bitmap_out = nullptr;
@@ -630,6 +725,21 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                                       "debug point: test throw error in fulltext "
                                       "index writer");
                         });
+                if (_enable_term_bf) {
+                    // Close the writer here (not in FINALLY) so the segment + .tis are durably
+                    // written to _dir; then enumerate the term dictionary to build the "tbf"
+                    // sub-file. The FINALLY close is guarded against a double close below.
+                    //
+                    // Move ownership out of _index_writer *before* close() so that even if
+                    // close() throws, _index_writer is already null and the FINALLY below will
+                    // not attempt a second close on a partially-closed writer (which would mask
+                    // the original error and re-enter CLucene's close path). The local closer is
+                    // destroyed at scope exit, but close() has already run exactly once.
+                    auto closing_writer = std::move(_index_writer);
+                    closing_writer->close();
+                    closing_writer.reset();
+                    write_term_bloom_filter();
+                }
             }
         } catch (CLuceneError& e) {
             error_context.eptr = std::current_exception();
@@ -645,9 +755,14 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
             if constexpr (field_is_numeric_type(field_type)) {
                 FINALLY_CLOSE(_dir);
             } else if constexpr (field_is_slice_type(field_type)) {
-                FINALLY_CLOSE(_index_writer);
-                // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
-                _index_writer.reset();
+                // When the term-BF path runs, ownership of _index_writer was moved out (and the
+                // writer closed) inside the try above so the dictionary could be enumerated; the
+                // pointer is left null even if close() threw. This guard then skips a double close.
+                if (_index_writer) {
+                    FINALLY_CLOSE(_index_writer);
+                    // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
+                    _index_writer.reset();
+                }
             }
         })
 

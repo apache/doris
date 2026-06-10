@@ -387,6 +387,19 @@ struct OlapReaderStatistics {
     int64_t inverted_index_downgrade_count = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
+    // token-exists Bloom Filter ("tbf") absent-term fast path observability.
+    // The headline (user-facing) value is skipped_lookups: how many index lookups the BF
+    // short-circuited (each one avoids a searcher open + posting read). hit rate =
+    // skipped_lookups / probe. The rest are diagnostics (cache effectiveness, cold IO, why a
+    // BF was not usable) surfaced at a lower profile level.
+    int64_t inverted_index_term_bf_skipped_lookups = 0; // proven absent -> lookup short-circuited
+    int64_t inverted_index_term_bf_probe = 0;       // usable BF probed (denominator of hit rate)
+    int64_t inverted_index_term_bf_unavailable = 0; // eligible but no usable tbf (not built/stale)
+    int64_t inverted_index_term_bf_fallthrough = 0; // BF said MAYBE -> normal lookup (present/FP)
+    int64_t inverted_index_term_bf_cache_hit = 0;   // parsed-BF cache hit (zero IO)
+    int64_t inverted_index_term_bf_cache_miss = 0;  // parsed-BF cache miss (triggers a load)
+    int64_t inverted_index_term_bf_load_count = 0;  // tbf sub-files actually read from storage
+    int64_t inverted_index_term_bf_load_bytes = 0;  // bytes read loading tbf sub-files (cold IO)
     InvertedIndexStatistics inverted_index_stats;
 
     int64_t ann_index_load_ns = 0;

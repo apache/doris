@@ -82,6 +82,12 @@ const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
 
+// token-exists Bloom Filter sub-file gate (default off). When "true", the writer emits
+// the "tbf" sub-file recording which analyzed tokens exist in this segment's term dict.
+const std::string INVERTED_INDEX_PARSER_TOKEN_BF_KEY = "token_bloom_filter";
+const std::string INVERTED_INDEX_PARSER_TOKEN_BF_YES = "true";
+const std::string INVERTED_INDEX_PARSER_TOKEN_BF_NO = "false";
+
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
@@ -136,6 +142,8 @@ std::string get_parser_string_from_properties(const std::map<std::string, std::s
 std::string get_parser_mode_string_from_properties(
         const std::map<std::string, std::string>& properties);
 std::string get_parser_phrase_support_string_from_properties(
+        const std::map<std::string, std::string>& properties);
+std::string get_parser_token_bf_from_properties(
         const std::map<std::string, std::string>& properties);
 
 CharFilterMap get_parser_char_filter_map_from_properties(

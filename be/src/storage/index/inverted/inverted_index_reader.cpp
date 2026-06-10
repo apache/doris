@@ -53,6 +53,8 @@
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/inverted/inverted_index_term_bf_query.h"
+#include "storage/index/inverted/inverted_index_term_bloom_filter.h"
 #include "storage/index/inverted/query/phrase_query.h"
 #include "storage/index/inverted/query/query_factory.h"
 #include "storage/key_coder.h"
@@ -464,6 +466,30 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
             }
         }
 
+        // token-exists Bloom Filter absent-term fast path. Runs after the query-cache miss but
+        // before paying any searcher-open IO. query_info.term_infos are already analyzed tokens
+        // at this point. Only literal terms are eligible (regexp / phrase-prefix are excluded:
+        // their "term" is a pattern, not a token). On a proven-absent result the bitmap is empty
+        // and we return immediately; otherwise we fall through to the normal lookup.
+        //
+        // Gate on the index property too (the same condition the writer used to emit the "tbf"
+        // sub-file): without this, flipping the global config on would make every fulltext index
+        // -- including ones that never built a tbf -- pay an extra open + fileExists("tbf") per
+        // eligible query, even when the searcher cache would have hit. The property lives in
+        // _index_meta (already in memory), so this gate costs nothing.
+        if (config::enable_inverted_index_term_bf &&
+            get_parser_token_bf_from_properties(_index_meta.properties()) ==
+                    INVERTED_INDEX_PARSER_TOKEN_BF_YES &&
+            query_type != InvertedIndexQueryType::MATCH_REGEXP_QUERY &&
+            query_type != InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
+            bool absent = false;
+            RETURN_IF_ERROR(try_term_bf_fast_path(context, query_type, query_info, cache_key,
+                                                  bit_map, &absent));
+            if (absent) {
+                return Status::OK();
+            }
+        }
+
         InvertedIndexCacheHandle inverted_index_cache_handle;
         RETURN_IF_ERROR(handle_searcher_cache(context, &inverted_index_cache_handle));
         auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
@@ -485,6 +511,174 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
 
 InvertedIndexReaderType FullTextIndexReader::type() {
     return InvertedIndexReaderType::FULLTEXT;
+}
+
+namespace {
+
+// Reconstruct the build-time analyzer configuration from the index properties. This must
+// mirror InvertedIndexColumnWriter::init_fulltext_index() exactly (including the
+// lower_case ReturnTrue=true default) so that the signature computed here equals the one
+// stored in the "tbf" sub-file when the same analyzer is in play.
+InvertedIndexAnalyzerConfig build_index_analyzer_config(
+        const std::map<std::string, std::string>& properties) {
+    InvertedIndexAnalyzerConfig cfg;
+    cfg.analyzer_name = get_analyzer_name_from_properties(properties);
+    cfg.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    cfg.parser_mode = get_parser_mode_string_from_properties(properties);
+    cfg.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+    cfg.lower_case = get_parser_lowercase_from_properties<true>(properties);
+    cfg.stop_words = get_parser_stopwords_from_properties(properties);
+    return cfg;
+}
+
+} // namespace
+
+// Load + validate the token BF from the "tbf" sub-file. Returns nullptr (treated as "unknown" ->
+// normal query) on any failure: missing sub-file, corruption, reader error, or an analyzer-sig
+// mismatch (A3, stale BF). Never throws. The caller caches the returned BF so this runs at most
+// once per (segment, index).
+std::shared_ptr<InvertedIndexTermBloomFilter> FullTextIndexReader::load_term_bf_from_subfile(
+        const IndexQueryContextPtr& context) {
+    lucene::store::IndexInput* bf_in = nullptr;
+    lucene::store::Directory* dir = nullptr;
+    bool owned_dir = false;
+    std::shared_ptr<InvertedIndexTermBloomFilter> bf;
+    try {
+        auto st =
+                _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx);
+        if (!st.ok()) {
+            return nullptr;
+        }
+        auto open_res = _index_file_reader->open(&_index_meta, context->io_ctx);
+        if (!open_res.has_value()) {
+            return nullptr; // real error surfaces on the normal path
+        }
+        dir = open_res.value().release();
+        owned_dir = true;
+
+        const char* bf_file_name = InvertedIndexDescriptor::get_temporary_term_bf_file_name();
+        if (!dir->fileExists(bf_file_name)) {
+            if (owned_dir) {
+                FINALIZE_INPUT(dir);
+            }
+            return nullptr; // no BF sub-file
+        }
+        bf_in = dir->openInput(bf_file_name);
+        auto bf_res = InvertedIndexTermBloomFilter::load(bf_in);
+        FINALIZE_INPUT(bf_in);
+        if (owned_dir) {
+            FINALIZE_INPUT(dir);
+        }
+        if (!bf_res.has_value()) {
+            return nullptr; // corrupt / incompatible
+        }
+        bf = std::move(bf_res.value());
+    } catch (CLuceneError& e) {
+        FINALLY_FINALIZE_INPUT(bf_in);
+        if (owned_dir) {
+            FINALLY_FINALIZE_INPUT(dir);
+        }
+        // Treat any reader error here as "unknown": never turn it into an empty result.
+        LOG(WARNING) << "term bloom filter load error, falling back to normal query: " << e.what();
+        return nullptr;
+    }
+
+    // Structural load only: a successfully parsed blob is returned regardless of analyzer. The
+    // caller applies the A3 analyzer-signature check (uniformly for cache hits and fresh loads), so
+    // that an analyzer-mismatch is treated per-reader and never cached as a negative result.
+    return bf;
+}
+
+Status FullTextIndexReader::try_term_bf_fast_path(
+        const IndexQueryContextPtr& context, InvertedIndexQueryType query_type,
+        const InvertedIndexQueryInfo& query_info,
+        const InvertedIndexQueryCache::CacheKey& cache_key,
+        std::shared_ptr<roaring::Roaring>& bit_map, bool* absent) {
+    *absent = false;
+
+    // This reader's analyzer signature, checked (A3) against the BF below. The BF cache key does
+    // not encode the analyzer, so a reader whose _index_meta was altered to a different analyzer
+    // maps to the same key; the signature is what tells a usable BF from one built for a different
+    // tokenization.
+    const uint64_t index_sig =
+            compute_analyzer_sig(build_index_analyzer_config(_index_meta.properties()));
+
+    // Reuse the parsed BF for this (segment, index) so a warm absent query does zero IO. The BF
+    // lives in the searcher cache (same LRU + memory budget, no separate cache); the cache owns the
+    // key namespacing, so we pass the logical index-file key and never see how it coexists with the
+    // searcher entry. Three outcomes per key: a real BF, a negative marker (no usable tbf), or a
+    // miss (load the "tbf" sub-file once, then cache the BF or the negative result).
+    auto* searcher_cache = InvertedIndexSearcherCache::instance();
+    if (searcher_cache == nullptr) {
+        return Status::OK(); // no cache wired (e.g. some tools) -> normal query
+    }
+    const auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
+    InvertedIndexCacheHandle bf_cache_handle;
+    std::shared_ptr<InvertedIndexTermBloomFilter> bf;
+    bool from_cache = false;
+    if (searcher_cache->lookup_term_bf(index_file_key, &bf_cache_handle)) {
+        bf = bf_cache_handle.get_term_bf();
+        if (bf == nullptr) {
+            // Negative marker: a prior query already found this (segment, index) has no usable tbf
+            // (missing/corrupt). Stable for the immutable segment -> skip re-opening it.
+            context->stats->inverted_index_term_bf_unavailable++;
+            return Status::OK();
+        }
+        from_cache = true; // a real BF; the A3 check below decides if it fits THIS reader.
+    } else {
+        context->stats->inverted_index_term_bf_cache_miss++;
+        bf = load_term_bf_from_subfile(context);
+        if (bf == nullptr) {
+            // Structurally absent/corrupt: cache the negative result so eligible queries do not
+            // re-open the index every time (analyzer mismatch is handled below, NOT cached here).
+            context->stats->inverted_index_term_bf_unavailable++;
+            searcher_cache->insert_term_bf_negative(index_file_key, &bf_cache_handle);
+            return Status::OK();
+        }
+        // A tbf blob was actually read from storage: record the cold IO it cost, and cache the BF
+        // for its build analyzer so a same-key reader with a matching analyzer reuses it.
+        context->stats->inverted_index_term_bf_load_count++;
+        context->stats->inverted_index_term_bf_load_bytes += static_cast<int64_t>(bf->byte_size());
+        searcher_cache->insert_term_bf(index_file_key, bf, &bf_cache_handle);
+    }
+
+    // A3, applied uniformly to cache hits and fresh loads: the BF cache key does not encode the
+    // analyzer, so a BF built under one analyzer can be reached by a reader using another. If the
+    // signatures differ, the BF was built for a different tokenization -> fall back (per reader;
+    // never cached as a negative, so a matching-analyzer reader still benefits).
+    if (bf->analyzer_sig() != index_sig) {
+        context->stats->inverted_index_term_bf_unavailable++;
+        return Status::OK();
+    }
+    if (from_cache) {
+        context->stats->inverted_index_term_bf_cache_hit++; // warm + usable: zero IO
+    }
+
+    // A usable BF is in hand: this is one probe (denominator of the fast-path hit rate).
+    context->stats->inverted_index_term_bf_probe++;
+
+    // Per-query-type semantics + A1 position grouping + A2 multi-term slot live in
+    // bf_query_proven_empty (shared with the unit tests, so the grouping logic is covered rather
+    // than reimplemented in the test). Ineligible types return false -> normal query below.
+    if (!bf_query_proven_empty(query_type, query_info, *bf)) {
+        context->stats->inverted_index_term_bf_fallthrough++;
+        return Status::OK();
+    }
+    context->stats->inverted_index_term_bf_skipped_lookups++;
+
+    // Proven empty. Produce an empty bitmap and (under the same gate as the normal path)
+    // populate the query cache so repeated absent-term queries stay on the fast path. Never
+    // touch df / sumTotalTermFreq: the BF runs strictly before the searcher and must not feed
+    // scoring statistics.
+    bit_map = std::make_shared<roaring::Roaring>();
+    if (!(context->collection_similarity && query_info.is_similarity_score)) {
+        auto* cache = InvertedIndexQueryCache::instance();
+        InvertedIndexQueryCacheHandle cache_handler;
+        cache->insert(cache_key, bit_map, &cache_handler);
+    }
+    *absent = true;
+    return Status::OK();
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
