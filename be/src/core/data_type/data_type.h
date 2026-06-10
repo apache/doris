@@ -84,7 +84,9 @@ public:
     virtual const std::string get_family_name() const = 0;
     virtual PrimitiveType get_primitive_type() const = 0;
 
-    virtual doris::FieldType get_storage_field_type() const = 0;
+    // Derived from the primitive type by default (e.g. TYPE_CHAR -> OLAP_FIELD_TYPE_CHAR).
+    // Types without a direct 1:1 mapping override this.
+    virtual doris::FieldType get_storage_field_type() const;
     std::string to_string(const IColumn& column, size_t row_num,
                           const DataTypeSerDe::FormatOptions& options) const;
     // get specific serializer or deserializer

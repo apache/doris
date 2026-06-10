@@ -538,21 +538,16 @@ Status SegmentIterator::_lazy_init(Block* block) {
     }
     _current_return_columns.resize(_schema->columns().size());
 
-    _vec_init_char_column_id();
     for (size_t i = 0; i < _schema->column_ids().size(); i++) {
         ColumnId cid = _schema->column_ids()[i];
         const auto* column_desc = _schema->column(cid);
         if (_is_pred_column[cid]) {
             auto storage_column_type = _storage_name_and_type[cid].second;
-            // Char type is special , since char type's computational datatype is same with string,
-            // both are DataTypeString, but DataTypeString only return FieldType::OLAP_FIELD_TYPE_STRING
-            // in get_storage_field_type.
             RETURN_IF_CATCH_EXCEPTION(
                     // Here, cid will not go out of bounds
                     // because the size of _current_return_columns equals _schema->tablet_columns().size()
                     _current_return_columns[cid] = Schema::get_predicate_column_ptr(
-                            _is_char_type[cid] ? FieldType::OLAP_FIELD_TYPE_CHAR
-                                               : storage_column_type->get_storage_field_type(),
+                            storage_column_type->get_storage_field_type(),
                             storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
             _current_return_columns[cid]->set_rowset_segment_id(
                     {_segment->rowset_id(), _segment->id()});
@@ -2075,21 +2070,6 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     }
     default:
         return false;
-    }
-}
-
-void SegmentIterator::_vec_init_char_column_id() {
-    if (!_is_char_type.empty()) {
-        return;
-    }
-    _is_char_type.resize(_schema->columns().size(), false);
-    for (size_t i = 0; i < _schema->num_column_ids(); i++) {
-        auto cid = _schema->column_id(i);
-        const TabletColumn* column_desc = _schema->column(cid);
-
-        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            _is_char_type[cid] = true;
-        }
     }
 }
 
