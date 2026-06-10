@@ -50,18 +50,24 @@ suite("mow_insert_with_partition_drop") {
             } catch (Exception e) {
                 logger.info("exception=" + e.getMessage())
                 assertTrue(e.getMessage().contains("Insert has filtered data in strict mode. url:") ||
-                        (e.getMessage().contains("partition") && e.getMessage().contains("does not exist")))
+                        (e.getMessage().contains("partition") && e.getMessage().contains("does not exist")),
+                        "unexpected insert exception message: " + e.getMessage())
             }
 
         }
     }
 
-    def t1 = Thread.startDaemon {
+    // Run the insert loop through the regression framework's thread() helper so that
+    // any assertion/exception is propagated back to this suite via future.get().
+    // Using a raw Thread.startDaemon + join() would swallow the child-thread exception
+    // (join() does not re-throw), letting the uncaught failure leak out and get
+    // mis-attributed to whichever suite happens to be running at that moment.
+    def t1 = thread {
         do_insert_into()
     }
     for (int i = 0; i < 30; i++) {
         sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
         sql """ ALTER TABLE ${table} ADD PARTITION p3 VALUES LESS THAN ('2023-01-01'); """
     }
-    t1.join()
+    t1.get()
 }
