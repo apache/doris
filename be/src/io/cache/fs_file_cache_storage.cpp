@@ -882,7 +882,6 @@ bool FSFileCacheStorage::handle_already_loaded_block(
     }
     auto block = cell_it->second.file_block;
     if (is_tmp) {
-        remove_file_and_empty_dir(offset_path, key_path);
         return true;
     }
     bool accepted_storage_path = true;

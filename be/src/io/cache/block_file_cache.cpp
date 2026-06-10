@@ -1023,23 +1023,39 @@ CacheContext BlockFileCache::make_cell_context(
         result.storage_expiration_time = result.expiration_time;
     }
 
-    auto file_it = _files.find(hash);
-    if (file_it != _files.end() && !file_it->second.empty()) {
-        const auto& file_block = file_it->second.begin()->second.file_block;
-        result.cache_type = file_block->cache_type();
-        result.expiration_time = file_block->expiration_time();
-        if (context.storage_expiration_time < 0) {
-            result.storage_expiration_time = file_block->storage_expiration_time();
-        }
-    } else if (auto ttl_it = _key_to_time.find(hash); ttl_it != _key_to_time.end()) {
-        result.cache_type = FileCacheType::TTL;
-        result.expiration_time = ttl_it->second;
+    if (context.cache_type != FileCacheType::TTL) {
+        return result;
     }
 
-    if (result.expiration_time == 0 && result.cache_type == FileCacheType::TTL) {
-        result.cache_type = FileCacheType::NORMAL;
-    } else if (result.expiration_time != 0 && result.cache_type != FileCacheType::TTL) {
+    auto ttl_it = _key_to_time.find(hash);
+    auto file_it = _files.find(hash);
+    if (file_it != _files.end() && !file_it->second.empty()) {
+        for (const auto& [_, cell] : file_it->second) {
+            const auto& file_block = cell.file_block;
+            if (file_block->cache_type() != FileCacheType::TTL &&
+                file_block->storage_cache_type() != FileCacheType::TTL) {
+                continue;
+            }
+            result.cache_type = file_block->cache_type();
+            result.expiration_time = file_block->expiration_time();
+            if (context.storage_expiration_time < 0) {
+                result.storage_expiration_time = file_block->storage_expiration_time();
+            }
+            break;
+        }
+    }
+
+    if (ttl_it != _key_to_time.end()) {
         result.cache_type = FileCacheType::TTL;
+        result.expiration_time = ttl_it->second;
+        if (context.storage_expiration_time < 0 &&
+            result.storage_expiration_time == context.expiration_time) {
+            result.storage_expiration_time = ttl_it->second;
+        }
+    }
+
+    if (result.cache_type == FileCacheType::TTL && result.expiration_time == 0) {
+        result.cache_type = FileCacheType::NORMAL;
     }
     return result;
 }
