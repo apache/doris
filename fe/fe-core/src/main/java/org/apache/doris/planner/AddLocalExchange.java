@@ -129,7 +129,7 @@ public class AddLocalExchange {
                     && !(node instanceof LocalExchangeNode)
                     && !(node instanceof ExchangeNode)
                     && !node.isSerialOperatorOnBe(context)) {
-                org.apache.logging.log4j.LogManager.getLogger(AddLocalExchange.class).warn(
+                throw new IllegalStateException(
                         "Serial " + child.getClass().getSimpleName() + "(id=" + child.getId()
                         + ") feeds into non-serial " + node.getClass().getSimpleName()
                         + "(id=" + node.getId() + ") without LocalExchangeNode"
@@ -164,8 +164,7 @@ public class AddLocalExchange {
         }
     }
 
-    public static LocalExchangeType resolveExchangeType(LocalExchangeTypeRequire require,
-            PlanTranslatorContext translatorContext, PlanNode parent, PlanNode child) {
+    public static LocalExchangeType resolveExchangeType(LocalExchangeTypeRequire require) {
         // Only generic RequireHash adapts to LOCAL_EXECUTION_HASH_SHUFFLE.
         // Explicit RequireSpecific (GLOBAL_EXECUTION_HASH_SHUFFLE, BUCKET_HASH_SHUFFLE, etc.)
         // must never be degraded — if they appear in an invalid context, the plan is wrong.

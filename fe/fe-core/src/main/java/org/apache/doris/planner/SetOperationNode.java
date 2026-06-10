@@ -208,7 +208,6 @@ public abstract class SetOperationNode extends PlanNode {
             PlanNode parent, LocalExchangeTypeRequire parentRequire) {
         LocalExchangeTypeRequire requireChild;
         LocalExchangeType outputType;
-        PlanNode firstChild = children.isEmpty() ? null : children.get(0);
         if (this instanceof UnionNode) {
             // Propagate parent's hash requirement to children ONLY when a downstream operator
             // requires shuffle for correctness (not just performance optimization). Matches BE's
@@ -220,7 +219,7 @@ public abstract class SetOperationNode extends PlanNode {
             boolean canPropagateHash = translatorContext.hasShuffleForCorrectnessAncestor(this);
             requireChild = canPropagateHash ? parentRequire.autoRequireHash() : LocalExchangeTypeRequire.noRequire();
             outputType = canPropagateHash
-                    ? AddLocalExchange.resolveExchangeType(requireChild, translatorContext, this, firstChild)
+                    ? AddLocalExchange.resolveExchangeType(requireChild)
                     : LocalExchangeType.NOOP;
         } else {
             // Intersect / Except
@@ -237,8 +236,7 @@ public abstract class SetOperationNode extends PlanNode {
                 requireChild = serialSource
                         ? LocalExchangeTypeRequire.requireHash()
                         : LocalExchangeTypeRequire.requireGlobalExecutionHash();
-                outputType = AddLocalExchange.resolveExchangeType(
-                        requireChild, translatorContext, this, firstChild);
+                outputType = AddLocalExchange.resolveExchangeType(requireChild);
             }
         }
 

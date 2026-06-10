@@ -1172,8 +1172,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         }
 
         // 5. Resolve exchange type and create LE node
-        LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
-                require, translatorContext, this, childOutput.first);
+        LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(require);
         List<Expr> distributeExprs = getLocalExchangeDistributeExprs(childIndex, selfOrInheritedShuffled);
         PlanNode leNode = createLocalExchange(translatorContext, childOutput.first, preferType, distributeExprs);
         return Pair.of(leNode, preferType);

@@ -274,8 +274,7 @@ public class SortNode extends PlanNode {
             if (AddLocalExchange.isColocated(this)) {
                 requireChild = LocalExchangeTypeRequire.requireHash();
                 outputType = AddLocalExchange.resolveExchangeType(
-                        LocalExchangeTypeRequire.requireHash(), translatorContext, this,
-                        children.get(0));
+                        LocalExchangeTypeRequire.requireHash());
             } else {
                 requireChild = parentRequire.autoRequireHash();
             }

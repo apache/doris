@@ -37,6 +37,25 @@ std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
     return deps;
 }
 
+Status LocalExchangeSinkOperatorX::_create_partitioner(RuntimeState* state, int bucket_count) {
+    if (_type == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE ||
+        _type == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE) {
+        if (state->query_options().__isset.enable_new_shuffle_hash_method &&
+            state->query_options().enable_new_shuffle_hash_method) {
+            _partitioner = std::make_unique<Crc32CHashPartitioner>(_num_partitions);
+        } else {
+            _partitioner =
+                    std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_num_partitions);
+        }
+        RETURN_IF_ERROR(_partitioner->init(_texprs));
+    } else if (_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
+        DCHECK_GT(bucket_count, 0);
+        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(bucket_count);
+        RETURN_IF_ERROR(_partitioner->init(_texprs));
+    }
+    return Status::OK();
+}
+
 Status LocalExchangeSinkOperatorX::init(RuntimeState* state, TLocalPartitionType::type type,
                                         const int num_buckets,
                                         const std::map<int, int>& shuffle_idx_to_instance_idx) {
@@ -49,55 +68,20 @@ Status LocalExchangeSinkOperatorX::init(RuntimeState* state, TLocalPartitionType
         // we should use map shuffle idx to instance idx because all instances will be
         // distributed to all BEs. Otherwise, we should use shuffle idx directly.
         _shuffle_idx_to_instance_idx = shuffle_idx_to_instance_idx;
-        if (state->query_options().__isset.enable_new_shuffle_hash_method &&
-            state->query_options().enable_new_shuffle_hash_method) {
-            _partitioner = std::make_unique<Crc32CHashPartitioner>(_num_partitions);
-        } else {
-            _partitioner =
-                    std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_num_partitions);
-        }
-        RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE) {
         _shuffle_idx_to_instance_idx.clear();
         for (int i = 0; i < _num_partitions; i++) {
             _shuffle_idx_to_instance_idx[i] = i;
         }
-        if (state->query_options().__isset.enable_new_shuffle_hash_method &&
-            state->query_options().enable_new_shuffle_hash_method) {
-            _partitioner = std::make_unique<Crc32CHashPartitioner>(_num_partitions);
-        } else {
-            _partitioner =
-                    std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_num_partitions);
-        }
-        RETURN_IF_ERROR(_partitioner->init(_texprs));
-    } else if (_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
-        DCHECK_GT(num_buckets, 0);
-        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(num_buckets);
-        RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
-    return Status::OK();
+    return _create_partitioner(state, num_buckets);
 }
 
 Status LocalExchangeSinkOperatorX::init_partitioner(RuntimeState* state) {
     DCHECK(_planned_by_fe);
     // Set operator name to include exchange type (base class init(tnode) only sets generic name).
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR(" + get_exchange_type_name(_type) + ")";
-    if (_type == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE ||
-        _type == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE) {
-        if (state->query_options().__isset.enable_new_shuffle_hash_method &&
-            state->query_options().enable_new_shuffle_hash_method) {
-            _partitioner = std::make_unique<Crc32CHashPartitioner>(_num_partitions);
-        } else {
-            _partitioner =
-                    std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_num_partitions);
-        }
-        RETURN_IF_ERROR(_partitioner->init(_texprs));
-    } else if (_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
-        DCHECK_GT(_num_partitions, 0);
-        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_num_partitions);
-        RETURN_IF_ERROR(_partitioner->init(_texprs));
-    }
-    return Status::OK();
+    return _create_partitioner(state, _num_partitions);
 }
 
 Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {

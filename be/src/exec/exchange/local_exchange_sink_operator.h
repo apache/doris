@@ -127,6 +127,13 @@ public:
 private:
     friend class LocalExchangeSinkLocalState;
     friend class ShuffleExchanger;
+
+    // Create _partitioner based on _type. Shared by init() (BE-native planning) and
+    // init_partitioner() (FE planning). bucket_count is the partition count for
+    // BUCKET_HASH_SHUFFLE (num_buckets on the BE-native path, _num_partitions on the FE path);
+    // hash shuffle always uses _num_partitions.
+    Status _create_partitioner(RuntimeState* state, int bucket_count);
+
     TLocalPartitionType::type _type;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;

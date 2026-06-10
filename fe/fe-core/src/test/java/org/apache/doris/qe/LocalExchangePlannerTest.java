@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
@@ -582,21 +581,17 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
 
     @Test
     public void testLocalAndGlobalExecutionHashShufflePreferType() {
-        PlanTranslatorContext translatorContext = new PlanTranslatorContext();
         LocalExchangeNode.LocalExchangeTypeRequire requireHash = LocalExchangeNode.LocalExchangeTypeRequire.requireHash();
         LocalExchangeNode.LocalExchangeTypeRequire requireBucketHash
                 = LocalExchangeNode.LocalExchangeTypeRequire.requireBucketHash();
         LocalExchangeNode.LocalExchangeTypeRequire requireGlobalHash
                 = LocalExchangeNode.LocalExchangeTypeRequire.requireGlobalExecutionHash();
 
-        LocalExchangeType localType = AddLocalExchange.resolveExchangeType(
-                requireHash, translatorContext, null, new MockScanNode(new PlanNodeId(1001)));
-        LocalExchangeType globalType = AddLocalExchange.resolveExchangeType(
-                requireHash, translatorContext, null, new MockPlanNode(new PlanNodeId(1002)));
+        LocalExchangeType localType = AddLocalExchange.resolveExchangeType(requireHash);
+        LocalExchangeType globalType = AddLocalExchange.resolveExchangeType(requireHash);
         // Explicit GLOBAL_EXECUTION_HASH_SHUFFLE must NOT be degraded, even on a scan path.
         // If it appears on a scan path, the plan is wrong — not something resolveExchangeType should fix.
-        LocalExchangeType explicitGlobalOnScanType = AddLocalExchange.resolveExchangeType(
-                requireGlobalHash, translatorContext, null, new MockScanNode(new PlanNodeId(1003)));
+        LocalExchangeType explicitGlobalOnScanType = AddLocalExchange.resolveExchangeType(requireGlobalHash);
 
         // shouldUseLocalExecutionHash always returns true → RequireHash always resolves to LOCAL
         Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, localType);

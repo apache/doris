@@ -231,8 +231,7 @@ public class AnalyticEvalNode extends PlanNode {
             if (AddLocalExchange.isColocated(this)) {
                 requireChild = LocalExchangeTypeRequire.requireHash();
                 outputType = AddLocalExchange.resolveExchangeType(
-                        LocalExchangeTypeRequire.requireHash(), translatorContext, this,
-                        children.get(0));
+                        LocalExchangeTypeRequire.requireHash());
             } else {
                 // Non-colocated analytic with PARTITION BY but no ORDER BY:
                 // The parent SortNode (mergeByExchange) will insert PASSTHROUGH above us,

@@ -282,10 +282,12 @@ suite("test_local_shuffle_rqg_bugs") {
     logger.info("Bug 3 FE result rows: ${result_fe.size()}, first few: ${result_fe.take(5)}")
     logger.info("Bug 3 BE result rows: ${result_be.size()}, first few: ${result_be.take(5)}")
 
-    // All values in both should be the same
-    if (result_fe.size() != result_be.size()) {
-        logger.warn("Bug 3: row count mismatch FE=${result_fe.size()} vs BE=${result_be.size()}")
-    }
+    // FE planner and BE native must produce identical results (the bug was values split
+    // proportionally instead of equal). Assert row count and order-insensitive content so a
+    // recurrence fails the suite.
+    assertEquals(result_be.size(), result_fe.size(), "Bug 3: FE/BE row count mismatch")
+    assertEquals(result_be.collect { it.toString() }.sort(), result_fe.collect { it.toString() }.sort(),
+            "Bug 3: FE/BE result mismatch")
 
     // ============================================================
     //  Bug 4: Simplified AGG shared state — single table GROUP BY with serial exchange
@@ -310,6 +312,7 @@ suite("test_local_shuffle_rqg_bugs") {
             logger.info("Bug 4 ppt=${ppt}: PASSED")
         } catch (Throwable t) {
             logger.error("Bug 4 ppt=${ppt} FAILED: ${t.message}")
+            assertTrue(false, "Bug 4 ppt=${ppt}: AGG shared state crash with serial exchange: ${t.message}")
         }
     }
 
@@ -334,6 +337,7 @@ suite("test_local_shuffle_rqg_bugs") {
             logger.info("Bug 5 ppt=${ppt}: PASSED")
         } catch (Throwable t) {
             logger.error("Bug 5 ppt=${ppt} FAILED: ${t.message}")
+            assertTrue(false, "Bug 5 ppt=${ppt}: GROUPING SETS + window crash with serial exchange: ${t.message}")
         }
     }
 

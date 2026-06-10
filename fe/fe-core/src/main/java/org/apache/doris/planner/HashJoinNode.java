@@ -315,21 +315,36 @@ public class HashJoinNode extends JoinNodeBase {
             buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.noRequire();
             outputType = LocalExchangeType.NOOP;
         } else if (distrMode == DistributionMode.BROADCAST) {
-            // BE: _child->is_serial_operator() ? PASSTHROUGH/PASS_TO_ONE : NOOP
+            // BE HashJoinProbeOperatorX::required_data_distribution (probe side):
+            //   enable_broadcast_join_force_passthrough ? PASSTHROUGH
+            //     : (_child->is_serial_operator() ? PASSTHROUGH : NOOP)
+            // We mirror the force-passthrough session variable to match BE.  NOTE: for a
+            // *non-serial* probe this is currently a no-op — enforceRequire only inserts a
+            // PASSTHROUGH local exchange to fan a serial (1-task) source out to N tasks; an
+            // already-N-task source satisfies passthrough so no exchange is added (verified on
+            // a 4-BE cluster: identical plan and results vs BE-native, no crash).  Keeping the
+            // check matches BE's intent and is in place should the framework later force the
+            // exchange; a true rebalance of a non-serial probe is a perf-only follow-up.
+            boolean forcePassthrough = translatorContext.getConnectContext()
+                    .getSessionVariable().enableBroadcastJoinForcePassthrough;
             boolean probeChildSerial = children.get(0).isSerialOperatorOnBe(
                     translatorContext.getConnectContext());
             boolean buildChildSerial = children.get(1).isSerialOperatorOnBe(
                     translatorContext.getConnectContext());
-            probeSideRequire = probeChildSerial
+            boolean probePassthrough = forcePassthrough || probeChildSerial;
+            probeSideRequire = probePassthrough
                     ? LocalExchangeTypeRequire.requirePassthrough()
                     : LocalExchangeTypeRequire.noRequire();
             buildSideRequire = buildChildSerial
                     ? LocalExchangeTypeRequire.requirePassToOne()
                     : LocalExchangeTypeRequire.noRequire();
-            // For serial probe: output is PASSTHROUGH (data from single instance).
-            // For non-serial probe: propagate probe side's actual distribution.
-            outputType = probeChildSerial ? LocalExchangeType.PASSTHROUGH : null;
+            // For serial or force-passthrough probe: output is PASSTHROUGH.
+            // For a non-serial probe without the flag: propagate the probe's distribution.
+            outputType = probePassthrough ? LocalExchangeType.PASSTHROUGH : null;
         } else if (isColocate() || isBucketShuffle()) {
+            // Both probe and build sides require BUCKET_HASH_SHUFFLE: the bucket distribution
+            // must be preserved on both inputs. A serial child on either side is handled the
+            // same way (serial exchange returns NOOP → enforceRequire() inserts the LE).
             probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
             // For BUCKET_SHUFFLE with serial build child: use requireBucketHash() (not
             // requirePassToOne()). Unlike BROADCAST joins, BUCKET_SHUFFLE has no shared
@@ -341,8 +356,7 @@ public class HashJoinNode extends JoinNodeBase {
             // bottleneck avoidance).
             buildSideRequire = LocalExchangeTypeRequire.requireBucketHash();
             outputType = AddLocalExchange.resolveExchangeType(
-                    LocalExchangeTypeRequire.requireBucketHash(), translatorContext, this,
-                    children.get(0));
+                    LocalExchangeTypeRequire.requireBucketHash());
         } else {
             // PARTITIONED (shuffle) join: both sides enter via global hash exchange.
             // Require GLOBAL specifically so that any inserted exchange uses the same
