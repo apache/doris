@@ -821,13 +821,44 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
                                   key_value_count, total_entries);
     }
     int64_t value_count = 0;
-    // Values are built by the child reader from its own def/rep stream. This matches Arrow's
-    // recursive reader model: MAP owns entry shape and keys, while the value reader consumes the
-    // exact number of materialized entry slots from its own level stream. Parent-side slot matching
-    // is ambiguous under LIST<MAP<...>> because outer container shape slots can share repetition
-    // levels with later map entries.
-    RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
-                                                       value_column, &value_count));
+    if (auto* scalar_value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get())) {
+        const auto& value_def_levels = scalar_value_reader->nested_definition_levels();
+        const auto& value_rep_levels = scalar_value_reader->nested_repetition_levels();
+        const int64_t value_levels_written = scalar_value_reader->nested_levels_written();
+        int64_t value_level_idx = 0;
+        for (const int64_t key_level_idx : map_level_indices) {
+            while (value_level_idx < value_levels_written &&
+                   (value_def_levels[value_level_idx] < _repeated_ancestor_definition_level ||
+                    value_rep_levels[value_level_idx] > _repetition_level)) {
+                ++value_level_idx;
+            }
+            if (value_level_idx >= value_levels_written) {
+                return Status::Corruption(
+                        "Parquet MAP column {} value stream ended before key stream", _name);
+            }
+            // MAP is encoded as a repeated key/value struct. The key stream owns entry existence,
+            // but the value stream still has one shape slot for every consumed MAP slot. Consume
+            // value slots in lockstep with key slots so shape-only slots from empty/null maps do
+            // not become scalar values.
+            if (value_rep_levels[value_level_idx] != rep_levels[key_level_idx]) {
+                return Status::Corruption(
+                        "Parquet MAP column {} value repetition level is not aligned with key "
+                        "stream",
+                        _name);
+            }
+            if (def_levels[key_level_idx] >= _definition_level) {
+                RETURN_IF_ERROR(
+                        scalar_value_reader->append_nested_value(value_level_idx, value_column));
+                ++value_count;
+            }
+            ++value_level_idx;
+        }
+    } else {
+        // Complex MAP values own their nested shape below the entry slot, so they can recursively
+        // materialize exactly one child value for each MAP entry.
+        RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                           value_column, &value_count));
+    }
     if (value_count != static_cast<int64_t>(total_entries)) {
         return Status::Corruption("Parquet MAP column {} built {} values, expected {}", _name,
                                   value_count, total_entries);
