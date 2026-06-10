@@ -201,6 +201,37 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+class NullableArrayBigintDefaultExpr final : public VExpr {
+public:
+    explicit NullableArrayBigintDefaultExpr(DataTypePtr data_type)
+            : _name("single_element_groups") {
+        _data_type = std::move(data_type);
+    }
+
+    const std::string& expr_name() const override { return _name; }
+
+    bool is_constant() const override { return false; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector* selector, size_t count,
+                               ColumnPtr& result_column) const override {
+        DCHECK(selector == nullptr || selector->size() == count);
+        auto values = ColumnInt64::create();
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        auto null_map = ColumnUInt8::create();
+        for (size_t i = 0; i < count; ++i) {
+            values->insert_value(7);
+            offsets->insert_value(static_cast<Int64>(i + 1));
+            null_map->insert_value(0);
+        }
+        auto array_column = ColumnArray::create(std::move(values), std::move(offsets));
+        result_column = ColumnNullable::create(std::move(array_column), std::move(null_map));
+        return Status::OK();
+    }
+
+private:
+    std::string _name;
+};
+
 class IcebergTableReaderDeleteFileTestHelper final : public doris::iceberg::IcebergTableReader {
 public:
     Status parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
@@ -940,8 +971,7 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
 
         Block block = build_table_block(projected_columns);
         bool eos = false;
-        auto status = reader.get_block(&block, &eos);
-        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
         ASSERT_FALSE(eos);
 
         const auto& value_column =
@@ -1081,7 +1111,8 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
 
     Block block = build_table_block(projected_columns);
     bool eos = false;
-    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
     const auto& id_column = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
@@ -1128,7 +1159,8 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
 
     Block block = build_table_block(projected_columns);
     bool eos = false;
-    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
     const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
@@ -2110,17 +2142,86 @@ TEST(TableReaderTest, DefaultExprResultMatchesNullableTableType) {
 
     Block block = build_table_block(projected_columns);
     bool eos = false;
-    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_FALSE(eos);
 
     const auto& result = block.get_by_position(0);
+    ASSERT_TRUE(result.check_type_and_column_match().ok());
     EXPECT_TRUE(result.type->is_nullable());
-    ASSERT_TRUE(result.column->is_nullable());
-    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    const IColumn* column = result.column.get();
+    if (const auto* const_column = check_and_get_column<ColumnConst>(column)) {
+        column = &const_column->get_data_column();
+    }
+    ASSERT_TRUE(column->is_nullable());
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
     ASSERT_EQ(nullable_column.size(), 1);
     EXPECT_EQ(nullable_column.get_null_map_data()[0], 0);
     const auto& values = assert_cast<const ColumnInt32&>(nullable_column.get_nested_column());
     EXPECT_EQ(values.get_element(0), 42);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, DefaultExprAlignsNestedNullableArrayTableType) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_nested_nullable_array_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    const auto bigint_type = std::make_shared<DataTypeInt64>();
+    const auto array_type = std::make_shared<DataTypeArray>(make_nullable(bigint_type));
+    const auto table_type = make_nullable(array_type);
+    auto missing_column = make_table_column(99, "single_element_groups", table_type);
+    missing_column.default_expr = VExprContext::create_shared(
+            std::make_shared<NullableArrayBigintDefaultExpr>(table_type));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(std::move(missing_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                            })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(eos);
+
+    const auto& result = block.get_by_position(0);
+    ASSERT_TRUE(result.check_type_and_column_match().ok());
+    ASSERT_TRUE(result.column->is_nullable());
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    ASSERT_EQ(nullable_column.size(), 1);
+    EXPECT_EQ(nullable_column.get_null_map_data()[0], 0);
+
+    const auto& array_column = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
+    ASSERT_EQ(array_column.size(), 1);
+    EXPECT_EQ(array_column.get_offsets()[0], 1);
+    ASSERT_TRUE(array_column.get_data().is_nullable());
+    const auto& nested_nullable = assert_cast<const ColumnNullable&>(array_column.get_data());
+    ASSERT_EQ(nested_nullable.size(), 1);
+    EXPECT_EQ(nested_nullable.get_null_map_data()[0], 0);
+    const auto& values = assert_cast<const ColumnInt64&>(nested_nullable.get_nested_column());
+    EXPECT_EQ(values.get_element(0), 7);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
