@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <map>
+#include <sstream>
 #include <string_view>
 
 #include "common/config.h"
@@ -119,6 +120,20 @@ bool has_sparse_path_stat(const IndexRowsetProbe& probe, std::string_view relati
                                return it != column.sparse_non_null_size.end() && it->second > 0;
                            });
     });
+}
+
+std::string dump_schema_paths(const TabletSchema& schema) {
+    std::ostringstream out;
+    for (int32_t i = 0; i < schema.num_columns(); ++i) {
+        const auto& column = schema.column(i);
+        out << i << ": uid=" << column.unique_id() << " name=" << column.name()
+            << " type=" << TabletColumn::get_string_by_field_type(column.type());
+        if (column.has_path_info()) {
+            out << " path=" << column.path_info_ptr()->get_path();
+        }
+        out << '\n';
+    }
+    return out.str();
 }
 
 class ScopedDebugPoint {
@@ -1217,6 +1232,82 @@ TEST_F(IndexStorageLifecycleTest, DeepSparseVariantCompactsWithExternalSegmentMe
 
 TEST_F(IndexStorageLifecycleTest, DeepSparseVariantCompactsWithoutExternalSegmentMeta) {
     run_deep_sparse_variant_lifecycle(false, 110024);
+}
+
+TEST_F(IndexStorageLifecycleTest, ExactSparsePathReadsHiddenChildAfterSparseStatsLimitTruncated) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 1;
+    variant.max_sparse_column_statistics_size = 2;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110028;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset0;
+    rowset0.version = 0;
+    rowset0.batches.push_back(
+            VariantJsonBatch::single_variant({R"({"a": "hot-0", "b": "scalar-0", "d": "dense-0"})",
+                                              R"({"a": "hot-1", "b": "scalar-1", "d": "dense-1"})",
+                                              R"({"a": "hot-2", "b": "scalar-2", "d": "dense-2"})"},
+                                             0));
+
+    IndexRowsetSpec rowset1;
+    rowset1.version = 1;
+    rowset1.batches.push_back(
+            VariantJsonBatch::single_variant({R"({"a": "hot-3", "b": "scalar-3", "d": "dense-3"})",
+                                              R"({"a": "hot-4", "b": {"c": "child-0"}})"},
+                                             100));
+
+    auto rowsets = write_rowsets({rowset0, rowset1});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    ASSERT_EQ(compacted.value()->num_rows(), 5);
+
+    auto reloaded = reload_rowsets({compacted.value()});
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+
+    auto read_schema = build_schema_with_variant_path_column(*tablet_schema(), 2, "b",
+                                                             FieldType::OLAP_FIELD_TYPE_VARIANT);
+    ASSERT_NE(read_schema, nullptr);
+    auto readable_compacted = rowsets_with_schema(reloaded.value(), std::move(read_schema));
+    ASSERT_TRUE(readable_compacted.has_value()) << readable_compacted.error();
+
+    auto compacted_probe = probe_rowset(readable_compacted->front());
+    ASSERT_TRUE(compacted_probe.has_value()) << compacted_probe.error();
+    ASSERT_TRUE(has_variant_layout(compacted_probe.value(), 2, "a"));
+    ASSERT_TRUE(has_sparse_path_stat(compacted_probe.value(), "b"));
+    ASSERT_FALSE(has_sparse_path_stat(compacted_probe.value(), "b.c"));
+
+    const int32_t b_column_id = column_id_by_path("v.b");
+    ASSERT_GE(b_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& b_column = tablet_schema()->column(b_column_id);
+    ASSERT_TRUE(b_column.is_variant_type());
+
+    IndexReadOptions read_options;
+    read_options.return_columns = {0, static_cast<uint32_t>(b_column_id)};
+    read_options.collect_variant_values = true;
+    auto read_result = read_rowsets(readable_compacted.value(), read_options);
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    ASSERT_EQ(read_result->rows_read, 5);
+    ASSERT_TRUE(read_result->variant_values_by_uid.contains(b_column.unique_id()));
+
+    const auto& b_values = read_result->variant_values_by_uid.at(b_column.unique_id());
+    ASSERT_EQ(b_values.size(), 5);
+    const auto has_hidden_child = std::any_of(b_values.begin(), b_values.end(), [](const auto& v) {
+        return v.has_value() && v->find("child-0") != std::string::npos;
+    });
+
+    std::ostringstream serialized_values;
+    for (const auto& value : b_values) {
+        serialized_values << (value.has_value() ? value.value() : "NULL") << '\n';
+    }
+    EXPECT_TRUE(has_hidden_child) << serialized_values.str();
 }
 
 TEST_F(IndexStorageLifecycleTest, NestedGroupVariantCompactsWithExternalSegmentMeta) {

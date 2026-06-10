@@ -17,6 +17,7 @@
 
 #include "testutil/index_storage_test_util.h"
 
+#include <cctz/time_zone.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -458,6 +459,42 @@ void collect_string_values_from_block(const TabletSchema& schema,
     }
 }
 
+void collect_variant_values_from_block(const TabletSchema& schema,
+                                       const std::vector<uint32_t>& return_columns,
+                                       const Block& block, IndexReadResult* result) {
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
+
+    for (size_t pos = 0; pos < return_columns.size() && pos < block.columns(); ++pos) {
+        const auto cid = return_columns[pos];
+        if (cid >= schema.num_columns()) {
+            continue;
+        }
+        const auto& tablet_column = schema.column(cid);
+        if (!tablet_column.is_variant_type()) {
+            continue;
+        }
+
+        auto full_column = block.get_by_position(pos).column->convert_to_full_column_if_const();
+        const auto* nullable_column = check_and_get_column<ColumnNullable>(*full_column);
+        const auto* variant_column =
+                nullable_column != nullptr
+                        ? assert_cast<const ColumnVariant*>(&nullable_column->get_nested_column())
+                        : assert_cast<const ColumnVariant*>(full_column.get());
+        auto& values = result->variant_values_by_uid[tablet_column.unique_id()];
+        for (size_t row = 0; row < full_column->size(); ++row) {
+            if (full_column->is_null_at(row)) {
+                values.push_back(std::nullopt);
+                continue;
+            }
+            std::string value;
+            variant_column->serialize_one_row_to_string(row, &value, options);
+            values.emplace_back(std::move(value));
+        }
+    }
+}
+
 void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegmentLayout* layout) {
     if (column_meta.has_column_path_info()) {
         PathInData path;
@@ -822,6 +859,42 @@ TabletSchemaSPtr build_patched_tablet_schema(const TabletSchema& base_schema,
     return schema;
 }
 
+TabletSchemaSPtr build_schema_with_variant_path_column(const TabletSchema& base_schema,
+                                                       int32_t parent_unique_id,
+                                                       std::string relative_path, FieldType type) {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB schema_pb;
+    base_schema.to_schema_pb(&schema_pb);
+    schema->init_from_pb(schema_pb);
+    schema->set_storage_format(base_schema.storage_format());
+
+    const auto& parent_column = schema->column_by_uid(parent_unique_id);
+    const std::string full_path = relative_path.find('.') == std::string::npos
+                                          ? parent_column.name_lower_case() + "." + relative_path
+                                          : std::move(relative_path);
+
+    TabletColumn path_column;
+    path_column.set_unique_id(-1);
+    path_column.set_name(full_path);
+    path_column.set_type(type);
+    path_column.set_parent_unique_id(parent_column.unique_id());
+    path_column.set_path_info(PathInData(full_path));
+    path_column.set_aggregation_method(parent_column.aggregation());
+    path_column.set_variant_max_subcolumns_count(parent_column.variant_max_subcolumns_count());
+    path_column.set_variant_max_sparse_column_statistics_size(
+            parent_column.variant_max_sparse_column_statistics_size());
+    path_column.set_variant_sparse_hash_shard_count(
+            parent_column.variant_sparse_hash_shard_count());
+    path_column.set_variant_enable_doc_mode(parent_column.variant_enable_doc_mode());
+    path_column.set_variant_doc_materialization_min_rows(
+            parent_column.variant_doc_materialization_min_rows());
+    path_column.set_variant_doc_hash_shard_count(parent_column.variant_doc_hash_shard_count());
+    path_column.set_variant_enable_nested_group(parent_column.variant_enable_nested_group());
+    path_column.set_is_nullable(true);
+    schema->append_column(std::move(path_column));
+    return schema;
+}
+
 void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_filtered_rows) {
     EXPECT_EQ(result.stats.rows_inverted_index_filtered, expected_filtered_rows);
     int64_t event_filtered_rows = 0;
@@ -1006,6 +1079,8 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
         column_spec.name = column.name();
         column_spec.nullable = column.is_nullable();
         column_spec.max_subcolumns_count = column.variant_max_subcolumns_count();
+        column_spec.max_sparse_column_statistics_size =
+                column.variant_max_sparse_column_statistics_size();
         column_spec.sparse_hash_shard_count = column.variant_sparse_hash_shard_count();
         column_spec.enable_doc_mode = column.variant_enable_doc_mode();
         tablet_options.variant_columns.push_back(std::move(column_spec));
@@ -1103,6 +1178,9 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
             RETURN_RESULT_IF_ERROR(status);
             if (options.collect_string_values) {
                 collect_string_values_from_block(*_tablet_schema, return_columns, block, &result);
+            }
+            if (options.collect_variant_values) {
+                collect_variant_values_from_block(*_tablet_schema, return_columns, block, &result);
             }
             result.rows_read += block.rows();
         }

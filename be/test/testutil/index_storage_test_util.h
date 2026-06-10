@@ -155,6 +155,7 @@ struct IndexReadOptions {
     std::map<int32_t, TColumnAccessPaths> all_access_paths;
     std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
     bool collect_string_values = false;
+    bool collect_variant_values = false;
     bool enable_inverted_index_query = true;
     bool enable_fallback_on_missing_inverted_index = true;
     bool enable_no_need_read_data_opt = true;
@@ -200,6 +201,7 @@ struct IndexReadResult {
     OlapReaderStatistics stats;
     std::vector<IndexProbeEventSnapshot> index_probe_events;
     std::map<int32_t, std::vector<std::optional<std::string>>> string_values_by_uid;
+    std::map<int32_t, std::vector<std::optional<std::string>>> variant_values_by_uid;
 
     bool inverted_index_attempted() const;
     bool inverted_index_downgraded() const;
@@ -286,6 +288,9 @@ TabletSchemaSPtr build_tablet_schema(const IndexTabletOptions& options);
 TabletSchemaPB apply_schema_patch(const TabletSchema& base_schema, const IndexSchemaPatch& patch);
 TabletSchemaSPtr build_patched_tablet_schema(const TabletSchema& base_schema,
                                              const IndexSchemaPatch& patch);
+TabletSchemaSPtr build_schema_with_variant_path_column(const TabletSchema& base_schema,
+                                                       int32_t parent_unique_id,
+                                                       std::string relative_path, FieldType type);
 
 void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_filtered_rows);
 void expect_inverted_index_used(const IndexReadResult& result);
