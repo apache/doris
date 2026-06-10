@@ -45,6 +45,7 @@ class KerberosHadoopAuthenticatorTest {
     private static final class FakeLoginAuthenticator extends KerberosHadoopAuthenticator {
         static final Deque<Subject> LOGINS = new ArrayDeque<>();
         static int loginCount = 0;
+        static RuntimeException nextLoginFailure = null;
 
         FakeLoginAuthenticator() {
             super("doris/test@EXAMPLE.COM", "/path/to/doris.keytab", new Configuration());
@@ -53,6 +54,11 @@ class KerberosHadoopAuthenticatorTest {
         @Override
         Subject loginSubject() {
             loginCount++;
+            if (nextLoginFailure != null) {
+                RuntimeException failure = nextLoginFailure;
+                nextLoginFailure = null;
+                throw failure;
+            }
             return LOGINS.removeFirst();
         }
     }
@@ -70,6 +76,7 @@ class KerberosHadoopAuthenticatorTest {
     void resetFakeLogins() {
         FakeLoginAuthenticator.LOGINS.clear();
         FakeLoginAuthenticator.loginCount = 0;
+        FakeLoginAuthenticator.nextLoginFailure = null;
     }
 
     @Test
@@ -123,5 +130,34 @@ class KerberosHadoopAuthenticatorTest {
             throw new IOException("intentional");
         }));
         Assertions.assertEquals("intentional", thrown.getMessage());
+    }
+
+    @Test
+    void constructorWrapsLoginFailureWithPrincipalAndKeytab() {
+        FakeLoginAuthenticator.nextLoginFailure =
+                new RuntimeException(new javax.security.auth.login.LoginException("no keytab"));
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+                FakeLoginAuthenticator::new);
+        Assertions.assertTrue(thrown.getMessage().contains("doris/test@EXAMPLE.COM"));
+        Assertions.assertTrue(thrown.getMessage().contains("/path/to/doris.keytab"));
+    }
+
+    @Test
+    void doAsWrapsRefreshLoginFailureAsIOException() throws IOException {
+        long now = System.currentTimeMillis();
+        // TGT already past its 80% refresh point, so the first doAs attempts a relogin
+        FakeLoginAuthenticator.LOGINS.add(subjectWithTgt(now - 100_000, now + 1_000));
+
+        KerberosHadoopAuthenticator auth = new FakeLoginAuthenticator();
+        FakeLoginAuthenticator.nextLoginFailure =
+                new RuntimeException(new javax.security.auth.login.LoginException("kdc down"));
+
+        IOException thrown = Assertions.assertThrows(IOException.class, () -> auth.doAs(() -> "ok"));
+        Assertions.assertTrue(thrown.getMessage().contains("Kerberos relogin failed"));
+        Assertions.assertTrue(thrown.getMessage().contains("doris/test@EXAMPLE.COM"));
+
+        // a later doAs retries the login (nextRefreshTime was not advanced) and succeeds
+        FakeLoginAuthenticator.LOGINS.add(subjectWithTgt(now, now + 600_000));
+        Assertions.assertEquals("ok", auth.doAs(() -> "ok"));
     }
 }

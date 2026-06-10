@@ -99,7 +99,7 @@ public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
             this.nextRefreshTime = KerberosTicketUtils.getRefreshTime(
                     KerberosTicketUtils.getTicketGrantingTicket(subject));
             LOG.info("Kerberos login succeeded for principal={}", principal);
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             throw new RuntimeException("Failed to login with Kerberos principal=" + principal
                     + ", keytab=" + keytab, e);
         }
@@ -132,8 +132,16 @@ public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
 
     @Override
     public <T> T doAs(IOCallable<T> action) throws IOException {
+        UserGroupInformation currentUgi;
         try {
-            return getUGI().doAs((PrivilegedExceptionAction<T>) action::call);
+            currentUgi = getUGI();
+        } catch (IOException | RuntimeException e) {
+            // Keep the SPI's checked-IOException contract: a relogin failure (unchecked
+            // RuntimeException from the JAAS login) must not escape doAs unchecked.
+            throw new IOException("Kerberos relogin failed for principal=" + principal, e);
+        }
+        try {
+            return currentUgi.doAs((PrivilegedExceptionAction<T>) action::call);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Kerberos doAs interrupted for principal=" + principal, e);
@@ -145,6 +153,9 @@ public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
      * lifetime. Ported from trino's
      * {@code CachingKerberosHadoopAuthentication.getUserGroupInformation()} — note
      * there is intentionally no relogin throttle.
+     * If the refresh login fails, {@code nextRefreshTime} is not advanced, so each
+     * subsequent call retries the login until the KDC recovers (no backoff) — same
+     * trade-off as trino.
      */
     private synchronized UserGroupInformation getUGI() throws IOException {
         if (nextRefreshTime < System.currentTimeMillis()) {
