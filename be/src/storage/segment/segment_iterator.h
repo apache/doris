@@ -194,6 +194,9 @@ private:
             std::shared_ptr<ColumnPredicate> pred,
             std::vector<std::shared_ptr<ColumnPredicate>>& remaining_predicates,
             bool* continue_apply);
+    void _record_index_probe_event(const std::shared_ptr<ColumnPredicate>& pred,
+                                   IndexProbeState state, IndexFallbackReason reason,
+                                   int64_t input_rows, int64_t output_rows, int64_t index_id = -1);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
 

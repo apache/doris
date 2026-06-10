@@ -85,6 +85,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/indexed_column_reader.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/primary_key_index.h"
@@ -227,6 +228,34 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
         RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(opts, ctx->root(), cid_to_pos));
     }
     return Status::OK();
+}
+
+} // namespace
+
+namespace {
+
+IndexFallbackReason index_fallback_reason(const Status& status, bool need_remaining) {
+    if (status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+        return IndexFallbackReason::MISSING_INDEX;
+    }
+    if (status.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
+        return IndexFallbackReason::BYPASS;
+    }
+    if (status.is<ErrorCode::INVERTED_INDEX_NO_TERMS>() && need_remaining) {
+        return IndexFallbackReason::NO_TERMS;
+    }
+    if (status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) {
+        return IndexFallbackReason::CORRUPTED;
+    }
+    if (status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>()) {
+        return IndexFallbackReason::EVALUATE_SKIPPED;
+    }
+    return IndexFallbackReason::NOT_SUPPORTED;
+}
+
+int64_t last_inverted_index_id(const std::unique_ptr<IndexIterator>& iterator) {
+    auto* inverted_index_iterator = dynamic_cast<InvertedIndexIterator*>(iterator.get());
+    return inverted_index_iterator == nullptr ? -1 : inverted_index_iterator->last_read_index_id();
 }
 
 } // namespace
@@ -900,19 +929,35 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     }
 
     {
-        if (_opts.runtime_state &&
-            _opts.runtime_state->query_options().enable_inverted_index_query &&
-            (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
+        const bool should_collect_not_attempted = _opts.stats != nullptr &&
+                                                  _opts.stats->collect_index_probe_events &&
+                                                  !_col_predicates.empty();
+        const bool enable_inverted_index_query =
+                _opts.runtime_state != nullptr &&
+                _opts.runtime_state->query_options().enable_inverted_index_query;
+        if (_opts.runtime_state && (enable_inverted_index_query || should_collect_not_attempted) &&
+            (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty() ||
+             should_collect_not_attempted)) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
             // Only apply column-level inverted index if we have iterators
-            if (has_index_in_iterators()) {
+            if (enable_inverted_index_query && has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
+            } else {
+                for (const auto& pred : _col_predicates) {
+                    _record_index_probe_event(pred, IndexProbeState::NOT_ATTEMPTED,
+                                              enable_inverted_index_query
+                                                      ? IndexFallbackReason::MISSING_INDEX
+                                                      : IndexFallbackReason::QUERY_DISABLED,
+                                              input_rows, input_rows);
+                }
             }
             // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
             // This allows search expressions with variant subcolumns to be evaluated even when
             // the segment doesn't have all subcolumns
-            RETURN_IF_ERROR(_apply_index_expr());
+            if (enable_inverted_index_query) {
+                RETURN_IF_ERROR(_apply_index_expr());
+            }
             for (auto it = _common_expr_ctxs_push_down.begin();
                  it != _common_expr_ctxs_push_down.end();) {
                 if ((*it)->all_expr_inverted_index_evaluated()) {
@@ -1452,19 +1497,82 @@ inline bool SegmentIterator::_inverted_index_not_support_pred_type(const Predica
     return type == PredicateType::BF;
 }
 
+void SegmentIterator::_record_index_probe_event(const std::shared_ptr<ColumnPredicate>& pred,
+                                                IndexProbeState state, IndexFallbackReason reason,
+                                                int64_t input_rows, int64_t output_rows,
+                                                int64_t index_id) {
+    if (_opts.stats == nullptr || !_opts.stats->collect_index_probe_events) {
+        return;
+    }
+    const auto pred_column_id = pred->column_id();
+    if (pred_column_id >= _opts.tablet_schema->num_columns()) {
+        return;
+    }
+
+    const auto& column = _opts.tablet_schema->column(pred_column_id);
+    int32_t column_uid = column.unique_id();
+    if (column_uid < 0) {
+        column_uid = column.parent_unique_id();
+    }
+
+    std::optional<std::string> variant_path;
+    if (column.has_path_info()) {
+        variant_path = column.path_info_ptr()->copy_pop_front().get_path();
+    }
+
+    _opts.stats->index_probe_events.push_back(IndexProbeEvent {
+            .column_uid = column_uid,
+            .variant_path = std::move(variant_path),
+            .index_id = index_id,
+            .segment_id = static_cast<int32_t>(_segment->id()),
+            .storage_format = _opts.tablet_schema->get_inverted_index_storage_format(),
+            .source = IndexProbeSource::COLUMN_PREDICATE,
+            .state = state,
+            .reason = reason,
+            .input_rows = input_rows,
+            .output_rows = output_rows,
+            .filtered_rows = std::max<int64_t>(0, input_rows - output_rows),
+    });
+}
+
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         std::shared_ptr<ColumnPredicate> pred,
         std::vector<std::shared_ptr<ColumnPredicate>>& remaining_predicates, bool* continue_apply) {
+    const bool collect_index_probe_events =
+            _opts.stats != nullptr && _opts.stats->collect_index_probe_events;
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
+        if (collect_index_probe_events) {
+            const auto rows = static_cast<int64_t>(_row_bitmap.cardinality());
+            const auto pred_column_id = pred->column_id();
+            IndexFallbackReason reason = IndexFallbackReason::NOT_SUPPORTED;
+            if (_opts.runtime_state != nullptr &&
+                !_opts.runtime_state->query_options().enable_inverted_index_query) {
+                reason = IndexFallbackReason::QUERY_DISABLED;
+            } else if (pred_column_id >= _index_iterators.size() ||
+                       _index_iterators[pred_column_id] == nullptr) {
+                reason = IndexFallbackReason::MISSING_INDEX;
+            }
+            _record_index_probe_event(pred, IndexProbeState::NOT_ATTEMPTED, reason, rows, rows);
+        }
     } else {
         bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
+        const auto input_rows =
+                collect_index_probe_events ? static_cast<int64_t>(_row_bitmap.cardinality()) : 0;
         Status res =
                 pred->evaluate(_storage_name_and_type[pred->column_id()],
                                _index_iterators[pred->column_id()].get(), num_rows(), &_row_bitmap);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
+                if (collect_index_probe_events) {
+                    const auto index_id =
+                            last_inverted_index_id(_index_iterators[pred->column_id()]);
+                    _record_index_probe_event(
+                            pred, IndexProbeState::FALLBACK,
+                            index_fallback_reason(res, need_remaining_after_evaluate), input_rows,
+                            input_rows, index_id);
+                }
                 remaining_predicates.emplace_back(pred);
                 return Status::OK();
             }
@@ -1477,6 +1585,13 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (_row_bitmap.isEmpty()) {
             // all rows have been pruned, no need to process further predicates
             *continue_apply = false;
+        }
+
+        if (collect_index_probe_events) {
+            const auto index_id = last_inverted_index_id(_index_iterators[pred->column_id()]);
+            _record_index_probe_event(pred, IndexProbeState::APPLIED, IndexFallbackReason::NONE,
+                                      input_rows, static_cast<int64_t>(_row_bitmap.cardinality()),
+                                      index_id);
         }
 
         if (need_remaining_after_evaluate) {
@@ -3493,7 +3608,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& col
         return false;
     }
 
-    if (!_check_all_conditions_passed_inverted_index_for_column(cid)) {
+    if (!_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
         return false;
     }
 

@@ -55,6 +55,7 @@ void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
 }
 
 Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
+    _last_read_index_id = -1;
     const auto* i_param_ptr = std::get_if<InvertedIndexParam*>(&param);
     if (i_param_ptr == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
@@ -79,6 +80,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");
     }
+    _last_read_index_id = reader->get_index_id();
     auto* runtime_state = _context->runtime_state;
     if (!i_param->skip_try && reader->type() == InvertedIndexReaderType::BKD) {
         if (runtime_state != nullptr &&

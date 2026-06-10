@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <netinet/in.h>
 
 #include <atomic>
@@ -27,6 +28,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -34,6 +36,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -110,6 +113,43 @@ struct TabletInfo {
 
     TTabletId tablet_id;
     UniqueId tablet_uid;
+};
+
+enum class IndexProbeSource {
+    COLUMN_PREDICATE,
+    EXPR_PUSHDOWN,
+    SEARCH_FUNCTION,
+};
+
+enum class IndexProbeState {
+    APPLIED,
+    FALLBACK,
+    NOT_ATTEMPTED,
+};
+
+enum class IndexFallbackReason {
+    NONE,
+    MISSING_INDEX,
+    BYPASS,
+    NO_TERMS,
+    CORRUPTED,
+    EVALUATE_SKIPPED,
+    QUERY_DISABLED,
+    NOT_SUPPORTED,
+};
+
+struct IndexProbeEvent {
+    int32_t column_uid = -1;
+    std::optional<std::string> variant_path;
+    int64_t index_id = -1;
+    int32_t segment_id = -1;
+    InvertedIndexStorageFormatPB storage_format = InvertedIndexStorageFormatPB::V1;
+    IndexProbeSource source = IndexProbeSource::COLUMN_PREDICATE;
+    IndexProbeState state = IndexProbeState::NOT_ATTEMPTED;
+    IndexFallbackReason reason = IndexFallbackReason::NONE;
+    int64_t input_rows = 0;
+    int64_t output_rows = 0;
+    int64_t filtered_rows = 0;
 };
 
 struct TabletSize {
@@ -388,6 +428,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
     InvertedIndexStatistics inverted_index_stats;
+    bool collect_index_probe_events = false;
+    std::vector<IndexProbeEvent> index_probe_events;
 
     int64_t ann_index_load_ns = 0;
     int64_t ann_topn_search_ns = 0;
