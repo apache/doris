@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "core/column/column_struct.h"
-#include "format_v2/parquet/reader/nested_column_reader.h"
+#include "format_v2/parquet/reader/nested_column_materializer.h"
 #include "format_v2/parquet/reader/scalar_column_reader.h"
 
 namespace doris::parquet {

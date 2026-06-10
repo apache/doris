@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format_v2/parquet/reader/arrow_leaf_reader_adapter.h"
+#include "format_v2/parquet/reader/parquet_leaf_reader.h"
 
 #include <arrow/array/array_binary.h>
 #include <parquet/api/schema.h>
@@ -35,7 +35,6 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/string_ref.h"
-#include "format_v2/parquet/reader/nested_column_reader.h"
 #include "runtime/runtime_profile.h"
 #include "util/simd/bits.h"
 
@@ -56,7 +55,7 @@ DecodedTimeUnit decoded_time_unit(ParquetTimeUnit time_unit) {
     }
 }
 
-Status decoded_fixed_value_size(const ArrowLeafReaderContext& context, DecodedValueKind value_kind,
+Status decoded_fixed_value_size(const std::string& column_name, DecodedValueKind value_kind,
                                 size_t* value_size) {
     switch (value_kind) {
     case DecodedValueKind::BOOL:
@@ -86,24 +85,24 @@ Status decoded_fixed_value_size(const ArrowLeafReaderContext& context, DecodedVa
     case DecodedValueKind::BINARY:
     case DecodedValueKind::FIXED_BINARY:
         return Status::InvalidArgument("Parquet binary value kind has no fixed value size for {}",
-                                       context.column_name());
+                                       column_name);
     }
-    return Status::InternalError("Unknown decoded value kind for column {}", context.column_name());
+    return Status::InternalError("Unknown decoded value kind for column {}", column_name);
 }
 
-Status get_binary_chunks(const ArrowLeafReaderContext& context,
+Status get_binary_chunks(const std::string& column_name,
                          ::parquet::internal::RecordReader& record_reader,
                          std::vector<std::shared_ptr<::arrow::Array>>* chunks) {
     auto* binary_reader = dynamic_cast<::parquet::internal::BinaryRecordReader*>(&record_reader);
     if (binary_reader == nullptr) {
         return Status::InternalError("Parquet binary record reader is not available for column {}",
-                                     context.column_name());
+                                     column_name);
     }
     *chunks = binary_reader->GetBuilderChunks();
     return Status::OK();
 }
 
-Status build_binary_values(const ArrowLeafReaderContext& context,
+Status build_binary_values(const std::string& column_name,
                            const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
                            int64_t records_read, const NullMap* null_map,
                            bool read_dense_for_nullable, std::vector<StringRef>* binary_values) {
@@ -114,7 +113,7 @@ Status build_binary_values(const ArrowLeafReaderContext& context,
         if (chunk == nullptr) {
             return Status::Corruption(
                     "Parquet binary record reader returned null chunk for column {}",
-                    context.column_name());
+                    column_name);
         }
         if (auto* binary_array = dynamic_cast<::arrow::BinaryArray*>(chunk.get())) {
             for (int64_t row_idx = 0; row_idx < binary_array->length(); ++row_idx) {
@@ -137,14 +136,14 @@ Status build_binary_values(const ArrowLeafReaderContext& context,
             }
         } else {
             return Status::InternalError("Unexpected Arrow binary array type for column {}",
-                                         context.column_name());
+                                         column_name);
         }
     }
     if (read_dense_for_nullable) {
         if (null_map == nullptr || null_map->size() != static_cast<size_t>(records_read)) {
             return Status::Corruption(
                     "Invalid dense nullable parquet null map for column {}: rows={}, null_map={}",
-                    context.column_name(), records_read,
+                    column_name, records_read,
                     null_map == nullptr ? 0 : null_map->size());
         }
         const int64_t non_null_count = static_cast<int64_t>(simd::count_zero_num(
@@ -153,7 +152,7 @@ Status build_binary_values(const ArrowLeafReaderContext& context,
             return Status::Corruption(
                     "Invalid dense nullable parquet binary values for column {}: values={}, "
                     "records={}, nulls={}",
-                    context.column_name(), compact_values.size(), records_read,
+                    column_name, compact_values.size(), records_read,
                     records_read - non_null_count);
         }
         binary_values->reserve(records_read);
@@ -170,7 +169,7 @@ Status build_binary_values(const ArrowLeafReaderContext& context,
     if (binary_values->size() != static_cast<size_t>(records_read)) {
         return Status::Corruption(
                 "Invalid parquet binary record read result for column {}: rows={}, records={}",
-                context.column_name(), binary_values->size(), records_read);
+                column_name, binary_values->size(), records_read);
     }
     return Status::OK();
 }
@@ -193,17 +192,18 @@ float half_to_float(uint16_t value) {
     return std::bit_cast<float>(sign | ((exponent + 112U) << 23) | (mantissa << 13));
 }
 
-Status build_float16_values(const ArrowLeafReaderContext& context,
+Status build_float16_values(const std::string& column_name,
+                            const ParquetTypeDescriptor& type_descriptor,
                             const std::vector<StringRef>& binary_values, int64_t row_count,
                             std::vector<float>* float_values) {
-    if (context.type_descriptor.fixed_length != 2) {
+    if (type_descriptor.fixed_length != 2) {
         return Status::Corruption("Invalid parquet Float16 length for column {}: {}",
-                                  context.column_name(), context.type_descriptor.fixed_length);
+                                  column_name, type_descriptor.fixed_length);
     }
     if (binary_values.size() != static_cast<size_t>(row_count)) {
         return Status::Corruption(
                 "Invalid parquet Float16 value count for column {}: values={}, rows={}",
-                context.column_name(), binary_values.size(), row_count);
+                column_name, binary_values.size(), row_count);
     }
     float_values->resize(static_cast<size_t>(row_count));
     for (int64_t row = 0; row < row_count; ++row) {
@@ -215,7 +215,7 @@ Status build_float16_values(const ArrowLeafReaderContext& context,
         if (binary_value.data == nullptr || binary_value.size != 2) {
             return Status::Corruption(
                     "Invalid parquet Float16 value for column {} at row {}: data={}, size={}",
-                    context.column_name(), row, binary_value.data == nullptr ? "null" : "non-null",
+                    column_name, row, binary_value.data == nullptr ? "null" : "non-null",
                     binary_value.size);
         }
         uint16_t raw_value = 0;
@@ -227,84 +227,85 @@ Status build_float16_values(const ArrowLeafReaderContext& context,
 
 } // namespace
 
-Status ParquetLeafBatch::collect(const ArrowLeafReaderContext& context,
-                                 ::parquet::internal::RecordReader& record_reader) {
-    _def_levels = nullptr;
-    _rep_levels = nullptr;
-    _fixed_values = nullptr;
-    _binary_chunks.clear();
-    _value_kind = decoded_value_kind(context.type_descriptor);
-    _consumed_level_count = record_reader.levels_position();
-    _decoded_level_count = record_reader.levels_written();
-    if (context.descriptor->max_definition_level() > 0) {
-        _def_levels = record_reader.def_levels();
+Status ParquetLeafReader::collect_batch(::parquet::internal::RecordReader& record_reader,
+                                        ParquetLeafBatch* batch) const {
+    DORIS_CHECK(batch != nullptr);
+    batch->_def_levels = nullptr;
+    batch->_rep_levels = nullptr;
+    batch->_fixed_values = nullptr;
+    batch->_binary_chunks.clear();
+    batch->_value_kind = decoded_value_kind(_type_descriptor);
+    batch->_consumed_level_count = record_reader.levels_position();
+    batch->_decoded_level_count = record_reader.levels_written();
+    if (_descriptor->max_definition_level() > 0) {
+        batch->_def_levels = record_reader.def_levels();
     }
-    if (context.descriptor->max_repetition_level() > 0) {
-        _rep_levels = record_reader.rep_levels();
+    if (_descriptor->max_repetition_level() > 0) {
+        batch->_rep_levels = record_reader.rep_levels();
     }
-    _read_dense_for_nullable = record_reader.read_dense_for_nullable();
-    _values_written = record_reader.values_written();
+    batch->_read_dense_for_nullable = record_reader.read_dense_for_nullable();
+    batch->_values_written = record_reader.values_written();
 
-    if (!is_binary_value()) {
-        _fixed_values = record_reader.values();
+    if (!batch->is_binary_value()) {
+        batch->_fixed_values = record_reader.values();
         return Status::OK();
     }
 
     // BinaryRecordReader owns values in Arrow builders instead of RecordReader::values().
     // GetBuilderChunks() transfers those builders out and resets them, so collect exactly once
     // and let all later count/materialization logic use this normalized batch state.
-    RETURN_IF_ERROR(get_binary_chunks(context, record_reader, &_binary_chunks));
-    _values_written = 0;
-    for (const auto& chunk : _binary_chunks) {
+    RETURN_IF_ERROR(get_binary_chunks(_name, record_reader, &batch->_binary_chunks));
+    batch->_values_written = 0;
+    for (const auto& chunk : batch->_binary_chunks) {
         if (chunk == nullptr) {
             return Status::Corruption(
-                    "Parquet binary record reader returned null chunk for column {}",
-                    context.column_name());
+                    "Parquet binary record reader returned null chunk for column {}", _name);
         }
-        _values_written += chunk->length();
+        batch->_values_written += chunk->length();
     }
     return Status::OK();
 }
 
-Status ParquetLeafBatch::append_values(const ArrowLeafReaderContext& context, int64_t row_count,
-                                       const NullMap* null_map, MutableColumnPtr& column) const {
+Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t row_count,
+                                        const NullMap* null_map, MutableColumnPtr& column) const {
     std::vector<StringRef> binary_values;
     std::vector<uint8_t> spaced_values;
     std::vector<float> float_values;
     DecodedColumnView view;
-    view.value_kind = _value_kind;
-    view.time_unit = decoded_time_unit(context.type_descriptor.time_unit);
+    view.value_kind = batch._value_kind;
+    view.time_unit = decoded_time_unit(_type_descriptor.time_unit);
     view.row_count = row_count;
-    view.decimal_precision = context.type_descriptor.decimal_precision;
-    view.decimal_scale = context.type_descriptor.decimal_scale;
-    view.fixed_length = context.type_descriptor.fixed_length;
-    view.timestamp_is_adjusted_to_utc = context.type_descriptor.timestamp_is_adjusted_to_utc;
-    view.timezone = context.timezone;
-    view.enable_strict_mode = context.enable_strict_mode;
+    view.decimal_precision = _type_descriptor.decimal_precision;
+    view.decimal_scale = _type_descriptor.decimal_scale;
+    view.fixed_length = _type_descriptor.fixed_length;
+    view.timestamp_is_adjusted_to_utc = _type_descriptor.timestamp_is_adjusted_to_utc;
+    view.timezone = _timezone;
+    view.enable_strict_mode = _enable_strict_mode;
     view.null_map = null_map == nullptr || null_map->empty() ? nullptr : null_map->data();
-    const bool read_dense_for_nullable = _read_dense_for_nullable && view.null_map != nullptr;
+    const bool read_dense_for_nullable = batch._read_dense_for_nullable && view.null_map != nullptr;
 
-    if (context.type_descriptor.extra_type_info == ParquetExtraTypeInfo::FLOAT16) {
-        RETURN_IF_ERROR(build_binary_values(context, _binary_chunks, row_count, null_map,
+    if (_type_descriptor.extra_type_info == ParquetExtraTypeInfo::FLOAT16) {
+        RETURN_IF_ERROR(build_binary_values(_name, batch._binary_chunks, row_count, null_map,
                                             read_dense_for_nullable, &binary_values));
-        RETURN_IF_ERROR(build_float16_values(context, binary_values, row_count, &float_values));
+        RETURN_IF_ERROR(
+                build_float16_values(_name, _type_descriptor, binary_values, row_count,
+                                     &float_values));
         view.value_kind = DecodedValueKind::FLOAT;
         view.values = reinterpret_cast<const uint8_t*>(float_values.data());
-    } else if (is_binary_value()) {
-        RETURN_IF_ERROR(build_binary_values(context, _binary_chunks, row_count, null_map,
+    } else if (batch.is_binary_value()) {
+        RETURN_IF_ERROR(build_binary_values(_name, batch._binary_chunks, row_count, null_map,
                                             read_dense_for_nullable, &binary_values));
         view.binary_values = &binary_values;
     } else if (read_dense_for_nullable) {
-        RETURN_IF_ERROR(build_spaced_fixed_values(context, row_count, null_map, &spaced_values));
+        RETURN_IF_ERROR(build_spaced_fixed_values(batch, row_count, null_map, &spaced_values));
         view.values = spaced_values.data();
     } else {
-        view.values = _fixed_values;
+        view.values = batch._fixed_values;
     }
 
     {
-        SCOPED_TIMER(context.profile.materialization_time);
-        RETURN_IF_ERROR(
-                context.data_type()->get_serde()->read_column_from_decoded_values(*column, view));
+        SCOPED_TIMER(_profile.materialization_time);
+        RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
     }
     return Status::OK();
 }
@@ -314,21 +315,21 @@ bool ParquetLeafBatch::is_binary_value() const {
            _value_kind == DecodedValueKind::FIXED_BINARY;
 }
 
-Status ParquetLeafBatch::build_spaced_fixed_values(const ArrowLeafReaderContext& context,
-                                                   int64_t row_count, const NullMap* null_map,
-                                                   std::vector<uint8_t>* spaced_values) const {
+Status ParquetLeafReader::build_spaced_fixed_values(const ParquetLeafBatch& batch,
+                                                    int64_t row_count, const NullMap* null_map,
+                                                    std::vector<uint8_t>* spaced_values) const {
     DORIS_CHECK(null_map != nullptr);
     DORIS_CHECK(spaced_values != nullptr);
     size_t value_size = 0;
-    RETURN_IF_ERROR(decoded_fixed_value_size(context, _value_kind, &value_size));
+    RETURN_IF_ERROR(decoded_fixed_value_size(_name, batch._value_kind, &value_size));
     spaced_values->resize(static_cast<size_t>(row_count) * value_size);
     const auto non_null_count = static_cast<int64_t>(simd::count_zero_num(
             reinterpret_cast<const int8_t*>(null_map->data()), null_map->size()));
-    if (_values_written != non_null_count) {
+    if (batch._values_written != non_null_count) {
         return Status::Corruption(
                 "Invalid dense nullable parquet values for column {}: values={}, records={}, "
                 "nulls={}",
-                context.column_name(), _values_written, row_count, row_count - non_null_count);
+                _name, batch._values_written, row_count, row_count - non_null_count);
     }
     auto* dst = spaced_values->data();
     int64_t value_idx = 0;
@@ -337,59 +338,71 @@ Status ParquetLeafBatch::build_spaced_fixed_values(const ArrowLeafReaderContext&
             continue;
         }
         std::memcpy(dst + static_cast<size_t>(record_idx) * value_size,
-                    _fixed_values + static_cast<size_t>(value_idx) * value_size, value_size);
+                    batch._fixed_values + static_cast<size_t>(value_idx) * value_size, value_size);
         ++value_idx;
     }
     return Status::OK();
 }
 
-ParquetLeafReaderAdapter::ParquetLeafReaderAdapter(ArrowLeafReaderContext context)
-        : _context(std::move(context)) {}
+ParquetLeafReader::ParquetLeafReader(
+        const ::parquet::ColumnDescriptor* descriptor, ParquetTypeDescriptor type_descriptor,
+        DataTypePtr type, std::string name,
+        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
+        ParquetColumnReaderProfile profile, const cctz::time_zone* timezone,
+        bool enable_strict_mode)
+        : _descriptor(descriptor),
+          _type_descriptor(type_descriptor),
+          _type(std::move(type)),
+          _name(std::move(name)),
+          _record_reader(std::move(record_reader)),
+          _profile(profile),
+          _timezone(timezone),
+          _enable_strict_mode(enable_strict_mode) {}
 
-Status ParquetLeafReaderAdapter::read_batch(int64_t batch_rows, ParquetLeafBatch* batch,
-                                            int64_t* rows_read) const {
+Status ParquetLeafReader::read_batch(int64_t batch_rows, ParquetLeafBatch* batch,
+                                     int64_t* rows_read) const {
     if (batch == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet leaf batch result pointer for column {}",
-                                       _context.column_name());
+                                       _name);
     }
-    if (_context.record_reader == nullptr) {
+    if (_record_reader == nullptr) {
         return Status::InternalError("Parquet record reader is not initialized for column {}",
-                                      _context.column_name());
+                                      _name);
     }
 
     try {
-        _context.record_reader->Reset();
-        _context.record_reader->Reserve(batch_rows);
+        _record_reader->Reset();
+        _record_reader->Reserve(batch_rows);
         {
-            SCOPED_TIMER(_context.profile.arrow_read_records_time);
-            *rows_read = _context.record_reader->ReadRecords(batch_rows);
+            SCOPED_TIMER(_profile.arrow_read_records_time);
+            *rows_read = _record_reader->ReadRecords(batch_rows);
         }
     } catch (const ::parquet::ParquetException& e) {
-        return Status::Corruption("Failed to read parquet records for column {}: {}",
-                                  _context.column_name(), e.what());
+        return Status::Corruption("Failed to read parquet records for column {}: {}", _name,
+                                  e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to read parquet records for column {}: {}",
-                                     _context.column_name(), e.what());
+        return Status::InternalError("Failed to read parquet records for column {}: {}", _name,
+                                     e.what());
     }
     if (*rows_read < 0 || *rows_read > batch_rows) {
-        return Status::Corruption("Invalid parquet record read result for column {}: {}",
-                                  _context.column_name(), *rows_read);
+        return Status::Corruption("Invalid parquet record read result for column {}: {}", _name,
+                                  *rows_read);
     }
-    return batch->collect(_context, *_context.record_reader);
+    return collect_batch(*_record_reader, batch);
 }
 
-Status ParquetLeafReaderAdapter::build_null_map(const ParquetLeafBatch& batch,
-                                                int64_t records_read, NullMap* null_map) const {
-    if (_context.descriptor->max_definition_level() == 0) {
+Status ParquetLeafReader::build_null_map(const ParquetLeafBatch& batch, int64_t records_read,
+                                         NullMap* null_map) const {
+    if (_descriptor->max_definition_level() == 0) {
         return Status::OK();
     }
     auto* def_levels = batch.def_levels();
     if (def_levels == nullptr && records_read > 0) {
         return Status::Corruption(
                 "Parquet record reader returned null definition levels for nullable column {}",
-                _context.column_name());
+                _name);
     }
-    const int16_t max_definition_level = _context.descriptor->max_definition_level();
+    const int16_t max_definition_level = _descriptor->max_definition_level();
     null_map->resize(records_read);
     auto* __restrict dst = null_map->data();
     const auto* __restrict src = def_levels;
@@ -399,82 +412,71 @@ Status ParquetLeafReaderAdapter::build_null_map(const ParquetLeafBatch& batch,
     return Status::OK();
 }
 
-Status ParquetLeafReaderAdapter::append_values(const ParquetLeafBatch& batch, int64_t row_count,
-                                               const NullMap* null_map,
-                                               MutableColumnPtr& column) const {
-    return batch.append_values(_context, row_count, null_map, column);
-}
-
-Status ParquetLeafReaderAdapter::read_nested_batch(int64_t batch_rows,
-                                                   int16_t value_slot_definition_level,
-                                                   NestedScalarBatch* batch,
-                                                   int16_t value_slot_repetition_level) const {
+Status ParquetLeafReader::read_nested_batch(int64_t batch_rows,
+                                            int16_t value_slot_definition_level,
+                                            ParquetNestedScalarBatch* batch,
+                                            int16_t value_slot_repetition_level) const {
     if (batch == nullptr) {
-        return Status::InvalidArgument("Nested scalar batch is null for column {}",
-                                       _context.column_name());
+        return Status::InvalidArgument("Nested scalar batch is null for column {}", _name);
     }
-    *batch = NestedScalarBatch();
+    *batch = ParquetNestedScalarBatch();
     batch->value_slot_definition_level = value_slot_definition_level;
     batch->value_slot_repetition_level = value_slot_repetition_level;
 
     ParquetLeafBatch leaf_batch;
     RETURN_IF_ERROR(read_batch(batch_rows, &leaf_batch, &batch->records_read));
-    if (_context.data_type()->is_nullable() && leaf_batch.read_dense_for_nullable()) {
+    if (_type->is_nullable() && leaf_batch.read_dense_for_nullable()) {
         return Status::NotSupported(
-                "Dense nullable parquet nested reader is not supported for column {}",
-                _context.column_name());
+                "Dense nullable parquet nested reader is not supported for column {}", _name);
     }
     batch->levels_written = leaf_batch.consumed_level_count();
     const int64_t values_written = leaf_batch.values_written();
     if (batch->levels_written > leaf_batch.decoded_level_count()) {
         return Status::Corruption(
                 "Invalid nested parquet level position for column {}: position={}, levels={}",
-                _context.column_name(), batch->levels_written, leaf_batch.decoded_level_count());
+                _name, batch->levels_written, leaf_batch.decoded_level_count());
     }
     if (batch->levels_written == 0 && batch->records_read > 0 &&
         values_written == batch->records_read &&
-        _context.descriptor->max_definition_level() == 0 &&
-        _context.descriptor->max_repetition_level() == 0) {
+        _descriptor->max_definition_level() == 0 && _descriptor->max_repetition_level() == 0) {
         batch->levels_written = batch->records_read;
     }
     if (batch->levels_written < batch->records_read || values_written < 0 ||
         values_written > batch->levels_written) {
         return Status::Corruption(
                 "Invalid nested parquet read result for column {}: rows={}, levels={}, values={}",
-                _context.column_name(), batch->records_read, batch->levels_written, values_written);
+                _name, batch->records_read, batch->levels_written, values_written);
     }
     if (batch->levels_written == 0) {
         return Status::OK();
     }
 
     auto* def_levels = leaf_batch.def_levels();
-    if (def_levels == nullptr && _context.descriptor->max_definition_level() > 0) {
+    if (def_levels == nullptr && _descriptor->max_definition_level() > 0) {
         return Status::Corruption(
-                "Nested parquet reader returned null definition levels for column {}",
-                _context.column_name());
+                "Nested parquet reader returned null definition levels for column {}", _name);
     }
     batch->def_levels.resize(static_cast<size_t>(batch->levels_written));
-    if (_context.descriptor->max_definition_level() == 0 || def_levels == nullptr) {
+    if (_descriptor->max_definition_level() == 0 || def_levels == nullptr) {
         std::fill(batch->def_levels.begin(), batch->def_levels.end(),
-                  _context.descriptor->max_definition_level());
+                  _descriptor->max_definition_level());
     } else {
         std::copy(def_levels, def_levels + batch->levels_written, batch->def_levels.begin());
     }
 
     auto* rep_levels = leaf_batch.rep_levels();
-    if (rep_levels == nullptr && _context.descriptor->max_repetition_level() > 0) {
+    if (rep_levels == nullptr && _descriptor->max_repetition_level() > 0) {
         return Status::Corruption(
-                "Nested parquet reader returned null repetition levels for column {}",
-                _context.column_name());
+                "Nested parquet reader returned null repetition levels for column {}", _name);
     }
     batch->rep_levels.resize(static_cast<size_t>(batch->levels_written));
-    if (_context.descriptor->max_repetition_level() == 0 || rep_levels == nullptr) {
+    if (_descriptor->max_repetition_level() == 0 || rep_levels == nullptr) {
         std::fill(batch->rep_levels.begin(), batch->rep_levels.end(), 0);
     } else {
         std::copy(rep_levels, rep_levels + batch->levels_written, batch->rep_levels.begin());
     }
 
-    const int16_t leaf_definition_level = _context.descriptor->max_definition_level();
+    const int16_t leaf_definition_level = _descriptor->max_definition_level();
     // Arrow's RecordReader may emit value placeholders for null ancestors that are below the
     // Doris materialization threshold. Those slots must still advance the payload value index;
     // otherwise the next defined child level points at the placeholder instead of its real value.
@@ -523,7 +525,7 @@ Status ParquetLeafReaderAdapter::read_nested_batch(int64_t batch_rows,
                 "Nested parquet reader returned inconsistent value count for column {}: values={}, "
                 "levels={}, slots={}, leaf_values={}, payload_slots={}, "
                 "payload_slot_definition_level={}",
-                _context.column_name(), values_written, batch->levels_written, value_slot_count,
+                _name, values_written, batch->levels_written, value_slot_count,
                 leaf_value_count, payload_value_slot_count, payload_slot_definition_level);
     }
 
@@ -563,16 +565,16 @@ Status ParquetLeafReaderAdapter::read_nested_batch(int64_t batch_rows,
         return Status::Corruption(
                 "Nested parquet reader value cursor stopped early for column {}: values={}, "
                 "visited={}",
-                _context.column_name(), values_written, value_idx);
+                _name, values_written, value_idx);
     }
 
-    const auto value_type = remove_nullable(_context.data_type());
+    const auto value_type = remove_nullable(_type);
     batch->values_column = value_type->create_column();
     if (values_written > 0) {
-        ArrowLeafReaderContext value_context = _context;
-        value_context.type = value_type;
-        RETURN_IF_ERROR(leaf_batch.append_values(value_context, values_written, &value_nulls,
-                                                 batch->values_column));
+        ParquetLeafReader value_reader(_descriptor, _type_descriptor, value_type, _name,
+                                       _record_reader, _profile, _timezone, _enable_strict_mode);
+        RETURN_IF_ERROR(value_reader.append_values(leaf_batch, values_written, &value_nulls,
+                                                   batch->values_column));
     }
     return Status::OK();
 }

@@ -28,7 +28,7 @@
 
 #include "core/column/column_nullable.h"
 #include "format_v2/parquet/reader/list_column_reader.h"
-#include "format_v2/parquet/reader/nested_column_reader.h"
+#include "format_v2/parquet/reader/nested_column_materializer.h"
 #include "format_v2/parquet/reader/scalar_column_reader.h"
 #include "format_v2/parquet/reader/struct_column_reader.h"
 

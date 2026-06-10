@@ -24,11 +24,64 @@
 #include <utility>
 
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "format_v2/parquet/parquet_column_schema.h"
-#include "format_v2/parquet/reader/nested_column_reader.h"
 #include "util/simd/bits.h"
 
 namespace doris::parquet {
+namespace {
+
+class ParquetNestedScalarValueCursor {
+public:
+    explicit ParquetNestedScalarValueCursor(const ParquetNestedScalarBatch* batch) { reset(batch); }
+
+    void reset(const ParquetNestedScalarBatch* batch) {
+        DORIS_CHECK(batch != nullptr);
+        _batch = batch;
+    }
+
+    Status value_index(const std::string& column_name, int64_t level_idx, int64_t* value_idx) {
+        DORIS_CHECK(_batch != nullptr);
+        DORIS_CHECK(value_idx != nullptr);
+        DORIS_CHECK(level_idx < _batch->levels_written);
+        DORIS_CHECK(level_idx >= 0);
+        DORIS_CHECK(static_cast<size_t>(level_idx) < _batch->value_indices.size());
+        const int64_t computed_value_idx = _batch->value_indices[static_cast<size_t>(level_idx)];
+        if (computed_value_idx < 0) {
+            return Status::Corruption("Nested parquet value is absent for column {}", column_name);
+        }
+        DORIS_CHECK(_batch->values_column.get() != nullptr);
+        if (computed_value_idx >= _batch->values_column->size()) {
+            return Status::Corruption("Nested parquet value index is out of range for column {}",
+                                      column_name);
+        }
+        *value_idx = computed_value_idx;
+        return Status::OK();
+    }
+
+private:
+    const ParquetNestedScalarBatch* _batch = nullptr;
+};
+
+Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
+                                 const ParquetNestedScalarBatch& batch, int64_t level_idx,
+                                 ParquetNestedScalarValueCursor* value_cursor,
+                                 MutableColumnPtr& column) {
+    DORIS_CHECK(value_cursor != nullptr);
+    int64_t value_idx = -1;
+    RETURN_IF_ERROR(value_cursor->value_index(column_reader.name(), level_idx, &value_idx));
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    if (nullable_column != nullptr) {
+        nullable_column->get_nested_column().insert_from(*batch.values_column,
+                                                         static_cast<size_t>(value_idx));
+        nullable_column->get_null_map_data().push_back(0);
+        return Status::OK();
+    }
+    column->insert_from(*batch.values_column, static_cast<size_t>(value_idx));
+    return Status::OK();
+}
+
+} // namespace
 
 ScalarColumnReader::ScalarColumnReader(
         const ParquetColumnSchema& column_schema,
@@ -42,7 +95,7 @@ ScalarColumnReader::ScalarColumnReader(
           _page_skip_plan(page_skip_plan),
           _timezone(timezone),
           _enable_strict_mode(enable_strict_mode),
-          _nested_batch(std::make_unique<NestedScalarBatch>()) {}
+          _nested_batch(std::make_unique<ParquetNestedScalarBatch>()) {}
 
 ScalarColumnReader::~ScalarColumnReader() = default;
 
@@ -55,12 +108,12 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         return Status::InternalError("Parquet record reader is not initialized for column {}",
                                      _name);
     }
-    auto adapter = leaf_adapter();
+    auto reader = leaf_reader();
     ParquetLeafBatch leaf_batch;
-    RETURN_IF_ERROR(adapter.read_batch(rows, &leaf_batch, rows_read));
+    RETURN_IF_ERROR(reader.read_batch(rows, &leaf_batch, rows_read));
 
     NullMap null_map;
-    RETURN_IF_ERROR(adapter.build_null_map(leaf_batch, *rows_read, &null_map));
+    RETURN_IF_ERROR(reader.build_null_map(leaf_batch, *rows_read, &null_map));
     const auto value_kind = decoded_value_kind(_type_descriptor);
     const bool is_binary_value =
             value_kind == DecodedValueKind::BINARY || value_kind == DecodedValueKind::FIXED_BINARY;
@@ -81,7 +134,7 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
                 leaf_batch.values_written(), *rows_read);
     }
 
-    RETURN_IF_ERROR(adapter.append_values(leaf_batch, *rows_read, &null_map, column));
+    RETURN_IF_ERROR(reader.append_values(leaf_batch, *rows_read, &null_map, column));
     advance_rows_read(*rows_read);
     update_reader_read_rows(*rows_read);
     return Status::OK();
@@ -171,8 +224,10 @@ Status ScalarColumnReader::load_nested_batch(int64_t rows) {
     // The value index stream must advance on those null slots, otherwise later payload values shift.
     const int16_t materialized_slot_definition_level =
             static_cast<int16_t>(_definition_level - (_type->is_nullable() ? 1 : 0));
-    RETURN_IF_ERROR(read_nested_scalar_batch(*this, rows, materialized_slot_definition_level,
-                                             _nested_batch.get(), _repetition_level));
+    RETURN_IF_ERROR(leaf_reader().read_nested_batch(rows, materialized_slot_definition_level,
+                                                    _nested_batch.get(), _repetition_level));
+    advance_rows_read(_nested_batch->records_read);
+    update_reader_read_rows(_nested_batch->records_read);
     return Status::OK();
 }
 
@@ -183,7 +238,7 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
                                        _name);
     }
     DORIS_CHECK(_nested_batch != nullptr);
-    NestedScalarValueCursor value_cursor(_nested_batch.get());
+    ParquetNestedScalarValueCursor value_cursor(_nested_batch.get());
     const int16_t materialized_slot_definition_level = _nested_batch->value_slot_definition_level;
     *values_read = 0;
     int64_t level_idx = nested_build_level_cursor();
@@ -219,9 +274,17 @@ Status ScalarColumnReader::append_nested_value(int64_t level_idx, MutableColumnP
     DORIS_CHECK(_nested_batch != nullptr);
     DORIS_CHECK(level_idx >= 0);
     DORIS_CHECK(level_idx < _nested_batch->levels_written);
-    NestedScalarValueCursor value_cursor(_nested_batch.get());
-    return append_nullable_scalar_child(_name, "MAP", "value", *this, *_nested_batch, level_idx,
-                                        _definition_level, &value_cursor, column);
+    ParquetNestedScalarValueCursor value_cursor(_nested_batch.get());
+    const int16_t def_level = _nested_batch->def_levels[level_idx];
+    if (def_level == _definition_level) {
+        return append_scalar_batch_value(*this, *_nested_batch, level_idx, &value_cursor, column);
+    }
+    if (!_type->is_nullable()) {
+        return Status::Corruption("Parquet MAP column {} contains null for non-nullable value",
+                                  _name);
+    }
+    column->insert_default();
+    return Status::OK();
 }
 
 const std::vector<int16_t>& ScalarColumnReader::nested_definition_levels() const {
