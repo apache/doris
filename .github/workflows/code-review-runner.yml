@@ -76,6 +76,13 @@ jobs:
           cli_auth_credentials_store = "file"
           approval_policy = "never"
 
+          [features]
+          memories = true
+
+          [memories]
+          use_memories = true
+          generate_memories = true
+
           [shell_environment_policy]
           inherit = "all"
 
@@ -92,9 +99,32 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
+      - name: Sync Codex memories from OSS
+        continue-on-error: true
+        run: |
+          install -m 700 -d "$CODEX_HOME/memories"
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+
+          if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_MEMORIES_OBJECT" "$archive"; then
+            tar -tzf "$archive" | awk '
+              $0 != "memories" && $0 !~ /^memories\// { bad = 1 }
+              END { exit bad }
+            '
+            tar -xzf "$archive" -C "$CODEX_HOME"
+            install -m 700 -d "$CODEX_HOME/memories"
+            chmod -R go-rwx "$CODEX_HOME/memories" || true
+          else
+            echo "No Codex memories archive could be downloaded; continuing with empty memories."
+          fi
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
+
       - name: Prepare review context directory
         run: |
-          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.opencode-review.XXXXXX")"
+          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.code-review.XXXXXX")"
           review_context_rel="$(basename "$review_context_dir")"
           printf 'REVIEW_CONTEXT_DIR=%s\n' "$review_context_dir" >> "$GITHUB_ENV"
           printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
@@ -175,9 +205,7 @@ jobs:
           You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
           The current directory is the code repository for the PR to be reviewed.
           You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
-          You MUST use the local gh CLI, including gh api when needed, for pull request review submission.
-          Do NOT use GitHub MCP connector write tools such as github_add_review_to_pr.
-          You can comment on the pull request through the GH_TOKEN-backed gh CLI.
+          You can comment on the pull request.
           Proceed with all subsequent research at the HIGHEST level of thought, aiming to identify all issues and submit all comments in JSON format.
 
           Context:
@@ -267,11 +295,6 @@ jobs:
             fi
           fi
 
-          if [ -z "$failure_reason" ] \
-            && jq -e 'select(.type == "item.completed" and (.item // {}).type == "mcp_tool_call" and (.item // {}).tool == "github_add_review_to_pr")' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" >/dev/null; then
-            failure_reason="Codex attempted to submit the review through the GitHub MCP connector instead of the GH_TOKEN-backed gh CLI."
-          fi
-
           if [ -z "$failure_reason" ]; then
             reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
             reviews_api_ok=false
@@ -309,6 +332,7 @@ jobs:
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
@@ -347,13 +371,30 @@ jobs:
             --model "gpt-5.5" \
             --reasoning-effort "$REASONING_EFFORT" \
             --environment "github-actions" \
-            --max-context-json-chars 4000 \
             --max-payload-bytes 4000000 \
             --min-observations 4 \
             --min-step-observations 2 \
             --verify-attempts 24 \
             --verify-sleep-seconds 5 \
             --verify
+
+      - name: Sync Codex memories back to OSS
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          if [ ! -d "$CODEX_HOME/memories" ]; then
+            echo "No Codex memories directory found; skipping memories sync."
+            exit 0
+          fi
+
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+          tar -C "$CODEX_HOME" -czf "$archive" memories
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$archive" "$OSS_CODEX_MEMORIES_OBJECT"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
 
       - name: Sync Codex auth back to OSS
         if: ${{ always() }}

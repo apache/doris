@@ -636,6 +636,8 @@ public class IcebergUtils {
                                 icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz)))
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
+            case VARIANT:
+                return Type.UNSUPPORTED;
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
@@ -965,9 +967,9 @@ public class IcebergUtils {
                 case LONG:
                     return Long.parseLong(valueStr);
                 case FLOAT:
-                    return Float.parseFloat(valueStr);
+                    return Float.parseFloat(normalizeFloatingPointPartitionValue(valueStr));
                 case DOUBLE:
-                    return Double.parseDouble(valueStr);
+                    return Double.parseDouble(normalizeFloatingPointPartitionValue(valueStr));
                 case BOOLEAN:
                     return Boolean.parseBoolean(valueStr);
                 case DATE:
@@ -984,6 +986,20 @@ public class IcebergUtils {
             throw new IllegalArgumentException(String.format("Failed to convert partition value '%s' to type %s",
                     valueStr, icebergType), e);
         }
+    }
+
+    private static String normalizeFloatingPointPartitionValue(String valueStr) {
+        if ("nan".equalsIgnoreCase(valueStr)) {
+            return "NaN";
+        }
+        if ("inf".equalsIgnoreCase(valueStr) || "+inf".equalsIgnoreCase(valueStr)
+                || "infinity".equalsIgnoreCase(valueStr) || "+infinity".equalsIgnoreCase(valueStr)) {
+            return "Infinity";
+        }
+        if ("-inf".equalsIgnoreCase(valueStr) || "-infinity".equalsIgnoreCase(valueStr)) {
+            return "-Infinity";
+        }
+        return valueStr;
     }
 
     /**
