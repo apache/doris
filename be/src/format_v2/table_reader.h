@@ -902,7 +902,6 @@ protected:
                                                 const FileAggregateResult& file_result,
                                                 Block* block) {
         if (agg_type == TPushAggOp::type::COUNT) {
-            LOG(WARNING) << "==========1 " << file_result.count;
             // COUNT pushdown is not a final count value. It emits `count` default rows so the
             // upper COUNT(*) aggregate can count them and produce the final result, including
             // zero rows when count is 0.

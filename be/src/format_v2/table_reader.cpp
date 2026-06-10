@@ -316,7 +316,6 @@ Status TableReader::init(TableReadOptions&& options) {
     _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
     _push_down_agg_type = options.push_down_agg_type;
-    LOG(WARNING) << "============3 " << (int)_push_down_agg_type;
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;

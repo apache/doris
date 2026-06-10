@@ -304,8 +304,6 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                 _state->file_context.metadata->RowGroup(row_group_plan.row_group_id);
         DORIS_CHECK(row_group_metadata != nullptr);
         result->count += row_group_metadata->num_rows();
-        LOG(WARNING) << "==========2 " << row_group_plan.row_group_id << " "
-                     << row_group_metadata->num_rows();
     }
     if (request.agg_type == TPushAggOp::type::COUNT) {
         return Status::OK();
