@@ -19,15 +19,19 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -71,7 +75,7 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
     }
 
     @VisibleForTesting
-    protected static boolean isBinaryArithmeticSlot(TreeNode<Expression> expr) {
+    protected static boolean isBinaryArithmeticSlot(Expression expr) {
         if (expr instanceof Slot) {
             return true;
         }
@@ -81,7 +85,75 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
         if (!supportedFunctions.contains(expr.getClass())) {
             return false;
         }
-        return ExpressionUtils.isSlotOrCastOnSlot(expr.child(0)).isPresent() && expr.child(1) instanceof Literal
-                || ExpressionUtils.isSlotOrCastOnSlot(expr.child(1)).isPresent() && expr.child(0) instanceof Literal;
+
+        // Multiply / Divide: both sides must not be float/double
+        if (expr instanceof Multiply || expr instanceof Divide) {
+            if (expr.child(0).getDataType().isFloatLikeType()
+                    || expr.child(1).getDataType().isFloatLikeType()) {
+                return false;
+            }
+        }
+
+        Expression slotExpr;
+        Literal literal;
+        if (expr.child(0) instanceof Literal) {
+            literal = (Literal) expr.child(0);
+            slotExpr = expr.child(1);
+        } else if (expr.child(1) instanceof Literal) {
+            literal = (Literal) expr.child(1);
+            slotExpr = expr.child(0);
+        } else {
+            return false;
+        }
+
+        if (!canExtractSlot(slotExpr)) {
+            return false;
+        }
+
+        return checkLiteral(expr, literal);
+    }
+
+    @VisibleForTesting
+    protected static boolean checkLiteral(Expression expr, Literal literal) {
+        if (literal.isNullLiteral()) {
+            return false;
+        }
+        if (expr instanceof Multiply || expr instanceof Divide) {
+            if (literal.isZero()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @VisibleForTesting
+    protected static boolean canExtractSlot(Expression expr) {
+        while (expr instanceof Cast) {
+            Cast cast = (Cast) expr;
+            Expression inner = cast.child();
+            if (!isLosslessWidening(inner.getDataType(), cast.getDataType())) {
+                return false;
+            }
+            expr = inner;
+        }
+        return expr instanceof Slot;
+    }
+
+    @VisibleForTesting
+    protected static boolean isLosslessWidening(DataType src, DataType tgt) {
+        if (src instanceof IntegralType && tgt instanceof IntegralType) {
+            return src.width() <= tgt.width();
+        }
+        if (src instanceof FractionalType && tgt instanceof FractionalType) {
+            return src.width() <= tgt.width();
+        }
+        if (src.isDecimalLikeType() && tgt.isDecimalLikeType()) {
+            return DecimalV3Type.forType(src).getRange() <= DecimalV3Type.forType(tgt).getRange()
+                    && DecimalV3Type.forType(src).getScale() <= DecimalV3Type.forType(tgt).getScale();
+        }
+        if (src instanceof IntegralType && tgt.isDecimalLikeType()) {
+            return ((IntegralType) src).range() <= DecimalV3Type.forType(tgt).getRange();
+        }
+        return false;
     }
 }
