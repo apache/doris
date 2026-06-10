@@ -960,6 +960,13 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
+        // Propagate parsed statement to the ConnectContext's StatementContext so that
+        // downstream code (e.g. canUseNereidsDistributePlanner which reads
+        // ConnectContext.get().getStatementContext().getParsedStatement()) can correctly
+        // identify the Nereids execution context even when the statement was forwarded
+        // from another FE (proxy flow). Using context.getStatementContext() instead of
+        // this.statementContext ensures consistency with what downstream code checks.
+        this.context.getStatementContext().setParsedStatement(parsedStmt);
     }
 
     public void finalizeQuery() {
