@@ -19,8 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <limits>
 #include <memory>
+#include <numeric>
+#include <thread>
 #include <unordered_set>
 
 #include "common/config.h"
@@ -1213,6 +1217,96 @@ TEST_F(SpillSortSourceOperatorTest, EndToEndSinkAndSource) {
     st = source_local_state->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok());
     st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+}
+
+TEST_F(SpillSortSourceOperatorTest, SpillDataDirThreadSafety) {
+    // Test the thread safety of get_disk_usage and update_capacity (Bug 1)
+    std::atomic<bool> stop {false};
+
+    // Thread 1: Keep calling update_capacity
+    std::thread t1([&]() {
+        while (!stop) {
+            auto st = _helper.spill_data_dir_ptr->update_capacity();
+            EXPECT_TRUE(st.ok());
+            std::this_thread::yield();
+        }
+    });
+
+    // Thread 2: Keep calling get_disk_usage
+    std::thread t2([&]() {
+        while (!stop) {
+            double usage = _helper.spill_data_dir_ptr->get_disk_usage(1024);
+            EXPECT_GE(usage, 0.0);
+            EXPECT_LE(usage, 1.0);
+            std::this_thread::yield();
+        }
+    });
+
+    // Let them run concurrently for a short while
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    stop = true;
+    t1.join();
+    t2.join();
+}
+
+TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
+    // Test the accuracy of memory tracking in SpillFileWriter (Bug 2)
+    SpillFileSPtr spill_file;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("SpillWriterTest",
+                                                                          spill_file);
+    ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
+
+    SpillFileWriterSPtr writer;
+    st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(),
+                                   writer);
+    ASSERT_TRUE(st.ok());
+
+    auto* memory_used_counter = _helper.common_profile->get_counter("MemoryUsage");
+    ASSERT_TRUE(memory_used_counter != nullptr);
+
+    // We use value() directly as it is safe for all Counter types.
+    // Downcasting to HighWaterMarkCounter caused ASAN heap-buffer-overflow
+    // because MemoryUsage might be a normal Counter in the latest Profile structure.
+    int64_t initial_memory = memory_used_counter->value();
+
+    std::vector<int32_t> data(1000);
+    std::iota(data.begin(), data.end(), 0);
+    auto block = ColumnHelper::create_block<DataTypeInt32>(data);
+
+    SpillableDebugPointHelper dp_helper("fault_inject::spill_writer::sleep_before_write");
+    std::atomic<int64_t> max_memory_observed = initial_memory;
+    std::atomic<bool> write_done = false;
+
+    // Thread 2: Continuously observe the memory counter while the write is taking place
+    std::thread observer([&]() {
+        while (!write_done) {
+            int64_t current = memory_used_counter->value();
+            if (current > max_memory_observed) {
+                max_memory_observed = current;
+            }
+            std::this_thread::yield();
+        }
+    });
+
+    // After write_block, the memory usage should return to initial_memory
+    // because the Defer block should have decremented it.
+    st = writer->write_block(_helper.runtime_state.get(), block);
+    ASSERT_TRUE(st.ok());
+
+    write_done = true;
+    observer.join();
+
+    int64_t after_write_memory = memory_used_counter->value();
+    ASSERT_EQ(after_write_memory, initial_memory)
+            << "Memory should be properly decremented after write_block";
+
+    // We should have observed memory > initial_memory DURING the write!
+    // This perfectly proves that the memory was tracked WHILE the IO was in progress.
+    ASSERT_GT(max_memory_observed.load(), initial_memory)
+            << "Peak memory should be greater than initial memory, proving it was incremented";
+
+    st = writer->close();
     ASSERT_TRUE(st.ok());
 }
 

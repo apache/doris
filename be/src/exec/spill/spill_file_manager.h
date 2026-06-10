@@ -79,8 +79,15 @@ public:
 
     std::string debug_string();
 
+    // get current disk usage percent in a thread-safe way
+    double get_disk_usage(int64_t incoming_data_size) {
+        std::lock_guard<std::mutex> l(_mutex);
+        return _get_disk_usage(incoming_data_size);
+    }
+
 private:
     bool _reach_disk_capacity_limit(int64_t incoming_data_size);
+    // caller must hold _mutex before calling this method
     double _get_disk_usage(int64_t incoming_data_size) const {
         return _disk_capacity_bytes == 0
                        ? 0

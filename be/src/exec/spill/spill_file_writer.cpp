@@ -219,9 +219,8 @@ Status SpillFileWriter::_write_internal(const Block& block,
                         "serialize spill data error. [path={}]", _current_part_path);
             }
             buff_size = buff.size();
-            COUNTER_UPDATE(_memory_used_counter, buff_size);
-            Defer defer2 {[&]() { COUNTER_UPDATE(_memory_used_counter, -buff_size); }};
         }
+
         if (_data_dir->reach_capacity_limit(buff_size)) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                     "spill data total size exceed limit, path: {}, size limit: {}, spill data "
@@ -231,38 +230,41 @@ Status SpillFileWriter::_write_internal(const Block& block,
                     PrettyPrinter::print_bytes(_data_dir->get_spill_data_bytes()));
         }
 
-        {
-            Defer defer {[&]() {
-                if (status.ok()) {
-                    _data_dir->update_spill_data_usage(buff_size);
-                    ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(buff_size);
+        COUNTER_UPDATE(_memory_used_counter, buff_size);
 
-                    _part_max_sub_block_size =
-                            std::max(_part_max_sub_block_size, (size_t)buff_size);
+        Defer defer {[&]() {
+            COUNTER_UPDATE(_memory_used_counter, -buff_size);
+            if (status.ok()) {
+                _data_dir->update_spill_data_usage(buff_size);
+                ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(buff_size);
 
-                    _part_meta.append((const char*)&_part_written_bytes, sizeof(size_t));
-                    COUNTER_UPDATE(_write_file_total_size, buff_size);
-                    if (_resource_ctx) {
-                        _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(
-                                buff_size);
-                    }
-                    if (_write_file_current_size) {
-                        COUNTER_UPDATE(_write_file_current_size, buff_size);
-                    }
-                    COUNTER_UPDATE(_write_block_counter, 1);
-                    _part_written_bytes += buff_size;
-                    _total_written_bytes += buff_size;
-                    ++_part_written_blocks;
-                    // Incrementally update SpillFile so gc() can always
-                    // decrement the correct amount from _data_dir.
-                    spill_file->update_written_bytes(buff_size);
+                _part_max_sub_block_size = std::max(_part_max_sub_block_size, (size_t)buff_size);
+
+                _part_meta.append((const char*)&_part_written_bytes, sizeof(size_t));
+                COUNTER_UPDATE(_write_file_total_size, buff_size);
+                if (_resource_ctx) {
+                    _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(
+                            buff_size);
                 }
-            }};
-            {
-                SCOPED_TIMER(_write_file_timer);
-                status = _file_writer->append(buff);
-                RETURN_IF_ERROR(status);
+                if (_write_file_current_size) {
+                    COUNTER_UPDATE(_write_file_current_size, buff_size);
+                }
+                COUNTER_UPDATE(_write_block_counter, 1);
+                _part_written_bytes += buff_size;
+                _total_written_bytes += buff_size;
+                ++_part_written_blocks;
+                // Incrementally update SpillFile so gc() can always
+                // decrement the correct amount from _data_dir.
+                spill_file->update_written_bytes(buff_size);
             }
+        }};
+
+        {
+            SCOPED_TIMER(_write_file_timer);
+            DBUG_EXECUTE_IF("fault_inject::spill_writer::sleep_before_write",
+                            { std::this_thread::sleep_for(std::chrono::milliseconds(100)); });
+            status = _file_writer->append(buff);
+            RETURN_IF_ERROR(status);
         }
     }
 

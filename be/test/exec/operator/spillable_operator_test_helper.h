@@ -113,6 +113,7 @@ public:
 
     std::shared_ptr<PipelineTask> pipeline_task;
     DescriptorTbl* desc_tbl;
+    SpillDataDir* spill_data_dir_ptr;
     static constexpr uint32_t TEST_PARTITION_COUNT = 8;
 };
 } // namespace doris
