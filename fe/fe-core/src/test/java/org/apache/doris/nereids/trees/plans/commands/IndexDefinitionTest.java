@@ -137,6 +137,14 @@ public class IndexDefinitionTest {
     }
 
     @Test
+    void testNgramBFIndexOnlySingleColumn() {
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1", "col2"),
+                "NGRAM_BF", null, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, def::validate);
+        Assertions.assertEquals("NGRAM_BF index can only apply to a single column.", exception.getMessage());
+    }
+
+    @Test
     void testInvalidNgramBFIndexColumnType() {
         Map<String, String> properties = new HashMap<>();
         properties.put("gram_size", "3");

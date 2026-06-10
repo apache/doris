@@ -359,7 +359,8 @@ public class IndexDefinition {
             AnnIndexPropertiesChecker.checkProperties(this.properties);
         }
 
-        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED) {
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
+                || indexType == IndexType.NGRAM_BF) {
             if (cols == null || cols.size() != 1) {
                 throw new AnalysisException(
                         indexType.toString() + " index can only apply to a single column.");
