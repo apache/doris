@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
@@ -435,5 +436,28 @@ public class MaxComputeScanNodeTest {
         List<Split> result = spyNode.getSplits(1);
 
         Assert.assertFalse(result.isEmpty());
+    }
+
+    @Test
+    public void testGetSplitsRejectsOdpsExternalTable() {
+        assertGetSplitsRejectsUnsupportedOdpsTable(true, false, "mc_external_table");
+    }
+
+    @Test
+    public void testGetSplitsRejectsOdpsLogicalView() {
+        assertGetSplitsRejectsUnsupportedOdpsTable(false, true, "mc_logical_view");
+    }
+
+    private void assertGetSplitsRejectsUnsupportedOdpsTable(boolean isExternalTable, boolean isVirtualView,
+            String tableName) {
+        Mockito.when(odpsTable.isExternalTable()).thenReturn(isExternalTable);
+        Mockito.when(odpsTable.isVirtualView()).thenReturn(isVirtualView);
+        Mockito.when(table.getDbName()).thenReturn("default");
+        Mockito.when(table.getName()).thenReturn(tableName);
+
+        UserException exception = Assert.assertThrows(UserException.class, () -> node.getSplits(1));
+        Assert.assertTrue(exception.getMessage().contains(
+                "Reading MaxCompute external table or logical view is not supported: default." + tableName));
+        Mockito.verify(odpsTable, Mockito.never()).getFileNum();
     }
 }

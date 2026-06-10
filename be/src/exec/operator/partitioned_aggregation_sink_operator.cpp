@@ -149,7 +149,8 @@ Status PartitionedAggSinkOperatorX::prepare(RuntimeState* state) {
     return _agg_sink_operator->prepare(state);
 }
 
-Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
+Status PartitionedAggSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block,
+                                              bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -355,6 +356,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
                                                        HashTableCtxType& context,
                                                        HashTableType& hash_table,
                                                        const size_t size_to_revoke, bool eos) {
+    RETURN_IF_CANCELLED(state);
     Status status;
 
     context.init_iterator();
@@ -426,6 +428,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
 }
 
 Status PartitionedAggSinkLocalState::_revoke_memory(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     if (_eos) {
         return Status::OK();
     }

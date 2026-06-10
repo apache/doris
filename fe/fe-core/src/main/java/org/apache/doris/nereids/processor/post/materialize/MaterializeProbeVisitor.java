@@ -26,6 +26,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor.ProbeContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
@@ -43,6 +44,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -65,13 +67,20 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
      */
     public static class ProbeContext {
         public SlotReference slot;
+        public Set<Slot> requiredMaterializedSlots;
 
         /**
          * constructor
          */
         public ProbeContext(SlotReference slot) {
-            this.slot = slot;
+            this(slot, new HashSet<>());
         }
+
+        public ProbeContext(SlotReference slot, Set<Slot> requiredMaterializedSlots) {
+            this.slot = slot;
+            this.requiredMaterializedSlots = requiredMaterializedSlots;
+        }
+
     }
 
     @Override
@@ -149,7 +158,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
             return Optional.empty();
         }
-        if (scan.getOperativeSlots().contains(context.slot)) {
+        if (context.requiredMaterializedSlots.contains(context.slot)) {
             return Optional.empty();
         }
         return Optional.of(new MaterializeSource(scan, context.slot));
@@ -160,11 +169,13 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             PhysicalCatalogRelation relation, ProbeContext context) {
         if (checkRelationTableSupportedType(relation)
                     && relation.getOutput().contains(context.slot)
-                    && !relation.getOperativeSlots().contains(context.slot)) {
-            // lazy materialize slot must be a passive slot
+                    && !relation.getOperativeSlots().contains(context.slot)
+                    && !context.requiredMaterializedSlots.contains(context.slot)) {
+            // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {
                 return Optional.of(new MaterializeSource(relation, context.slot));
             } else {
+                context.requiredMaterializedSlots.addAll(relation.getOutputSet());
                 LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
             }
         }
@@ -175,8 +186,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
         if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
-                && !tvfRelation.getOperativeSlots().contains(context.slot)) {
-            // lazy materialize slot must be a passive slot
+                && !tvfRelation.getOperativeSlots().contains(context.slot)
+                && !context.requiredMaterializedSlots.contains(context.slot)) {
+            // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {
                 return Optional.of(new MaterializeSource(tvfRelation, context.slot));
             } else {
@@ -217,9 +229,22 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             // projectExpr is alias
             Alias alias = (Alias) projectExpr;
             if (alias.child() instanceof SlotReference && !SessionVariable.getTopNLazyMaterializationUsingIndex()) {
-                ProbeContext childContext = new ProbeContext((SlotReference) alias.child());
-                return project.child().accept(this, childContext);
+                SlotReference childSlot = (SlotReference) alias.child();
+                ProbeContext childContext = new ProbeContext(childSlot, context.requiredMaterializedSlots);
+                Optional<MaterializeSource> source = project.child().accept(this, childContext);
+                if (!source.isPresent() && !childSlot.getOriginalColumn().isPresent()) {
+                    context.requiredMaterializedSlots.addAll(project.getInputSlots());
+                }
+                return source;
             } else {
+                for (Slot inputSlot : projectExpr.getInputSlots()) {
+                    context.requiredMaterializedSlots.add(inputSlot);
+                    if (inputSlot instanceof SlotReference) {
+                        ProbeContext childContext = new ProbeContext((SlotReference) inputSlot,
+                                context.requiredMaterializedSlots);
+                        project.child().accept(this, childContext);
+                    }
+                }
                 return Optional.empty();
             }
         }

@@ -54,9 +54,13 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
     @Override
     public List<Slot> computeOutput() {
         if (output == null) {
-            output = ImmutableList.<Slot>builder()
-                    .addAll(scan.getOperativeSlots())
-                    .add(rowId).build();
+            ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
+            for (Slot slot : scan.getOutput()) {
+                if (!lazySlots.contains(slot)) {
+                    outputBuilder.add(slot);
+                }
+            }
+            output = outputBuilder.add(rowId).build();
         }
         return output;
     }

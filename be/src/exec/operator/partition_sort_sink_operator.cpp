@@ -111,7 +111,7 @@ Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
+Status PartitionSortSinkOperatorX::sink_impl(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
     SCOPED_TIMER(local_state.exec_time_counter());

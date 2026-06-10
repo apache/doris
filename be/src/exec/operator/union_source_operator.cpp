@@ -100,7 +100,7 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status UnionSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status UnionSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Defer set_eos {[&]() {
         // the eos check of union operator is complex, need check all logical if you want modify

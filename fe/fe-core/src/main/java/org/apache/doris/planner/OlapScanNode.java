@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.IndexToThriftConvertor;
@@ -56,7 +57,9 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -510,6 +513,8 @@ public class OlapScanNode extends ScanNode {
         ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
         long partitionVisibleVersion = visibleVersion;
         String partitionVisibleVersionStr = fastToString(visibleVersion);
+        // Lazy: resolved on the first CloudReplica that needs it.
+        String cachedClusterId = null;
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
             long tabletVisibleVersion = partitionVisibleVersion;
@@ -596,7 +601,16 @@ public class OlapScanNode extends ScanNode {
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
-                    long beId = replica.getBackendId();
+                    long beId;
+                    if (replica instanceof CloudReplica) {
+                        if (cachedClusterId == null) {
+                            cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                    .getCurrentClusterId();
+                        }
+                        beId = ((CloudReplica) replica).getBackendIdWithClusterId(cachedClusterId);
+                    } else {
+                        beId = replica.getBackendId();
+                    }
                     Backend backend = allBackends.get(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {
@@ -650,7 +664,15 @@ public class OlapScanNode extends ScanNode {
                 Backend backend = null;
                 long backendId = -1;
                 try {
-                    backendId = replica.getBackendId();
+                    if (replica instanceof CloudReplica) {
+                        if (cachedClusterId == null) {
+                            cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                    .getCurrentClusterId();
+                        }
+                        backendId = ((CloudReplica) replica).getBackendIdWithClusterId(cachedClusterId);
+                    } else {
+                        backendId = replica.getBackendId();
+                    }
                     backend = allBackends.get(backendId);
                 } catch (ComputeGroupException e) {
                     LOG.warn("failed to get backend {} for replica {}", backendId, replica.getId(), e);

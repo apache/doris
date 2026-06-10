@@ -71,7 +71,9 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -1261,6 +1263,13 @@ public class ExpressionUtils {
         }
 
         return Optional.empty();
+    }
+
+    public static Optional<Literal> getLiteralAfterUnwrapNullable(Expression expr) {
+        while (expr instanceof Nullable || expr instanceof NonNullable) {
+            expr = expr.child(0);
+        }
+        return expr instanceof Literal ? Optional.of((Literal) expr) : Optional.empty();
     }
 
     /** analyze the unbound expression and fold it to literal */

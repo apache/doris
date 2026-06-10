@@ -501,7 +501,8 @@ Int64 FaissVectorIndex::get_min_train_rows() const {
     // For IVF indexes, the minimum number of training points should be at least
     // equal to the number of clusters (nlist). FAISS requires this for k-means clustering.
     Int64 ivf_min = 0;
-    if (_params.index_type == FaissBuildParameter::IndexType::IVF) {
+    if (_params.index_type == FaissBuildParameter::IndexType::IVF ||
+        _params.index_type == FaissBuildParameter::IndexType::IVF_ON_DISK) {
         ivf_min = _params.ivf_nlist;
     }
 
@@ -982,8 +983,7 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
                 // Write codes
                 const uint8_t* codes = ails->get_codes(i);
                 size_t codes_bytes = list_size * code_size;
-                ivfdata_output->writeBytes(reinterpret_cast<const uint8_t*>(codes),
-                                           cast_set<Int32>(codes_bytes));
+                ivfdata_output->writeBytes(codes, cast_set<Int32>(codes_bytes));
 
                 // Write ids
                 const faiss::idx_t* ids = ails->get_ids(i);
