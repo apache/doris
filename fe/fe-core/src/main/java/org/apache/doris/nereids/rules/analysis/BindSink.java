@@ -338,7 +338,11 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-                } else if (truncateString && sourceLength > targetLength && targetLength >= 0) {
+                } else if (truncateString && targetLength >= 0
+                        && (sourceLength < 0 || sourceLength > targetLength)) {
+                    // sourceLength < 0 means the source is an unbounded string like type
+                    // (e.g. text/string whose getLen() returns -1), which is always longer
+                    // than a bounded char/varchar target and therefore needs truncation.
                     castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
