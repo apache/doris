@@ -214,8 +214,8 @@ TEST_F(PartitionSorterTest, test_dense_rank_first_group_exceeds_batch_size_regre
     sorter = PartitionSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order,
                                             nulls_first, *row_desc, &_state, nullptr,
                                             /*has_global_limit=*/false,
-                                            /*partition_inner_limit=*/1,
-                                            TopNAlgorithm::DENSE_RANK, &previous_row);
+                                            /*partition_inner_limit=*/1, TopNAlgorithm::DENSE_RANK,
+                                            &previous_row);
     sorter->init_profile(&_profile);
 
     constexpr int kDenseRank1Rows = 5000;
@@ -260,8 +260,7 @@ TEST_F(PartitionSorterTest, test_dense_rank_first_group_exceeds_batch_size_regre
         int rows = static_cast<int>(out_block.rows());
         total_rows += rows;
         if (rows > 0) {
-            const auto& col =
-                    assert_cast<const ColumnInt64&>(*out_block.get_columns()[0]);
+            const auto& col = assert_cast<const ColumnInt64&>(*out_block.get_columns()[0]);
             for (int i = 0; i < rows; ++i) {
                 int64_t v = col.get_data()[i];
                 if (v == kSmallValue) {
@@ -303,8 +302,8 @@ TEST_F(PartitionSorterTest, test_rank_first_group_exceeds_batch_size_regression)
     sorter = PartitionSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order,
                                             nulls_first, *row_desc, &_state, nullptr,
                                             /*has_global_limit=*/false,
-                                            /*partition_inner_limit=*/1,
-                                            TopNAlgorithm::RANK, &previous_row);
+                                            /*partition_inner_limit=*/1, TopNAlgorithm::RANK,
+                                            &previous_row);
     sorter->init_profile(&_profile);
 
     constexpr int kRank1Rows = 5000;
@@ -343,8 +342,7 @@ TEST_F(PartitionSorterTest, test_rank_first_group_exceeds_batch_size_regression)
         num_get_next_calls++;
         int rows = static_cast<int>(out_block.rows());
         if (rows > 0) {
-            const auto& col =
-                    assert_cast<const ColumnInt64&>(*out_block.get_columns()[0]);
+            const auto& col = assert_cast<const ColumnInt64&>(*out_block.get_columns()[0]);
             for (int i = 0; i < rows; ++i) {
                 int64_t v = col.get_data()[i];
                 if (v == kSmallValue) {
