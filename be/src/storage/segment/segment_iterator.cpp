@@ -1141,35 +1141,11 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     return Status::OK();
 }
 
-bool SegmentIterator::_can_prune_segment_by_tso() const {
-    // Caller (zonemap loop) has already confirmed via Segment::is_tso_placeholder_col that
-    // this is a single-version binlog segment whose placeholder tso column has a pushed-down
-    // predicate, so the lookup below must succeed.
-    const int32_t tso_idx = _schema->tso_col_idx();
-    auto it = _opts.col_id_to_predicates.find(tso_idx);
-    DCHECK(it != _opts.col_id_to_predicates.end());
-    // After read-time replacement every tso row equals commit_tso. Build a degenerate
-    // zonemap (min == max == commit_tso) and reuse the predicate's own zonemap matching:
-    // evaluate_and() returns false iff no value in [min, max] can satisfy the predicates,
-    // i.e. commit_tso fails them and the whole segment can be pruned. Predicates that don't
-    // support zonemap return true (conservative: not pruned, row-level eval handles them).
-    const Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
-    ZoneMap zone_map;
-    zone_map.min_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-    zone_map.max_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-    zone_map.has_not_null = true;
-    return !it->second->evaluate_and(zone_map);
-}
-
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
     std::set<int32_t> cids;
     for (auto& entry : _opts.col_id_to_predicates) {
         cids.insert(entry.first);
     }
-    // The placeholder tso column (single-version binlog segment) has an untrustworthy on-disk
-    // zonemap, so it is skipped in the zonemap loop below and instead pruned as a whole against
-    // commit_tso after the loop.
-    bool has_placeholder_tso = false;
 
     {
         SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_dict_ns);
@@ -1237,8 +1213,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 continue;
             }
             if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
-                // skip untrustworthy placeholder zonemap; pruned as a whole below
-                has_placeholder_tso = true;
+                // skip untrustworthy tso placeholder zonemap
+                // if possible already be pruned as a whole before,
+                // so just skip
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -1268,16 +1245,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                        condition_row_ranges);
         _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
-    }
-
-    // Whole-segment fast pruning for the placeholder tso column on single-version binlog
-    // segments: after read-time replacement the column is constant (== commit_tso), so the
-    // tso predicates either keep or drop the entire segment. This is effectively a zonemap
-    // filter on the tso column, so account the dropped rows as zonemap-filtered.
-    if (has_placeholder_tso && !condition_row_ranges->is_empty() && _can_prune_segment_by_tso()) {
-        _opts.stats->rows_stats_filtered += condition_row_ranges->count();
-        condition_row_ranges->clear();
-        return Status::OK();
     }
 
     return Status::OK();
