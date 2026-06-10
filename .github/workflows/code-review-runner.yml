@@ -76,6 +76,13 @@ jobs:
           cli_auth_credentials_store = "file"
           approval_policy = "never"
 
+          [features]
+          memories = true
+
+          [memories]
+          use_memories = true
+          generate_memories = true
+
           [shell_environment_policy]
           inherit = "all"
 
@@ -91,6 +98,29 @@ jobs:
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
+
+      - name: Sync Codex memories from OSS
+        continue-on-error: true
+        run: |
+          install -m 700 -d "$CODEX_HOME/memories"
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+
+          if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_MEMORIES_OBJECT" "$archive"; then
+            tar -tzf "$archive" | awk '
+              $0 != "memories" && $0 !~ /^memories\// { bad = 1 }
+              END { exit bad }
+            '
+            tar -xzf "$archive" -C "$CODEX_HOME"
+            install -m 700 -d "$CODEX_HOME/memories"
+            chmod -R go-rwx "$CODEX_HOME/memories" || true
+          else
+            echo "No Codex memories archive could be downloaded; continuing with empty memories."
+          fi
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
 
       - name: Prepare review context directory
         run: |
@@ -347,6 +377,24 @@ jobs:
             --verify-attempts 24 \
             --verify-sleep-seconds 5 \
             --verify
+
+      - name: Sync Codex memories back to OSS
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          if [ ! -d "$CODEX_HOME/memories" ]; then
+            echo "No Codex memories directory found; skipping memories sync."
+            exit 0
+          fi
+
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+          tar -C "$CODEX_HOME" -czf "$archive" memories
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$archive" "$OSS_CODEX_MEMORIES_OBJECT"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
 
       - name: Sync Codex auth back to OSS
         if: ${{ always() }}
