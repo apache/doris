@@ -136,14 +136,19 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         // we eliminate limit 1 clause and pass this info to later SubqueryToApply rule
         // so when creating LogicalApply node, we don't need to add AssertTrue function
         boolean limitOneIsEliminated = false;
+        boolean isCorrelatedTopN = false;
         if (isCorrelated) {
             if (analyzedSubqueryPlan instanceof LogicalLimit) {
-                LogicalLimit limit = (LogicalLimit) analyzedSubqueryPlan;
+                LogicalLimit<?> limit = (LogicalLimit<?>) analyzedSubqueryPlan;
                 if (limit.getOffset() == 0 && limit.getLimit() == 1) {
-                    // skip useless limit node
-                    analyzedResult = new AnalyzedResult((LogicalPlan) analyzedSubqueryPlan.child(0),
-                            analyzedResult.correlatedSlots);
-                    limitOneIsEliminated = true;
+                    if (limit.child() instanceof LogicalSort) {
+                        isCorrelatedTopN = true;
+                    } else {
+                        // skip useless limit node
+                        analyzedResult = new AnalyzedResult((LogicalPlan) analyzedSubqueryPlan.child(0),
+                                analyzedResult.correlatedSlots);
+                        limitOneIsEliminated = true;
+                    }
                 } else {
                     throw new AnalysisException("limit is not supported in correlated subquery "
                             + analyzedResult.getLogicalPlan());
@@ -158,7 +163,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                     new CorrelatedSlotsValidator(ImmutableSet.copyOf(analyzedResult.correlatedSlots));
             List<PlanNodeCorrelatedInfo> nodeInfoList = new ArrayList<>(16);
             Set<LogicalAggregate> topAgg = new HashSet<>();
-            validateSubquery(analyzedResult.logicalPlan, validator, nodeInfoList, topAgg);
+            Plan planToValidate = isCorrelatedTopN ? analyzedResult.logicalPlan.child(0)
+                    : analyzedResult.logicalPlan;
+            validateSubquery(planToValidate, validator, nodeInfoList, topAgg);
         }
 
         if (analyzedResult.getLogicalPlan() instanceof LogicalOneRowRelation) {

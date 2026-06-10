@@ -108,6 +108,30 @@ suite("correlated_scalar_subquery") {
         sql("""select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select c1 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 limit 1);""")
         notContains("assert_true");
     }
+
+    order_qt_correlated_topn """
+        select c1, c2,
+               (select correlated_scalar_t2.c2
+                from correlated_scalar_t2
+                where correlated_scalar_t1.c1 = correlated_scalar_t2.c1
+                order by correlated_scalar_t2.c2 desc
+                limit 1) as top_c2
+        from correlated_scalar_t1
+        order by c1, c2;
+    """
+
+    order_qt_correlated_topn_filter """
+        select c1
+        from correlated_scalar_t1
+        where correlated_scalar_t1.c2 > (
+            select correlated_scalar_t2.c2
+            from correlated_scalar_t2
+            where correlated_scalar_t1.c1 = correlated_scalar_t2.c1
+            order by correlated_scalar_t2.c2
+            limit 1
+        )
+        order by c1;
+    """
     
     test {
         sql """

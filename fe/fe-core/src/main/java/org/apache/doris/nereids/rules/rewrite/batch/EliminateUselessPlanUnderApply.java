@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite.batch;
 
 import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.rewrite.CorrelatedScalarTopNToWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimitUnderApply;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderApply;
 
@@ -31,6 +32,7 @@ import java.util.List;
  */
 public class EliminateUselessPlanUnderApply implements BatchRewriteRuleFactory {
     public static final List<RuleFactory> RULES = ImmutableList.of(
+            new CorrelatedScalarTopNToWindow(),
             new EliminateLimitUnderApply(),
             new EliminateSortUnderApply()
     );
