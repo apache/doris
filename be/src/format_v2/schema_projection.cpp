@@ -96,8 +96,17 @@ Status project_column_definition(const ColumnDefinition& field, const LocalColum
             return Status::InvalidArgument("Invalid projection child id {} for field {}",
                                            child_projection.field_id(), field.name);
         }
+    }
+    for (const auto& child : field.children) {
+        const auto child_projection_it =
+                std::ranges::find_if(projection.children, [&](const LocalColumnIndex& child_proj) {
+                    return child_proj.field_id() == child.file_local_id();
+                });
+        if (child_projection_it == projection.children.end()) {
+            continue;
+        }
         ColumnDefinition projected_child;
-        RETURN_IF_ERROR(project_column_definition(*child_it, child_projection, &projected_child));
+        RETURN_IF_ERROR(project_column_definition(child, *child_projection_it, &projected_child));
         projected_field->children.push_back(std::move(projected_child));
     }
     if (projected_field->children.empty()) {

@@ -155,6 +155,44 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionMatchesChildrenByLocalId) {
     EXPECT_TRUE(projected_type->get_element(0)->equals(*string_type));
 }
 
+TEST(LocalColumnIndexTest, ProjectColumnDefinitionKeepsFileChildOrder) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto string_type = std::make_shared<DataTypeString>();
+    ColumnDefinition a_child;
+    a_child.identifier = Field::create_field<TYPE_INT>(10);
+    a_child.local_id = 0;
+    a_child.name = "a";
+    a_child.type = int_type;
+    ColumnDefinition b_child;
+    b_child.identifier = Field::create_field<TYPE_INT>(20);
+    b_child.local_id = 1;
+    b_child.name = "b";
+    b_child.type = string_type;
+
+    ColumnDefinition field;
+    field.identifier = Field::create_field<TYPE_INT>(5);
+    field.name = "root";
+    field.type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    field.children = {a_child, b_child};
+
+    LocalColumnIndex projection {.index = 5, .project_all_children = false};
+    projection.children.push_back({.index = 1});
+    projection.children.push_back({.index = 0});
+
+    ColumnDefinition projected_field;
+    ASSERT_TRUE(project_column_definition(field, projection, &projected_field).ok());
+    ASSERT_EQ(projected_field.children.size(), 2);
+    EXPECT_EQ(projected_field.children[0].name, "a");
+    EXPECT_EQ(projected_field.children[1].name, "b");
+
+    const auto* projected_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(projected_field.type).get());
+    ASSERT_EQ(projected_type->get_elements().size(), 2);
+    EXPECT_EQ(projected_type->get_element_name(0), "a");
+    EXPECT_EQ(projected_type->get_element_name(1), "b");
+}
+
 VExprSPtr table_int32_slot_ref(int slot_id, int column_id, const std::string& column_name) {
     return TableSlotRef::create_shared(slot_id, column_id, slot_id,
                                        std::make_shared<DataTypeInt32>(), column_name);
@@ -1300,6 +1338,83 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildren) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_list_schema_evolution_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_list_struct_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto b_child = make_table_column(1, "renamed_b", int_type);
+    b_child.name_mapping = {"b"};
+    auto missing_child = make_table_column(99, "missing_child", string_type);
+    auto a_child = make_table_column(0, "renamed_a", int_type);
+    a_child.name_mapping = {"a"};
+    auto element_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type, int_type},
+                                             Strings {"renamed_b", "missing_child", "renamed_a"});
+    auto nullable_element_type = make_nullable(element_type);
+    auto element_child = make_table_column(0, "element", nullable_element_type);
+    element_child.children = {b_child, missing_child, a_child};
+    auto list_column =
+            make_table_column(100, "xs", std::make_shared<DataTypeArray>(nullable_element_type));
+    list_column.children = {element_child};
+    std::vector<ColumnDefinition> projected_columns = {list_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    EXPECT_EQ(array_result.get_offsets()[0], 2);
+    EXPECT_EQ(array_result.get_offsets()[1], 3);
+    EXPECT_EQ(array_result.get_offsets()[2], 4);
+    const auto& nullable_elements = assert_cast<const ColumnNullable&>(array_result.get_data());
+    const auto& element_struct =
+            assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
+    ASSERT_EQ(element_struct.get_columns().size(), 3);
+    const auto& b_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    const auto& missing_values = assert_cast<const ColumnString&>(element_struct.get_column(1));
+    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(2));
+    EXPECT_EQ(b_values.get_element(0), 11);
+    EXPECT_EQ(b_values.get_element(1), 21);
+    EXPECT_EQ(b_values.get_element(2), 31);
+    EXPECT_EQ(b_values.get_element(3), 41);
+    for (size_t row = 0; row < missing_values.size(); ++row) {
+        EXPECT_EQ(missing_values.get_data_at(row).to_string(), "");
+    }
+    EXPECT_EQ(a_values.get_element(0), 10);
+    EXPECT_EQ(a_values.get_element(1), 20);
+    EXPECT_EQ(a_values.get_element(2), 30);
+    EXPECT_EQ(a_values.get_element(3), 40);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_minmax_map_test";
@@ -1368,6 +1483,91 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
     EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
     EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_map_schema_evolution_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_map_struct_parquet_file(file_path);
+
+    const auto key_type = std::make_shared<DataTypeInt32>();
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto key_child = make_table_column(0, "key", key_type);
+    auto b_child = make_table_column(1, "renamed_b", string_type);
+    b_child.name_mapping = {"b"};
+    auto missing_child = make_table_column(99, "missing_child", string_type);
+    auto a_child = make_table_column(0, "renamed_a", int_type);
+    a_child.name_mapping = {"a"};
+    auto value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {string_type, string_type, int_type},
+                                             Strings {"renamed_b", "missing_child", "renamed_a"});
+    auto nullable_value_type = make_nullable(value_type);
+    auto value_child = make_table_column(1, "value", nullable_value_type);
+    value_child.children = {b_child, missing_child, a_child};
+    auto entry_type = std::make_shared<DataTypeStruct>(DataTypes {key_type, nullable_value_type},
+                                                       Strings {"key", "value"});
+    auto entry_child = make_table_column(0, "key_value", entry_type);
+    entry_child.children = {key_child, value_child};
+    auto map_column = make_table_column(
+            100, "kv", std::make_shared<DataTypeMap>(key_type, nullable_value_type));
+    map_column.children = {entry_child};
+    std::vector<ColumnDefinition> projected_columns = {map_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+    const auto& map_result = assert_cast<const ColumnMap&>(*block.get_by_position(0).column);
+    EXPECT_EQ(map_result.get_offsets()[0], 2);
+    EXPECT_EQ(map_result.get_offsets()[1], 3);
+    EXPECT_EQ(map_result.get_offsets()[2], 3);
+    const auto& keys = assert_cast<const ColumnInt32&>(map_result.get_keys());
+    EXPECT_EQ(keys.get_element(0), 1);
+    EXPECT_EQ(keys.get_element(1), 2);
+    EXPECT_EQ(keys.get_element(2), 3);
+    const auto& nullable_values = assert_cast<const ColumnNullable&>(map_result.get_values());
+    const auto& value_struct =
+            assert_cast<const ColumnStruct&>(nullable_values.get_nested_column());
+    ASSERT_EQ(value_struct.get_columns().size(), 3);
+    const auto& b_values = assert_cast<const ColumnString&>(value_struct.get_column(0));
+    const auto& missing_values = assert_cast<const ColumnString&>(value_struct.get_column(1));
+    const auto& a_values = assert_cast<const ColumnInt32&>(value_struct.get_column(2));
+    EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
+    EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
+    EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
+    for (size_t row = 0; row < missing_values.size(); ++row) {
+        EXPECT_EQ(missing_values.get_data_at(row).to_string(), "");
+    }
+    EXPECT_EQ(a_values.get_element(0), 10);
+    EXPECT_EQ(a_values.get_element(1), 20);
+    EXPECT_EQ(a_values.get_element(2), 30);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

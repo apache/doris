@@ -717,6 +717,41 @@ protected:
         return Status::OK();
     }
 
+    static std::vector<const ColumnMapping*> _present_child_mappings_in_file_order(
+            const std::vector<ColumnMapping>& child_mappings) {
+        std::vector<const ColumnMapping*> result;
+        result.reserve(child_mappings.size());
+        for (const auto& child_mapping : child_mappings) {
+            if (child_mapping.file_local_id.has_value()) {
+                result.push_back(&child_mapping);
+            }
+        }
+        std::ranges::sort(result, [](const ColumnMapping* lhs, const ColumnMapping* rhs) {
+            DORIS_CHECK(lhs->file_local_id.has_value());
+            DORIS_CHECK(rhs->file_local_id.has_value());
+            return *lhs->file_local_id < *rhs->file_local_id;
+        });
+        return result;
+    }
+
+    static size_t _file_child_ordinal_for_mapping(
+            const ColumnMapping& mapping, const ColumnMapping& child_mapping,
+            const std::vector<const ColumnMapping*>& file_ordered_children) {
+        DORIS_CHECK(child_mapping.file_local_id.has_value());
+        if (!mapping.projected_file_children.empty()) {
+            const auto child_it = std::ranges::find_if(
+                    mapping.projected_file_children, [&](const ColumnDefinition& file_child) {
+                        return file_child.file_local_id() == *child_mapping.file_local_id;
+                    });
+            DORIS_CHECK(child_it != mapping.projected_file_children.end());
+            return static_cast<size_t>(
+                    std::distance(mapping.projected_file_children.begin(), child_it));
+        }
+        const auto child_it = std::ranges::find(file_ordered_children, &child_mapping);
+        DORIS_CHECK(child_it != file_ordered_children.end());
+        return static_cast<size_t>(std::distance(file_ordered_children.begin(), child_it));
+    }
+
     static const IColumn* _nested_column_if_nullable(const ColumnPtr& column,
                                                      const NullMap** null_map) {
         DORIS_CHECK(column.get() != nullptr);
@@ -744,7 +779,8 @@ protected:
 
         Columns child_columns;
         child_columns.reserve(mapping.child_mappings.size());
-        size_t file_child_idx = 0;
+        const auto file_ordered_children =
+                _present_child_mappings_in_file_order(mapping.child_mappings);
         for (const auto& child_mapping : mapping.child_mappings) {
             if (!child_mapping.file_local_id.has_value()) {
                 child_columns.push_back(
@@ -752,6 +788,8 @@ protected:
                                 ->convert_to_full_column_if_const());
                 continue;
             }
+            const auto file_child_idx =
+                    _file_child_ordinal_for_mapping(mapping, child_mapping, file_ordered_children);
             DORIS_CHECK(file_child_idx < file_struct->get_columns().size());
             ColumnPtr child_column = file_struct->get_column_ptr(file_child_idx);
             if (child_mapping.has_complex_projection && !child_mapping.child_mappings.empty()) {
@@ -759,7 +797,6 @@ protected:
                                                                     rows, &child_column));
             }
             child_columns.push_back(std::move(child_column));
-            ++file_child_idx;
         }
         MutableColumns mutable_child_columns;
         mutable_child_columns.reserve(child_columns.size());

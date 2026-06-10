@@ -89,6 +89,14 @@ void set_name_identifiers(format::ColumnDefinition* column, int32_t local_id) {
     }
 }
 
+void set_local_ids(format::ColumnDefinition* column, int32_t local_id) {
+    DORIS_CHECK(column != nullptr);
+    column->local_id = local_id;
+    for (size_t child_idx = 0; child_idx < column->children.size(); ++child_idx) {
+        set_local_ids(&column->children[child_idx], static_cast<int32_t>(child_idx));
+    }
+}
+
 class Int32GreaterThanExpr final : public VExpr {
 public:
     Int32GreaterThanExpr(int column_id, int32_t value)
@@ -775,8 +783,8 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 2);
-    EXPECT_EQ(projection.children[0].index, 1);
-    EXPECT_EQ(projection.children[1].index, 0);
+    EXPECT_EQ(projection.children[0].index, 0);
+    EXPECT_EQ(projection.children[1].index, 1);
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
@@ -789,8 +797,8 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     const auto* read_type =
             assert_cast<const DataTypeStruct*>(mapper.mappings()[0].file_type.get());
     ASSERT_EQ(read_type->get_elements().size(), 2);
-    EXPECT_EQ(read_type->get_element_name(0), "b");
-    EXPECT_EQ(read_type->get_element_name(1), "a");
+    EXPECT_EQ(read_type->get_element_name(0), "a");
+    EXPECT_EQ(read_type->get_element_name(1), "b");
 }
 
 TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
@@ -828,6 +836,7 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     format::TableColumnMapperOptions options;
     options.mode = format::TableColumnMappingMode::BY_FIELD_ID;
     format::TableColumnMapper mapper(options);
+    set_local_ids(&struct_field, 0);
     ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {struct_field}).ok());
 
     format::FileScanRequest request;
@@ -835,14 +844,14 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
 
     ASSERT_EQ(request.predicate_columns.size(), 1);
     const auto& projection = request.predicate_columns[0];
-    EXPECT_EQ(projection.index, 100);
+    EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].index, 101);
+    EXPECT_EQ(projection.children[0].index, 0);
 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 100);
-    EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({101}));
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
+    EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
 }
@@ -1381,8 +1390,8 @@ TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
     ASSERT_EQ(projection.children[0].children.size(), 1);
     EXPECT_EQ(projection.children[0].children[0].index, 1);
     ASSERT_EQ(projection.children[0].children[0].children.size(), 2);
-    EXPECT_EQ(projection.children[0].children[0].children[0].index, 1);
-    EXPECT_EQ(projection.children[0].children[0].children[1].index, 0);
+    EXPECT_EQ(projection.children[0].children[0].children[0].index, 0);
+    EXPECT_EQ(projection.children[0].children[0].children[1].index, 1);
     EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
