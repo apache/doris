@@ -141,32 +141,6 @@ Status ParquetColumnReader::skip(int64_t rows) {
     return Status::NotSupported("Parquet column skip is not implemented, rows={}", rows);
 }
 
-Status ParquetColumnReader::read_with_ancestor_shape(int64_t rows,
-                                                     int16_t ancestor_nullable_definition_level,
-                                                     MutableColumnPtr& column, int64_t* rows_read,
-                                                     NullMap* ancestor_nulls) {
-    if (ancestor_nulls == nullptr) {
-        return Status::InvalidArgument("Ancestor shape output is null for parquet column {}",
-                                       name());
-    }
-    return Status::NotSupported(
-            "Parquet column {} cannot expose ancestor shape at definition level {}", name(),
-            ancestor_nullable_definition_level);
-}
-
-Status ParquetColumnReader::read_with_ancestor_shapes(
-        int64_t rows, const std::vector<ParquetNullShapeSink>& ancestor_shapes,
-        MutableColumnPtr& column, int64_t* rows_read) {
-    if (ancestor_shapes.size() != 1) {
-        return Status::NotSupported(
-                "Parquet column {} cannot expose {} ancestor shapes from one read", name(),
-                ancestor_shapes.size());
-    }
-    DORIS_CHECK(ancestor_shapes[0].null_map != nullptr);
-    return read_with_ancestor_shape(rows, ancestor_shapes[0].nullable_definition_level, column,
-                                    rows_read, ancestor_shapes[0].null_map);
-}
-
 void ParquetColumnReader::update_reader_read_rows(int64_t rows) const {
     if (_profile.reader_read_rows != nullptr) {
         COUNTER_UPDATE(_profile.reader_read_rows, rows);

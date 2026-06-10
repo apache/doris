@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <limits>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -59,43 +58,6 @@ struct NestedScalarBatch {
 
     bool empty() const { return levels_written == 0; }
 };
-
-inline void append_null_shapes(const std::vector<ParquetNullShapeSink>* sinks, int16_t def_level) {
-    if (sinks == nullptr) {
-        return;
-    }
-    for (const auto& sink : *sinks) {
-        DORIS_CHECK(sink.null_map != nullptr);
-        sink.null_map->push_back(def_level < sink.nullable_definition_level);
-    }
-}
-
-inline void capture_null_shape_sizes(const std::vector<ParquetNullShapeSink>& sinks,
-                                     std::vector<size_t>* sizes) {
-    DORIS_CHECK(sizes != nullptr);
-    sizes->clear();
-    sizes->reserve(sinks.size());
-    for (const auto& sink : sinks) {
-        DORIS_CHECK(sink.null_map != nullptr);
-        sizes->push_back(sink.null_map->size());
-    }
-}
-
-inline Status validate_null_shape_rows(const std::string& column_name, std::string_view type_name,
-                                       const std::vector<ParquetNullShapeSink>& sinks,
-                                       const std::vector<size_t>& initial_sizes,
-                                       int64_t rows_read) {
-    DORIS_CHECK(sinks.size() == initial_sizes.size());
-    for (size_t shape_idx = 0; shape_idx < sinks.size(); ++shape_idx) {
-        const auto shape_rows = sinks[shape_idx].null_map->size() - initial_sizes[shape_idx];
-        if (shape_rows != static_cast<size_t>(rows_read)) {
-            return Status::Corruption(
-                    "Parquet {} column {} returned {} ancestor shape rows, expected {}", type_name,
-                    column_name, shape_rows, rows_read);
-        }
-    }
-    return Status::OK();
-}
 
 class NestedScalarValueCursor {
 public:

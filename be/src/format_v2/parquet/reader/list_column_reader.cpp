@@ -51,51 +51,6 @@ Status ListColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* r
     return build_nested_column(rows, column, rows_read);
 }
 
-Status ListColumnReader::read_with_ancestor_shape(int64_t rows,
-                                                  int16_t ancestor_nullable_definition_level,
-                                                  MutableColumnPtr& column, int64_t* rows_read,
-                                                  NullMap* ancestor_nulls) {
-    if (ancestor_nulls == nullptr) {
-        return Status::InvalidArgument("Ancestor shape output is null for parquet LIST column {}",
-                                       _name);
-    }
-    const auto initial_null_count = ancestor_nulls->size();
-    std::vector<ParquetNullShapeSink> ancestor_shapes {
-            {ancestor_nullable_definition_level, ancestor_nulls}};
-    RETURN_IF_ERROR(read_with_ancestor_shapes(rows, ancestor_shapes, column, rows_read));
-    if (ancestor_nulls->size() - initial_null_count != static_cast<size_t>(*rows_read)) {
-        return Status::Corruption(
-                "Parquet LIST column {} returned {} ancestor shape rows, expected {}", _name,
-                ancestor_nulls->size() - initial_null_count, *rows_read);
-    }
-    return Status::OK();
-}
-
-Status ListColumnReader::read_with_ancestor_shapes(
-        int64_t rows, const std::vector<ParquetNullShapeSink>& ancestor_shapes,
-        MutableColumnPtr& column, int64_t* rows_read) {
-    std::vector<size_t> initial_null_counts;
-    capture_null_shape_sizes(ancestor_shapes, &initial_null_counts);
-    RETURN_IF_ERROR(load_nested_batch(rows));
-    const auto& def_levels = _element_reader->nested_definition_levels();
-    const auto& rep_levels = _element_reader->nested_repetition_levels();
-    const int64_t levels_written = _element_reader->nested_levels_written();
-    int64_t shape_rows = 0;
-    for (int64_t level_idx = nested_build_level_cursor();
-         level_idx < levels_written && shape_rows < rows; ++level_idx) {
-        const int16_t def_level = def_levels[level_idx];
-        const int16_t rep_level = rep_levels[level_idx];
-        if (def_level < _repeated_ancestor_definition_level || rep_level >= _repetition_level) {
-            continue;
-        }
-        append_null_shapes(&ancestor_shapes, def_level);
-        ++shape_rows;
-    }
-    RETURN_IF_ERROR(build_nested_column(rows, column, rows_read));
-    return validate_null_shape_rows(_name, "LIST", ancestor_shapes, initial_null_counts,
-                                    *rows_read);
-}
-
 Status ListColumnReader::skip(int64_t rows) {
     if (rows <= 0) {
         return Status::OK();
