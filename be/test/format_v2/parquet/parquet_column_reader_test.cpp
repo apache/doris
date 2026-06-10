@@ -3696,27 +3696,14 @@ TEST_F(ParquetColumnReaderTest, ReadInt96TimestampAsDateTimeV2) {
     EXPECT_EQ(fields[0]->type->to_string(*column, 4), "1969-12-31 23:59:59.999999");
 }
 
-TEST_F(ParquetColumnReaderTest, RejectUnsupportedPhysicalAndLogicalTypes) {
+TEST_F(ParquetColumnReaderTest, RejectRecordReaderUnsupportedDecimalPrecision) {
     auto schema = ::parquet::schema::GroupNode::Make(
             "schema", ::parquet::Repetition::REQUIRED,
             {
-                    ::parquet::schema::PrimitiveNode::Make("repeated_int32_col",
-                                                           ::parquet::Repetition::REPEATED,
-                                                           ::parquet::Type::INT32),
                     ::parquet::schema::PrimitiveNode::Make(
                             "decimal256_fixed_col", ::parquet::Repetition::REQUIRED,
                             ::parquet::Type::FIXED_LEN_BYTE_ARRAY,
                             ::parquet::ConvertedType::DECIMAL, 20, 39, 6),
-                    ::parquet::schema::PrimitiveNode::Make(
-                            "time_nanos_col", ::parquet::Repetition::REQUIRED,
-                            ::parquet::LogicalType::Time(false,
-                                                         ::parquet::LogicalType::TimeUnit::NANOS),
-                            ::parquet::Type::INT64),
-                    ::parquet::schema::PrimitiveNode::Make(
-                            "timestamp_nanos_col", ::parquet::Repetition::REQUIRED,
-                            ::parquet::LogicalType::Timestamp(
-                                    false, ::parquet::LogicalType::TimeUnit::NANOS),
-                            ::parquet::Type::INT64),
             });
     ::parquet::SchemaDescriptor descriptor;
     descriptor.Init(schema);
@@ -3724,12 +3711,34 @@ TEST_F(ParquetColumnReaderTest, RejectUnsupportedPhysicalAndLogicalTypes) {
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     auto st = build_parquet_column_schema(descriptor, &fields);
     ASSERT_TRUE(st.ok()) << st;
-    ASSERT_EQ(fields.size(), 4);
+    ASSERT_EQ(fields.size(), 1);
 
     for (const auto& field : fields) {
         SCOPED_TRACE(field->name);
         ASSERT_FALSE(supports_record_reader(field->type_descriptor));
     }
+}
+
+TEST_F(ParquetColumnReaderTest, RejectRepeatedPrimitiveAsFlatScalarReader) {
+    auto schema = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED,
+            {::parquet::schema::PrimitiveNode::Make("repeated_int32_col",
+                                                    ::parquet::Repetition::REPEATED,
+                                                    ::parquet::Type::INT32)});
+    ::parquet::SchemaDescriptor descriptor;
+    descriptor.Init(schema);
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    auto st = build_parquet_column_schema(descriptor, &fields);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(fields.size(), 1);
+    ASSERT_EQ(fields[0]->descriptor->max_repetition_level(), 1);
+    ASSERT_TRUE(supports_record_reader(fields[0]->type_descriptor));
+
+    ParquetColumnReaderFactory factory(nullptr, descriptor.num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    st = factory.create(*fields[0], &reader);
+    ASSERT_FALSE(st.ok()) << st;
 }
 
 } // namespace
