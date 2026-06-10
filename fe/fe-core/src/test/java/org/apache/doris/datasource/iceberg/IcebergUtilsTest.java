@@ -374,6 +374,26 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseFloatingPointPartitionValueSupportsSpecialValues() {
+        Assert.assertTrue(Float.isNaN(
+                (Float) IcebergUtils.parsePartitionValueFromString("NaN", Types.FloatType.get())));
+        Assert.assertTrue(Float.isNaN(
+                (Float) IcebergUtils.parsePartitionValueFromString("nan", Types.FloatType.get())));
+        Assert.assertEquals(Float.POSITIVE_INFINITY,
+                (Float) IcebergUtils.parsePartitionValueFromString("Infinity", Types.FloatType.get()), 0.0F);
+        Assert.assertEquals(Float.NEGATIVE_INFINITY,
+                (Float) IcebergUtils.parsePartitionValueFromString("-inf", Types.FloatType.get()), 0.0F);
+        Assert.assertTrue(Double.isNaN(
+                (Double) IcebergUtils.parsePartitionValueFromString("NaN", Types.DoubleType.get())));
+        Assert.assertTrue(Double.isNaN(
+                (Double) IcebergUtils.parsePartitionValueFromString("nan", Types.DoubleType.get())));
+        Assert.assertEquals(Double.POSITIVE_INFINITY,
+                (Double) IcebergUtils.parsePartitionValueFromString("Infinity", Types.DoubleType.get()), 0.0D);
+        Assert.assertEquals(Double.NEGATIVE_INFINITY,
+                (Double) IcebergUtils.parsePartitionValueFromString("-inf", Types.DoubleType.get()), 0.0D);
+    }
+
+    @Test
     public void testGetMatchingManifest() {
 
         // partition : 100 - 200
