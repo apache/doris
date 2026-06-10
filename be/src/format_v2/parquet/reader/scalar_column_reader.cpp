@@ -179,13 +179,15 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     }
     DORIS_CHECK(_nested_batch != nullptr);
     NestedScalarValueCursor value_cursor(_nested_batch.get());
+    const int16_t materialized_slot_definition_level = static_cast<int16_t>(
+            _nested_batch->value_slot_definition_level - (_type->is_nullable() ? 1 : 0));
     *values_read = 0;
     for (int64_t level_idx = 0;
          level_idx < _nested_batch->levels_written && *values_read < length_upper_bound;
          ++level_idx) {
         const int16_t def_level = _nested_batch->def_levels[level_idx];
         const int16_t rep_level = _nested_batch->rep_levels[level_idx];
-        if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
+        if (def_level < materialized_slot_definition_level || rep_level > _repetition_level) {
             continue;
         }
         if (def_level == _definition_level) {
