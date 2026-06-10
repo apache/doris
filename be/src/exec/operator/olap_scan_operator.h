@@ -236,6 +236,14 @@ private:
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_skipped_lookups_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_probe_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_fallthrough_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_unavailable_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_load_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_term_bf_load_bytes_counter = nullptr;
 
     RuntimeProfile::Counter* _ann_topn_filter_counter = nullptr;
     // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs

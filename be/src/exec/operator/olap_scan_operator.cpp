@@ -276,6 +276,25 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
     _inverted_index_lookup_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexLookupTimer", 1);
+    // Headline value (level 1): how many index lookups the token BF short-circuited, plus the
+    // denominator to read it as a hit rate, plus the "not built / stale" signal users act on.
+    _inverted_index_term_bf_skipped_lookups_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexTermBfSkippedLookups", TUnit::UNIT, 1);
+    _inverted_index_term_bf_probe_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexTermBfProbe", TUnit::UNIT, 1);
+    _inverted_index_term_bf_unavailable_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexTermBfUnavailable", TUnit::UNIT, 1);
+    // Diagnostics (level 2): cache effectiveness, cold load IO, MAYBE fall-throughs.
+    _inverted_index_term_bf_fallthrough_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexTermBfFallthrough", TUnit::UNIT, 2);
+    _inverted_index_term_bf_cache_hit_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexTermBfCacheHit", TUnit::UNIT, 2);
+    _inverted_index_term_bf_cache_miss_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexTermBfCacheMiss", TUnit::UNIT, 2);
+    _inverted_index_term_bf_load_count_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexTermBfLoadCount", TUnit::UNIT, 2);
+    _inverted_index_term_bf_load_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexTermBfLoadBytes", TUnit::BYTES, 2);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);

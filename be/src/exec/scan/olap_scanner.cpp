@@ -852,6 +852,22 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_skipped_lookups_counter,
+                   stats.inverted_index_term_bf_skipped_lookups);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_probe_counter,
+                   stats.inverted_index_term_bf_probe);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_fallthrough_counter,
+                   stats.inverted_index_term_bf_fallthrough);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_unavailable_counter,
+                   stats.inverted_index_term_bf_unavailable);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_cache_hit_counter,
+                   stats.inverted_index_term_bf_cache_hit);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_cache_miss_counter,
+                   stats.inverted_index_term_bf_cache_miss);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_load_count_counter,
+                   stats.inverted_index_term_bf_load_count);
+    COUNTER_UPDATE(local_state->_inverted_index_term_bf_load_bytes_counter,
+                   stats.inverted_index_term_bf_load_bytes);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
                    stats.variant_scan_sparse_column_timer_ns);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,
