@@ -28,7 +28,6 @@
 
 #include <algorithm>
 #include <boost/asio.hpp>
-#include <boost/process.hpp>
 #include <chrono>
 #include <fstream>
 #include <thread>
@@ -37,6 +36,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/thread_context.h"
+#include "udf/python/boost_process_compat.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udtf_client.h"

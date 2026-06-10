@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include <boost/process.hpp>
 #include <chrono>
 
+#include "udf/python/boost_process_compat.h"
 #include "udf/python/python_env.h"
 
 namespace doris {
