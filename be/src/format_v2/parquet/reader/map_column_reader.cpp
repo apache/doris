@@ -821,35 +821,13 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
                                   key_value_count, total_entries);
     }
     int64_t value_count = 0;
-    if (auto* scalar_value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get())) {
-        const auto& value_rep_levels = scalar_value_reader->nested_repetition_levels();
-        const int64_t value_levels_written = scalar_value_reader->nested_levels_written();
-        for (const int64_t key_level_idx : map_level_indices) {
-            if (key_level_idx >= value_levels_written) {
-                return Status::Corruption(
-                        "Parquet MAP column {} value stream ended before key stream", _name);
-            }
-            // Key and scalar value are fields of the same repeated MAP entry struct. Their
-            // definition levels may differ for null values, but the shape slot index and
-            // repetition level must stay aligned. Searching by repetition level alone is
-            // ambiguous under LIST<MAP<...>>, where outer list shape slots can have the same
-            // repetition level as a later map entry.
-            if (value_rep_levels[key_level_idx] != rep_levels[key_level_idx]) {
-                return Status::Corruption(
-                        "Parquet MAP column {} value repetition level is not aligned with key "
-                        "stream",
-                        _name);
-            }
-            if (def_levels[key_level_idx] >= _definition_level) {
-                RETURN_IF_ERROR(
-                        scalar_value_reader->append_nested_value(key_level_idx, value_column));
-                ++value_count;
-            }
-        }
-    } else {
-        RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
-                                                           value_column, &value_count));
-    }
+    // Values are built by the child reader from its own def/rep stream. This matches Arrow's
+    // recursive reader model: MAP owns entry shape and keys, while the value reader consumes the
+    // exact number of materialized entry slots from its own level stream. Parent-side slot matching
+    // is ambiguous under LIST<MAP<...>> because outer container shape slots can share repetition
+    // levels with later map entries.
+    RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                       value_column, &value_count));
     if (value_count != static_cast<int64_t>(total_entries)) {
         return Status::Corruption("Parquet MAP column {} built {} values, expected {}", _name,
                                   value_count, total_entries);
