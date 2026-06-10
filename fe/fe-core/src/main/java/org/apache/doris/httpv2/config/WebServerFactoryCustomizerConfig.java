@@ -62,6 +62,9 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
                     if (httpFactory != null) {
                         HttpConfiguration httpConfig = httpFactory.getHttpConfiguration();
                         httpConfig.setRequestHeaderSize(Config.jetty_server_max_http_header_size);
+                        // Apply the unconsumed request content read limit to every HTTP connector.
+                        httpConfig.setMaxUnconsumedRequestContentReads(
+                                Config.jetty_server_max_unconsumed_request_content_reads);
                     }
                 }
             }
