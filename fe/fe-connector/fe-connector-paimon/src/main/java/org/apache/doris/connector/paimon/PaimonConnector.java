@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
@@ -37,6 +38,7 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -90,6 +92,19 @@ public class PaimonConnector implements Connector {
     public ConnectorScanPlanProvider getScanPlanProvider() {
         return new PaimonScanPlanProvider(properties,
                 new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()));
+    }
+
+    /**
+     * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning and time travel
+     * (FOR TIME TRAVEL / FOR VERSION AS OF). The B5 fe-core MvccTable wiring keys off these to call
+     * {@link PaimonConnectorMetadata#beginQuerySnapshot} / {@code getSnapshotAt} / {@code getSnapshotById}.
+     * No write capability is declared: paimon write is not migrated.
+     */
+    @Override
+    public Set<ConnectorCapability> getCapabilities() {
+        return EnumSet.of(
+                ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
+                ConnectorCapability.SUPPORTS_TIME_TRAVEL);
     }
 
     private Catalog ensureCatalog() {

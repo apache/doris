@@ -27,6 +27,7 @@ import org.apache.paimon.table.Table;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /**
  * Hand-written recording fake for {@link PaimonCatalogOps} (no Mockito), mirroring the
@@ -46,6 +47,15 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     List<String> tables = new ArrayList<>();
     Table table;
     List<Partition> partitions = new ArrayList<>();
+
+    /** The Identifier the metadata layer passed to the most recent {@link #getTable} call. */
+    Identifier lastGetTableId;
+    /**
+     * Optional override returned by {@link #getTable} when the requested Identifier carries a
+     * system-table name (4-arg sys Identifier). When unset, {@link #table} is returned for both
+     * base and sys lookups.
+     */
+    Table sysTable;
 
     boolean throwDatabaseNotExist;
     boolean throwTableNotExist;
@@ -69,6 +79,13 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     boolean throwDatabaseAlreadyExist;
     boolean throwDatabaseNotEmpty;
     boolean throwDatabaseNotExistOnDrop;
+
+    // ---- T20 E5 MVCC seam: configurable lookup results (no real Snapshot/SnapshotManager) ----
+    OptionalLong latestSnapshotId = OptionalLong.empty();
+    OptionalLong snapshotIdAtOrBefore = OptionalLong.empty();
+    boolean snapshotExists;
+    /** The table the metadata layer passed to the most recent MVCC seam call. */
+    Table lastMvccTable;
 
     @Override
     public List<String> listDatabases() {
@@ -99,8 +116,14 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     @Override
     public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
         log.add("getTable:" + identifier.getFullName());
+        lastGetTableId = identifier;
         if (throwTableNotExist) {
             throw new Catalog.TableNotExistException(identifier);
+        }
+        // A 4-arg sys Identifier carries a non-null system-table name; serve sysTable when set so
+        // sys-handle schema/columns can be built from a DIFFERENT rowType than the base table.
+        if (sysTable != null && identifier.getSystemTableName() != null) {
+            return sysTable;
         }
         return table;
     }
@@ -162,6 +185,27 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         if (throwTableNotExistOnDrop || throwTableNotExist) {
             throw new Catalog.TableNotExistException(identifier);
         }
+    }
+
+    @Override
+    public OptionalLong latestSnapshotId(Table table) {
+        log.add("latestSnapshotId");
+        lastMvccTable = table;
+        return latestSnapshotId;
+    }
+
+    @Override
+    public OptionalLong snapshotIdAtOrBefore(Table table, long timestampMillis) {
+        log.add("snapshotIdAtOrBefore:" + timestampMillis);
+        lastMvccTable = table;
+        return snapshotIdAtOrBefore;
+    }
+
+    @Override
+    public boolean snapshotExists(Table table, long snapshotId) {
+        log.add("snapshotExists:" + snapshotId);
+        lastMvccTable = table;
+        return snapshotExists;
     }
 
     @Override

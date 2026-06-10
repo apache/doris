@@ -39,6 +39,32 @@ public interface ConnectorTableOps {
         return Optional.empty();
     }
 
+    /**
+     * Lists the system-table names supported for the given base table
+     * (e.g. ["snapshots", "schemas", "options", "audit_log", "binlog"]).
+     *
+     * <p>The names are WITHOUT any "$" prefix; fe-core composes the
+     * "{baseTable}${sysName}" reference name. Default: empty (no system
+     * tables). Implemented by connectors that expose system tables.</p>
+     */
+    default List<String> listSupportedSysTables(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Returns a handle for the named system table of the given base table,
+     * or empty if this connector does not expose that system table.
+     *
+     * <p>The returned handle is connector-internal and carries whatever the
+     * connector needs (system-table name, scan-routing hints, etc.); it is
+     * opaque to fe-core. {@code sysName} is the bare name (no "$").</p>
+     */
+    default Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        return Optional.empty();
+    }
+
     /** Returns the schema (columns, format, etc.) for the given table. */
     default ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {

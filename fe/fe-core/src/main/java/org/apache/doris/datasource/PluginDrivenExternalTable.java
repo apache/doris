@@ -33,6 +33,8 @@ import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.systable.PluginDrivenSysTable;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -70,6 +72,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
     public PluginDrivenExternalTable(long id, String name, String remoteName,
             ExternalCatalog catalog, ExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.PLUGIN_EXTERNAL_TABLE);
+    }
+
+    /**
+     * Single seam for acquiring this table's {@link ConnectorTableHandle}. The base class resolves
+     * the handle for its own remote name; {@link PluginDrivenSysExternalTable} overrides this to
+     * thread a system-table handle through {@code initSchema}/{@code getNameToPartitionItems}/
+     * {@code fetchRowCount} without duplicating the metadata round-trip in each site.
+     */
+    protected Optional<ConnectorTableHandle> resolveConnectorTableHandle(
+            ConnectorSession session, ConnectorMetadata metadata) {
+        String dbName = db != null ? db.getRemoteName() : "";
+        return metadata.getTableHandle(session, dbName, getRemoteName());
     }
 
     /**
@@ -148,7 +162,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
         String dbName = db != null ? db.getRemoteName() : "";
         String tableName = getRemoteName();
-        Optional<ConnectorTableHandle> handleOpt = metadata.getTableHandle(session, dbName, tableName);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
             return Optional.empty();
@@ -257,8 +271,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
-        String dbName = db != null ? db.getRemoteName() : "";
-        Optional<ConnectorTableHandle> handleOpt = metadata.getTableHandle(session, dbName, getRemoteName());
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
         }
@@ -332,6 +345,42 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
     }
 
+    /**
+     * Exposes the connector's system tables (e.g. {@code tbl$snapshots}) through the live fe-core
+     * system-table machinery. Delegates name discovery to the connector SPI
+     * ({@link ConnectorMetadata#listSupportedSysTables}); each returned bare name (already lowercase)
+     * is wrapped in a {@link PluginDrivenSysTable} so {@link org.apache.doris.catalog.TableIf#findSysTable}
+     * resolves {@code tbl$name} and {@link org.apache.doris.datasource.systable.SysTableResolver} can
+     * build the transient sys ExternalTable. Mirrors the legacy no-cache getTableHandle pattern: the
+     * handle/name list is fetched per call (system-table planning is infrequent), so no extra caching.
+     */
+    @Override
+    public Map<String, SysTable> getSupportedSysTables() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyMap();
+        }
+        makeSureInitialized();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyMap();
+        }
+        List<String> names = metadata.listSupportedSysTables(session, handleOpt.get());
+        if (names.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        // Keep keys exactly as returned by the connector (already lowercase) so the inherited,
+        // case-sensitive findSysTable exact-match works, mirroring legacy PaimonSysTable keys.
+        Map<String, SysTable> result = Maps.newHashMapWithExpectedSize(names.size());
+        for (String sysName : names) {
+            result.put(sysName, new PluginDrivenSysTable(sysName));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
@@ -357,9 +406,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
 
-        String dbName = db != null ? db.getRemoteName() : "";
-        String tableName = getRemoteName();
-        Optional<ConnectorTableHandle> handleOpt = metadata.getTableHandle(session, dbName, tableName);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return UNKNOWN_ROW_COUNT;
         }

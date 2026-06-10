@@ -17,15 +17,19 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
 
+import java.io.FileNotFoundException;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /**
  * Injection seam over the remote Paimon {@link Catalog} calls.
@@ -66,6 +70,33 @@ public interface PaimonCatalogOps {
 
     void dropTable(Identifier identifier, boolean ignoreIfNotExists)
             throws Catalog.TableNotExistException;
+
+    // ---- E5: MVCC snapshot lookups (T20) ----
+    // These return plain {@code long}s (not paimon {@code Snapshot} objects) so the metadata
+    // layer's MVCC logic (sys-guard, empty->-1, found/empty mapping) is unit-testable offline with
+    // {@code RecordingPaimonCatalogOps} — faking a concrete paimon {@code Snapshot}/
+    // {@code SnapshotManager} directly is impractical. The production impl uses the paimon SDK.
+
+    /**
+     * Returns the latest snapshot id of {@code table} ({@code table.latestSnapshot().get().id()}),
+     * or empty when the table has no snapshot (empty table). The caller maps empty to the legacy
+     * {@code INVALID_SNAPSHOT_ID} (-1).
+     */
+    OptionalLong latestSnapshotId(Table table);
+
+    /**
+     * Returns the id of the latest snapshot committed at or before {@code timestampMillis}
+     * ({@code snapshotManager().earlierOrEqualTimeMills(ts)}), or empty when no such snapshot
+     * exists (the SDK returns null).
+     */
+    OptionalLong snapshotIdAtOrBefore(Table table, long timestampMillis);
+
+    /**
+     * Returns {@code true} iff a snapshot with {@code snapshotId} exists
+     * ({@code snapshotManager().tryGetSnapshot(id)} succeeds; a {@code FileNotFoundException} from
+     * the SDK means it does not exist).
+     */
+    boolean snapshotExists(Table table, long snapshotId);
 
     void close() throws Exception;
 
@@ -127,6 +158,33 @@ public interface PaimonCatalogOps {
         public void dropTable(Identifier identifier, boolean ignoreIfNotExists)
                 throws Catalog.TableNotExistException {
             catalog.dropTable(identifier, ignoreIfNotExists);
+        }
+
+        @Override
+        public OptionalLong latestSnapshotId(Table table) {
+            return table.latestSnapshot()
+                    .map(snapshot -> OptionalLong.of(snapshot.id()))
+                    .orElseGet(OptionalLong::empty);
+        }
+
+        @Override
+        public OptionalLong snapshotIdAtOrBefore(Table table, long timestampMillis) {
+            // Time-travel by wall-clock requires the snapshotManager(), which only DataTable exposes
+            // (legacy PaimonUtil.getPaimonSnapshotByTimestamp casts to DataTable too).
+            Snapshot snapshot = ((DataTable) table).snapshotManager().earlierOrEqualTimeMills(timestampMillis);
+            return snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.id());
+        }
+
+        @Override
+        public boolean snapshotExists(Table table, long snapshotId) {
+            try {
+                // tryGetSnapshot throws FileNotFoundException when the id does not exist (legacy
+                // PaimonUtil.getPaimonSnapshotBySnapshotId catches the same exception).
+                ((DataTable) table).snapshotManager().tryGetSnapshot(snapshotId);
+                return true;
+            } catch (FileNotFoundException e) {
+                return false;
+            }
         }
 
         @Override

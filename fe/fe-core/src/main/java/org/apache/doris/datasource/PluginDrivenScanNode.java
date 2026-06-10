@@ -143,10 +143,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
         String dbName = table.getDb() != null ? table.getDb().getRemoteName() : "";
-        String tableName = table.getRemoteName();
-        ConnectorTableHandle handle = metadata.getTableHandle(session, dbName, tableName)
+        // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
+        // table this is identical to getTableHandle(session, dbName, remoteName), but for a
+        // PluginDrivenSysExternalTable the override returns the connector's SYSTEM handle (carrying
+        // sysTableName + forceJni), so the scan path threads force-JNI correctly for binlog/audit_log.
+        ConnectorTableHandle handle = table.resolveConnectorTableHandle(session, metadata)
                 .orElseThrow(() -> new RuntimeException(
-                        "Table handle not found for plugin-driven table: " + dbName + "." + tableName));
+                        "Table handle not found for plugin-driven table: " + dbName + "."
+                                + table.getRemoteName()));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
                 scanContext, connector, session, handle);
     }
@@ -430,8 +434,34 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
     }
 
+    /**
+     * Fail-loud guard for plugin system-table scans: a {@link PluginDrivenSysExternalTable} must
+     * reject {@code FOR TIME AS OF} (snapshot) and {@code @incr}/scan-params queries rather than
+     * silently ignore them. Mirrors legacy {@code PaimonScanNode.getProcessedTable}, which throws the
+     * same two messages when the target is a {@code PaimonSysExternalTable}. Runs before split
+     * generation on BOTH planning entry points ({@link #getSplits}, {@link #startSplit}).
+     *
+     * <p>Scope: SYS-table only. Normal-plugin-table time-travel handling is B5/MVCC and is out of
+     * scope here.
+     *
+     * <p>Package-private (not private) so the guard can be unit-tested directly on a Mockito mock
+     * with the three accessors stubbed, without constructing a full {@link FileQueryScanNode}.
+     */
+    void checkSysTableScanConstraints() throws UserException {
+        if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
+            return;
+        }
+        if (getScanParams() != null) {
+            throw new UserException("Plugin system tables do not support scan params.");
+        }
+        if (getQueryTableSnapshot() != null) {
+            throw new UserException("Plugin system tables do not support time travel.");
+        }
+    }
+
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        checkSysTableScanConstraints();
         // Attempt limit and projection pushdown via SPI protocol
         tryPushDownLimit();
 
@@ -571,6 +601,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     public void startSplit(int numBackends) {
+        try {
+            checkSysTableScanConstraints();
+        } catch (UserException e) {
+            // startSplit cannot throw checked exceptions; surface the fail-loud guard through the
+            // SplitAssignment error channel (same protocol the async batch path below uses) so the
+            // query fails rather than silently ignoring scan-params/time-travel on a sys table.
+            splitAssignment.setException(e);
+            return;
+        }
         long[] partitionCounts = displayPartitionCounts(selectedPartitions);
         if (partitionCounts != null) {
             this.selectedPartitionNum = partitionCounts[0];

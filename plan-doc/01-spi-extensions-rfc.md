@@ -774,6 +774,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
 ## 10. 扩展 E7：Sys Tables
 
+> ⚠️ **本节 §10.2/§10.3 的「`$`-后缀普通表 + 连接器 `getTableHandle` 内解析后缀 + `listSysTableSuffixes`」设计已被 D-039 / DV-023 取代（superseded 2026-06-10，P5-B4 实现时）。** 该设计**从未落地**；live fe-core 实际用 `SysTableResolver` + `NativeSysTable` + `TableIf.getSupportedSysTables/findSysTable`（iceberg + legacy-paimon 共用）。P5-B4 复用该 live 机制：连接器 SPI 加 `ConnectorTableOps.listSupportedSysTables` + `getSysTableHandle`（default no-op），fe-core 加通用 `PluginDrivenSysTable extends NativeSysTable` + `PluginDrivenSysExternalTable`（报 `PLUGIN_EXTERNAL_TABLE`，经 `SysTableResolver` 路由到 `PluginDrivenScanNode`）。§10.1 现状仍准确；下方 §10.2/§10.3 仅作历史设计追溯，**勿据其实现**。详见 [decisions-log D-039](./decisions-log.md) / [deviations-log DV-023](./deviations-log.md) / `tasks/P5-paimon-migration.md` §批次 B4。
+
 ### 10.1 现状
 
 - `IcebergSysExternalTable.SysTableType` 枚举（`HISTORY`、`SNAPSHOTS`、`FILES`、`MANIFESTS`、`PARTITIONS`、`POSITION_DELETES`、`ALL_DATA_FILES`、`ALL_MANIFESTS`、`ENTRIES`）。

@@ -106,25 +106,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Returns the handle's transient Paimon {@link Table}, reloading it from the catalog seam
      * when the transient reference is null (e.g. after a serialization round-trip across the
-     * FE/BE boundary or plan reuse). Byte-identical to the reload fallback in
-     * {@link PaimonConnectorMetadata#getColumnHandles}. Package-private for direct unit testing.
+     * FE/BE boundary or plan reuse). Delegates to the single sys-aware {@link PaimonTableResolver}
+     * shared with the metadata path, so a deserialized SYSTEM handle reloads its own (sys) Table
+     * via the 4-arg sys {@link Identifier} instead of silently scanning the base table.
+     * Package-private for direct unit testing.
      *
      * <p>NOTE: the reloaded Table may come from a different {@link org.apache.paimon.catalog.Catalog}
      * instance than the one that produced the handle. That is acceptable for this fallback safety
      * net (it is not snapshot-consistent with the handle's originating catalog).
      */
     Table resolveTable(PaimonTableHandle paimonHandle) {
-        Table table = paimonHandle.getPaimonTable();
-        if (table == null) {
-            Identifier id = Identifier.create(
-                    paimonHandle.getDatabaseName(), paimonHandle.getTableName());
-            try {
-                table = catalogOps.getTable(id);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to load Paimon table: " + id, e);
-            }
+        try {
+            return PaimonTableResolver.resolve(catalogOps, paimonHandle);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Paimon table: " + paimonHandle, e);
         }
-        return table;
     }
 
     @Override
@@ -199,7 +195,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
-            if (supportNativeReader(optRawFiles)) {
+            if (shouldUseNativeReader(paimonHandle.isForceJni(), optRawFiles)) {
                 // Native reader path
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
@@ -328,7 +324,28 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return dataSplit.rowCount();
     }
 
-    private boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
+    /**
+     * Decides whether a {@link DataSplit} may take the native (ORC/Parquet) reader path.
+     *
+     * <p>The split is native-eligible iff (a) it is NOT name-forced to JNI by the handle, AND (b) its
+     * raw files all support the native reader (see {@link #supportNativeReader}). Gating on
+     * {@code forceJni} is the T19 fix: {@code binlog} / {@code audit_log} system tables are paimon
+     * {@code DataTable}s whose {@code DataSplit.convertToRawFiles()} may succeed, but the native
+     * reader cannot reproduce their read semantics (binlog pack/merge + array materialization;
+     * audit_log rowkind/sequence-number projection), so they would silently return wrong rows. Legacy
+     * forces them to JNI ({@code PaimonScanNode.shouldForceJniForSystemTable}, captured by
+     * {@link PaimonTableHandle#isForceJni()}). ONLY the {@code forceJni} flag gates this: metadata sys
+     * tables already go JNI via the non-DataSplit path, and a non-forced {@code DataTable} like "ro"
+     * (forceJni=false) must still be allowed native — so this must not over-force.
+     *
+     * <p>Extracted as a pure static so the correctness-critical routing decision is unit-testable
+     * with real {@link RawFile}s, without driving a full Paimon {@code ReadBuilder}/{@code TableScan}.
+     */
+    static boolean shouldUseNativeReader(boolean forceJni, Optional<List<RawFile>> optRawFiles) {
+        return !forceJni && supportNativeReader(optRawFiles);
+    }
+
+    private static boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
         if (!optRawFiles.isPresent() || optRawFiles.get().isEmpty()) {
             return false;
         }

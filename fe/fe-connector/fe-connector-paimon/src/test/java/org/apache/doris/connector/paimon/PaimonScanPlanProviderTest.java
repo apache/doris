@@ -18,12 +18,15 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Optional;
 
 /**
  * Tests for {@link PaimonScanPlanProvider#resolveTable}, pinning the transient-Table reload
@@ -74,6 +77,89 @@ public class PaimonScanPlanProviderTest {
                 "scan path must return the table reloaded from the seam when the transient ref is null");
         Assertions.assertTrue(ops.log.contains("getTable:db1.t1"),
                 "reload-fallback must re-fetch the table from the seam when the transient ref is null");
+    }
+
+    @Test
+    public void resolveTableForSysHandleReloadsViaFourArgSysIdentifier() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        // Base table (served for a 2-arg Identifier) has DIFFERENT columns than the sys table, so a
+        // wrong-Identifier reload (base table) is detectable by the captured Identifier's sys name.
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = new FakePaimonTable(
+                "t1$snapshots", rowType("snapshot_id", "schema_id"),
+                Collections.emptyList(), Collections.emptyList());
+
+        // A deserialized SYSTEM handle: sysTableName set, transient Table lost (null) — exactly the
+        // FE/BE serialization or plan-reuse case the scan path must survive.
+        PaimonTableHandle sysHandle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "snapshots", false);
+        Assertions.assertNull(sysHandle.getPaimonTable(), "precondition: transient table is null");
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        Table resolved = provider.resolveTable(sysHandle);
+
+        // WHY: BLOCKER fix — the scan path's own resolveTable used to ALWAYS reload via the 2-arg
+        // base Identifier, so a deserialized sys handle would silently resolve and scan the BASE
+        // table (wrong rows) instead of the system table. The reload must be sys-aware (4-arg sys
+        // Identifier), mirroring the metadata side, via the single shared PaimonTableResolver.
+        // MUTATION: reverting the scan resolveTable to Identifier.create(db,table) -> the base table
+        // is returned, the captured Identifier's sys name is null -> red.
+        Assertions.assertSame(ops.sysTable, resolved,
+                "scan path must reload the SYSTEM table (not the base table) for a sys handle");
+        Assertions.assertNotNull(ops.lastGetTableId, "reload must have hit the seam");
+        Assertions.assertEquals("snapshots", ops.lastGetTableId.getSystemTableName(),
+                "the scan reload must use the 4-arg sys Identifier carrying the sys-table name");
+        Assertions.assertEquals("main", ops.lastGetTableId.getBranchName(),
+                "the sys Identifier branch must be hardcoded 'main' (legacy parity)");
+    }
+
+    /** Builds a native-eligible RawFile (parquet suffix). The numeric fields are irrelevant to the
+     * native-vs-JNI routing decision under test, only the path suffix matters. */
+    private static RawFile parquetRawFile(String path) {
+        return new RawFile(path, 0L, 100L, 100L, "parquet", 0L, 0L);
+    }
+
+    @Test
+    public void forceJniSysTableSplitDoesNotTakeNativePathEvenWithRawFiles() {
+        // A binlog/audit_log sys handle: forceJni=true. Its DataSplit WOULD support native (raw
+        // parquet files present), but the binlog/audit_log read semantics (pack/merge, rowkind/
+        // sequence-number projection) are not reproducible by the native ORC/Parquet reader.
+        Optional<java.util.List<RawFile>> rawFiles = Optional.of(
+                Arrays.asList(parquetRawFile("/data/part-0.parquet")));
+
+        // WHY: legacy forces binlog/audit_log to JNI (PaimonScanNode.shouldForceJniForSystemTable,
+        // captured as handle.isForceJni()). Without the gate the native path would silently return
+        // wrong rows. MUTATION: dropping the `!forceJni` guard in shouldUseNativeReader ->
+        // returns true here (native) -> red.
+        Assertions.assertFalse(
+                PaimonScanPlanProvider.shouldUseNativeReader(/*forceJni*/ true, rawFiles),
+                "a forceJni (binlog/audit_log) sys split must route to JNI, never native, "
+                        + "even when its raw files would otherwise support the native reader");
+    }
+
+    @Test
+    public void nonForcedSplitWithRawFilesStillTakesNativePath() {
+        // A normal table (or a non-forced DataTable sys table like "ro"): forceJni=false. With raw
+        // files that support the native reader, it must still be allowed the native path.
+        Optional<java.util.List<RawFile>> rawFiles = Optional.of(
+                Arrays.asList(parquetRawFile("/data/part-0.parquet")));
+
+        // WHY: the gate must be the forceJni flag ONLY — over-forcing JNI for non-forced splits
+        // would regress the native fast path for normal tables and "ro". MUTATION: gating native on
+        // anything stricter (e.g. isSystemTable) -> returns false here -> red.
+        Assertions.assertTrue(
+                PaimonScanPlanProvider.shouldUseNativeReader(/*forceJni*/ false, rawFiles),
+                "a non-forced split with native-eligible raw files must still take the native path");
+    }
+
+    @Test
+    public void nonForcedSplitWithoutNativeFilesTakesJni() {
+        // Sanity: even when not forced, a split whose raw files are absent must not go native.
+        // MUTATION: making shouldUseNativeReader ignore supportNativeReader -> returns true -> red.
+        Assertions.assertFalse(
+                PaimonScanPlanProvider.shouldUseNativeReader(/*forceJni*/ false, Optional.empty()),
+                "a split without convertible raw files must route to JNI regardless of forceJni");
     }
 
     @Test

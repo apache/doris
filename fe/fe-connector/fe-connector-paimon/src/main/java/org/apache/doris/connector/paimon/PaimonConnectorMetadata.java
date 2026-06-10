@@ -27,8 +27,12 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,6 +41,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.RowType;
@@ -50,6 +55,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -139,39 +145,216 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
-        Identifier identifier = Identifier.create(
-                paimonHandle.getDatabaseName(), paimonHandle.getTableName());
-        try {
-            Table table = catalogOps.getTable(identifier);
-            RowType rowType = table.rowType();
-            List<String> primaryKeys = table.primaryKeys();
-            List<ConnectorColumn> columns = mapFields(rowType, primaryKeys);
+        // resolveTable branches on isSystemTable() to pick the 4-arg sys Identifier vs the 2-arg
+        // base Identifier on a transient-table-null reload, so a sys handle reads its OWN rowType.
+        Table table = resolveTable(paimonHandle);
+        RowType rowType = table.rowType();
+        List<String> primaryKeys = table.primaryKeys();
+        List<ConnectorColumn> columns = mapFields(rowType, primaryKeys);
 
-            Map<String, String> schemaProps = new HashMap<>();
-            if (paimonHandle.getPartitionKeys() != null
-                    && !paimonHandle.getPartitionKeys().isEmpty()) {
-                schemaProps.put("partition_keys",
-                        String.join(",", paimonHandle.getPartitionKeys()));
-            }
-            if (primaryKeys != null && !primaryKeys.isEmpty()) {
-                schemaProps.put("primary_keys", String.join(",", primaryKeys));
-            }
-
-            return new ConnectorTableSchema(
-                    paimonHandle.getTableName(),
-                    columns,
-                    "PAIMON",
-                    schemaProps);
-        } catch (Catalog.TableNotExistException e) {
-            throw new RuntimeException("Paimon table not found: " + identifier, e);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon table schema: " + identifier, e);
+        Map<String, String> schemaProps = new HashMap<>();
+        if (paimonHandle.getPartitionKeys() != null
+                && !paimonHandle.getPartitionKeys().isEmpty()) {
+            schemaProps.put("partition_keys",
+                    String.join(",", paimonHandle.getPartitionKeys()));
         }
+        if (primaryKeys != null && !primaryKeys.isEmpty()) {
+            schemaProps.put("primary_keys", String.join(",", primaryKeys));
+        }
+
+        return new ConnectorTableSchema(
+                paimonHandle.getTableName(),
+                columns,
+                "PAIMON",
+                schemaProps);
+    }
+
+    // ==================== E7: System Tables ====================
+
+    /**
+     * Lists the system-table names paimon exposes. Connector-global: legacy
+     * {@code PaimonSysTable.SUPPORTED_SYS_TABLES} is built once from
+     * {@code SystemTableLoader.SYSTEM_TABLES} and applies to every paimon table, so this returns
+     * the same SDK list for any base handle (a defensive unmodifiable copy of the bare names,
+     * no {@code "$"} prefix).
+     */
+    @Override
+    public List<String> listSupportedSysTables(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle) {
+        return Collections.unmodifiableList(new ArrayList<>(SystemTableLoader.SYSTEM_TABLES));
+    }
+
+    /**
+     * Resolves a handle for the named system table of {@code baseTableHandle}, or empty when
+     * paimon does not expose {@code sysName} (case-insensitive, per legacy
+     * {@code shouldForceJniForSystemTable}'s {@code equalsIgnoreCase} use) or the base table no
+     * longer exists.
+     *
+     * <p>The system {@link Table} is loaded through the EXISTING {@link PaimonCatalogOps#getTable}
+     * seam by constructing the 4-arg sys {@link Identifier}
+     * {@code new Identifier(db, table, "main", sysName)} — no new seam method is needed because
+     * {@code CatalogBackedPaimonCatalogOps.getTable} passes the Identifier through to
+     * {@code catalog.getTable(identifier)} unchanged, and paimon's catalog dispatches to the
+     * system table when the Identifier carries a system-table name. The branch is HARDCODED
+     * {@code "main"}: non-"main" branch system tables are unsupported (legacy parity, see
+     * {@code PaimonSysExternalTable#getSysPaimonTable}).
+     *
+     * <p>{@code forceJni} mirrors legacy {@code PaimonScanNode.shouldForceJniForSystemTable}: only
+     * {@code binlog} / {@code audit_log} are NAME-forced to the JNI reader. Other sys tables ("ro",
+     * metadata tables) are NOT force-forced here; their JNI-vs-native routing is decided at scan
+     * time by split type (T19), so this must not over-force.
+     */
+    @Override
+    public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        PaimonTableHandle base = (PaimonTableHandle) baseTableHandle;
+        // Null-safe: a null/unknown sysName is "this connector does not expose that sys table"
+        // (Optional.empty per the Javadoc contract), NOT an NPE/exception.
+        if (!isSupportedSysTable(sysName)) {
+            return Optional.empty();
+        }
+        // Normalize to lowercase for handle identity parity with legacy: SysTable renders the suffix
+        // as "$" + sysTableName.toLowerCase(), so t$BINLOG and t$binlog must be the SAME handle
+        // (identical equals/hashCode/toString and the same sys Identifier). The support check above
+        // stays case-insensitive; only the canonical stored name is lowercased.
+        String sys = sysName.toLowerCase(java.util.Locale.ROOT);
+        Identifier sysId = new Identifier(
+                base.getDatabaseName(), base.getTableName(), "main", sys);
+        Table sysTable;
+        try {
+            sysTable = catalogOps.getTable(sysId);
+        } catch (Catalog.TableNotExistException e) {
+            return Optional.empty();
+        }
+        boolean forceJni = "binlog".equals(sys) || "audit_log".equals(sys);
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                base.getDatabaseName(), base.getTableName(), sys, forceJni);
+        handle.setPaimonTable(sysTable);
+        return Optional.of(handle);
+    }
+
+    private static boolean isSupportedSysTable(String sysName) {
+        if (sysName == null) {
+            return false;
+        }
+        for (String supported : SystemTableLoader.SYSTEM_TABLES) {
+            if (supported.equalsIgnoreCase(sysName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
     public Map<String, String> getProperties() {
         return Collections.emptyMap();
+    }
+
+    // ==================== E5: MVCC Snapshots / Time Travel ====================
+
+    /**
+     * Returns the query-begin MVCC pin: the table's LATEST snapshot, used as the consistent version
+     * for every read of {@code handle} in this query (mirrors legacy
+     * {@code PaimonExternalTable.getPaimonSnapshotCacheValue} using {@code latestSnapshot().id()}).
+     *
+     * <p>System tables MUST NOT expose MVCC (they are synthetic metadata views; pinning them to a
+     * data snapshot is meaningless — see also the T19 scan-node fail-loud guard), so a sys handle
+     * returns {@link Optional#empty()}.
+     *
+     * <p>An EMPTY table (no snapshot yet) returns a snapshot whose id is the legacy
+     * {@code INVALID_SNAPSHOT_ID} (-1), NOT {@link Optional#empty()}: empty here means "no MVCC
+     * support", but paimon DOES support MVCC, so the connector still pins (legacy seeded -1 and only
+     * overwrote it when {@code latestSnapshot().isPresent()}).
+     */
+    @Override
+    public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable()) {
+            return Optional.empty();
+        }
+        Table table = resolveTable(paimonHandle);
+        long id = catalogOps.latestSnapshotId(table).orElse(-1L);
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id).build());
+    }
+
+    /**
+     * Time-travel by snapshot id. Returns the pinned snapshot when it exists, else
+     * {@link Optional#empty()} per the SPI Javadoc ("or empty if none").
+     *
+     * <p>CONTRACT DIFFERENCE (intentional, documented): legacy
+     * {@code PaimonUtil.getPaimonSnapshotBySnapshotId} THREW a {@code UserException}
+     * ("can't find snapshot by id") when the id was absent. The SPI contract here is empty-if-none,
+     * so surfacing the user-facing "not found" error is the B5 fe-core consumer's responsibility —
+     * this is NOT a silent data bug.
+     *
+     * <p>System tables do not expose time-travel -> {@link Optional#empty()}.
+     */
+    @Override
+    public Optional<ConnectorMvccSnapshot> getSnapshotById(
+            ConnectorSession session, ConnectorTableHandle handle, long snapshotId) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable()) {
+            return Optional.empty();
+        }
+        Table table = resolveTable(paimonHandle);
+        if (!catalogOps.snapshotExists(table, snapshotId)) {
+            return Optional.empty();
+        }
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(snapshotId).build());
+    }
+
+    /**
+     * Time-travel by wall-clock time. Returns the latest snapshot committed at or before
+     * {@code timestampMillis}, else {@link Optional#empty()} when none qualifies.
+     *
+     * <p>CONTRACT DIFFERENCE (intentional, documented): legacy
+     * {@code PaimonUtil.getPaimonSnapshotByTimestamp} THREW a {@code UserException} (with the
+     * earliest-snapshot's timestamp hint) when no snapshot was at-or-before the time. The SPI
+     * contract here is empty-if-none, so the B5 fe-core consumer is responsible for surfacing that
+     * user-facing error — this is NOT a silent data bug.
+     *
+     * <p>System tables do not expose time-travel -> {@link Optional#empty()}.
+     */
+    @Override
+    public Optional<ConnectorMvccSnapshot> getSnapshotAt(
+            ConnectorSession session, ConnectorTableHandle handle, long timestampMillis) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable()) {
+            return Optional.empty();
+        }
+        Table table = resolveTable(paimonHandle);
+        OptionalLong id = catalogOps.snapshotIdAtOrBefore(table, timestampMillis);
+        if (!id.isPresent()) {
+            return Optional.empty();
+        }
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id.getAsLong()).build());
+    }
+
+    /**
+     * Builds the read-path Thrift descriptor for a paimon plugin table as a {@code HIVE_TABLE}
+     * carrying a {@link THiveTable}, mirroring legacy paimon ({@code PaimonExternalTable.toThrift}
+     * and {@code PaimonSysExternalTable.toThrift}, both of which send {@code TTableType.HIVE_TABLE}
+     * with a {@code THiveTable}) and the MaxCompute pattern
+     * ({@code MaxComputeConnectorMetadata.buildTableDescriptor}).
+     *
+     * <p>Without this override the SPI default returns {@code null}, so fe-core falls back to
+     * {@code TTableType.SCHEMA_TABLE}; BE's {@code DescriptorTbl::create} then builds a
+     * {@code SchemaTableDescriptor} instead of the {@code HiveTableDescriptor} it builds for
+     * {@code HIVE_TABLE}, a descriptor-parity bug. This fix covers BOTH normal paimon plugin tables
+     * (closing the latent B2 descriptor gap) AND system tables, which inherit it through
+     * {@code PluginDrivenExternalTable.toThrift}.
+     */
+    @Override
+    public TTableDescriptor buildTableDescriptor(
+            ConnectorSession session,
+            long tableId, String tableName, String dbName,
+            String remoteName, int numCols, long catalogId) {
+        THiveTable tHiveTable = new THiveTable(dbName, tableName, new HashMap<>());
+        TTableDescriptor desc = new TTableDescriptor(
+                tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
+        desc.setHiveTable(tHiveTable);
+        return desc;
     }
 
     // ==================== DDL: Create/Drop Table ====================
@@ -453,22 +636,20 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Resolves the live {@link Table} for a handle: prefer the transient reference, else re-load
-     * from the catalog seam. Mirrors the reload fallback originally inlined in
-     * {@link #getColumnHandles}.
+     * from the catalog seam. Delegates to the single sys-aware {@link PaimonTableResolver} shared
+     * with the scan path so there is exactly ONE reload rule (a sys handle reloads via the 4-arg
+     * sys {@link Identifier}; see {@link PaimonTableResolver#resolve}). This keeps every metadata
+     * read path ({@link #getTableSchema}, {@link #getColumnHandles}, {@link #collectPartitions})
+     * sys-aware.
+     *
+     * <p>Preserves this site's original wrapping of a reload failure as a {@link RuntimeException}.
      */
     private Table resolveTable(PaimonTableHandle paimonHandle) {
-        Table table = paimonHandle.getPaimonTable();
-        if (table == null) {
-            // Fallback: re-load from catalog
-            Identifier id = Identifier.create(
-                    paimonHandle.getDatabaseName(), paimonHandle.getTableName());
-            try {
-                table = catalogOps.getTable(id);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to load Paimon table: " + id, e);
-            }
+        try {
+            return PaimonTableResolver.resolve(catalogOps, paimonHandle);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Paimon table: " + paimonHandle, e);
         }
-        return table;
     }
 
     private List<ConnectorColumn> mapFields(RowType rowType, List<String> primaryKeys) {
