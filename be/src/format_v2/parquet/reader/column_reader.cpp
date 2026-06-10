@@ -112,7 +112,8 @@ bool supports_nested_scalar_record_reader(const ParquetColumnSchema& column_sche
         return true;
     }
     const auto& type_descriptor = column_schema.type_descriptor;
-    if (type_descriptor.extra_type_info != ParquetExtraTypeInfo::NONE ||
+    if ((type_descriptor.extra_type_info != ParquetExtraTypeInfo::NONE &&
+         type_descriptor.extra_type_info != ParquetExtraTypeInfo::FLOAT16) ||
         type_descriptor.is_decimal || type_descriptor.is_timestamp ||
         type_descriptor.is_string_like) {
         return false;

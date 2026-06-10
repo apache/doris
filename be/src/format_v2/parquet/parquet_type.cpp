@@ -206,6 +206,14 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
             return nullptr;
         }
     }
+    if (logical_type->is_float16()) {
+        if (column->physical_type() != ::parquet::Type::FIXED_LEN_BYTE_ARRAY ||
+            column->type_length() != 2) {
+            return nullptr;
+        }
+        result->extra_type_info = ParquetExtraTypeInfo::FLOAT16;
+        return create_type(TYPE_FLOAT, nullable);
+    }
     return nullptr;
 }
 
@@ -292,9 +300,10 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
         }
     }
 
-    result.is_string_like =
-            !result.is_decimal && (result.physical_type == ::parquet::Type::BYTE_ARRAY ||
-                                   result.physical_type == ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
+    result.is_string_like = !result.is_decimal &&
+                            result.extra_type_info != ParquetExtraTypeInfo::FLOAT16 &&
+                            (result.physical_type == ::parquet::Type::BYTE_ARRAY ||
+                             result.physical_type == ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
 
     if (!record_reader_physical_type_supported(result.physical_type)) {
         result.supports_record_reader = false;

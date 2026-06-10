@@ -564,12 +564,8 @@ protected:
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(column->get() != nullptr);
         DORIS_CHECK(table_type != nullptr);
-        if (const auto* const_column = check_and_get_column<ColumnConst>(column->get())) {
-            ColumnPtr data_column = const_column->get_data_column_ptr();
-            RETURN_IF_ERROR(_align_column_nullability(&data_column, table_type));
-            *column = ColumnConst::create(data_column, const_column->size());
-            return Status::OK();
-        }
+        // Must return non-const column
+        *column = (*column)->convert_to_full_column_if_const();
         if (table_type->is_nullable()) {
             const auto& nested_type =
                     assert_cast<const DataTypeNullable&>(*table_type).get_nested_type();
@@ -909,11 +905,12 @@ protected:
             // COUNT pushdown is not a final count value. It emits `count` default rows so the
             // upper COUNT(*) aggregate can count them and produce the final result, including
             // zero rows when count is 0.
+            DORIS_CHECK(file_result.count >= 0);
+            const auto rows = cast_set<size_t>(file_result.count);
             for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
-                block->replace_by_position(column_idx,
-                                           block->get_by_position(column_idx)
-                                                   .type->create_column_const_with_default_value(
-                                                           cast_set<size_t>(file_result.count)));
+                auto column = block->get_by_position(column_idx).type->create_column();
+                column->resize(rows);
+                block->replace_by_position(column_idx, std::move(column));
             }
             return Status::OK();
         }
