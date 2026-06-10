@@ -323,6 +323,10 @@ struct FieldWithDataType {
     uint8_t num_dimensions = 0;
     int precision = -1;
     int scale = -1;
+    // True when the array elements are mixed-type and must be converted to the common base
+    // type on insert. Mirrors FieldInfo::need_convert so it survives the FieldWithDataType
+    // round trip in the sparse read path.
+    bool need_convert = false;
 };
 
 } // namespace doris

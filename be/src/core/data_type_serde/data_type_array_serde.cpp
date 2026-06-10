@@ -26,6 +26,7 @@
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/get_least_supertype.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
@@ -508,16 +509,29 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
     info.num_dimensions++;
     auto& array = field.get<TYPE_ARRAY>();
-    PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
+    // Element type is the common type of all elements, not the last element's type.
+    // For a mixed-type array like ["1", 2, 1.1] the last-element rule picks array<double>
+    // and loses the string, which crashes later when the field is re-inserted.
+    PrimitiveTypeSet element_types;
     for (size_t i = 0; i < nested_size; ++i) {
         Field nested_field;
         data = DataTypeSerDe::deserialize_binary_to_field(data, nested_field, info);
         array[i] = std::move(nested_field);
         if (info.scalar_type_id != PrimitiveType::TYPE_NULL) {
-            nested_type = info.scalar_type_id;
+            element_types.insert(info.scalar_type_id);
         }
     }
-    info.scalar_type_id = nested_type;
+    if (element_types.empty()) {
+        info.scalar_type_id = PrimitiveType::TYPE_NULL;
+    } else if (element_types.size() == 1) {
+        info.scalar_type_id = *element_types.begin();
+    } else {
+        DataTypePtr common_type;
+        get_least_supertype_jsonb(element_types, &common_type);
+        info.scalar_type_id = common_type->get_primitive_type();
+        // Mixed-type elements need converting to the common type on insert.
+        info.need_convert = true;
+    }
     return data;
 }
 
