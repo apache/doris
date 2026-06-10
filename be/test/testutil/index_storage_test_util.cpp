@@ -1302,6 +1302,12 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
     RuntimeState runtime_state;
     runtime_state.set_exec_env(ExecEnv::GetInstance());
     runtime_state.set_query_options(make_read_query_options(options));
+    TupleDescriptor tuple_desc;
+    RowDescriptor row_desc(&tuple_desc);
+    for (const auto& expr_ctx : options.common_expr_ctxs_push_down) {
+        RETURN_RESULT_IF_ERROR(expr_ctx->prepare(&runtime_state, row_desc));
+        RETURN_RESULT_IF_ERROR(expr_ctx->open(&runtime_state));
+    }
 
     for (const auto& rowset : rowsets) {
         RowsetReaderSharedPtr reader;
@@ -1317,6 +1323,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         context.target_cast_type_for_variants = options.target_cast_type_for_variants;
         context.all_access_paths = options.all_access_paths;
         context.predicate_access_paths = options.predicate_access_paths;
+        context.common_expr_ctxs_push_down = options.common_expr_ctxs_push_down;
         context.push_down_agg_type_opt = options.push_down_agg_type_opt;
         context.runtime_state = &runtime_state;
         RETURN_RESULT_IF_ERROR(reader->init(&context));

@@ -32,6 +32,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "exprs/vexpr_fwd.h"
 #include "runtime/descriptors.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -160,6 +161,7 @@ struct IndexReadOptions {
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     std::map<int32_t, TColumnAccessPaths> all_access_paths;
     std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
+    VExprContextSPtrs common_expr_ctxs_push_down;
     bool collect_string_values = false;
     bool collect_variant_values = false;
     bool enable_inverted_index_query = true;
