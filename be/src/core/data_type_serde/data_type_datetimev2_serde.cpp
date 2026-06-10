@@ -534,7 +534,9 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
 Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
         IColumn& column, const DecodedColumnView& view) const {
     if (view.value_kind != DecodedValueKind::INT64 && view.value_kind != DecodedValueKind::INT96) {
-        return Status::NotSupported("DATETIMEV2 decoded reader expects INT64 or INT96 source");
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("DATETIMEV2 decoded reader expects INT64 or INT96 source"));
     }
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
@@ -550,6 +552,10 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
             }
             auto st = append_datetimev2_from_epoch_micros(data, values[row].to_timestamp_micros());
             if (!st.ok()) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
                 data.resize(old_size);
                 return st;
             }
@@ -572,6 +578,10 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
         } else {
             auto st = append_datetimev2_from_epoch_micros(data, timestamp_micros);
             if (!st.ok()) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
                 data.resize(old_size);
                 return st;
             }

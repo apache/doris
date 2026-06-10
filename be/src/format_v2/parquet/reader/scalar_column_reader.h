@@ -43,7 +43,7 @@ public:
     ScalarColumnReader(const ParquetColumnSchema& column_schema,
                        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                        const ParquetPageSkipPlan* page_skip_plan = nullptr,
-                       const cctz::time_zone* timezone = nullptr,
+                       const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false,
                        ParquetColumnReaderProfile profile = {});
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
@@ -51,8 +51,9 @@ public:
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
     ArrowLeafReaderContext leaf_context() const {
-        return ArrowLeafReaderContext {_descriptor,    _type_descriptor, _type,    _name,
-                                       _record_reader, _profile,         _timezone};
+        return ArrowLeafReaderContext {_descriptor, _type_descriptor,   _type,
+                                       _name,       _record_reader,     _profile,
+                                       _timezone,   _enable_strict_mode};
     }
     void advance_rows_read(int64_t rows);
 
@@ -65,6 +66,7 @@ private:
     std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
     const ParquetPageSkipPlan* _page_skip_plan = nullptr;
     const cctz::time_zone* _timezone = nullptr;
+    bool _enable_strict_mode = false;
     int64_t _row_group_rows_read = 0;
 };
 

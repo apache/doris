@@ -118,6 +118,7 @@ Status ParquetReader::init(RuntimeState* state) {
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
     if (state != nullptr) {
         _state->scheduler.set_timezone(&state->timezone_obj());
+        _state->scheduler.set_enable_strict_mode(state->enable_strict_mode());
     }
     // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get()));

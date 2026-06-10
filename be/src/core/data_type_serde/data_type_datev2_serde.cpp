@@ -129,7 +129,8 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
 Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
                                                             const DecodedColumnView& view) const {
     if (view.value_kind != DecodedValueKind::INT32) {
-        return Status::NotSupported("DATEV2 decoded reader expects INT32 source");
+        return decoded_column_view_handle_conversion_failure(
+                column, view, Status::NotSupported("DATEV2 decoded reader expects INT32 source"));
     }
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());

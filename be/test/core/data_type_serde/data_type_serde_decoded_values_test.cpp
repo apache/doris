@@ -126,6 +126,15 @@ void expect_binary_column(const IColumn& column, const std::vector<std::string>&
     }
 }
 
+void expect_nullable_all_null(const IColumn& column, size_t expected_size) {
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+    ASSERT_EQ(expected_size, nullable_column.size());
+    ASSERT_EQ(expected_size, nullable_column.get_nested_column().size());
+    for (size_t row = 0; row < expected_size; ++row) {
+        EXPECT_TRUE(nullable_column.is_null_at(row)) << "row=" << row;
+    }
+}
+
 Field read_field(const DataTypePtr& type, const DecodedColumnView& view) {
     Field field;
     auto status = type->get_serde()->read_field_from_decoded_value(*type, &field, view);
@@ -275,26 +284,26 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadSignedIntegersFromInt32) {
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, ReadSignedIntegersFromInt64) {
-    std::vector<int64_t> values = {0, 1, -1, 2147483648LL, -2147483649LL};
+    std::vector<int64_t> values = {0, 1, -1, 127, -128};
     auto view = make_fixed_view(DecodedValueKind::INT64, values);
 
     auto tiny = read_column(std::make_shared<DataTypeInt8>(), view);
     ASSERT_TRUE(tiny.status.ok()) << tiny.status;
     const auto& tiny_column = assert_cast<const ColumnInt8&>(*tiny.column);
-    EXPECT_EQ(static_cast<int8_t>(2147483648LL), tiny_column.get_element(3));
-    EXPECT_EQ(static_cast<int8_t>(-2147483649LL), tiny_column.get_element(4));
+    EXPECT_EQ(127, tiny_column.get_element(3));
+    EXPECT_EQ(-128, tiny_column.get_element(4));
 
     auto small = read_column(std::make_shared<DataTypeInt16>(), view);
     ASSERT_TRUE(small.status.ok()) << small.status;
     const auto& small_column = assert_cast<const ColumnInt16&>(*small.column);
-    EXPECT_EQ(static_cast<int16_t>(2147483648LL), small_column.get_element(3));
-    EXPECT_EQ(static_cast<int16_t>(-2147483649LL), small_column.get_element(4));
+    EXPECT_EQ(127, small_column.get_element(3));
+    EXPECT_EQ(-128, small_column.get_element(4));
 
     auto integer = read_column(std::make_shared<DataTypeInt32>(), view);
     ASSERT_TRUE(integer.status.ok()) << integer.status;
     const auto& int_column = assert_cast<const ColumnInt32&>(*integer.column);
-    EXPECT_EQ(static_cast<int32_t>(2147483648LL), int_column.get_element(3));
-    EXPECT_EQ(static_cast<int32_t>(-2147483649LL), int_column.get_element(4));
+    EXPECT_EQ(127, int_column.get_element(3));
+    EXPECT_EQ(-128, int_column.get_element(4));
 
     auto bigint = read_column(std::make_shared<DataTypeInt64>(), view);
     ASSERT_TRUE(bigint.status.ok()) << bigint.status;
@@ -337,13 +346,12 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadIntegersFromUnsignedSources) {
                   column.get_element(2));
     }
     {
-        std::vector<uint64_t> values = {std::numeric_limits<uint64_t>::max()};
+        std::vector<uint64_t> values = {static_cast<uint64_t>(std::numeric_limits<int64_t>::max())};
         auto view = make_fixed_view(DecodedValueKind::UINT64, values);
         auto result = read_column(std::make_shared<DataTypeInt64>(), view);
         ASSERT_TRUE(result.status.ok()) << result.status;
         const auto& column = assert_cast<const ColumnInt64&>(*result.column);
-        EXPECT_EQ(static_cast<int64_t>(std::numeric_limits<uint64_t>::max()),
-                  column.get_element(0));
+        EXPECT_EQ(std::numeric_limits<int64_t>::max(), column.get_element(0));
     }
 }
 
@@ -478,6 +486,77 @@ TEST(DataTypeSerDeDecodedValuesTest, NumberAllowsMissingValuesForAllNullOrEmpty)
             EXPECT_EQ(0, nested_column.get_element(row));
         }
     }
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NumberRejectsOutOfRangeValueInStrictMode) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
+    std::vector<int64_t> values = {127, 128};
+    std::vector<uint8_t> null_map = {0, 0};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values, &null_map);
+    view.enable_strict_mode = true;
+
+    auto result = read_column(type, view);
+
+    expect_data_quality_error(result.status);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    EXPECT_EQ(0, nullable_column.size());
+    EXPECT_EQ(0, nullable_column.get_null_map_data().size());
+    EXPECT_EQ(0, nullable_column.get_nested_column().size());
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NumberNullsOutOfRangeValueInNonStrictMode) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
+    std::vector<int64_t> values = {127, 128, -129, -128};
+    std::vector<uint8_t> null_map = {0, 0, 0, 0};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values, &null_map);
+
+    auto result = read_column(type, view);
+
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    const auto& nested_column = assert_cast<const ColumnInt8&>(nullable_column.get_nested_column());
+    ASSERT_EQ(4, nullable_column.size());
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_TRUE(nullable_column.is_null_at(2));
+    EXPECT_FALSE(nullable_column.is_null_at(3));
+    EXPECT_EQ(127, nested_column.get_element(0));
+    EXPECT_EQ(0, nested_column.get_element(1));
+    EXPECT_EQ(0, nested_column.get_element(2));
+    EXPECT_EQ(-128, nested_column.get_element(3));
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NumberRejectsUnsignedOverflowInStrictMode) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+    std::vector<uint64_t> values = {static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
+                                    std::numeric_limits<uint64_t>::max()};
+    std::vector<uint8_t> null_map = {0, 0};
+    auto view = make_fixed_view(DecodedValueKind::UINT64, values, &null_map);
+    view.enable_strict_mode = true;
+
+    auto result = read_column(type, view);
+
+    expect_data_quality_error(result.status);
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NumberNullsUnsignedOverflowInNonStrictMode) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+    std::vector<uint64_t> values = {static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
+                                    std::numeric_limits<uint64_t>::max()};
+    std::vector<uint8_t> null_map = {0, 0};
+    auto view = make_fixed_view(DecodedValueKind::UINT64, values, &null_map);
+
+    auto result = read_column(type, view);
+
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    const auto& nested_column =
+            assert_cast<const ColumnInt64&>(nullable_column.get_nested_column());
+    ASSERT_EQ(2, nullable_column.size());
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_EQ(std::numeric_limits<int64_t>::max(), nested_column.get_element(0));
+    EXPECT_EQ(0, nested_column.get_element(1));
 }
 
 // ----------------------------------------------------------------------
@@ -763,12 +842,13 @@ TEST(DataTypeSerDeDecodedValuesTest, DateTimeV2RejectsOutOfRangeEpochWithoutAbor
     EXPECT_EQ(0, result.column->size());
 }
 
-TEST(DataTypeSerDeDecodedValuesTest, NullableDateTimeV2RejectsOutOfRangeEpochAndRollsBack) {
+TEST(DataTypeSerDeDecodedValuesTest, NullableDateTimeV2RejectsOutOfRangeEpochInStrictMode) {
     auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTimeV2>(6));
     std::vector<int64_t> values = {0, -377673580800000001LL};
     std::vector<uint8_t> null_map = {0, 0};
     auto view = make_fixed_view(DecodedValueKind::INT64, values, &null_map);
     view.time_unit = DecodedTimeUnit::MICROS;
+    view.enable_strict_mode = true;
 
     auto result = read_column(type, view);
 
@@ -777,6 +857,25 @@ TEST(DataTypeSerDeDecodedValuesTest, NullableDateTimeV2RejectsOutOfRangeEpochAnd
     EXPECT_EQ(0, nullable_column.size());
     EXPECT_EQ(0, nullable_column.get_null_map_data().size());
     EXPECT_EQ(0, nullable_column.get_nested_column().size());
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NullableDateTimeV2NullsOutOfRangeEpochInNonStrictMode) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTimeV2>(6));
+    std::vector<int64_t> values = {0, -377673580800000001LL, 1};
+    std::vector<uint8_t> null_map = {0, 0, 0};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values, &null_map);
+    view.time_unit = DecodedTimeUnit::MICROS;
+
+    auto result = read_column(type, view);
+
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    ASSERT_EQ(3, nullable_column.size());
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_FALSE(nullable_column.is_null_at(2));
+    expect_column_strings(*type, *result.column,
+                          {"1970-01-01 00:00:00.000000", "NULL", "1970-01-01 00:00:00.000001"});
 }
 
 // ----------------------------------------------------------------------
@@ -1033,6 +1132,45 @@ TEST(DataTypeSerDeDecodedValuesTest, DecimalHandlesNulls) {
     EXPECT_EQ(decimal128_v3(-67), decimal_column.get_element(2));
 }
 
+TEST(DataTypeSerDeDecodedValuesTest, DecimalRejectsOutOfRangeValueInStrictMode) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimal32>(9, 2));
+    std::vector<int64_t> values = {999999999, 1000000000};
+    std::vector<uint8_t> null_map = {0, 0};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values, &null_map);
+    view.enable_strict_mode = true;
+
+    auto result = read_column(type, view);
+
+    expect_data_quality_error(result.status);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    EXPECT_EQ(0, nullable_column.size());
+    EXPECT_EQ(0, nullable_column.get_null_map_data().size());
+    EXPECT_EQ(0, nullable_column.get_nested_column().size());
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, DecimalNullsOutOfRangeValueInNonStrictMode) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimal32>(9, 2));
+    std::vector<int64_t> values = {999999999, 1000000000, -1000000000, -999999999};
+    std::vector<uint8_t> null_map = {0, 0, 0, 0};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values, &null_map);
+
+    auto result = read_column(type, view);
+
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    const auto& decimal_column =
+            assert_cast<const ColumnDecimal32&>(nullable_column.get_nested_column());
+    ASSERT_EQ(4, nullable_column.size());
+    EXPECT_FALSE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    EXPECT_TRUE(nullable_column.is_null_at(2));
+    EXPECT_FALSE(nullable_column.is_null_at(3));
+    EXPECT_EQ(Decimal32(999999999), decimal_column.get_element(0));
+    EXPECT_EQ(Decimal32(0), decimal_column.get_element(1));
+    EXPECT_EQ(Decimal32(0), decimal_column.get_element(2));
+    EXPECT_EQ(Decimal32(-999999999), decimal_column.get_element(3));
+}
+
 TEST(DataTypeSerDeDecodedValuesTest, DecimalRejectsNullBinaryDataWithPositiveLength) {
     auto type = std::make_shared<DataTypeDecimal128>(18, 2);
     std::vector<StringRef> refs = {StringRef(static_cast<const char*>(nullptr), 2)};
@@ -1189,12 +1327,115 @@ TEST(DataTypeSerDeDecodedValuesTest, NullablePropagatesNestedError) {
     auto column = type->create_column();
     std::vector<double> values = {1.0};
     std::vector<uint8_t> null_map = {0};
+    auto view = make_fixed_view(DecodedValueKind::DOUBLE, values, &null_map);
+    view.enable_strict_mode = true;
 
-    auto status = type->get_serde()->read_column_from_decoded_values(
-            *column, make_fixed_view(DecodedValueKind::DOUBLE, values, &null_map));
+    auto status = type->get_serde()->read_column_from_decoded_values(*column, view);
 
     expect_not_supported(status);
     const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    EXPECT_EQ(0, nullable_column.size());
+    EXPECT_EQ(0, nullable_column.get_null_map_data().size());
+    EXPECT_EQ(0, nullable_column.get_nested_column().size());
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NullableNonStrictModeNullsUnsupportedDecodedKindForAllTypes) {
+    struct Case {
+        DataTypePtr type;
+        DecodedValueKind kind;
+    };
+    std::vector<Case> cases = {
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>()),
+             DecodedValueKind::INT32},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+             DecodedValueKind::DOUBLE},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()),
+             DecodedValueKind::FLOAT},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+             DecodedValueKind::INT64},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateV2>()),
+             DecodedValueKind::INT64},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTimeV2>(6)),
+             DecodedValueKind::DOUBLE},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeTimeV2>(6)),
+             DecodedValueKind::DOUBLE},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimal128>(18, 2)),
+             DecodedValueKind::DOUBLE},
+    };
+
+    std::vector<int64_t> values = {1, 2};
+    for (const auto& test_case : cases) {
+        auto view = make_fixed_view(test_case.kind, values);
+
+        auto result = read_column(test_case.type, view);
+
+        ASSERT_TRUE(result.status.ok()) << result.status << ", type=" << test_case.type->get_name();
+        expect_nullable_all_null(*result.column, values.size());
+    }
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NullableStrictModeRejectsUnsupportedDecodedKind) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    std::vector<double> values = {1.0};
+    std::vector<uint8_t> null_map = {0};
+    auto view = make_fixed_view(DecodedValueKind::DOUBLE, values, &null_map);
+    view.enable_strict_mode = true;
+
+    auto result = read_column(type, view);
+
+    expect_not_supported(result.status);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+    EXPECT_EQ(0, nullable_column.size());
+    EXPECT_EQ(0, nullable_column.get_null_map_data().size());
+    EXPECT_EQ(0, nullable_column.get_nested_column().size());
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NullableNonStrictModeNullsRowLevelDecodedConversionFailure) {
+    {
+        auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        std::vector<StringRef> refs = {StringRef("ok", 2),
+                                       StringRef(static_cast<const char*>(nullptr), 2),
+                                       StringRef("", 0)};
+        auto view = make_binary_view(DecodedValueKind::BINARY, refs);
+
+        auto result = read_column(type, view);
+
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+        ASSERT_EQ(3, nullable_column.size());
+        EXPECT_FALSE(nullable_column.is_null_at(0));
+        EXPECT_TRUE(nullable_column.is_null_at(1));
+        EXPECT_FALSE(nullable_column.is_null_at(2));
+        expect_binary_column(nullable_column.get_nested_column(), {"ok", "", ""});
+    }
+    {
+        auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimal128>(18, 2));
+        std::vector<StringRef> refs = {StringRef("\x30\x39", 2),
+                                       StringRef(static_cast<const char*>(nullptr), 2)};
+        auto view = make_binary_view(DecodedValueKind::BINARY, refs);
+
+        auto result = read_column(type, view);
+
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
+        ASSERT_EQ(2, nullable_column.size());
+        EXPECT_FALSE(nullable_column.is_null_at(0));
+        EXPECT_TRUE(nullable_column.is_null_at(1));
+        expect_column_strings(*type, *result.column, {"123.45", "NULL"});
+    }
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NullableStrictModeRejectsRowLevelDecodedConversionFailure) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    std::vector<StringRef> refs = {StringRef("ok", 2),
+                                   StringRef(static_cast<const char*>(nullptr), 2)};
+    auto view = make_binary_view(DecodedValueKind::BINARY, refs);
+    view.enable_strict_mode = true;
+
+    auto result = read_column(type, view);
+
+    expect_corruption(result.status);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
     EXPECT_EQ(0, nullable_column.size());
     EXPECT_EQ(0, nullable_column.get_null_map_data().size());
     EXPECT_EQ(0, nullable_column.get_nested_column().size());

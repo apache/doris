@@ -189,12 +189,13 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns,
         const std::map<int, ParquetPageSkipPlan>* page_skip_plans,
         ParquetPageSkipProfile page_skip_profile, const cctz::time_zone* timezone,
-        ParquetColumnReaderProfile column_reader_profile)
+        bool enable_strict_mode, ParquetColumnReaderProfile column_reader_profile)
         : _row_group(std::move(row_group)),
           _record_readers(static_cast<size_t>(num_leaf_columns)),
           _page_skip_plans(page_skip_plans),
           _page_skip_profile(page_skip_profile),
           _timezone(timezone),
+          _enable_strict_mode(enable_strict_mode),
           _column_reader_profile(column_reader_profile) {}
 
 std::unique_ptr<ParquetColumnReader> ParquetColumnReaderFactory::create_row_position_column_reader(
@@ -217,9 +218,9 @@ Status ParquetColumnReaderFactory::create_scalar_reader(
     }
     const auto* page_skip_plan =
             find_page_skip_plan(_page_skip_plans, column_schema.leaf_column_id);
-    *reader =
-            std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader),
-                                                 page_skip_plan, _timezone, _column_reader_profile);
+    *reader = std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader),
+                                                   page_skip_plan, _timezone, _enable_strict_mode,
+                                                   _column_reader_profile);
     return Status::OK();
 }
 

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/column/column_nullable.h"
 #include "core/string_ref.h"
 
 namespace cctz {
@@ -66,6 +67,9 @@ struct DecodedColumnView {
     const uint8_t* null_map = nullptr;
     const std::vector<StringRef>* binary_values = nullptr;
     const cctz::time_zone* timezone = nullptr;
+    bool enable_strict_mode = false;
+    NullMap* conversion_failure_null_map = nullptr;
+    int64_t conversion_failure_null_map_offset = 0;
 };
 
 inline bool decoded_column_view_row_is_null(const DecodedColumnView& view, int64_t row) {
@@ -85,5 +89,14 @@ inline bool decoded_column_view_has_non_null_value(const DecodedColumnView& view
     }
     return false;
 }
+
+bool decoded_column_view_can_null_on_conversion_failure(const DecodedColumnView& view);
+
+void decoded_column_view_insert_null_on_conversion_failure(IColumn& column,
+                                                           const DecodedColumnView& view,
+                                                           int64_t row);
+
+Status decoded_column_view_handle_conversion_failure(IColumn& column, const DecodedColumnView& view,
+                                                     const Status& status);
 
 } // namespace doris
