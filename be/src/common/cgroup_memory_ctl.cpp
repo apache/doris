@@ -93,6 +93,8 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
             return Status::CgroupError("Error reading {}: {}", file_path.string(),
                                        get_str_err_msg());
         }
+        // This means no limit, for example, all process in linux will belong to a cgroup, and
+        // the default value of the memory limit in memory.max file is  "max", which means no limit.
         if (line == "max") {
             *value = std::numeric_limits<int64_t>::max();
             return Status::OK();
@@ -107,15 +109,28 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
         std::unordered_map<std::string, int64_t> metrics_map;
         CGroupUtil::read_int_metric_from_cgroup_file((_mount_file_dir / "memory.stat"),
                                                      metrics_map);
-        if (*value < metrics_map["inactive_file"]) {
+        int64_t inactive_file =
+                metrics_map.contains("inactive_file") ? metrics_map["inactive_file"] : 0;
+        int64_t active_file = metrics_map.contains("active_file") ? metrics_map["active_file"] : 0;
+        int64_t slab_reclaimable =
+                metrics_map.contains("slab_reclaimable") ? metrics_map["slab_reclaimable"] : 0;
+        if (inactive_file < 1 || active_file < 1 || slab_reclaimable < 1) {
+            // In this scenario, not return error, ignore it and print log.
+            LOG(WARNING) << "CgroupsV2Reader read_memory_usage missing expected metrics in "
+                            "memory.stat, inactive_file: "
+                         << inactive_file << ", active_file: " << active_file
+                         << ", slab_reclaimable: " << slab_reclaimable;
+        }
+
+        const int64_t reclaimable_usage = inactive_file + active_file + slab_reclaimable;
+        if (*value < reclaimable_usage) {
             return Status::CgroupError("CgroupsV2Reader read_memory_usage negative memory usage");
         }
-        // the reason why we subtract inactive_file described here:
+        // The reclaimable file cache described here should not be counted as used memory:
         // https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
-        *value -= metrics_map["inactive_file"];
         // Part of "slab" that might be reclaimed, such as dentries and inodes.
         // https://arthurchiao.art/blog/cgroupv2-zh/
-        *value -= metrics_map["slab_reclaimable"];
+        *value -= reclaimable_usage;
         return Status::OK();
     }
 
