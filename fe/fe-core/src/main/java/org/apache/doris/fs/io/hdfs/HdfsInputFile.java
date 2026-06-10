@@ -69,7 +69,13 @@ public class HdfsInputFile implements DorisInputFile {
      */
     @Override
     public DorisInput newInput() throws IOException {
-        return new HdfsInput(dfs.openFile(hadoopPath), this);
+        DFSFileSystem.FileSystemLease lease = dfs.acquireFileSystemLease(hadoopPath);
+        try {
+            return new HdfsInput(dfs.openFile(hadoopPath, lease), this, lease);
+        } catch (IOException | RuntimeException e) {
+            lease.close();
+            throw e;
+        }
     }
 
     /**
@@ -80,7 +86,13 @@ public class HdfsInputFile implements DorisInputFile {
      */
     @Override
     public DorisInputStream newStream() throws IOException {
-        return new HdfsInputStream(path, dfs.openFile(hadoopPath));
+        DFSFileSystem.FileSystemLease lease = dfs.acquireFileSystemLease(hadoopPath);
+        try {
+            return new HdfsInputStream(path, dfs.openFile(hadoopPath, lease), lease);
+        } catch (IOException | RuntimeException e) {
+            lease.close();
+            throw e;
+        }
     }
 
     /**

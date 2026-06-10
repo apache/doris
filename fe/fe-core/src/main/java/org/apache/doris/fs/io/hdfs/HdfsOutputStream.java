@@ -39,6 +39,7 @@ public class HdfsOutputStream extends FSDataOutputStream {
     private final Path hadoopPath;
     // The DFSFileSystem used to interact with HDFS.
     private final DFSFileSystem dfs;
+    private final DFSFileSystem.FileSystemLease lease;
     // Indicates whether the stream has been closed.
     private boolean closed;
 
@@ -49,11 +50,13 @@ public class HdfsOutputStream extends FSDataOutputStream {
      * @param out the underlying Hadoop FSDataOutputStream
      * @param dfs the DFSFileSystem used to interact with HDFS
      */
-    public HdfsOutputStream(ParsedPath path, FSDataOutputStream out, DFSFileSystem dfs) {
+    public HdfsOutputStream(ParsedPath path, FSDataOutputStream out, DFSFileSystem dfs,
+            DFSFileSystem.FileSystemLease lease) {
         super(out, null, out.getPos());
         this.path = Objects.requireNonNull(path, "path is null");
         this.hadoopPath = path.toHadoopPath();
-        this.dfs = dfs;
+        this.dfs = Objects.requireNonNull(dfs, "dfs is null");
+        this.lease = Objects.requireNonNull(lease, "lease is null");
     }
 
     /**
@@ -129,7 +132,14 @@ public class HdfsOutputStream extends FSDataOutputStream {
      */
     @Override
     public void close() throws IOException {
+        if (closed) {
+            return;
+        }
         closed = true;
-        super.close();
+        try {
+            super.close();
+        } finally {
+            lease.close();
+        }
     }
 }

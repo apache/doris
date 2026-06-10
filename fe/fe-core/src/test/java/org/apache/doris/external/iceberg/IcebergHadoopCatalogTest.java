@@ -50,13 +50,15 @@ public class IcebergHadoopCatalogTest {
         properties.put("cos.region", "ap-beijing");
         String pathStr = "cosn://bucket1/namespace";
         DFSFileSystem fs = (DFSFileSystem) FileSystemFactory.get(StorageProperties.createPrimary(properties));
-        nativeFs = fs.nativeFileSystem(new Path(pathStr));
+        try (DFSFileSystem.FileSystemLease lease = fs.acquireFileSystemLease(new Path(pathStr))) {
+            nativeFs = lease.fileSystem();
 
-        RemoteIterator<FileStatus> it = nativeFs.listStatusIterator(new Path(pathStr));
-        while (it.hasNext()) {
-            Path path = (it.next()).getPath();
-            if (isNamespace(path)) {
-                System.out.println(path);
+            RemoteIterator<FileStatus> it = nativeFs.listStatusIterator(new Path(pathStr));
+            while (it.hasNext()) {
+                Path path = (it.next()).getPath();
+                if (isNamespace(path)) {
+                    System.out.println(path);
+                }
             }
         }
     }
