@@ -266,14 +266,13 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
 
     DCHECK(seg_id >= 0);
     auto seg_path = DORIS_TRY(segment_path(seg_id));
-    io::FileReaderOptions reader_options {
-            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                    : io::FileCachePolicy::NO_CACHE,
-            .is_doris_table = true,
-            .cache_base_path = "",
-            .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
-            .tablet_id = _rowset_meta->tablet_id(),
-    };
+    io::FileReaderOptions reader_options;
+    reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                          : io::FileCachePolicy::NO_CACHE;
+    reader_options.is_doris_table = true;
+    reader_options.file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id));
+    reader_options.tablet_id = _rowset_meta->tablet_id();
+    reader_options.storage_resource_id = _rowset_meta->resource_id();
 
     auto s = segment_v2::Segment::open(
             fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
@@ -626,14 +625,13 @@ Status BetaRowset::check_current_rowset_segment() {
         auto seg_path = DORIS_TRY(segment_path(seg_id));
 
         std::shared_ptr<segment_v2::Segment> segment;
-        io::FileReaderOptions reader_options {
-                .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                        : io::FileCachePolicy::NO_CACHE,
-                .is_doris_table = true,
-                .cache_base_path {},
-                .file_size = _rowset_meta->segment_file_size(seg_id),
-                .tablet_id = _rowset_meta->tablet_id(),
-        };
+        io::FileReaderOptions reader_options;
+        reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                              : io::FileCachePolicy::NO_CACHE;
+        reader_options.is_doris_table = true;
+        reader_options.file_size = _rowset_meta->segment_file_size(seg_id);
+        reader_options.tablet_id = _rowset_meta->tablet_id();
+        reader_options.storage_resource_id = _rowset_meta->resource_id();
 
         auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id,
                                            rowset_id(), _schema, reader_options, &segment,

@@ -304,13 +304,12 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     });
 
     FileReaderSPtr file_reader;
-    FileReaderOptions opts {
-            .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
-            .is_doris_table = true,
-            .cache_base_path {},
-            .file_size = meta.file_size,
-            .tablet_id = meta.tablet_id,
-    };
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.file_size = meta.file_size;
+    opts.tablet_id = meta.tablet_id;
+    opts.storage_resource_id = meta.file_system->id();
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;

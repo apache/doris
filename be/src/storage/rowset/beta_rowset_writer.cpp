@@ -507,16 +507,15 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
     }
     auto path =
             local_segment_path(_context.tablet_path, _context.rowset_id.to_string(), segment_id);
-    io::FileReaderOptions reader_options {
-            .cache_type =
-                    _context.write_file_cache
-                            ? (config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                         : io::FileCachePolicy::NO_CACHE)
-                            : io::FileCachePolicy::NO_CACHE,
-            .is_doris_table = true,
-            .cache_base_path {},
-            .tablet_id = _rowset_meta->tablet_id(),
-    };
+    io::FileReaderOptions reader_options;
+    reader_options.cache_type =
+            _context.write_file_cache
+                    ? (config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                 : io::FileCachePolicy::NO_CACHE)
+                    : io::FileCachePolicy::NO_CACHE;
+    reader_options.is_doris_table = true;
+    reader_options.tablet_id = _rowset_meta->tablet_id();
+    reader_options.storage_resource_id = _rowset_meta->resource_id();
     auto s = segment_v2::Segment::open(fs, path, _rowset_meta->tablet_id(), segment_id, rowset_id(),
                                        _context.tablet_schema, reader_options, &segment);
     if (!s.ok()) {
@@ -680,14 +679,14 @@ Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
     RETURN_IF_ERROR(fs->exists(segment_path, &exists));
     if (exists) {
         io::FileReaderSPtr file_reader;
-        io::FileReaderOptions reader_options {
-                .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                        : io::FileCachePolicy::NO_CACHE,
-                .is_doris_table = true,
-                .cache_base_path = "",
-                .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
-                .tablet_id = _rowset_meta->tablet_id(),
-        };
+        io::FileReaderOptions reader_options;
+        reader_options.cache_type =
+                config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                          : io::FileCachePolicy::NO_CACHE;
+        reader_options.is_doris_table = true;
+        reader_options.file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id));
+        reader_options.tablet_id = _rowset_meta->tablet_id();
+        reader_options.storage_resource_id = _rowset_meta->resource_id();
         RETURN_IF_ERROR(fs->open_file(segment_path, &file_reader, &reader_options));
         DCHECK(file_reader != nullptr);
         auto cache_key = segment_v2::Segment::get_segment_footer_cache_key(file_reader);
