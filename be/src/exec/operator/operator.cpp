@@ -110,6 +110,14 @@ namespace doris {
 #ifndef NDEBUG
 namespace {
 
+constexpr size_t SINK_CONST_BLOCK_MOCK_MAX_ROWS = 4096;
+constexpr size_t SINK_CONST_BLOCK_MOCK_MAX_BLOCK_BYTES = 64 * 1024 * 1024;
+
+bool should_skip_const_block_mock(const Block& block) {
+    return block.rows() > SINK_CONST_BLOCK_MOCK_MAX_ROWS ||
+           block.allocated_bytes() > SINK_CONST_BLOCK_MOCK_MAX_BLOCK_BYTES;
+}
+
 Status sink_with_const_block_mock(DataSinkOperatorXBase* sink, RuntimeState* state, Block* block,
                                   bool eos) {
     auto* local_state = state->get_sink_local_state();
@@ -120,11 +128,16 @@ Status sink_with_const_block_mock(DataSinkOperatorXBase* sink, RuntimeState* sta
     if (!mock_first_block && !eos) {
         return sink->sink_impl(state, block, eos);
     }
-    if (mock_first_block) {
-        local_state->set_mocked_first_sink_const_block();
-    }
     if (block->rows() == 0) {
         return sink->sink_impl(state, block, eos);
+    }
+    // This debug-only mock expands a block into one const block per row. Skip large blocks to
+    // avoid amplifying memory usage for nested or variable-length external data.
+    if (should_skip_const_block_mock(*block)) {
+        return sink->sink_impl(state, block, eos);
+    }
+    if (mock_first_block) {
+        local_state->set_mocked_first_sink_const_block();
     }
     auto const_blocks = block->split_to_const_blocks();
     for (size_t i = 0; i < const_blocks.size(); ++i) {
