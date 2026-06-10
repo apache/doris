@@ -166,8 +166,12 @@ Status ScalarColumnReader::skip(int64_t rows) {
 
 Status ScalarColumnReader::load_nested_batch(int64_t rows) {
     DORIS_CHECK(_nested_batch != nullptr);
-    RETURN_IF_ERROR(read_nested_scalar_batch(*this, rows, _definition_level, _nested_batch.get(),
-                                             _repetition_level));
+    // Nullable scalar leaves materialize one slot for both non-null values and null placeholders.
+    // The value index stream must advance on those null slots, otherwise later payload values shift.
+    const int16_t materialized_slot_definition_level =
+            static_cast<int16_t>(_definition_level - (_type->is_nullable() ? 1 : 0));
+    RETURN_IF_ERROR(read_nested_scalar_batch(*this, rows, materialized_slot_definition_level,
+                                             _nested_batch.get(), _repetition_level));
     return Status::OK();
 }
 
@@ -179,8 +183,7 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     }
     DORIS_CHECK(_nested_batch != nullptr);
     NestedScalarValueCursor value_cursor(_nested_batch.get());
-    const int16_t materialized_slot_definition_level = static_cast<int16_t>(
-            _nested_batch->value_slot_definition_level - (_type->is_nullable() ? 1 : 0));
+    const int16_t materialized_slot_definition_level = _nested_batch->value_slot_definition_level;
     *values_read = 0;
     for (int64_t level_idx = 0;
          level_idx < _nested_batch->levels_written && *values_read < length_upper_bound;
