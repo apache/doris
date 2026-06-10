@@ -567,7 +567,12 @@ protected:
         if (const auto* const_column = check_and_get_column<ColumnConst>(column->get())) {
             ColumnPtr data_column = const_column->get_data_column_ptr();
             RETURN_IF_ERROR(_align_column_nullability(&data_column, table_type));
-            *column = ColumnConst::create(data_column, const_column->size());
+            ColumnPtr aligned_column = ColumnConst::create(data_column, const_column->size());
+            if (table_type->is_nullable()) {
+                *column = aligned_column->convert_to_full_column_if_const();
+            } else {
+                *column = aligned_column;
+            }
             return Status::OK();
         }
         if (table_type->is_nullable()) {

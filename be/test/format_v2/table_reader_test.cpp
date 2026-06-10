@@ -2151,12 +2151,8 @@ TEST(TableReaderTest, DefaultExprResultMatchesNullableTableType) {
     const auto& result = block.get_by_position(0);
     ASSERT_TRUE(result.check_type_and_column_match().ok());
     EXPECT_TRUE(result.type->is_nullable());
-    const IColumn* column = result.column.get();
-    if (const auto* const_column = check_and_get_column<ColumnConst>(column)) {
-        column = &const_column->get_data_column();
-    }
-    ASSERT_TRUE(column->is_nullable());
-    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_TRUE(result.column->is_nullable());
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*result.column);
     ASSERT_EQ(nullable_column.size(), 1);
     EXPECT_EQ(nullable_column.get_null_map_data()[0], 0);
     const auto& values = assert_cast<const ColumnInt32&>(nullable_column.get_nested_column());
