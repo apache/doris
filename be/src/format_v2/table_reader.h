@@ -149,7 +149,7 @@ public:
     // 对外读取 table block 的统一入口。
     // 基类负责 current reader 的打开、EOF 后切换和关闭；子类只实现 protected hook。
     // table_block 的列必须已经是 table/global schema 语义。
-    Status get_block(Block* block, bool* eos) {
+    virtual Status get_block(Block* block, bool* eos) {
         SCOPED_TIMER(_profile.exec_timer);
         DORIS_CHECK(block->columns() == _projected_columns.size());
         block->clear_column_data(_projected_columns.size());
@@ -239,6 +239,7 @@ protected:
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos);
+    Status create_file_reader(std::unique_ptr<FileReader>* reader);
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
         DORIS_CHECK(file_schema != nullptr);

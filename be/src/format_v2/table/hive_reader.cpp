@@ -78,18 +78,13 @@ Status HiveReader::init(format::TableReadOptions&& options) {
     DORIS_CHECK(_runtime_state != nullptr);
     const auto& query_options = _runtime_state->query_options();
     bool use_column_names = true;
-    switch (file_format) {
-    case format::FileFormat::ORC:
+    if (file_format == format::FileFormat::ORC) {
         use_column_names = query_options.hive_orc_use_column_names;
-        break;
-    case format::FileFormat::PARQUET:
+    } else if (file_format == format::FileFormat::PARQUET) {
         use_column_names = query_options.hive_parquet_use_column_names;
-        break;
-    case format::FileFormat::CSV:
-        // CSV does not really have a "column name vs position" choice. The format is inherently
-        // positional, so BY_INDEX is the closest match to the original behavior.
-        use_column_names = false;
-        break;
+    } else {
+        return Status::NotSupported("HiveReader does not support file reader format {}",
+                                    file_format);
     }
 
     _mode = use_column_names ? format::TableColumnMappingMode::BY_NAME

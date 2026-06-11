@@ -59,6 +59,7 @@ public:
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     std::string debug_string() const override;
+    bool has_else_expr() const { return _has_else_expr; }
 
 private:
     template <typename IndexType, typename ColumnType>
