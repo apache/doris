@@ -24,6 +24,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Set;
 
 public class MTMVRelation implements GsonPostProcessable {
@@ -86,7 +87,7 @@ public class MTMVRelation implements GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         // For backward compatibility: previously created MTMV may not have baseViewsOneLevel
         if (baseViewsOneLevel == null) {
-            baseViewsOneLevel = baseViews;
+            baseViewsOneLevel = baseViews == null ? null : new HashSet<>(baseViews);
         }
     }
 
