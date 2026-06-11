@@ -1063,9 +1063,12 @@ static bool resolve_nested_projection_with_mapping(const NestedStructPath& path,
     return true;
 }
 
-static Status build_filter_projection_path(const std::vector<ColumnDefinition>& children,
-                                           std::span<const StructChildSelector> selectors,
-                                           LocalColumnIndex* projection) {
+// Build the nested child projection under a top-level file column by walking file schema children
+// directly. The returned projection does not include the root column id; callers attach it under a
+// `LocalColumnIndex::partial_local(root_id)` when merging into the scan request.
+static Status build_file_child_projection_from_schema(
+        const std::vector<ColumnDefinition>& children,
+        std::span<const StructChildSelector> selectors, LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
     if (selectors.empty()) {
         return Status::InvalidArgument("Nested struct selector path is empty");
@@ -1086,8 +1089,8 @@ static Status build_filter_projection_path(const std::vector<ColumnDefinition>& 
         return Status::OK();
     }
     LocalColumnIndex child_projection;
-    RETURN_IF_ERROR(
-            build_filter_projection_path(child->children, selectors.subspan(1), &child_projection));
+    RETURN_IF_ERROR(build_file_child_projection_from_schema(child->children, selectors.subspan(1),
+                                                           &child_projection));
     if (child_projection.local_id() < 0) {
         *projection = LocalColumnIndex {};
         return Status::OK();
@@ -1100,16 +1103,17 @@ static Status build_filter_projection_path(const std::vector<ColumnDefinition>& 
 // children and field-id schema evolution in the mapper instead of leaking table names into the
 // file reader request. The file schema fallback below is only for filter-only children that do not
 // have an output child mapping yet.
-static Status build_filter_projection_path(const ColumnMapping& mapping,
-                                           std::span<const StructChildSelector> selectors,
-                                           LocalColumnIndex* projection) {
+static Status build_file_child_projection_for_filter_path(
+        const ColumnMapping& mapping, std::span<const StructChildSelector> selectors,
+        LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
     if (selectors.empty()) {
         return Status::InvalidArgument("Nested struct selector path is empty");
     }
     const auto* child_mapping = resolve_mapped_child(mapping, selectors.front());
     if (child_mapping == nullptr) {
-        return build_filter_projection_path(mapping.original_file_children, selectors, projection);
+        return build_file_child_projection_from_schema(mapping.original_file_children, selectors,
+                                                       projection);
     }
     if (!child_mapping->file_local_id.has_value()) {
         *projection = LocalColumnIndex {};
@@ -1123,11 +1127,11 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
     }
     LocalColumnIndex child_projection;
     if (child_mapping->child_mappings.empty()) {
-        RETURN_IF_ERROR(build_filter_projection_path(child_mapping->original_file_children,
-                                                     selectors.subspan(1), &child_projection));
+        RETURN_IF_ERROR(build_file_child_projection_from_schema(
+                child_mapping->original_file_children, selectors.subspan(1), &child_projection));
     } else {
-        RETURN_IF_ERROR(build_filter_projection_path(*child_mapping, selectors.subspan(1),
-                                                     &child_projection));
+        RETURN_IF_ERROR(build_file_child_projection_for_filter_path(
+                *child_mapping, selectors.subspan(1), &child_projection));
     }
     if (child_projection.local_id() < 0) {
         *projection = LocalColumnIndex {};
@@ -1239,8 +1243,8 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
         return false;
     }
     LocalColumnIndex child_projection;
-    if (!build_filter_projection_path(mapping_it->original_file_children, path.selectors,
-                                      &child_projection)
+    if (!build_file_child_projection_from_schema(mapping_it->original_file_children,
+                                                 path.selectors, &child_projection)
                  .ok() ||
         child_projection.local_id() < 0) {
         return false;
@@ -2039,8 +2043,8 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
             LocalColumnIndex root_projection;
             if (!resolve_nested_projection_with_mapping(path, *mappings, &root_projection)) {
                 LocalColumnIndex child_projection;
-                RETURN_IF_ERROR(build_filter_projection_path(*mapping_it, path.selectors,
-                                                             &child_projection));
+                RETURN_IF_ERROR(build_file_child_projection_for_filter_path(
+                        *mapping_it, path.selectors, &child_projection));
                 if (child_projection.local_id() < 0) {
                     continue;
                 }
