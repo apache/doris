@@ -107,6 +107,7 @@ public class ClientController {
         LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
         try {
             SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
             return RestResponse.success(reader.getEndOffset(jobConfig));
         } catch (Exception ex) {
             LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);

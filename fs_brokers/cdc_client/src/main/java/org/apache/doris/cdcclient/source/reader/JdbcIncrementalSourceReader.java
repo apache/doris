@@ -407,11 +407,40 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     baseReq.getJobId());
         }
         Tuple2<SourceSplitBase, Boolean> splitFlag = createStreamSplit(offsetMeta, baseReq);
-        this.streamSplit = splitFlag.f0.asStreamSplit();
+        StreamSplit newStreamSplit = splitFlag.f0.asStreamSplit();
 
-        // Close previous stream reader to release resources (e.g. PG replication slot)
-        // before creating a new one. This prevents connection leaks when a cancelled
-        // task's reader is still active while a new task arrives.
+        // offset guard: reuse only when request start == reader's consumed position. Compare by
+        // compareTo (LSN), NOT equals -- PG drops lsn_proc/commit so same position differs by map.
+        if (this.streamReader != null && this.streamSplitState != null) {
+            Offset requestStart = newStreamSplit.getStartingOffset();
+            Offset readerPos = this.streamSplitState.getStartingOffset();
+            if (requestStart != null
+                    && readerPos != null
+                    && requestStart.compareTo(readerPos) == 0) {
+                LOG.info(
+                        "Reuse live stream reader for job {} at offset {}",
+                        baseReq.getJobId(),
+                        requestStart);
+                // Refresh split so commitSourceOffset advances PG confirmed_lsn to the FE-committed
+                // offset (== reader pos); poll/offset keep using streamSplitState.
+                this.streamSplit = newStreamSplit;
+                SplitReadResult reuseResult = new SplitReadResult();
+                reuseResult.setSplits(Collections.singletonList(this.streamSplit));
+                Map<String, Object> reuseStates = new HashMap<>();
+                reuseStates.put(this.streamSplit.splitId(), this.streamSplitState);
+                reuseResult.setSplitStates(reuseStates);
+                return reuseResult;
+            }
+            LOG.info(
+                    "Rebuild stream reader for job {}: requestStart={}, readerPos={}",
+                    baseReq.getJobId(),
+                    requestStart,
+                    readerPos);
+        }
+
+        this.streamSplit = newStreamSplit;
+        // Close previous stream reader (rebuild path) before creating a new one. This prevents
+        // connection leaks when a cancelled task's reader is still active while a new task arrives.
         if (this.streamReader != null) {
             LOG.info(
                     "Closing previous stream reader before creating new one for job {}",

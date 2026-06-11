@@ -83,6 +83,10 @@ public abstract class AbstractStreamingTask {
 
     public abstract void closeOrReleaseResources();
 
+    // Release the remote cdc reader (keep slot). No-op for tasks without a cdc reader (e.g. TVF).
+    public void releaseRemoteReader() {
+    }
+
     public void execute() throws JobException {
         while (retryCount <= MAX_RETRY) {
             try {

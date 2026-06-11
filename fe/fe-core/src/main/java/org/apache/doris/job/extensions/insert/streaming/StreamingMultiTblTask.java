@@ -127,7 +127,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     private void sendWriteRequest() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = resolveBackend();
         log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
                 taskId, backend.getId(), backend.getHost(), runningOffset.toString());
         this.runningBackendId = backend.getId();
@@ -168,10 +168,37 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.warn("cdc_client RPC timeout api=/api/writeRecords taskId={} jobId={} backend={}:{} timeout_sec={}",
                     taskId, getJobId(), backend.getHost(), backend.getBrpcPort(),
                     Config.streaming_cdc_heavy_rpc_timeout_sec);
+            // the request may have been dispatched, the retry must not reuse the reader
+            markJobNeedRebuildReader();
             throw new JobException("cdc_client RPC timeout: /api/writeRecords taskId=" + taskId);
         } catch (ExecutionException | InterruptedException ex) {
             log.error("Send write request failed: ", ex);
+            markJobNeedRebuildReader();
             throw new JobException(ex);
+        }
+    }
+
+    private Backend resolveBackend() throws JobException {
+        // Snapshot phase keeps per-round selection; binlog phase binds to a fixed BE for reuse.
+        if (((JdbcOffset) runningOffset).snapshotSplit()) {
+            return StreamingJobUtils.selectBackend(cloudCluster);
+        }
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        if (!(job instanceof StreamingInsertJob)) {
+            return StreamingJobUtils.selectBackend(cloudCluster);
+        }
+        return ((StreamingInsertJob) job).resolveBoundBackend();
+    }
+
+    private StreamingInsertJob getStreamingJob() {
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        return job instanceof StreamingInsertJob ? (StreamingInsertJob) job : null;
+    }
+
+    private void markJobNeedRebuildReader() {
+        StreamingInsertJob job = getStreamingJob();
+        if (job != null) {
+            job.setNeedRebuildReader(true);
         }
     }
 
@@ -210,6 +237,10 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
         request.setTaskTimeoutMs(getTaskTimeoutMs());
+        StreamingInsertJob job = getStreamingJob();
+        if (job != null) {
+            request.setRebuildReader(job.isNeedRebuildReader());
+        }
         if (offsetProvider instanceof JdbcSourceOffsetProvider) {
             String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
             if (schemas != null) {
@@ -308,7 +339,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     @Override
     protected void onFail(String errMsg) throws JobException {
-        // Release this task's reader before reschedule so it stops competing for the shared slot.
+        // stop the possibly still-running remote reader before reschedule
         releaseRemoteReader();
         super.onFail(errMsg);
     }
@@ -321,15 +352,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     @Override
     public void closeOrReleaseResources() {
-        // No-op: reader is shared across tasks; release on reschedule is done in onFail().
+        // No-op: the reader is async and reused; releasing here (per-iteration finally) would kill it.
     }
 
-    /**
-     * Best-effort, onFail reschedule only: stop this job's reader on {@link #runningBackendId} so a
-     * reschedule to another backend never leaves two readers competing for the same source (e.g. one
-     * PG replication slot, which is kept, not dropped). Failures are swallowed and must not block
-     * rescheduling.
-     */
+    // Manual pause only (best-effort): release the reader on runningBackendId, keep slot (not drop),
+    // so resume can rebind elsewhere without two readers on the same source. Failures swallowed; idle reaper backs up.
+    @Override
     public void releaseRemoteReader() {
         if (runningBackendId <= 0) {
             return;

@@ -21,11 +21,15 @@ import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -40,6 +44,7 @@ public class Env {
     private static volatile Env INSTANCE;
     private final Map<String, JobContext> jobContexts;
     private final Map<String, Lock> jobLocks;
+    private final ScheduledExecutorService idleReaderScheduler;
     @Setter private int backendHttpPort;
     @Setter @Getter private String clusterToken;
     @Setter @Getter private volatile String feMasterAddress;
@@ -47,6 +52,18 @@ public class Env {
     private Env() {
         this.jobContexts = new ConcurrentHashMap<>();
         this.jobLocks = new ConcurrentHashMap<>();
+        this.idleReaderScheduler =
+                Executors.newSingleThreadScheduledExecutor(
+                        r -> {
+                            Thread t = new Thread(r, "cdc-idle-reader-cleaner");
+                            t.setDaemon(true);
+                            return t;
+                        });
+        this.idleReaderScheduler.scheduleWithFixedDelay(
+                this::releaseIdleReaders,
+                Constants.IDLE_READER_SCAN_INTERVAL_MS,
+                Constants.IDLE_READER_SCAN_INTERVAL_MS,
+                TimeUnit.MILLISECONDS);
     }
 
     public String getBackendHostPort() {
@@ -90,9 +107,24 @@ public class Env {
         DataSource ds = resolveDataSource(jobConfig.getDataSource());
         String jobId = jobConfig.getJobId();
         Lock lock = jobLocks.computeIfAbsent(jobId, k -> new ReentrantLock());
+        SourceReader staleReader = null;
+        JobBaseConfig staleConfig = null;
+        SourceReader reader;
         lock.lock();
         try {
             JobContext context = jobContexts.get(jobId);
+            if (context != null
+                    && jobConfig instanceof WriteRecordRequest
+                    && ((WriteRecordRequest) jobConfig).isRebuildReader()) {
+                // FE declared the previous task abnormal: swap in a fresh reader instance so the
+                // old task's thread can never reach the new fetcher.
+                LOG.info(
+                        "Rebuild reader for job {} on FE request, discard current instance", jobId);
+                jobContexts.remove(jobId);
+                staleReader = context.reader;
+                staleConfig = context.jobConfig != null ? context.jobConfig : jobConfig;
+                context = null;
+            }
             if (context == null) {
                 LOG.info("Creating new reader for job {}, dataSource {}", jobId, ds);
                 context = new JobContext(jobId, ds, jobConfig.getConfig());
@@ -100,10 +132,30 @@ public class Env {
                 jobContexts.put(jobId, context);
             }
             context.ownerTaskId = taskId;
-            return context.getReader(ds);
+            context.jobConfig = jobConfig;
+            if (jobConfig instanceof WriteRecordRequest) {
+                context.maxIntervalMs = ((WriteRecordRequest) jobConfig).getMaxInterval() * 1000;
+            }
+            context.lastAliveTime = System.currentTimeMillis();
+            reader = context.getReader(ds);
         } finally {
             lock.unlock();
         }
+        if (staleReader != null) {
+            // free the engine/slot connection before the caller submits the new fetcher
+            try {
+                staleReader.release(staleConfig);
+            } catch (Exception ex) {
+                LOG.warn("Failed to release stale reader for job {}", jobId, ex);
+            }
+        }
+        return reader;
+    }
+
+    /** Whether {@code taskId} is still the current claimer of this job's reader. */
+    public boolean isOwner(String jobId, String taskId) {
+        JobContext context = jobContexts.get(jobId);
+        return context != null && Objects.equals(context.ownerTaskId, taskId);
     }
 
     /**
@@ -192,12 +244,63 @@ public class Env {
         }
     }
 
+    /** Liveness evidence (FE heartbeat or active poll): keep this job's reader alive. */
+    public void keepAlive(String jobId) {
+        JobContext context = jobContexts.get(jobId);
+        if (context != null) {
+            context.lastAliveTime = System.currentTimeMillis();
+        }
+    }
+
+    // Release (keep slot) readers FE no longer drives; maxIntervalMs<=0 = untracked (e.g. TVF),
+    // skip.
+    private void releaseIdleReaders() {
+        long now = System.currentTimeMillis();
+        for (String jobId : jobContexts.keySet()) {
+            Lock lock = jobLocks.get(jobId);
+            if (lock == null || !lock.tryLock()) {
+                continue;
+            }
+            try {
+                JobContext context = jobContexts.get(jobId);
+                if (context == null || context.lastAliveTime <= 0 || context.maxIntervalMs <= 0) {
+                    continue;
+                }
+                long timeout =
+                        Math.max(
+                                (long) Constants.IDLE_READER_TIMEOUT_MULTIPLIER
+                                        * context.maxIntervalMs,
+                                Constants.IDLE_READER_MIN_TIMEOUT_MS);
+                if (now - context.lastAliveTime <= timeout) {
+                    continue;
+                }
+                LOG.info(
+                        "Releasing idle reader for job {}, idle {} ms, keep slot",
+                        jobId,
+                        now - context.lastAliveTime);
+                jobContexts.remove(jobId);
+                if (context.reader != null && context.jobConfig != null) {
+                    try {
+                        context.reader.release(context.jobConfig);
+                    } catch (Exception ex) {
+                        LOG.warn("Failed to release idle reader for job {}", jobId, ex);
+                    }
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
     private static final class JobContext {
         private final String jobId;
         private volatile SourceReader reader;
         private volatile String ownerTaskId;
         private volatile Map<String, String> config;
         private volatile DataSource dataSource;
+        private volatile JobBaseConfig jobConfig;
+        private volatile long maxIntervalMs;
+        private volatile long lastAliveTime;
 
         private JobContext(String jobId, DataSource dataSource, Map<String, String> config) {
             this.jobId = jobId;

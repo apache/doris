@@ -31,4 +31,6 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private String token;
     private String taskId;
     private Map<String, String> streamLoadProps;
+    // previous task ended abnormally, rebuild reader instead of reusing
+    private boolean rebuildReader;
 }

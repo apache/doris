@@ -403,7 +403,13 @@ public class PipelineCoordinator {
                                 writeRecordRequest.getJobId(),
                                 writeRecordRequest.getTaskId());
                     } catch (Exception ex) {
-                        closeJobStreamLoad(writeRecordRequest.getJobId());
+                        // a displaced task must not close the streamload the successor is using
+                        if (Env.getCurrentEnv()
+                                .isOwner(
+                                        writeRecordRequest.getJobId(),
+                                        writeRecordRequest.getTaskId())) {
+                            closeJobStreamLoad(writeRecordRequest.getJobId());
+                        }
                         String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
                         taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
                         LOG.error(
@@ -454,6 +460,7 @@ public class PipelineCoordinator {
         SplitReadResult readResult = null;
         boolean hasExecuteDDL = false;
         boolean isSnapshotSplit = false;
+        boolean stillOwner = false;
         try {
             // 1. submit split async
             readResult = sourceReader.prepareAndSubmitSplit(writeRecordRequest);
@@ -477,6 +484,8 @@ public class PipelineCoordinator {
 
             // 2. poll record
             while (!shouldStop) {
+                // Active poll keeps the reader alive so the reaper won't reclaim it mid-task.
+                Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
                 Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
 
                 if (!recordIterator.hasNext()) {
@@ -530,6 +539,8 @@ public class PipelineCoordinator {
                 }
 
                 while (recordIterator.hasNext()) {
+                    // streamload backpressure can stall this loop past the reaper timeout
+                    Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
                     SourceRecord element = recordIterator.next();
 
                     // Check if this is a heartbeat message
@@ -591,7 +602,21 @@ public class PipelineCoordinator {
                     writeRecordRequest.getTaskId());
 
         } finally {
-            cleanupReaderResources(sourceReader, writeRecordRequest.getJobId(), readResult);
+            stillOwner =
+                    Env.getCurrentEnv()
+                            .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId());
+            // A displaced task must not touch the reader (finishSplitRecords would kill the
+            // successor's fetcher) nor commit anything.
+            if (stillOwner) {
+                cleanupReaderResources(sourceReader, writeRecordRequest.getJobId(), readResult);
+            }
+        }
+        if (!stillOwner) {
+            LOG.info(
+                    "Skip commit for job {} task {}: reader released or taken over",
+                    writeRecordRequest.getJobId(),
+                    writeRecordRequest.getTaskId());
+            return;
         }
 
         // 3. Extract offset from split state
@@ -600,7 +625,6 @@ public class PipelineCoordinator {
         batchStreamLoad.forceFlush();
 
         // 5. request fe api update offset
-        String currentTaskId = batchStreamLoad.getCurrentTaskId();
         // The offset must be reset before commitOffset to prevent the next taskId from being create
         // by the fe.
         batchStreamLoad.resetTaskId();
@@ -614,8 +638,9 @@ public class PipelineCoordinator {
         if (hasExecuteDDL || (!isSnapshotSplit && feHadNoSchema)) {
             tableSchemas = sourceReader.serializeTableSchemas();
         }
+        // own taskId, never the shared currentTaskId: FE rejects it if another task took over
         batchStreamLoad.commitOffset(
-                currentTaskId,
+                writeRecordRequest.getTaskId(),
                 metaResponse,
                 scannedRows,
                 batchStreamLoad.getLoadStatistic(),
@@ -742,6 +767,10 @@ public class PipelineCoordinator {
      */
     private void cleanupReaderResources(
             SourceReader sourceReader, String jobId, SplitReadResult readResult) {
+        boolean isSnapshotSplit =
+                readResult != null
+                        && readResult.getSplit() != null
+                        && sourceReader.isSnapshotSplit(readResult.getSplit());
         try {
             // The LSN in the commit is the current offset, which is the offset from the last
             // successful write.
@@ -750,11 +779,10 @@ public class PipelineCoordinator {
                 sourceReader.commitSourceOffset(jobId, readResult.getSplit());
             }
         } finally {
-            // This must be called after `commitSourceOffset`; otherwise,
-            // PG's confirmed lsn will not proceed.
-            // This operation must be performed before `batchStreamLoad.commitOffset`;
-            // otherwise, fe might create the next task for this job.
-            sourceReader.finishSplitRecords();
+            // Binlog keeps the reader alive across tasks for reuse; only snapshot finishes here.
+            if (isSnapshotSplit) {
+                sourceReader.finishSplitRecords();
+            }
         }
     }
 
