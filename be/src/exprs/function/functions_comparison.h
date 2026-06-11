@@ -82,15 +82,6 @@ inline Op symmetric_op(Op op) {
 inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
                                     Op op) {
     auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
-    DORIS_CHECK(slot_literal.has_value());
-    DORIS_CHECK(slot_literal->slot_type != nullptr);
-    DORIS_CHECK(slot_literal->literal_type != nullptr);
-    DORIS_CHECK(!slot_literal->literal.is_null());
-    DORIS_CHECK_EQ(expr_zonemap::data_types_compatible(slot_literal->slot_type,
-                                                       slot_literal->literal_type),
-                   true)
-            << "slot type: " << slot_literal->slot_type->get_name()
-            << ", literal type: " << slot_literal->literal_type->get_name();
 
     auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
                                                               slot_literal->slot_type);
@@ -138,7 +129,6 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
                        ? ZoneMapFilterResult::kNoMatch
                        : ZoneMapFilterResult::kMayMatch;
     }
-    __builtin_unreachable();
 }
 
 inline bool can_evaluate(const VExprSPtrs& arguments) {
@@ -147,9 +137,17 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
         return false;
     }
 
-    // A NULL literal makes the comparison evaluate to NULL instead of a byte range
-    // predicate on the slot. This zonemap evaluator only derives bounds from non-NULL
-    // literals, and evaluate_zonemap_filter asserts that precondition with DORIS_CHECK.
+    DORIS_CHECK(slot_literal->slot_type != nullptr);
+    DORIS_CHECK(slot_literal->literal_type != nullptr);
+    DORIS_CHECK_EQ(expr_zonemap::data_types_compatible(slot_literal->slot_type,
+                                                       slot_literal->literal_type),
+                   true)
+            << "slot type: " << slot_literal->slot_type->get_name()
+            << ", literal type: " << slot_literal->literal_type->get_name();
+
+    // A NULL literal makes the comparison evaluate to NULL instead of a byte range predicate on
+    // the slot. This zonemap evaluator only derives bounds from non-NULL literals, so reject this
+    // shape here before evaluate_zonemap_filter is called.
     return !slot_literal->literal.is_null();
 }
 

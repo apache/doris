@@ -90,6 +90,14 @@ VExprSPtr make_null_int_literal() {
     return std::make_shared<VLiteral>(node);
 }
 
+VExprSPtr make_null_string_literal() {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::NULL_LITERAL);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
+    node.__set_is_nullable(true);
+    return std::make_shared<VLiteral>(node);
+}
+
 VExprSPtr make_string_literal(std::string value) {
     auto field = Field::create_field<TYPE_STRING>(std::move(value));
     return std::make_shared<VLiteral>(create_texpr_node_from(field, TYPE_STRING, 0, 0));
@@ -303,8 +311,6 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesNullAndUnsupportedInputs) {
     FunctionComparison<EqualsOp, NameEquals> equals;
     EXPECT_FALSE(equals.can_evaluate_zonemap_filter({slot, make_null_int_literal()}));
 
-    EXPECT_TRUE(equals.can_evaluate_zonemap_filter({slot, make_string_literal("10")}));
-
     auto string_type = std::make_shared<DataTypeString>();
     auto string_slot = make_slot(0, string_type);
     EXPECT_TRUE(equals.can_evaluate_zonemap_filter({string_slot, make_string_literal("10")}));
@@ -315,14 +321,14 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesNullAndUnsupportedInputs) {
     missing_zonemap_ctx.slots.emplace(0, std::move(slot_without_zonemap));
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
               equals.evaluate_zonemap_filter(missing_zonemap_ctx, {slot, make_int_literal(10)}));
-    EXPECT_EQ(1, missing_zonemap_ctx.stats.unsupported_expr_count);
+    EXPECT_EQ(1, missing_zonemap_ctx.stats.unusable_zonemap_eval_count);
 
     auto pass_all_zonemap = make_int_zonemap(10, 20);
     pass_all_zonemap.pass_all = true;
     auto pass_all_ctx = make_context(std::move(pass_all_zonemap), type);
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
               equals.evaluate_zonemap_filter(pass_all_ctx, {slot, make_int_literal(10)}));
-    EXPECT_EQ(1, pass_all_ctx.stats.unsupported_expr_count);
+    EXPECT_EQ(1, pass_all_ctx.stats.unusable_zonemap_eval_count);
 }
 
 TEST(ExprZonemapFilterTest, NullZonemapUsesNullFlagsOnly) {
@@ -347,6 +353,9 @@ TEST(ExprZonemapFilterTest, StartsWithZonemapUsesPrefixRange) {
     ASSERT_NE(starts_with, nullptr);
 
     EXPECT_TRUE(starts_with->can_evaluate_zonemap_filter({slot, make_string_literal("ab")}));
+    EXPECT_FALSE(starts_with->can_evaluate_zonemap_filter({slot, make_null_string_literal()}));
+    EXPECT_FALSE(starts_with->can_evaluate_zonemap_filter({slot, make_string_literal("")}));
+    EXPECT_FALSE(starts_with->can_evaluate_zonemap_filter({make_string_literal("ab"), slot}));
 
     auto outside_ctx = make_context(make_string_zonemap("ac", "ad"), type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
@@ -592,7 +601,7 @@ TEST(ExprZonemapFilterTest, CompoundPredicateEvaluatesChildrenForZonemap) {
     VCompoundPred not_pred(make_compound_node(TExprOpcode::COMPOUND_NOT, 1));
     not_pred.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kNoMatch));
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported, not_pred.evaluate_zonemap_filter(ctx));
-    EXPECT_EQ(1, ctx.stats.unsupported_expr_count);
+    EXPECT_EQ(1, ctx.stats.unusable_zonemap_eval_count);
 }
 
 TEST(ExprZonemapFilterTest, ExprContextZonemapEvaluationShortCircuitsOnNoMatch) {
@@ -613,7 +622,7 @@ TEST(ExprZonemapFilterTest, ExprContextZonemapEvaluationShortCircuitsOnNoMatch) 
             VExprContext::create_shared(std::make_shared<UnsupportedSingleSlotExpr>(slot));
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               VExprContext::evaluate_zonemap_filter({unsupported, no_match}, ctx));
-    EXPECT_EQ(0, ctx.stats.unsupported_expr_count);
+    EXPECT_EQ(0, ctx.stats.unusable_zonemap_eval_count);
 }
 
 TEST(ExprZonemapFilterTest, RebindStorageExprsMapsAggScanSlotToReaderSchema) {

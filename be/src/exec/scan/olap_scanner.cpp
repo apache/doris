@@ -937,8 +937,7 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.expr_zonemap_filtered_segments);
     COUNTER_UPDATE(local_state->_expr_zonemap_filtered_page_counter,
                    stats.expr_zonemap_filtered_pages);
-    COUNTER_UPDATE(local_state->_expr_zonemap_unsupported_counter,
-                   stats.expr_zonemap_unsupported_exprs);
+    COUNTER_UPDATE(local_state->_expr_zonemap_unusable_counter, stats.expr_zonemap_unusable_evals);
     COUNTER_UPDATE(local_state->_in_zonemap_point_check_counter,
                    stats.in_zonemap_point_check_count);
     COUNTER_UPDATE(local_state->_in_zonemap_range_only_counter, stats.in_zonemap_range_only_count);

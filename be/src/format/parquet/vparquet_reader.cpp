@@ -245,8 +245,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexParseTime", parquet_profile, 1);
         _parquet_profile.row_group_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowGroupFilterTime", parquet_profile, 1);
-        _parquet_profile.expr_zonemap_unsupported = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "ExprZoneMapUnsupportedExprs", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.expr_zonemap_unusable = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ExprZoneMapUnusableEvals", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.in_zonemap_point_check = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "InZoneMapPointCheckCount", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.in_zonemap_range_only = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -1704,8 +1704,8 @@ void ParquetReader::_collect_profile() {
                    _reader_statistics.parse_page_index_time);
     COUNTER_UPDATE(_parquet_profile.row_group_filter_time,
                    _reader_statistics.row_group_filter_time);
-    COUNTER_UPDATE(_parquet_profile.expr_zonemap_unsupported,
-                   _reader_statistics.expr_zonemap_unsupported_exprs);
+    COUNTER_UPDATE(_parquet_profile.expr_zonemap_unusable,
+                   _reader_statistics.expr_zonemap_unusable_evals);
     COUNTER_UPDATE(_parquet_profile.in_zonemap_point_check,
                    _reader_statistics.in_zonemap_point_check_count);
     COUNTER_UPDATE(_parquet_profile.in_zonemap_range_only,

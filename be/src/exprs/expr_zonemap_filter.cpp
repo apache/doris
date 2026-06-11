@@ -115,7 +115,7 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
 const segment_v2::ZoneMap* fetch_zone_map(const ZoneMapEvalContext& ctx, int slot_index) {
     const auto* zone_map = ctx.zone_map(slot_index);
     if (zone_map == nullptr) {
-        record_unsupported_zonemap_filter(ctx);
+        ++ctx.stats.unusable_zonemap_eval_count;
     }
     return zone_map;
 }

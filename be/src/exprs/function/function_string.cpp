@@ -1358,15 +1358,6 @@ public:
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
                                                 const VExprSPtrs& arguments) const override {
         auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
-        DORIS_CHECK(slot_literal.has_value());
-        DORIS_CHECK(!slot_literal->literal_on_left);
-        DORIS_CHECK(!slot_literal->literal.is_null());
-        DORIS_CHECK(slot_literal->slot_type != nullptr);
-        DORIS_CHECK(slot_literal->literal_type != nullptr);
-        DORIS_CHECK(is_string_type(remove_nullable(slot_literal->slot_type)->get_primitive_type()));
-        DORIS_CHECK(
-                is_string_type(remove_nullable(slot_literal->literal_type)->get_primitive_type()));
-
         auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
                                                                   slot_literal->slot_type);
         if (slot_type == nullptr) {
@@ -1385,9 +1376,6 @@ public:
         }
 
         const auto prefix = slot_literal->literal.as_string_view();
-        if (prefix.empty()) {
-            return ZoneMapFilterResult::kMayMatch;
-        }
         auto lower = _string_field_for_starts_with_zonemap(prefix);
         if (expr_zonemap::field_less(zone_map.max_value, lower)) {
             return ZoneMapFilterResult::kNoMatch;
@@ -1407,10 +1395,21 @@ public:
             return false;
         }
 
-        // A NULL prefix makes starts_with(slot, NULL) evaluate to NULL instead of a byte range
-        // predicate on the slot. This zonemap evaluator only derives prefix bounds from non-NULL
-        // literals, and evaluate_zonemap_filter asserts that precondition with DORIS_CHECK.
-        return !slot_literal->literal.is_null();
+        // A NULL prefix makes starts_with(slot, NULL) evaluate to NULL. An empty prefix matches
+        // every non-NULL string and cannot prune by range. Reject both shapes here before
+        // evaluate_zonemap_filter is called.
+        if (slot_literal->literal.is_null()) {
+            return false;
+        }
+
+        DORIS_CHECK(slot_literal->slot_type != nullptr);
+        DORIS_CHECK(slot_literal->literal_type != nullptr);
+        DORIS_CHECK(is_string_type(remove_nullable(slot_literal->slot_type)->get_primitive_type()));
+        DORIS_CHECK(
+                is_string_type(remove_nullable(slot_literal->literal_type)->get_primitive_type()));
+
+        const auto prefix = slot_literal->literal.as_string_view();
+        return !prefix.empty();
     }
 
 private:

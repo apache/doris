@@ -147,7 +147,7 @@ public:
         DORIS_CHECK(_column_ids.size() == 1);
         auto zone_map_ref = ctx.zone_map(_column_ids.front());
         if (zone_map_ref == nullptr) {
-            ++ctx.stats.unsupported_expr_count;
+            ++ctx.stats.unusable_zonemap_eval_count;
             return ZoneMapFilterResult::kUnsupported;
         }
         const auto& zone_map = *zone_map_ref;
@@ -1042,7 +1042,7 @@ TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_prunes_pages_and_intersect
     ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
 
     assert_single_range(&candidate_row_ranges, 10, 25);
-    EXPECT_EQ(0, p_reader->_reader_statistics.expr_zonemap_unsupported_exprs);
+    EXPECT_EQ(0, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
 }
 
 TEST_F(ParquetExprTest, test_page_index_filter_applies_expr_zonemap_without_pushdown_predicate) {
@@ -1206,7 +1206,7 @@ TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_keeps_unsupported_results_
     ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
 
     assert_single_range(&candidate_row_ranges, 0, 20);
-    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unsupported_exprs);
+    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
 }
 
 TEST_F(ParquetExprTest, test_expr_zonemap_row_group_filter_skips_complex_parent_column) {
@@ -1227,7 +1227,7 @@ TEST_F(ParquetExprTest, test_expr_zonemap_row_group_filter_skips_complex_parent_
 
     EXPECT_FALSE(filter_group);
     EXPECT_EQ(0, p_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
-    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unsupported_exprs);
+    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
 }
 
 TEST_F(ParquetExprTest, test_expr_zonemap_row_group_filter_skips_type_mismatch_column) {
@@ -1245,7 +1245,7 @@ TEST_F(ParquetExprTest, test_expr_zonemap_row_group_filter_skips_type_mismatch_c
 
     EXPECT_FALSE(filter_group);
     EXPECT_EQ(0, p_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
-    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unsupported_exprs);
+    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
 }
 
 TEST_F(ParquetExprTest, test_in) {

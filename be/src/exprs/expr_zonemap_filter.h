@@ -68,7 +68,7 @@ inline DataTypePtr fetch_compatible_slot_type(const ZoneMapEvalContext& ctx, int
                                               const DataTypePtr& expr_slot_type) {
     const auto* slot_type = ctx.data_type(slot_index);
     if (slot_type == nullptr || *slot_type == nullptr) {
-        record_unsupported_zonemap_filter(ctx);
+        ++ctx.stats.unusable_zonemap_eval_count;
         return nullptr;
     }
     DORIS_CHECK(data_types_compatible(*slot_type, expr_slot_type));

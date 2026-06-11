@@ -43,7 +43,8 @@ const DataTypePtr* ZoneMapEvalContext::data_type(int slot_index) const {
 void ZoneMapEvalStats::merge_page_eval_stats(const ZoneMapEvalStats& src) {
     // Page-level evaluation repeats the same conjuncts for many pages. Keep structural
     // diagnostics once per column, while operation counters still reflect actual page checks.
-    unsupported_expr_count = std::max(unsupported_expr_count, src.unsupported_expr_count);
+    unusable_zonemap_eval_count =
+            std::max(unusable_zonemap_eval_count, src.unusable_zonemap_eval_count);
     in_zonemap_point_check_count += src.in_zonemap_point_check_count;
     in_zonemap_range_only_count += src.in_zonemap_range_only_count;
 }
@@ -58,7 +59,7 @@ void ZoneMapEvalStats::accumulate_into_profile(RuntimeProfile* profile) const {
         }
         profile->add_counter(name, TUnit::UNIT)->update(value);
     };
-    update_counter("ExprZoneMapUnsupportedExprs", unsupported_expr_count);
+    update_counter("ExprZoneMapUnusableEvals", unusable_zonemap_eval_count);
     update_counter("InZoneMapPointCheckCount", in_zonemap_point_check_count);
     update_counter("InZoneMapRangeOnlyCount", in_zonemap_range_only_count);
 }

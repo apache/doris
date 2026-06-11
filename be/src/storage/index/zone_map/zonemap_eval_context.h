@@ -39,12 +39,13 @@ public:
         if (stats == nullptr) {
             return;
         }
-        stats->expr_zonemap_unsupported_exprs += unsupported_expr_count;
+        stats->expr_zonemap_unusable_evals += unusable_zonemap_eval_count;
         stats->in_zonemap_point_check_count += in_zonemap_point_check_count;
         stats->in_zonemap_range_only_count += in_zonemap_range_only_count;
     }
 
-    int64_t unsupported_expr_count = 0;
+    // Evaluations that reached expr-zonemap but could not use the current zone map/context.
+    int64_t unusable_zonemap_eval_count = 0;
     int64_t in_zonemap_point_check_count = 0;
     int64_t in_zonemap_range_only_count = 0;
 };
@@ -65,12 +66,8 @@ public:
     mutable ZoneMapEvalStats stats;
 };
 
-inline void record_unsupported_zonemap_filter(const ZoneMapEvalContext& ctx) {
-    ++ctx.stats.unsupported_expr_count;
-}
-
 inline ZoneMapFilterResult unsupported_zonemap_filter(const ZoneMapEvalContext& ctx) {
-    record_unsupported_zonemap_filter(ctx);
+    ++ctx.stats.unusable_zonemap_eval_count;
     return ZoneMapFilterResult::kUnsupported;
 }
 

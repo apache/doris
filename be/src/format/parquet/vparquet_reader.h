@@ -116,7 +116,7 @@ public:
         int64_t predicate_filter_time = 0;
         int64_t dict_filter_rewrite_time = 0;
         int64_t bloom_filter_read_time = 0;
-        int64_t expr_zonemap_unsupported_exprs = 0;
+        int64_t expr_zonemap_unusable_evals = 0;
         int64_t in_zonemap_point_check_count = 0;
         int64_t in_zonemap_range_only_count = 0;
     };
@@ -295,7 +295,7 @@ private:
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
         RuntimeProfile::Counter* convert_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
-        RuntimeProfile::Counter* expr_zonemap_unsupported = nullptr;
+        RuntimeProfile::Counter* expr_zonemap_unusable = nullptr;
         RuntimeProfile::Counter* in_zonemap_point_check = nullptr;
         RuntimeProfile::Counter* in_zonemap_range_only = nullptr;
     };

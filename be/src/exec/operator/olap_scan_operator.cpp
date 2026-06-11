@@ -233,8 +233,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredSegments", TUnit::UNIT);
     _expr_zonemap_filtered_page_counter =
             ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredPages", TUnit::UNIT);
-    _expr_zonemap_unsupported_counter =
-            ADD_COUNTER(_segment_profile, "ExprZoneMapUnsupportedExprs", TUnit::UNIT);
+    _expr_zonemap_unusable_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapUnusableEvals", TUnit::UNIT);
     _in_zonemap_point_check_counter =
             ADD_COUNTER(_segment_profile, "InZoneMapPointCheckCount", TUnit::UNIT);
     _in_zonemap_range_only_counter =

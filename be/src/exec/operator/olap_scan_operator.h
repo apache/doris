@@ -166,7 +166,7 @@ private:
     RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
     RuntimeProfile::Counter* _expr_zonemap_filtered_segment_counter = nullptr;
     RuntimeProfile::Counter* _expr_zonemap_filtered_page_counter = nullptr;
-    RuntimeProfile::Counter* _expr_zonemap_unsupported_counter = nullptr;
+    RuntimeProfile::Counter* _expr_zonemap_unusable_counter = nullptr;
     RuntimeProfile::Counter* _in_zonemap_point_check_counter = nullptr;
     RuntimeProfile::Counter* _in_zonemap_range_only_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
