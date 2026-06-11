@@ -997,7 +997,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void waitForColocateGroupStable(String dbName, String groupName, int timeoutSeconds = 60) {
-        String fullGroupName = "${dbName}.${groupName}"
+        String fullGroupName = groupName.startsWith("__global__") ? groupName : "${dbName}.${groupName}"
         logger.info("wait colocate group ${fullGroupName} stable")
         awaitUntil(timeoutSeconds) {
             def groups = sql_return_maparray("SHOW PROC '/colocation_group'")
