@@ -26,7 +26,7 @@
 #include "core/block/block.h"
 #include "storage/binlog.h"
 
-namespace doris {
+namespace doris::binlog {
 
 constexpr int64_t ROW_BINLOG_UNKNOWN = 3;
 
@@ -44,7 +44,7 @@ inline std::string build_before_column_name(std::string_view name) {
 }
 
 // Resolve __BEFORE__ column index for a base column when present.
-inline int resolve_before_column_index(const Block& block, int idx, int binlog_op_pos) {
+inline int resolve_before_column_index(const doris::Block& block, int idx, int binlog_op_pos) {
     if (idx == binlog_op_pos) {
         return idx;
     }
@@ -58,11 +58,12 @@ inline int resolve_before_column_index(const Block& block, int idx, int binlog_o
 enum class MinDeltaResultType { SKIP, INSERT, DELETE, UPDATE_BEFORE_AFTER };
 
 // MIN_DELTA uses row binlog op codes as indices into a 2D lookup table, so we guard the op layout here.
-static_assert(ROW_BINLOG_APPEND == 0 && ROW_BINLOG_UPDATE == 1 && ROW_BINLOG_DELETE == 2,
+static_assert(doris::ROW_BINLOG_APPEND == 0 && doris::ROW_BINLOG_UPDATE == 1 &&
+                      doris::ROW_BINLOG_DELETE == 2,
               "row binlog op layout changed; update min-delta transition matrix");
 
 inline bool is_valid_row_binlog_op(int64_t op) {
-    return op >= ROW_BINLOG_APPEND && op <= ROW_BINLOG_DELETE;
+    return op >= doris::ROW_BINLOG_APPEND && op <= doris::ROW_BINLOG_DELETE;
 }
 
 inline MinDeltaResultType calculate_min_delta_result(int64_t first_op, int64_t last_op) {
@@ -108,4 +109,4 @@ public:
     }
 };
 
-} // namespace doris
+} // namespace doris::binlog

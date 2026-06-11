@@ -230,10 +230,10 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     // `_use_insert_order_when_same` is enabled, read from lower to higher.
     // for UNIQUE_KEYS just read the highest version and no need agg_update.
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
-    // Tie-break direction depends on which column was used:
-    //   - sequence column (UNIQUE_KEYS): larger value wins (cmp_res < 0 => lhs lower).
-    //   - binlog LSN column (row binlog reads): smaller value wins (cmp_res > 0 => lhs lower).
-    bool lower = (cmp_res != 0) ? (_lsn_mode ? (cmp_res > 0) : (cmp_res < 0))
+    // Tie-break direction depends on `_small_seq_first`:
+    //   - false (UNIQUE_KEYS sequence column): larger value sorts first (cmp_res < 0 => lhs sorts first).
+    //   - true  (row binlog LSN column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
+    bool lower = (cmp_res != 0) ? (_small_seq_first ? (cmp_res > 0) : (cmp_res < 0))
                                 : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
                                                                : (lhs->version() < rhs->version()));
     lower ? lhs->set_same(true) : rhs->set_same(true);

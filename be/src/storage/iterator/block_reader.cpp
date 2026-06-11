@@ -41,7 +41,7 @@
 #include "exprs/function_filter.h"
 #include "runtime/runtime_state.h"
 #include "storage/binlog.h"
-#include "storage/iterator/block_reader_utils.h"
+#include "storage/iterator/binlog_block_reader_utils.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -104,7 +104,7 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
         } else if (name == kRowBinlogTimestampColName) {
             _binlog_timestamp_pos = static_cast<int>(i);
         } else {
-            std::string before_name = build_before_column_name(name);
+            std::string before_name = binlog::build_before_column_name(name);
             int tmp_idx = src_block.get_position_by_name(before_name);
             _before_column_idx[i] = tmp_idx < 0 ? i : tmp_idx;
         }
@@ -117,7 +117,7 @@ int64_t BlockReader::_read_binlog_op(const IColumn& col, size_t row) const {
     const IColumn* cur = &col;
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*cur)) {
         if (nullable->is_null_at(row)) {
-            return ROW_BINLOG_UNKNOWN;
+            return binlog::ROW_BINLOG_UNKNOWN;
         }
         cur = &nullable->get_nested_column();
     }
@@ -126,7 +126,7 @@ int64_t BlockReader::_read_binlog_op(const IColumn& col, size_t row) const {
         return int64_col->get_element(row);
     }
 
-    return ROW_BINLOG_UNKNOWN;
+    return binlog::ROW_BINLOG_UNKNOWN;
 }
 
 Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
@@ -254,16 +254,16 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
         size_t group_size = _stored_data_columns[0]->size();
         auto first_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], 0);
         auto last_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], group_size - 1);
-        auto result = AggregateFunctionMinDelta::calculate_result(first_op, last_op);
+        auto result = binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op);
         switch (result) {
-        case AggregateFunctionMinDelta::ResultType::SKIP:
+        case binlog::AggregateFunctionMinDelta::ResultType::SKIP:
             break;
-        case AggregateFunctionMinDelta::ResultType::INSERT:
+        case binlog::AggregateFunctionMinDelta::ResultType::INSERT:
             for (auto idx : _normal_columns_idx) {
                 int target_col_idx = _return_columns_loc[idx];
                 if (idx == _binlog_op_pos) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
-                                                     STREAM_CHANGE_INSERT));
+                                                     binlog::STREAM_CHANGE_INSERT));
                 } else {
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                 group_size - 1);
@@ -271,12 +271,12 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             }
             output_row_count++;
             break;
-        case AggregateFunctionMinDelta::ResultType::DELETE:
+        case binlog::AggregateFunctionMinDelta::ResultType::DELETE:
             for (auto idx : _normal_columns_idx) {
                 int target_col_idx = _return_columns_loc[idx];
                 if (idx == _binlog_op_pos) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
-                                                     STREAM_CHANGE_DELETE));
+                                                     binlog::STREAM_CHANGE_DELETE));
                 } else {
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                 group_size - 1);
@@ -284,12 +284,12 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             }
             output_row_count++;
             break;
-        case AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER:
+        case binlog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER:
             for (auto idx : _normal_columns_idx) {
                 int target_col_idx = _return_columns_loc[idx];
                 if (idx == _binlog_op_pos) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
-                                                     STREAM_CHANGE_UPDATE_BEFORE));
+                                                     binlog::STREAM_CHANGE_UPDATE_BEFORE));
                 } else if (idx == _binlog_lsn_pos) {
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                 group_size - 1);
@@ -305,7 +305,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                     int target_col_idx = _return_columns_loc[idx];
                     if (idx == _binlog_op_pos) {
                         RETURN_IF_ERROR(_write_binlog_op(*_pending_row_columns[target_col_idx],
-                                                         STREAM_CHANGE_UPDATE_AFTER));
+                                                         binlog::STREAM_CHANGE_UPDATE_AFTER));
                     } else {
                         _pending_row_columns[target_col_idx]->insert_from(
                                 *_stored_data_columns[idx], group_size - 1);
@@ -317,7 +317,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                     int target_col_idx = _return_columns_loc[idx];
                     if (idx == _binlog_op_pos) {
                         RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
-                                                         STREAM_CHANGE_UPDATE_AFTER));
+                                                         binlog::STREAM_CHANGE_UPDATE_AFTER));
                     } else {
                         target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                     group_size - 1);
@@ -364,24 +364,24 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
         int64_t op = _read_binlog_op(*source_block.get_by_position(_binlog_op_pos).column, row);
         if (op == ROW_BINLOG_UPDATE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               STREAM_CHANGE_UPDATE_BEFORE, true));
+                                               binlog::STREAM_CHANGE_UPDATE_BEFORE, true));
             output_row_count++;
             if (output_row_count >= batch_max_rows()) {
                 RETURN_IF_ERROR(_append_change_row(_pending_row_columns, source_block, row,
-                                                   STREAM_CHANGE_UPDATE_AFTER, false));
+                                                   binlog::STREAM_CHANGE_UPDATE_AFTER, false));
                 _has_pending_row = true;
             } else {
                 RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                                   STREAM_CHANGE_UPDATE_AFTER, false));
+                                                   binlog::STREAM_CHANGE_UPDATE_AFTER, false));
                 output_row_count++;
             }
         } else if (op == ROW_BINLOG_APPEND) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               STREAM_CHANGE_INSERT, false));
+                                               binlog::STREAM_CHANGE_INSERT, false));
             output_row_count++;
         } else if (op == ROW_BINLOG_DELETE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               STREAM_CHANGE_DELETE, false));
+                                               binlog::STREAM_CHANGE_DELETE, false));
             output_row_count++;
         }
 
