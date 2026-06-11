@@ -428,6 +428,11 @@ public class SchemaChangeJobV2Test {
         Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
         indexSchemaVersionAndHashMap.put(Long.valueOf(1000), new SchemaVersionAndHash(10, 20));
         Deencapsulation.setField(schemaChangeJobV2, "indexSchemaVersionAndHashMap", indexSchemaVersionAndHashMap);
+        // populate the two Guava Table fields, to cover the streaming Table adapter
+        // with real metadata objects (MaterializedIndex value, Map value)
+        schemaChangeJobV2.addTabletIdMap(2000L, 3000L, 4001L, 5001L);
+        schemaChangeJobV2.addTabletIdMap(2000L, 3000L, 4002L, 5002L);
+        schemaChangeJobV2.addPartitionShadowIndex(2000L, 3000L, new MaterializedIndex(3000L, IndexState.SHADOW));
 
         // write schema change job
         schemaChangeJobV2.write(out);
@@ -445,8 +450,17 @@ public class SchemaChangeJobV2Test {
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, result.getJobState());
         Assert.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
 
-        Assert.assertNotNull(Deencapsulation.getField(result, "partitionIndexMap"));
-        Assert.assertNotNull(Deencapsulation.getField(result, "partitionIndexTabletMap"));
+        com.google.common.collect.Table<Long, Long, MaterializedIndex> partitionIndexMap
+                = Deencapsulation.getField(result, "partitionIndexMap");
+        Assert.assertEquals(1, partitionIndexMap.size());
+        Assert.assertEquals(3000L, partitionIndexMap.get(2000L, 3000L).getId());
+        Assert.assertEquals(IndexState.SHADOW, partitionIndexMap.get(2000L, 3000L).getState());
+        com.google.common.collect.Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap
+                = Deencapsulation.getField(result, "partitionIndexTabletMap");
+        Assert.assertEquals(1, partitionIndexTabletMap.size());
+        Map<Long, Long> tabletMap = partitionIndexTabletMap.get(2000L, 3000L);
+        Assert.assertEquals(Long.valueOf(5001L), tabletMap.get(4001L));
+        Assert.assertEquals(Long.valueOf(5002L), tabletMap.get(4002L));
 
         Map<Long, SchemaVersionAndHash> map = Deencapsulation.getField(result, "indexSchemaVersionAndHashMap");
         Assert.assertEquals(10, map.get(1000L).schemaVersion);

@@ -293,6 +293,18 @@ public class RestoreJobTest {
 
     @Test
     public void testSerialization() throws IOException, AnalysisException {
+        // populate the Guava Table fields with non-trivial content, to cover the
+        // streaming Table adapter with real metadata objects (SnapshotInfo values)
+        com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos
+                = Deencapsulation.getField(job, "snapshotInfos");
+        snapshotInfos.put(10001L, 20001L, new SnapshotInfo(db.getId(), CatalogMocker.TEST_TBL2_ID, 30001L, 40001L,
+                10001L, 20001L, 1234, "/path/to/snapshot1", Lists.newArrayList("1.dat", "1.idx", "1.hdr")));
+        snapshotInfos.put(10002L, 20001L, new SnapshotInfo(db.getId(), CatalogMocker.TEST_TBL2_ID, 30001L, 40001L,
+                10002L, 20001L, 1234, "/path/to/snapshot2", Lists.newArrayList("2.dat")));
+        com.google.common.collect.Table<Long, Long, Long> restoredVersionInfo
+                = Deencapsulation.getField(job, "restoredVersionInfo");
+        restoredVersionInfo.put(CatalogMocker.TEST_TBL2_ID, 30001L, 99L);
+
         // 1. Write objects to file
         final Path path = Files.createTempFile("restoreJob", "tmp");
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
@@ -310,6 +322,18 @@ public class RestoreJobTest {
         Assert.assertEquals(job.getDbId(), job2.getDbId());
         Assert.assertEquals(job.getCreateTime(), job2.getCreateTime());
         Assert.assertEquals(job.getType(), job2.getType());
+
+        com.google.common.collect.Table<Long, Long, SnapshotInfo> readSnapshotInfos
+                = Deencapsulation.getField(job2, "snapshotInfos");
+        Assert.assertEquals(2, readSnapshotInfos.size());
+        SnapshotInfo info1 = readSnapshotInfos.get(10001L, 20001L);
+        Assert.assertEquals(CatalogMocker.TEST_TBL2_ID, info1.getTblId());
+        Assert.assertEquals("/path/to/snapshot1", info1.getPath());
+        Assert.assertEquals(Lists.newArrayList("1.dat", "1.idx", "1.hdr"), info1.getFiles());
+        Assert.assertEquals("2.dat", readSnapshotInfos.get(10002L, 20001L).getFiles().get(0));
+        com.google.common.collect.Table<Long, Long, Long> readRestoredVersionInfo
+                = Deencapsulation.getField(job2, "restoredVersionInfo");
+        Assert.assertEquals(Long.valueOf(99L), readRestoredVersionInfo.get(CatalogMocker.TEST_TBL2_ID, 30001L));
 
         // 3. delete files
         in.close();

@@ -24,6 +24,8 @@ import org.apache.doris.persist.gson.GsonSerializationTest.Key.MyEnum;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -494,5 +496,84 @@ public class GsonSerializationTest {
         Multimap<Long, String> readMultimap = GsonUtils.GSON.fromJson(json, multimapType);
         Assert.assertEquals("ArrayListMultimap", readMultimap.getClass().getSimpleName());
         Assert.assertEquals(Lists.newArrayList("value1", "value2"), readMultimap.get(1L));
+    }
+
+    @Test
+    public void testGuavaTableMultiRowColJsonFormat() {
+        Type tableType = new TypeToken<Table<Long, String, Long>>() {
+        }.getType();
+
+        // HashBasedTable is backed by LinkedHashMap, iteration follows insertion order
+        Table<Long, String, Long> table = HashBasedTable.create();
+        table.put(1L, "col1", 10L);
+        table.put(1L, "col2", 20L);
+        table.put(2L, "col1", 30L);
+        String json = GsonUtils.GSON.toJson(table, tableType);
+        Assert.assertEquals("{\"clazz\":\"HashBasedTable\",\"rowKeys\":[1,2],\"columnKeys\":[\"col1\",\"col2\"],"
+                + "\"cells\":[0,0,10,0,1,20,1,0,30]}", json);
+
+        Table<Long, String, Long> readTable = GsonUtils.GSON.fromJson(json, tableType);
+        Assert.assertEquals(table, readTable);
+    }
+
+    @Test
+    public void testGuavaHashMultimapJsonFormat() {
+        Type multimapType = new TypeToken<Multimap<Long, String>>() {
+        }.getType();
+
+        Multimap<Long, String> multimap = HashMultimap.create();
+        multimap.put(1L, "value1");
+        String json = GsonUtils.GSON.toJson(multimap, multimapType);
+        Assert.assertEquals("{\"clazz\":\"HashMultimap\",\"map\":{\"1\":[\"value1\"]}}", json);
+
+        Multimap<Long, String> readMultimap = GsonUtils.GSON.fromJson(json, multimapType);
+        Assert.assertEquals("HashMultimap", readMultimap.getClass().getSimpleName());
+        Assert.assertEquals(multimap, readMultimap);
+    }
+
+    @Test
+    public void testGuavaLinkedMultimapJsonFormat() {
+        Type multimapType = new TypeToken<Multimap<Long, String>>() {
+        }.getType();
+
+        // LinkedHashMultimap preserves insertion order, so multi-entry exact assertion is stable
+        Multimap<Long, String> linkedHashMultimap = LinkedHashMultimap.create();
+        linkedHashMultimap.put(2L, "value2");
+        linkedHashMultimap.put(1L, "value1");
+        linkedHashMultimap.put(2L, "value3");
+        String json = GsonUtils.GSON.toJson(linkedHashMultimap, multimapType);
+        Assert.assertEquals("{\"clazz\":\"LinkedHashMultimap\",\"map\":{\"2\":[\"value2\",\"value3\"],"
+                + "\"1\":[\"value1\"]}}", json);
+        Multimap<Long, String> readMultimap = GsonUtils.GSON.fromJson(json, multimapType);
+        Assert.assertEquals("LinkedHashMultimap", readMultimap.getClass().getSimpleName());
+        Assert.assertEquals(linkedHashMultimap, readMultimap);
+
+        Multimap<Long, String> linkedListMultimap = LinkedListMultimap.create();
+        linkedListMultimap.put(1L, "value1");
+        linkedListMultimap.put(1L, "value1");
+        json = GsonUtils.GSON.toJson(linkedListMultimap, multimapType);
+        Assert.assertEquals("{\"clazz\":\"LinkedListMultimap\",\"map\":{\"1\":[\"value1\",\"value1\"]}}", json);
+        readMultimap = GsonUtils.GSON.fromJson(json, multimapType);
+        Assert.assertEquals("LinkedListMultimap", readMultimap.getClass().getSimpleName());
+        Assert.assertEquals(linkedListMultimap, readMultimap);
+    }
+
+    /*
+     * Multimap with a complex (non-primitive) key goes through the array-of-pairs format of
+     * enableComplexMapKeySerialization, same as ColocateTableIndex.group2Tables (GroupId key).
+     */
+    @Test
+    public void testGuavaMultimapComplexKeyJsonFormat() {
+        Type multimapType = new TypeToken<Multimap<Key, Long>>() {
+        }.getType();
+
+        Multimap<Key, Long> multimap = HashMultimap.create();
+        multimap.put(new Key(MyEnum.TYPE_A, "key1"), 1L);
+        String json = GsonUtils.GSON.toJson(multimap, multimapType);
+        Assert.assertEquals("{\"clazz\":\"HashMultimap\",\"map\":[[{\"type\":\"TYPE_A\",\"value\":\"key1\"},[1]]]}",
+                json);
+
+        Multimap<Key, Long> readMultimap = GsonUtils.GSON.fromJson(json, multimapType);
+        Assert.assertEquals(multimap, readMultimap);
     }
 }

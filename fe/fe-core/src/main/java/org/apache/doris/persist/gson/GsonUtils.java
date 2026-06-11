@@ -720,6 +720,11 @@ public class GsonUtils {
      * costs tens of times more memory than the serialized bytes and easily causes FE heap
      * spikes. The streaming TypeAdapter writes to JsonWriter and reads from JsonReader
      * directly, without building the DOM.
+     *
+     * The field order (clazz, rowKeys, columnKeys, cells / clazz, map) is part of the
+     * format contract: the streaming reader expects this exact order and fails fast on
+     * mismatch. This is safe because all Doris-generated journals/images (both the legacy
+     * tree mode adapter and this adapter) always emit fields in this order.
      */
     private static class GuavaTableTypeAdapterFactory implements TypeAdapterFactory {
         @Override
