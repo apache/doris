@@ -433,6 +433,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             return "";
         }
         Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
+        if (backend == null) {
+            log.info("Skip getting fail reason: backend {} not found, job {} task {}",
+                    runningBackendId, getJobId(), getTaskId());
+            return "";
+        }
         try {
             InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                     .setApi("/api/getFailReason/" + getTaskId())
@@ -465,7 +470,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                             + "timeout_sec={}",
                     getJobId(), getTaskId(), backend.getHost(), backend.getBrpcPort(),
                     Config.streaming_cdc_light_rpc_timeout_sec);
-        } catch (ExecutionException | InterruptedException ex) {
+        } catch (Exception ex) {
             log.warn("Send get task fail reason request failed: ", ex);
         }
         return "";
