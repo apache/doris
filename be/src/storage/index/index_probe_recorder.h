@@ -45,7 +45,7 @@ public:
 
     void record(ColumnId column_id, IndexProbeSource source, IndexProbeState state,
                 IndexFallbackReason reason, int64_t input_rows, int64_t output_rows,
-                int64_t index_id = -1) const;
+                int64_t index_id = -1, bool counts_toward_filter_stats = true) const;
 
     bool record_probes_since(const IndexQueryContextPtr& context, size_t first_probe,
                              IndexProbeSource source, IndexProbeState state,

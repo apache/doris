@@ -1922,8 +1922,7 @@ Status SegmentIterator::_init_index_iterators() {
                 }
             }
             if (_index_iterators[cid] != nullptr) {
-                _index_iterators[cid]->set_context(_index_query_context);
-                _index_iterators[cid]->set_column_id(cid);
+                _index_iterators[cid]->bind_context(_index_query_context, cid);
             }
         }
     }
@@ -1938,8 +1937,7 @@ Status SegmentIterator::_init_index_iterators() {
                                                              &_index_iterators[cid]));
 
                 if (_index_iterators[cid] != nullptr) {
-                    _index_iterators[cid]->set_context(_index_query_context);
-                    _index_iterators[cid]->set_column_id(cid);
+                    _index_iterators[cid]->bind_context(_index_query_context, cid);
                 }
             }
         }

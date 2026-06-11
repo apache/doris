@@ -195,6 +195,7 @@ struct IndexProbeExpectation {
     std::optional<int32_t> column_uid;
     std::optional<std::string> variant_path;
     std::optional<int64_t> index_id;
+    std::optional<bool> counts_toward_filter_stats;
     std::optional<int64_t> filtered_rows;
 };
 
@@ -305,6 +306,8 @@ void expect_applied_variant_path_index(const IndexReadResult& result, std::strin
                                        int32_t column_uid = 2);
 void expect_index_not_applied(const IndexReadResult& result, int64_t index_id,
                               int32_t column_uid = 2);
+void expect_index_not_filtering(const IndexReadResult& result, int64_t index_id,
+                                int32_t column_uid = 2);
 void expect_index_files(const IndexRowsetProbe& probe, bool expected_present);
 std::string dump_schema_paths(const TabletSchema& schema);
 

@@ -20,11 +20,84 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
 
+#include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/tablet/tablet_schema.h"
 #include "testutil/index_storage_test_util.h"
 
 namespace doris::segment_v2 {
 namespace {
+
+class ProbeMockInvertedIndexReader final : public InvertedIndexReader {
+public:
+    explicit ProbeMockInvertedIndexReader(const std::shared_ptr<TabletIndex>& index_meta)
+            : InvertedIndexReader(index_meta.get(), nullptr) {}
+
+    Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override {
+        *iterator = std::make_unique<InvertedIndexIterator>();
+        return Status::OK();
+    }
+
+    Status query(const IndexQueryContextPtr& context, const std::string& column_name,
+                 const Field& query_value, InvertedIndexQueryType query_type,
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
+        static_cast<void>(context);
+        static_cast<void>(column_name);
+        static_cast<void>(query_value);
+        static_cast<void>(query_type);
+        static_cast<void>(bit_map);
+        static_cast<void>(analyzer_ctx);
+        return Status::OK();
+    }
+
+    Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
+                     const Field& query_value, InvertedIndexQueryType query_type,
+                     size_t* count) override {
+        static_cast<void>(context);
+        static_cast<void>(column_name);
+        static_cast<void>(query_value);
+        static_cast<void>(query_type);
+        *count = 0;
+        return Status::OK();
+    }
+
+    InvertedIndexReaderType type() override { return InvertedIndexReaderType::STRING_TYPE; }
+};
+
+InvertedIndexReaderPtr make_probe_reader(int64_t index_id) {
+    auto index_meta = std::make_shared<TabletIndex>();
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(index_id);
+    index_pb.set_index_name("probe_index_" + std::to_string(index_id));
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_meta->init_from_pb(index_pb);
+    return std::make_shared<ProbeMockInvertedIndexReader>(index_meta);
+}
+
+TEST(IndexProbeRecorderTest, IteratorReadProbeUsesBoundColumnId) {
+    OlapReaderStatistics stats;
+    stats.collect_index_probe_events = true;
+
+    auto query_context = std::make_shared<IndexQueryContext>();
+    query_context->stats = &stats;
+
+    InvertedIndexIterator iterator;
+    iterator.bind_context(query_context, 3);
+    auto reader = make_probe_reader(3003);
+    iterator.record_read_probe(reader, false);
+    iterator.record_read_probe(reader, true);
+
+    ASSERT_EQ(query_context->index_read_probes.size(), 2);
+    EXPECT_EQ(query_context->index_read_probes[0].column_id, 3);
+    EXPECT_EQ(query_context->index_read_probes[0].index_id, 3003);
+    EXPECT_FALSE(query_context->index_read_probes[0].is_null_bitmap);
+    EXPECT_EQ(query_context->index_read_probes[1].column_id, 3);
+    EXPECT_EQ(query_context->index_read_probes[1].index_id, 3003);
+    EXPECT_TRUE(query_context->index_read_probes[1].is_null_bitmap);
+}
 
 TEST(IndexProbeRecorderTest, RecordsNullBitmapAndDuplicateReadProbes) {
     index_storage_test::IndexTabletOptions options;
@@ -53,6 +126,13 @@ TEST(IndexProbeRecorderTest, RecordsNullBitmapAndDuplicateReadProbes) {
     EXPECT_EQ(stats.index_probe_events[0].filtered_rows, 6);
     EXPECT_EQ(stats.index_probe_events[1].filtered_rows, 0);
     EXPECT_EQ(stats.index_probe_events[2].filtered_rows, 0);
+    EXPECT_TRUE(stats.index_probe_events[0].counts_toward_filter_stats);
+    EXPECT_FALSE(stats.index_probe_events[1].counts_toward_filter_stats);
+    EXPECT_FALSE(stats.index_probe_events[2].counts_toward_filter_stats);
+    EXPECT_EQ(stats.index_probe_events[1].input_rows, 10);
+    EXPECT_EQ(stats.index_probe_events[1].output_rows, 4);
+    EXPECT_EQ(stats.index_probe_events[2].input_rows, 10);
+    EXPECT_EQ(stats.index_probe_events[2].output_rows, 4);
 
     for (const auto& event : stats.index_probe_events) {
         EXPECT_EQ(event.column_uid, 2);

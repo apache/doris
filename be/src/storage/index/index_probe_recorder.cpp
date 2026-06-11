@@ -56,7 +56,7 @@ IndexFallbackReason IndexProbeRecorder::fallback_reason(const Status& status, bo
 
 void IndexProbeRecorder::record(ColumnId column_id, IndexProbeSource source, IndexProbeState state,
                                 IndexFallbackReason reason, int64_t input_rows, int64_t output_rows,
-                                int64_t index_id) const {
+                                int64_t index_id, bool counts_toward_filter_stats) const {
     if (!enabled()) {
         return;
     }
@@ -73,6 +73,8 @@ void IndexProbeRecorder::record(ColumnId column_id, IndexProbeSource source, Ind
     if (column.has_path_info()) {
         variant_path = column.path_info_ptr()->copy_pop_front().get_path();
     }
+    const bool event_counts_toward_filter_stats =
+            state == IndexProbeState::APPLIED && counts_toward_filter_stats;
 
     _stats->index_probe_events.push_back(IndexProbeEvent {
             .column_uid = column_uid,
@@ -83,9 +85,12 @@ void IndexProbeRecorder::record(ColumnId column_id, IndexProbeSource source, Ind
             .source = source,
             .state = state,
             .reason = reason,
+            .counts_toward_filter_stats = event_counts_toward_filter_stats,
             .input_rows = input_rows,
             .output_rows = output_rows,
-            .filtered_rows = std::max<int64_t>(0, input_rows - output_rows),
+            .filtered_rows = event_counts_toward_filter_stats
+                                     ? std::max<int64_t>(0, input_rows - output_rows)
+                                     : 0,
     });
 }
 
@@ -109,10 +114,8 @@ bool IndexProbeRecorder::record_probes_since(const IndexQueryContextPtr& context
     for (size_t probe_idx = first_probe; probe_idx < context->index_read_probes.size();
          ++probe_idx) {
         const auto& probe = context->index_read_probes[probe_idx];
-        const auto event_input_rows = probe_idx == result_probe ? input_rows : 0;
-        const auto event_output_rows = probe_idx == result_probe ? output_rows : 0;
-        record(probe.column_id, source, state, reason, event_input_rows, event_output_rows,
-               probe.index_id);
+        record(probe.column_id, source, state, reason, input_rows, output_rows, probe.index_id,
+               probe_idx == result_probe);
     }
     return true;
 }

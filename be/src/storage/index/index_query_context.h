@@ -25,11 +25,12 @@
 
 #include "storage/compaction/collection_similarity.h"
 #include "storage/compaction/collection_statistics.h"
+#include "storage/olap_common.h"
 
 namespace doris::segment_v2 {
 
 struct IndexReadProbe {
-    uint32_t column_id = std::numeric_limits<uint32_t>::max();
+    ColumnId column_id = std::numeric_limits<ColumnId>::max();
     int64_t index_id = -1;
     bool is_null_bitmap = false;
 };

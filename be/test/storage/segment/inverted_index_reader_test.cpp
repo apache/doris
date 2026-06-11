@@ -2544,7 +2544,7 @@ public:
         // Test try_read functionality with non-BKD index (should succeed)
         size_t count = 0;
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
-        inverted_index_iterator->set_context(context);
+        inverted_index_iterator->bind_context(context, 1);
         Field try_qp = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
         status = inverted_index_iterator->try_read_from_inverted_index(
                 std::static_pointer_cast<InvertedIndexReader>(inverted_index_reader), "c2", try_qp,
@@ -3366,7 +3366,7 @@ public:
         EXPECT_NE(iterator, nullptr);
 
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
-        inverted_index_iterator->set_context(context);
+        inverted_index_iterator->bind_context(context, 0);
 
         // Test the bypass path in read_from_inverted_index
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();

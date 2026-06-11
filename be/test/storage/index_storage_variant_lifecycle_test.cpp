@@ -713,11 +713,11 @@ TEST_F(IndexStorageVariantLifecycleTest, VariantPathEqualityChoosesStringIndexAf
     ASSERT_TRUE(before_compaction.has_value()) << before_compaction.error();
     EXPECT_EQ(before_compaction->rows_read, 5);
     expect_applied_variant_path_index(before_compaction.value(), "string1", 210102, 5);
-    expect_index_not_applied(before_compaction.value(), 210100);
-    expect_index_not_applied(before_compaction.value(), 210101);
-    expect_index_not_applied(before_compaction.value(), 210103);
-    expect_index_not_applied(before_compaction.value(), 210104);
-    expect_index_not_applied(before_compaction.value(), 210105);
+    expect_index_not_filtering(before_compaction.value(), 210100);
+    expect_index_not_filtering(before_compaction.value(), 210101);
+    expect_index_not_filtering(before_compaction.value(), 210103);
+    expect_index_not_filtering(before_compaction.value(), 210104);
+    expect_index_not_filtering(before_compaction.value(), 210105);
 
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -735,11 +735,11 @@ TEST_F(IndexStorageVariantLifecycleTest, VariantPathEqualityChoosesStringIndexAf
     ASSERT_TRUE(after_compaction.has_value()) << after_compaction.error();
     EXPECT_EQ(after_compaction->rows_read, 5);
     expect_applied_variant_path_index(after_compaction.value(), "string1", 210102, 5);
-    expect_index_not_applied(after_compaction.value(), 210100);
-    expect_index_not_applied(after_compaction.value(), 210101);
-    expect_index_not_applied(after_compaction.value(), 210103);
-    expect_index_not_applied(after_compaction.value(), 210104);
-    expect_index_not_applied(after_compaction.value(), 210105);
+    expect_index_not_filtering(after_compaction.value(), 210100);
+    expect_index_not_filtering(after_compaction.value(), 210101);
+    expect_index_not_filtering(after_compaction.value(), 210103);
+    expect_index_not_filtering(after_compaction.value(), 210104);
+    expect_index_not_filtering(after_compaction.value(), 210105);
 }
 
 TEST_F(IndexStorageVariantLifecycleTest, WriteReadProbeAndCumulativeCompact) {

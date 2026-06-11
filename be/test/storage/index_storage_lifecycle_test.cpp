@@ -45,8 +45,10 @@ void expect_applied_title_index(const IndexReadResult& result, int64_t expected_
             event.index_id != index_id) {
             continue;
         }
-        ++applied_events;
-        filtered_rows += event.filtered_rows;
+        if (event.counts_toward_filter_stats) {
+            ++applied_events;
+            filtered_rows += event.filtered_rows;
+        }
         EXPECT_FALSE(event.variant_path.has_value());
     }
     EXPECT_GT(applied_events, 0);

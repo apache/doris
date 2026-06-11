@@ -147,6 +147,7 @@ struct IndexProbeEvent {
     IndexProbeSource source = IndexProbeSource::COLUMN_PREDICATE;
     IndexProbeState state = IndexProbeState::NOT_ATTEMPTED;
     IndexFallbackReason reason = IndexFallbackReason::NONE;
+    bool counts_toward_filter_stats = false;
     int64_t input_rows = 0;
     int64_t output_rows = 0;
     int64_t filtered_rows = 0;

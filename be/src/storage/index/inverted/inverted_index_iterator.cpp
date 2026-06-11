@@ -38,7 +38,7 @@ void InvertedIndexIterator::record_read_probe(const InvertedIndexReaderPtr& read
         !_context->stats->collect_index_probe_events || reader == nullptr) {
         return;
     }
-    DORIS_CHECK(_column_id != std::numeric_limits<uint32_t>::max());
+    DORIS_CHECK(_column_id != std::numeric_limits<ColumnId>::max());
     _context->index_read_probes.push_back(IndexReadProbe {
             .column_id = _column_id,
             .index_id = static_cast<int64_t>(reader->get_index_id()),

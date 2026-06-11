@@ -812,7 +812,7 @@ bool IndexReadResult::inverted_index_effective_filter() const {
     return std::any_of(stats.index_probe_events.begin(), stats.index_probe_events.end(),
                        [](const auto& event) {
                            return event.state == IndexProbeState::APPLIED &&
-                                  event.filtered_rows > 0;
+                                  event.counts_toward_filter_stats && event.filtered_rows > 0;
                        });
 }
 
@@ -971,7 +971,7 @@ void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_f
     EXPECT_EQ(result.stats.rows_inverted_index_filtered, expected_filtered_rows);
     int64_t event_filtered_rows = 0;
     for (const auto& event : result.stats.index_probe_events) {
-        if (event.state == IndexProbeState::APPLIED) {
+        if (event.state == IndexProbeState::APPLIED && event.counts_toward_filter_stats) {
             event_filtered_rows += event.filtered_rows;
         }
     }
@@ -1033,6 +1033,10 @@ bool index_probe_matches(const IndexProbeEvent& event, const IndexProbeExpectati
     if (expectation.index_id.has_value() && event.index_id != expectation.index_id.value()) {
         return false;
     }
+    if (expectation.counts_toward_filter_stats.has_value() &&
+        event.counts_toward_filter_stats != expectation.counts_toward_filter_stats.value()) {
+        return false;
+    }
     if (expectation.filtered_rows.has_value() &&
         event.filtered_rows != expectation.filtered_rows.value()) {
         return false;
@@ -1064,7 +1068,7 @@ void expect_applied_variant_path_index(const IndexReadResult& result, std::strin
     for (const auto& event : result.stats.index_probe_events) {
         if (event.state != IndexProbeState::APPLIED || event.column_uid != column_uid ||
             event.index_id != index_id || !event.variant_path.has_value() ||
-            event.variant_path.value() != path) {
+            event.variant_path.value() != path || !event.counts_toward_filter_stats) {
             continue;
         }
         ++applied_events;
@@ -1077,7 +1081,15 @@ void expect_applied_variant_path_index(const IndexReadResult& result, std::strin
 void expect_index_not_applied(const IndexReadResult& result, int64_t index_id, int32_t column_uid) {
     for (const auto& event : result.stats.index_probe_events) {
         EXPECT_FALSE(event.state == IndexProbeState::APPLIED && event.column_uid == column_uid &&
-                     event.index_id == index_id && event.filtered_rows > 0);
+                     event.index_id == index_id);
+    }
+}
+
+void expect_index_not_filtering(const IndexReadResult& result, int64_t index_id,
+                                int32_t column_uid) {
+    for (const auto& event : result.stats.index_probe_events) {
+        EXPECT_FALSE(event.state == IndexProbeState::APPLIED && event.column_uid == column_uid &&
+                     event.index_id == index_id && event.counts_toward_filter_stats);
     }
 }
 

@@ -201,6 +201,7 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
                                                       .column_uid = kVariantUid,
                                                       .variant_path = "int_1",
                                                       .index_id = kIntPatternIndexId,
+                                                      .counts_toward_filter_stats = true,
                                                       .filtered_rows = 2,
                                               });
 
@@ -217,6 +218,7 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
                                                   .column_uid = kVariantUid,
                                                   .variant_path = "int_1",
                                                   .index_id = kIntPatternIndexId,
+                                                  .counts_toward_filter_stats = true,
                                                   .filtered_rows = 1,
                                           });
 }
@@ -263,6 +265,7 @@ TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsUsesVariantArrayFieldPa
                                              .column_uid = kVariantUid,
                                              .variant_path = std::string(kArrayPath),
                                              .index_id = kArrayPatternIndexId,
+                                             .counts_toward_filter_stats = true,
                                              .filtered_rows = 6,
                                      });
 }
