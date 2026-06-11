@@ -20,11 +20,11 @@
 #include <limits>
 #include <vector>
 
-#include "storage/iterator/block_reader_utils.h"
+#include "storage/iterator/binlog_block_reader_utils.h"
 
 namespace doris {
 
-using ResultType = AggregateFunctionMinDelta::ResultType;
+using ResultType = binlog::AggregateFunctionMinDelta::ResultType;
 
 class BlockReaderMinDeltaTest : public testing::Test {};
 TEST_F(BlockReaderMinDeltaTest, ValidOperationPairs) {
@@ -48,7 +48,8 @@ TEST_F(BlockReaderMinDeltaTest, ValidOperationPairs) {
     };
 
     for (const auto& c : cases) {
-        EXPECT_EQ(c.expected, AggregateFunctionMinDelta::calculate_result(c.first_op, c.last_op))
+        EXPECT_EQ(c.expected,
+                  binlog::AggregateFunctionMinDelta::calculate_result(c.first_op, c.last_op))
                 << "first_op=" << c.first_op << ", last_op=" << c.last_op;
     }
 }
@@ -63,27 +64,29 @@ TEST_F(BlockReaderMinDeltaTest, InvalidOperationFallback) {
                                       std::numeric_limits<int64_t>::max()};
 
     for (int64_t invalid_op : invalid_values) {
-        EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
-                  AggregateFunctionMinDelta::calculate_result(invalid_op, ROW_BINLOG_APPEND))
+        EXPECT_EQ(
+                ResultType::UPDATE_BEFORE_AFTER,
+                binlog::AggregateFunctionMinDelta::calculate_result(invalid_op, ROW_BINLOG_APPEND))
                 << "invalid first_op=" << invalid_op;
-        EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
-                  AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_DELETE, invalid_op))
+        EXPECT_EQ(
+                ResultType::UPDATE_BEFORE_AFTER,
+                binlog::AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_DELETE, invalid_op))
                 << "invalid last_op=" << invalid_op;
     }
 }
 
 TEST_F(BlockReaderMinDeltaTest, SemanticScenarios) {
     // Scenario 1: insert then delete yields no net change.
-    EXPECT_EQ(ResultType::SKIP,
-              AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_APPEND, ROW_BINLOG_DELETE));
+    EXPECT_EQ(ResultType::SKIP, binlog::AggregateFunctionMinDelta::calculate_result(
+                                        ROW_BINLOG_APPEND, ROW_BINLOG_DELETE));
 
     // Scenario 2: update then delete emits DELETE (with pre-delete snapshot values).
-    EXPECT_EQ(ResultType::DELETE,
-              AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_UPDATE, ROW_BINLOG_DELETE));
+    EXPECT_EQ(ResultType::DELETE, binlog::AggregateFunctionMinDelta::calculate_result(
+                                          ROW_BINLOG_UPDATE, ROW_BINLOG_DELETE));
 
     // Scenario 3: delete then insert (rebuild) is treated as INSERT.
-    EXPECT_EQ(ResultType::INSERT,
-              AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_DELETE, ROW_BINLOG_APPEND));
+    EXPECT_EQ(ResultType::INSERT, binlog::AggregateFunctionMinDelta::calculate_result(
+                                          ROW_BINLOG_DELETE, ROW_BINLOG_APPEND));
 }
 
 TEST_F(BlockReaderMinDeltaTest, CrossRowsetSameKeyScenarios) {
@@ -102,7 +105,7 @@ TEST_F(BlockReaderMinDeltaTest, CrossRowsetSameKeyScenarios) {
                 last_op = op;
             }
         }
-        return found ? AggregateFunctionMinDelta::calculate_result(first_op, last_op)
+        return found ? binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op)
                      : ResultType::SKIP;
     };
 
