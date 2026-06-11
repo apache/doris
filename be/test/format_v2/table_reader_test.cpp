@@ -4165,6 +4165,105 @@ TEST(TableColumnMapperTest, PredicateProjectionRebuildsProjectedStructFileType) 
     EXPECT_FALSE(mapper.mappings()[0].is_trivial);
 }
 
+TEST(TableColumnMapperTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    const auto table_id = make_table_column(0, "id", int_type);
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type},
+                                                               Strings {"c"}));
+
+    const auto file_id = make_file_column(0, "id", int_type);
+    auto file_struct = make_file_column(
+            10, "s", std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"c"}));
+    file_struct.children = {
+            make_file_column(11, "c", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_id};
+    const std::vector<ColumnDefinition> file_schema = {file_id, file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].table_column_name, "id");
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(table_struct_child_int32_greater_than_expr(
+                    7, 1, table_struct.type, "s", "c", 0)),
+            .global_indices = {GlobalIndex(1)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].table_column_name, "id");
+
+    ASSERT_EQ(file_request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(file_request.non_predicate_columns[0].column_id(), LocalColumnId(0));
+    ASSERT_EQ(file_request.predicate_columns.size(), 1);
+    EXPECT_EQ(file_request.predicate_columns[0].column_id(), LocalColumnId(10));
+    ASSERT_EQ(file_request.predicate_columns[0].children.size(), 1);
+    EXPECT_EQ(file_request.predicate_columns[0].children[0].local_id(), 11);
+
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    ASSERT_EQ(file_request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_column_id(),
+              LocalColumnId(10));
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_child_id_path(),
+              std::vector<int32_t>({11}));
+}
+
+TEST(TableColumnMapperTest, NestedPredicateProjectionUsesMappedRenamedChild) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                               Strings {"a", "renamed_b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "renamed_b", int_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(table_struct_child_int32_greater_than_expr(
+                    0, 0, table_struct.type, "s", "renamed_b", 0)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_column_id(),
+              LocalColumnId(10));
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_child_id_path(),
+              std::vector<int32_t>({2}));
+    ASSERT_EQ(file_request.predicate_columns.size(), 1);
+    ASSERT_EQ(file_request.predicate_columns[0].children.size(), 2);
+    EXPECT_EQ(file_request.predicate_columns[0].children[0].local_id(), 1);
+    EXPECT_EQ(file_request.predicate_columns[0].children[1].local_id(), 2);
+}
+
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
     // Only project the 2nd and 4th table columns (mapped to `_col2` and `_col4` in the file).
     // BY_INDEX must support sparse projection: file position is determined only by

@@ -296,7 +296,7 @@ struct NestedStructPath {
 
 static GlobalIndex slot_ref_global_index(const VSlotRef& slot_ref) {
     DORIS_CHECK(slot_ref.column_id() >= 0);
-    return GlobalIndex(cast_set<size_t>(slot_ref.slot_id()));
+    return GlobalIndex(cast_set<size_t>(slot_ref.column_id()));
 }
 
 // A split-local literal produced by slot-literal predicate localization. This wrapper keeps the
@@ -503,6 +503,9 @@ std::string TableColumnMapper::debug_string() const {
     std::ostringstream out;
     out << "TableColumnMapper{options=" << _options.debug_string() << ", mappings="
         << join_debug_strings(_mappings,
+                              [](const ColumnMapping& mapping) { return mapping.debug_string(); })
+        << ", hidden_mappings="
+        << join_debug_strings(_hidden_mappings,
                               [](const ColumnMapping& mapping) { return mapping.debug_string(); })
         << ", constant_count=" << _constant_map.size() << "}";
     return out.str();
@@ -804,6 +807,7 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
         return false;
     }
 
+    // Process for element_at(struct, 'field') or element_at(struct, 1) expression.
     StructChildSelector selector;
     if (!parse_struct_child_selector(expr->children()[1], &selector)) {
         return false;
@@ -818,6 +822,7 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
         return true;
     }
 
+    // Process for element_at(element_at(struct<struct>, 'field'), 'field') or element_at(element_at(struct<struct>, 1), 1) expression.
     if (!extract_nested_struct_path(parent, path)) {
         return false;
     }
@@ -827,9 +832,12 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
 
 static bool extract_nested_struct_path_for_pruning(const VExprSPtr& expr, NestedStructPath* path) {
     DORIS_CHECK(path != nullptr);
+    // Simple `ELEMENT_AT`
     if (extract_nested_struct_path(expr, path)) {
         return true;
     }
+
+    // `ELEMENT_AT` with `CAST`
     if (!is_cast_expr(expr) || expr->get_num_children() != 1) {
         return false;
     }
@@ -843,6 +851,11 @@ static bool extract_nested_struct_path_for_pruning(const VExprSPtr& expr, Nested
     return extract_nested_struct_path_for_pruning(child, path);
 }
 
+// Collect nested struct leaf references that can be turned into file-reader projections and
+// primitive pruning predicates. For example, from `s.a > 1 AND element_at(s, 'b') = 2`, this
+// records two paths rooted at `s`: `s -> a` and `s -> b`. Non-struct expressions are traversed
+// recursively, while a recognized struct path is emitted once so the caller can merge it into the
+// scan projection for that top-level file column.
 static void collect_nested_struct_paths(const VExprSPtr& expr,
                                         std::vector<NestedStructPath>* paths) {
     DORIS_CHECK(paths != nullptr);
@@ -856,6 +869,31 @@ static void collect_nested_struct_paths(const VExprSPtr& expr,
     }
     for (const auto& child : expr->children()) {
         collect_nested_struct_paths(child, paths);
+    }
+}
+
+static ColumnDefinition hidden_column_from_slot_ref(const VSlotRef& slot_ref) {
+    ColumnDefinition column;
+    column.name = slot_ref.column_name();
+    column.identifier = Field::create_field<TYPE_STRING>(column.name);
+    column.type = slot_ref.data_type();
+    return column;
+}
+
+static void collect_top_level_slot_columns(const VExprSPtr& expr,
+                                           std::map<GlobalIndex, ColumnDefinition>* columns) {
+    DORIS_CHECK(columns != nullptr);
+    if (expr == nullptr) {
+        return;
+    }
+    if (expr->is_slot_ref()) {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        columns->try_emplace(slot_ref_global_index(*slot_ref),
+                             hidden_column_from_slot_ref(*slot_ref));
+        return;
+    }
+    for (const auto& child : expr->children()) {
+        collect_top_level_slot_columns(child, columns);
     }
 }
 
@@ -903,6 +941,8 @@ static std::optional<int32_t> struct_child_index(const ColumnMapping& mapping,
     return cast_set<int32_t>(selector.ordinal - 1);
 }
 
+// Get the global child index for a child mapping. If the mapping's table type is struct, resolve
+// the child index by the child mapping's table column name; otherwise, use the fallback child index.
 static int32_t child_mapping_global_index(const ColumnMapping& mapping,
                                           const ColumnMapping& child_mapping,
                                           size_t fallback_child_idx) {
@@ -972,44 +1012,18 @@ static const ColumnMapping* resolve_mapped_child(const ColumnMapping& mapping,
     return resolve_mapped_child(mapping, *global_child_index);
 }
 
-static std::shared_ptr<IndexMapping> build_child_index_mapping(const ColumnMapping& mapping) {
-    DORIS_CHECK(mapping.file_local_id.has_value());
-    auto result = std::make_shared<IndexMapping>();
-    result->index = *mapping.file_local_id;
-    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
-        const auto& child_mapping = mapping.child_mappings[child_idx];
-        if (!child_mapping.file_local_id.has_value()) {
-            continue;
-        }
-        result->child_mapping.emplace(child_mapping_global_index(mapping, child_mapping, child_idx),
-                                      build_child_index_mapping(child_mapping));
-    }
-    return result;
-}
-
-static IndexMapping build_index_mapping(const ColumnMapping& mapping, LocalIndex block_position) {
-    DORIS_CHECK(mapping.file_local_id.has_value());
-    IndexMapping result;
-    result.index = cast_set<int32_t>(block_position.value());
-    for (size_t child_idx = 0; child_idx < mapping.child_mappings.size(); ++child_idx) {
-        const auto& child_mapping = mapping.child_mappings[child_idx];
-        if (!child_mapping.file_local_id.has_value()) {
-            continue;
-        }
-        result.child_mapping.emplace(child_mapping_global_index(mapping, child_mapping, child_idx),
-                                     build_child_index_mapping(child_mapping));
-    }
-    return result;
-}
-
-static bool resolve_nested_projection_with_index_mapping(const NestedStructPath& path,
-                                                         const std::vector<ColumnMapping>& mappings,
-                                                         LocalColumnIndex* root_projection,
-                                                         const ColumnMapping** leaf_mapping) {
+// Resolve a table-side nested struct path through the existing ColumnMapping tree and build the
+// corresponding file-local projection. For example, if table column `s` has children
+// `{a, renamed_b}` and file column `s` has children `{a, b}`, the filter path
+// `struct_element(s, 'renamed_b')` is resolved to the file projection `s -> b` by following the
+// child mapping instead of matching the table child name against the file schema. Return false when
+// the path is not represented in child_mappings, so callers can fall back to original file schema
+// for predicate-only children that were not part of the output projection.
+static bool resolve_nested_projection_with_mapping(const NestedStructPath& path,
+                                                   const std::vector<ColumnMapping>& mappings,
+                                                   LocalColumnIndex* root_projection) {
     DORIS_CHECK(root_projection != nullptr);
-    DORIS_CHECK(leaf_mapping != nullptr);
     *root_projection = {};
-    *leaf_mapping = nullptr;
     if (path.selectors.empty()) {
         return false;
     }
@@ -1020,11 +1034,13 @@ static bool resolve_nested_projection_with_index_mapping(const NestedStructPath&
         return false;
     }
 
-    const auto root_index_mapping = build_index_mapping(*mapping_it, LocalIndex(0));
     *root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
     auto* current_projection = root_projection;
     const auto* current_mapping = &*mapping_it;
-    const auto* current_index_mapping = &root_index_mapping;
+
+    // Traverse the ColumnMapping tree according to the table-side struct selectors and emit the
+    // corresponding file-local child ids. If the path is not fully represented in child_mappings,
+    // return false so callers can choose the file-schema fallback for filter-only children.
     for (size_t selector_idx = 0; selector_idx < path.selectors.size(); ++selector_idx) {
         const auto global_child_index =
                 struct_child_index(*current_mapping, path.selectors[selector_idx]);
@@ -1032,24 +1048,18 @@ static bool resolve_nested_projection_with_index_mapping(const NestedStructPath&
             *root_projection = {};
             return false;
         }
-        const auto index_mapping_it =
-                current_index_mapping->child_mapping.find(*global_child_index);
-        if (index_mapping_it == current_index_mapping->child_mapping.end()) {
+        const auto* child_mapping = resolve_mapped_child(*current_mapping, *global_child_index);
+        if (child_mapping == nullptr || !child_mapping->file_local_id.has_value()) {
             *root_projection = {};
             return false;
         }
-        const auto* child_mapping = resolve_mapped_child(*current_mapping, *global_child_index);
-        DORIS_CHECK(child_mapping != nullptr);
-        DORIS_CHECK(child_mapping->file_local_id.has_value());
 
-        auto child_projection = LocalColumnIndex::partial_local(index_mapping_it->second->index);
+        auto child_projection = LocalColumnIndex::partial_local(*child_mapping->file_local_id);
         child_projection.project_all_children = selector_idx + 1 == path.selectors.size();
         current_projection->children.push_back(std::move(child_projection));
         current_projection = &current_projection->children.back();
         current_mapping = child_mapping;
-        current_index_mapping = index_mapping_it->second.get();
     }
-    *leaf_mapping = current_mapping;
     return true;
 }
 
@@ -1206,17 +1216,23 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
         return false;
     }
 
-    const ColumnMapping* leaf_mapping = nullptr;
-    if (resolve_nested_projection_with_index_mapping(path, mappings, &target->file_projection,
-                                                     &leaf_mapping) &&
-        leaf_mapping != nullptr && leaf_mapping->file_type != nullptr) {
+    if (resolve_nested_projection_with_mapping(path, mappings, &target->file_projection)) {
+        DORIS_CHECK(target->file_projection.children.size() == 1);
+        const auto* file_leaf = resolve_file_leaf_from_projection(
+                mapping_it->original_file_children, target->file_projection.children[0]);
+        if (file_leaf == nullptr || file_leaf->type == nullptr) {
+            return false;
+        }
+        target->leaf_type = remove_nullable(file_leaf->type);
+        if (is_complex_type(target->leaf_type->get_primitive_type())) {
+            return false;
+        }
+        target->leaf_name = file_leaf->name;
         if (!build_struct_predicate_target(*mapping_it, target->file_projection,
                                            &target->file_target)) {
             return false;
         }
-        target->leaf_name = leaf_mapping->file_column_name;
-        target->leaf_type = remove_nullable(leaf_mapping->file_type);
-        return !is_complex_type(target->leaf_type->get_primitive_type());
+        return true;
     }
 
     if (!table_root_is_struct(*mapping_it)) {
@@ -1818,6 +1834,7 @@ static bool has_projected_file_children(const ColumnMapping& mapping) {
 
 static bool needs_nested_file_projection(const ColumnMapping& mapping) {
     if (has_projected_file_children(mapping)) {
+        // Return True if the projected child column is missing / re-ordered
         return true;
     }
     return std::ranges::any_of(mapping.child_mappings, [](const ColumnMapping& child_mapping) {
@@ -1845,6 +1862,7 @@ static Status build_projected_child_type(const DataTypePtr& file_type,
     return rebuild_projected_type(file_type, child_types, child_names, projected_type);
 }
 
+// Build the complex column projection according to the ColumnMapping which is re-ordered by the file-schema's order.
 static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection) {
     if (projection == nullptr) {
         return Status::InvalidArgument("projection is null");
@@ -1947,12 +1965,12 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         // TODO: merge non-predicate projections for the same column as well, to avoid duplicated projections when the same column is used in multiple predicates.
         RETURN_IF_ERROR(merge_filter_projection(filter_projections, &projection));
     }
-    sort_projection_children_by_file_id(&projection);
     auto existing_projection_it = std::ranges::find_if(
             *scan_columns,
             [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
     auto exists = existing_projection_it != scan_columns->end();
     if (exists) {
+        // Merge with existing projection if already exists, to avoid duplicated projections when the same column is used in multiple predicates and/or projections.
         RETURN_IF_ERROR(merge_local_column_index(&*existing_projection_it, projection));
         sort_projection_children_by_file_id(&*existing_projection_it);
     } else {
@@ -2004,6 +2022,9 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
         if (table_filter.conjunct == nullptr) {
             continue;
         }
+        // Collect all the nested struct paths in the filter conjunct. For example, for a filter like
+        // `s.id > 5 AND s.name = 'abc'`, we will collect the path `s -> id` and `s -> name`, and
+        // try to build the projection for both paths.
         std::vector<NestedStructPath> paths;
         collect_nested_struct_paths(table_filter.conjunct->root(), &paths);
         for (const auto& path : paths) {
@@ -2016,9 +2037,7 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
             }
 
             LocalColumnIndex root_projection;
-            const ColumnMapping* leaf_mapping = nullptr;
-            if (!resolve_nested_projection_with_index_mapping(path, *mappings, &root_projection,
-                                                              &leaf_mapping)) {
+            if (!resolve_nested_projection_with_mapping(path, *mappings, &root_projection)) {
                 LocalColumnIndex child_projection;
                 RETURN_IF_ERROR(build_filter_projection_path(*mapping_it, path.selectors,
                                                              &child_projection));
@@ -2107,56 +2126,6 @@ static const ColumnDefinition* find_file_child_for_complex_wrapper(
     return nullptr;
 }
 
-Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& projected_columns,
-                                         const std::map<std::string, Field>& partition_values,
-                                         const std::vector<ColumnDefinition>& file_schema) {
-    clear();
-    for (size_t column_idx = 0; column_idx < projected_columns.size(); ++column_idx) {
-        const auto& table_column = projected_columns[column_idx];
-        ColumnMapping mapping;
-        mapping.global_index = GlobalIndex(column_idx);
-        mapping.table_column_name = table_column.name;
-        mapping.table_type = table_column.type;
-        if (const auto* partition_value = find_partition_value(table_column, partition_values);
-            table_column.is_partition_key && partition_value != nullptr) {
-            // 1. Partition column, use partition value as a constant mapping. Note that partition column may also have default expression, but partition value should take precedence if it exists.
-            _set_constant_mapping(&mapping, VExprContext::create_shared(TableLiteral::create_shared(
-                                                    mapping.table_type, *partition_value)));
-        } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
-                   !table_column.is_partition_key && table_column.has_identifier_field_id()) {
-            // 2. BY_INDEX mapping, use the file column at the position specified by `ColumnDefinition::identifier` as a direct mapping. This mode is only used by Hive.
-            RETURN_IF_ERROR(_create_by_index_mapping(table_column, file_schema, &mapping));
-        } else if (const auto* file_field = _find_file_field(table_column, file_schema)) {
-            // 3. Table column has a matching file column, use it as a direct mapping.
-            RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &mapping));
-        } else if (table_column.default_expr != nullptr) {
-            // 4. Table column does not exist in file (column adding by schema evolution), which has a default expression, use it as a constant mapping.
-            _set_constant_mapping(&mapping, table_column.default_expr);
-        } else if (table_column.name == ROW_LINEAGE_ROW_ID) {
-            // 5. Virtual column, use special mapping to indicate it should be materialized by table reader instead of read from file or evaluated from expression.
-            mapping.virtual_column_type = TableVirtualColumnType::ROW_ID;
-        } else if (table_column.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
-            mapping.virtual_column_type = TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
-        } else if (table_column.name == BeConsts::ICEBERG_ROWID_COL) {
-            mapping.virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
-        } else {
-            if (table_column.is_partition_key) {
-                return Status::InvalidArgument(
-                        "Table column '{}' (global_index={}) does not have a matching partition "
-                        "value",
-                        table_column.name, mapping.global_index.value());
-            }
-            if (!_options.allow_missing_columns) {
-                return Status::InvalidArgument(
-                        "Table column '{}' (global_index={}) does not have a matching file column",
-                        table_column.name, mapping.global_index.value());
-            }
-        }
-        _mappings.push_back(std::move(mapping));
-    }
-    return Status::OK();
-}
-
 Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table_column,
                                                    const std::vector<ColumnDefinition>& file_schema,
                                                    ColumnMapping* mapping) {
@@ -2213,9 +2182,136 @@ void TableColumnMapper::_set_constant_mapping(ColumnMapping* mapping, VExprConte
     mapping->filter_conversion = FilterConversionType::CONSTANT;
 }
 
+Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& table_column,
+                                                     GlobalIndex global_index,
+                                                     ColumnMapping* mapping) {
+    DORIS_CHECK(mapping != nullptr);
+    *mapping = ColumnMapping {};
+    mapping->global_index = global_index;
+    mapping->table_column_name = table_column.name;
+    mapping->table_type = table_column.type;
+    if (const auto* partition_value = find_partition_value(table_column, _partition_values);
+        table_column.is_partition_key && partition_value != nullptr) {
+        // Partition values are split constants and must take precedence over defaults.
+        _set_constant_mapping(mapping, VExprContext::create_shared(TableLiteral::create_shared(
+                                       mapping->table_type, *partition_value)));
+    } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
+               !table_column.is_partition_key && table_column.has_identifier_field_id()) {
+        // BY_INDEX interprets ColumnDefinition::identifier as physical file position.
+        RETURN_IF_ERROR(_create_by_index_mapping(table_column, _file_schema, mapping));
+    } else if (const auto* file_field = _find_file_field(table_column, _file_schema)) {
+        // Normal physical file column mapping.
+        RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, mapping));
+    } else if (table_column.default_expr != nullptr) {
+        // Missing schema-evolution column with an explicit default expression.
+        _set_constant_mapping(mapping, table_column.default_expr);
+    } else if (table_column.name == ROW_LINEAGE_ROW_ID) {
+        // Virtual columns are materialized by the table-reader layer.
+        mapping->virtual_column_type = TableVirtualColumnType::ROW_ID;
+    } else if (table_column.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+        mapping->virtual_column_type = TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+    } else if (table_column.name == BeConsts::ICEBERG_ROWID_COL) {
+        mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
+    } else {
+        if (table_column.is_partition_key) {
+            return Status::InvalidArgument(
+                    "Table column '{}' (global_index={}) does not have a matching partition value",
+                    table_column.name, mapping->global_index.value());
+        }
+        if (!_options.allow_missing_columns) {
+            return Status::InvalidArgument(
+                    "Table column '{}' (global_index={}) does not have a matching file column",
+                    table_column.name, mapping->global_index.value());
+        }
+    }
+    return Status::OK();
+}
+
+Status TableColumnMapper::_create_hidden_filter_mapping(const ColumnDefinition& table_column,
+                                                        GlobalIndex global_index,
+                                                        ColumnMapping* mapping) {
+    auto status = _create_mapping_for_column(table_column, global_index, mapping);
+    if (mapping->file_local_id.has_value() || mapping->constant_index.has_value() ||
+        mapping->virtual_column_type != TableVirtualColumnType::INVALID) {
+        return Status::OK();
+    }
+    if (_options.mode == TableColumnMappingMode::BY_NAME) {
+        return status;
+    }
+
+    // Predicate-only slot refs carry the table name/type but do not carry the table-format field
+    // id used by BY_FIELD_ID or the file position used by BY_INDEX. Use a name fallback only for
+    // hidden filter localization; projected columns still obey the requested mapping mode.
+    const auto* file_field = matcher_for_mode(TableColumnMappingMode::BY_NAME)
+                                     .find(table_column, _file_schema);
+    if (file_field == nullptr) {
+        return status;
+    }
+    ColumnMapping fallback_mapping;
+    fallback_mapping.global_index = global_index;
+    fallback_mapping.table_column_name = table_column.name;
+    fallback_mapping.table_type = table_column.type;
+    RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, &fallback_mapping));
+    *mapping = std::move(fallback_mapping);
+    return Status::OK();
+}
+
+Status TableColumnMapper::_build_hidden_filter_mappings(
+        const std::vector<TableFilter>& table_filters) {
+    _hidden_mappings.clear();
+
+    std::map<GlobalIndex, ColumnDefinition> filter_columns;
+    for (const auto& table_filter : table_filters) {
+        if (table_filter.conjunct != nullptr) {
+            collect_top_level_slot_columns(table_filter.conjunct->root(), &filter_columns);
+        }
+    }
+
+    // TableColumnPredicates only carry GlobalIndex and predicate objects. They do not provide the
+    // top-level column name/type needed to build a hidden mapping, so a predicate-only column can
+    // be hidden-mapped only when the same root slot also appears in a conjunct.
+    for (const auto& [global_index, table_column] : filter_columns) {
+        if (_find_mapping(global_index) != nullptr) {
+            // Ignore columns that are already mapped by the projected columns
+            continue;
+        }
+        ColumnMapping mapping;
+        RETURN_IF_ERROR(_create_hidden_filter_mapping(table_column, global_index, &mapping));
+        if (mapping.file_local_id.has_value() || mapping.constant_index.has_value() ||
+            mapping.virtual_column_type != TableVirtualColumnType::INVALID) {
+            _hidden_mappings.push_back(std::move(mapping));
+        }
+    }
+    return Status::OK();
+}
+
+Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& projected_columns,
+                                         const std::map<std::string, Field>& partition_values,
+                                         const std::vector<ColumnDefinition>& file_schema) {
+    clear();
+    _partition_values = partition_values;
+    _file_schema = file_schema;
+    for (size_t column_idx = 0; column_idx < projected_columns.size(); ++column_idx) {
+        ColumnMapping mapping;
+        RETURN_IF_ERROR(_create_mapping_for_column(projected_columns[column_idx],
+                                                   GlobalIndex(column_idx), &mapping));
+        _mappings.push_back(std::move(mapping));
+    }
+    return Status::OK();
+}
+
+std::vector<ColumnMapping> TableColumnMapper::_filter_visible_mappings() const {
+    std::vector<ColumnMapping> mappings;
+    mappings.reserve(_mappings.size() + _hidden_mappings.size());
+    mappings.insert(mappings.end(), _mappings.begin(), _mappings.end());
+    mappings.insert(mappings.end(), _hidden_mappings.begin(), _hidden_mappings.end());
+    return mappings;
+}
+
 Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_request) {
     _filter_entries.clear();
-    for (const auto& mapping : _mappings) {
+    const auto mappings = _filter_visible_mappings();
+    for (const auto& mapping : mappings) {
         FilterEntry entry;
         if (mapping.constant_index.has_value()) {
             entry = FilterEntry::constant(*mapping.constant_index);
@@ -2271,6 +2367,8 @@ Status TableColumnMapper::create_scan_request(
         }
     }
     // 2. Build referenced predicate columns
+    // Hidden filter mappings must be built before localizing filters, so that they can be localized together with visible mappings and referenced by localized filter expressions.
+    RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
     RETURN_IF_ERROR(
             localize_filters(table_filters, table_column_predicates, file_request, runtime_state));
     // 3. Re-build projections for all referenced file columns to point to the correct file-local block positions.
@@ -2298,15 +2396,29 @@ ColumnMapping* TableColumnMapper::_find_mapping(GlobalIndex global_index) {
     return nullptr;
 }
 
+ColumnMapping* TableColumnMapper::_find_filter_mapping(GlobalIndex global_index) {
+    if (auto* mapping = _find_mapping(global_index); mapping != nullptr) {
+        return mapping;
+    }
+    for (auto& mapping : _hidden_mappings) {
+        if (mapping.global_index == global_index) {
+            return &mapping;
+        }
+    }
+    return nullptr;
+}
+
 Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
                                            const TableColumnPredicates& table_column_predicates,
                                            FileScanRequest* file_request,
                                            RuntimeState* runtime_state) {
     FilterProjectionMap filter_projections;
-    RETURN_IF_ERROR(build_filter_projection_map(table_filters, &_mappings, &filter_projections));
+    auto filter_mappings = _filter_visible_mappings();
+    RETURN_IF_ERROR(build_filter_projection_map(table_filters, &filter_mappings,
+                                                &filter_projections));
     for (const auto& table_filter : table_filters) {
         for (const auto& global_index : table_filter.global_indices) {
-            auto* mapping = _find_mapping(global_index);
+            auto* mapping = _find_filter_mapping(global_index);
             if (mapping == nullptr || !mapping->file_local_id.has_value() ||
                 !filter_conversion_has_local_source(mapping->filter_conversion)) {
                 continue;
@@ -2315,11 +2427,26 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                                             true, &filter_projections));
         }
     }
+    // Rebuild the file type for every scan-local mapping before expression rewrite. Predicate-only
+    // hidden mappings must see the same projected file type as the file reader will produce.
+    for (auto& mapping : _mappings) {
+        if (mapping.file_local_id.has_value() &&
+            file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        }
+    }
+    for (auto& mapping : _hidden_mappings) {
+        if (mapping.file_local_id.has_value() &&
+            file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        }
+    }
     RETURN_IF_ERROR(_build_filter_entries(*file_request));
 
     // Build the complete table-slot rewrite map after all predicate columns have been assigned.
     // This keeps expression localization independent from filter iteration order.
-    const auto global_to_file_slot = build_file_slot_rewrite_map(_mappings, _filter_entries);
+    filter_mappings = _filter_visible_mappings();
+    const auto global_to_file_slot = build_file_slot_rewrite_map(filter_mappings, _filter_entries);
     for (const auto& table_filter : table_filters) {
         if (table_filter.conjunct != nullptr &&
             table_filter_has_only_local_entries(table_filter, _filter_entries)) {
@@ -2338,7 +2465,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
     }
     for (const auto& [global_index, predicates] : table_column_predicates) {
-        const auto* mapping = _find_mapping(global_index);
+        const auto* mapping = _find_filter_mapping(global_index);
         const auto entry_it = _filter_entries.find(global_index);
         if (mapping == nullptr || !mapping->file_local_id.has_value() || predicates.empty() ||
             entry_it == _filter_entries.end() || !entry_it->second.is_local() ||
@@ -2368,7 +2495,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             continue;
         }
         std::vector<FileColumnPredicateFilter> nested_column_predicate_filters;
-        collect_nested_column_predicate_filters(table_filter.conjunct->root(), _mappings,
+        collect_nested_column_predicate_filters(table_filter.conjunct->root(), filter_mappings,
                                                 &nested_column_predicate_filters);
         for (auto& column_predicate_filter : nested_column_predicate_filters) {
             merge_column_predicate_filter(std::move(column_predicate_filter),
