@@ -608,7 +608,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return table.options().get("path");
     }
 
-    private Map<String, String> getBackendPaimonOptions() {
+    // Package-private for direct unit testing (PaimonScanPlanProviderTest).
+    Map<String, String> getBackendPaimonOptions() {
         String metastoreType = properties.get("paimon.catalog.type");
         if (!"jdbc".equalsIgnoreCase(metastoreType)) {
             return Collections.emptyMap();
@@ -621,6 +622,24 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     || key.equals("uri") || key.equals("metastore")
                     || key.equals("catalog-key")) {
                 options.put(key, entry.getValue());
+            }
+        }
+        // FIX-JDBC-DRIVER-URL (B-8a): the loop above forwards driver_url RAW and only matches the
+        // "jdbc.*" form, so a bare "jdbc.driver_url=mysql.jar" reaches BE unresolved (BE does
+        // new URL(value) -> MalformedURLException, JdbcDriverUtils.registerDriver) and a
+        // "paimon.jdbc.driver_url" alias is dropped entirely. Emit the canonical, RESOLVED keys the
+        // BE reader accepts (PaimonJdbcDriverUtils reads both aliases): honor either alias and resolve
+        // a bare jar name to a full file:// URL. Mirrors legacy
+        // PaimonJdbcMetaStoreProperties.getBackendPaimonOptions (getFullDriverUrl + driver_class).
+        String driverUrl = PaimonCatalogFactory.firstNonBlank(
+                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
+        if (driverUrl != null) {
+            Map<String, String> env = context != null ? context.getEnvironment() : Collections.emptyMap();
+            options.put("jdbc.driver_url", PaimonCatalogFactory.resolveDriverUrl(driverUrl, env));
+            String driverClass = PaimonCatalogFactory.firstNonBlank(
+                    properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
+            if (driverClass != null) {
+                options.put("jdbc.driver_class", driverClass);
             }
         }
         return options;

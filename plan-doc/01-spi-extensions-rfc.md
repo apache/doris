@@ -1323,3 +1323,13 @@ fi
 **M-10 deferred**：`Column.uniqueId=-1` 不影响 B-1a（history 直接从 paimon field-id 建，不经 Doris 列）→ 不穿 `ConnectorColumn.fieldId`/`ConnectorType` 嵌套 id。详 [DV-026](./deviations-log.md)。
 
 **测**：连接器 `PaimonScanPlanProviderTest` +5 测（field-id/name carriage、嵌套 ARRAY/MAP/STRUCT 形 + struct child id、scalar tag、rename round-trip、**-1 entry 顶层 lowercase 而嵌套保 paimon-case**、非-FileStoreTable 跳过）。模块 222/0/0。真值闸=`test_paimon_full_schema_change.groovy`（CI-gated）。
+
+## 24. FIX-JDBC-DRIVER-URL（B-8a + B-8b）：**无新 SPI**（复用既有 validation hooks，记录在案）
+
+> task-list #4 原标「SPI?=maybe」；**修正为 `no`** —— 本 fix **零新 SPI surface**，纯连接器侧，复用两个**既有**未改的 hook。记录于此以闭合 RFC「SPI 改动登记」约定（结论：无改动）。[D-050](./decisions-log.md)。
+
+**复用既有缝（无改动）**：① **B-8b 安全**——`Connector.preCreateValidation(ConnectorValidationContext)`（既有 default no-op、CREATE CATALOG 时由 `PluginDrivenExternalCatalog.checkWhenCreating` 调）+ `ConnectorValidationContext.validateAndResolveDriverPath(driverUrl)`（既有、`DefaultConnectorValidationContext`→`JdbcResource.getFullDriverUrl` 做 format/whitelist/secure-path）；paimon override `preCreateValidation` 对 jdbc flavor 调之，**与 JDBC 参考连接器 `JdbcDorisConnector` 同模式**。② **B-8a 功能**——driver_url 的 BE 传输经**既有** `paimon.options_json`（`getScanNodeProperties` 建、`populateScanLevelParams`→`setPaimonOptions`→BE `params`）；本 fix 只改其中 `jdbc.driver_url` 的**值**（resolved 而非裸）+ 认 `paimon.jdbc.*` 别名，传输管道不动。
+
+**已知 SPI gap（不在本 fix close）**：scan-time driver-path 校验**无** `ConnectorContext` hook（连接器 scan-time 拿不到 `ConnectorValidationContext`）→ 校验仅 CREATE-time（FE-restart/ALTER 不复校），是 pre-existing fe-core 缝、全 plugin 连接器共有。用户定接受（CREATE-time parity），跨连接器 follow-up 须新 `ConnectorContext` 校验 hook + fe-core ALTER 路接 `preCreateValidation`。详 [DV-028](./deviations-log.md)。
+
+**测**：连接器 `PaimonScanPlanProviderTest` +5（resolve 裸名、认 paimon.jdbc.* 别名、双别名优先序+override、保 scheme-bearing、非-jdbc 空）+ 新 `PaimonConnectorPreCreateValidationTest` +5（jdbc/别名 调校验、非-jdbc/无 driver_url 不调、reject 传播）。模块 232/0/0、fail-before 5/9 向红。真值闸=`test_paimon_jdbc_catalog`（CI-gated）。

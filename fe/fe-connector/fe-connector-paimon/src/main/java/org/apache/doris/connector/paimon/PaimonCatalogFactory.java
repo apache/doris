@@ -137,6 +137,41 @@ public final class PaimonCatalogFactory {
     }
 
     /**
+     * Resolves a JDBC {@code driver_url} to a full, scheme-bearing URL string. A value already
+     * carrying a scheme ({@code "://"}) is used as-is; an absolute path (starting with {@code "/"})
+     * is returned unchanged; otherwise it is treated as a bare jar file name and resolved against
+     * the engine's configured {@code jdbc_drivers_dir} (defaulting to
+     * {@code $DORIS_HOME/plugins/jdbc_drivers}), mirroring the minimal {@code JdbcResource.getFullDriverUrl}
+     * resolution (no file-existence / legacy old-dir / cloud-download handling).
+     *
+     * <p>Shared by {@code PaimonConnector} (FE {@code URLClassLoader} driver registration) and
+     * {@code PaimonScanPlanProvider.getBackendPaimonOptions} (the BE-bound options, where BE does
+     * {@code new URL(value)} and a bare {@code "mysql.jar"} would throw {@code MalformedURLException})
+     * so BOTH sides resolve a given {@code driver_url} <em>identically</em>. Security validation
+     * (format / {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path}) is enforced
+     * separately at CREATE CATALOG via {@code PaimonConnector.preCreateValidation}.
+     *
+     * @param driverUrl the raw driver_url; must be non-null and non-blank (the caller's responsibility —
+     *                  both call sites guard with {@code firstNonBlank}/non-null checks before calling)
+     * @param env the engine environment map (e.g. {@code jdbc_drivers_dir}, {@code doris_home}); never null
+     */
+    public static String resolveDriverUrl(String driverUrl, Map<String, String> env) {
+        if (driverUrl.contains("://")) {
+            return driverUrl;
+        }
+        if (driverUrl.startsWith("/")) {
+            // Absolute path, no scheme: legacy returns it as-is (no driversDir prepend).
+            return driverUrl;
+        }
+        String driversDir = env.get("jdbc_drivers_dir");
+        if (StringUtils.isBlank(driversDir)) {
+            String dorisHome = env.getOrDefault("doris_home", ".");
+            driversDir = dorisHome + "/plugins/jdbc_drivers";
+        }
+        return "file://" + driversDir + "/" + driverUrl;
+    }
+
+    /**
      * Fail-fast validation, mirroring the legacy per-flavor rules. Throws
      * {@link IllegalArgumentException} (style consistent with MaxCompute), which the caller
      * ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.

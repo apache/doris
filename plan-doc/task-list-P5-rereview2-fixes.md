@@ -25,8 +25,8 @@
 |---|----|-----|---------|----------------|------|--------|------|----------|--------|
 | 1 | FIX-URI-NORMALIZE | BLOCKER | B-7DV + B-7DF | native data-file + DV path scheme norm (oss/cos/obs/s3a→s3) | **yes** | ✅ | ✅ | ✅ | ✅ `20b19d19dd8` |
 | 2 | FIX-STATIC-CREDS-BE | BLOCKER | B-9 | static s3/oss/cos/obs creds → BE as canonical `AWS_*` | **yes** | ✅ | ✅ | ✅ | ✅ `d23d5df9914` |
-| 3 | FIX-SCHEMA-EVOLUTION | BLOCKER | B-1a (M-10 deferred) | connector builds `current_schema_id`/`history_schema_info` thrift dict (Design C) | no¹ | ✅ | ✅ | ✅ 222/0/0 | ⬜ pending |
-| 4 | FIX-JDBC-DRIVER-URL | BLOCKER | B-8a + B-8b | resolve+alias `jdbc.driver_url` for BE; enforce security allow-list | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
+| 3 | FIX-SCHEMA-EVOLUTION | BLOCKER | B-1a (M-10 deferred) | connector builds `current_schema_id`/`history_schema_info` thrift dict (Design C) | no¹ | ✅ | ✅ | ✅ 222/0/0 | ✅ `667f779af04` |
+| 4 | FIX-JDBC-DRIVER-URL | BLOCKER | B-8a + B-8b | resolve+alias `jdbc.driver_url` for BE; enforce security allow-list | no² | ✅ | ✅ | ✅ 232/0/0 | 🔄 commit |
 | 5 | FIX-MAPPING-FLAG-KEYS | MAJOR | M-crit | dotted-vs-underscore type-mapping flag keys (wrong type) | no | ⬜ | ⬜ | ⬜ | ⬜ |
 | 6 | FIX-KERBEROS-DOAS | MAJOR | M-8 + M-11 | UGI `doAs` on fs/jdbc ops + partition-listing read path | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 | 7 | FIX-FORCE-JNI-SCANNER | MAJOR | M-1 | honor `force_jni_scanner` session var on connector scan | no | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -34,6 +34,7 @@
 | 9 | FIX-NATIVE-SUBSPLIT | MAJOR* | M-3 | native ORC/Parquet sub-file splitting (parallelism) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `sev*` = round-2 rated MAJOR but round-1 rated **MINOR** (perf-only, correct results) — **user decides severity** (see §P2).
+² #4 SPI corrected `maybe`→**`no`** ([D-050](./decisions-log.md)): the fix reuses the **existing** `Connector.preCreateValidation` + `ConnectorValidationContext.validateAndResolveDriverPath` hooks (B-8b) and the existing `paimon.options_json` transport (B-8a) — **zero new SPI surface**, connector-only. Scope = CREATE-time validation parity with the JDBC reference connector; the FE-restart/ALTER/scan-time re-validation gap (pre-existing fe-core, all plugin connectors) is accepted ([DV-028](./deviations-log.md)) + filed as a cross-connector follow-up. BE-side `paimon.jdbc.{user,password,uri}` alias-drop out of scope ([DV-029](./deviations-log.md), BE deserializes the table from `serialized_table`, doesn't rebuild a JdbcCatalog from these).
 ¹ #3 SPI corrected `yes`→**`no`**: user signed **Design C** ([D-049](./decisions-log.md)) — the connector builds the thrift `TSchema` dict directly from paimon (BE only needs field `id`/`name`/nesting-tag, no Doris `Type`), reusing the existing `populateScanLevelParams` hook → **zero new SPI surface**. M-10 deferred ([DV-026](./deviations-log.md)); eager all-schemas read accepted ([DV-027](./deviations-log.md)).
 Legend: ⬜ todo / 🔄 in progress / ✅ done
 

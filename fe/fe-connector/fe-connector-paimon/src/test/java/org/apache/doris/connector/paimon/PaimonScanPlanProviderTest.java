@@ -659,6 +659,121 @@ public class PaimonScanPlanProviderTest {
                 "no context -> no normalized overlay");
     }
 
+    // ---- FIX-JDBC-DRIVER-URL (B-8a): BE-bound driver_url resolution + paimon.jdbc.* alias ----
+
+    /** A ConnectorContext whose getEnvironment() returns a fixed map (for jdbc_drivers_dir resolution). */
+    private static ConnectorContext envContext(Map<String, String> env) {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "c";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+
+            @Override
+            public Map<String, String> getEnvironment() {
+                return env;
+            }
+        };
+    }
+
+    @Test
+    public void backendOptionsResolveBareDriverUrl() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("jdbc.driver_url", "mysql.jar");
+        props.put("jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(),
+                envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
+
+        Map<String, String> opts = provider.getBackendPaimonOptions();
+
+        // WHY (BLOCKER B-8a): BE does new URL(value) (JdbcDriverUtils.registerDriver); a bare
+        // "mysql.jar" throws MalformedURLException, so FE must ship a full scheme-bearing URL.
+        // MUTATION: forwarding the raw value -> "mysql.jar" (no scheme) -> red.
+        Assertions.assertEquals("file:///opt/drivers/mysql.jar", opts.get("jdbc.driver_url"));
+        Assertions.assertEquals("com.mysql.cj.jdbc.Driver", opts.get("jdbc.driver_class"));
+    }
+
+    @Test
+    public void backendOptionsHonorPaimonJdbcAlias() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("paimon.jdbc.driver_url", "mysql.jar");
+        props.put("paimon.jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(),
+                envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
+
+        Map<String, String> opts = provider.getBackendPaimonOptions();
+
+        // WHY (BLOCKER B-8a): the startsWith("jdbc.") filter drops the paimon.jdbc.* alias form
+        // entirely, so BE never receives the driver. The fix reads either alias and emits the
+        // canonical jdbc.* key (BE PaimonJdbcDriverUtils accepts both). MUTATION: dropping the alias
+        // -> driver_url/class absent -> red.
+        Assertions.assertEquals("file:///opt/drivers/mysql.jar", opts.get("jdbc.driver_url"));
+        Assertions.assertEquals("com.mysql.cj.jdbc.Driver", opts.get("jdbc.driver_class"));
+        Assertions.assertFalse(opts.containsKey("paimon.jdbc.driver_url"),
+                "the raw paimon.jdbc.* alias key must not be shipped to BE");
+    }
+
+    @Test
+    public void backendOptionsResolveWhenBothAliasesSet() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "jdbc");
+        // Both alias forms present with DIFFERENT values. firstNonBlank(JDBC_DRIVER_URL) order is
+        // {paimon.jdbc.driver_url, jdbc.driver_url} -> the paimon.jdbc.* value wins (legacy priority).
+        props.put("paimon.jdbc.driver_url", "postgres.jar");
+        props.put("jdbc.driver_url", "mysql.jar");
+        props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+        props.put("jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(),
+                envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
+
+        Map<String, String> opts = provider.getBackendPaimonOptions();
+
+        // WHY: the forwarding loop copies the raw jdbc.driver_url="mysql.jar"; the explicit
+        // alias-aware put must OVERRIDE it with the resolved paimon.jdbc.* value (priority parity),
+        // and the raw mysql.jar must NOT leak through. MUTATION: dropping the override (or flipping
+        // the alias priority) -> jdbc.driver_url ends as the raw/wrong "mysql.jar" -> red.
+        Assertions.assertEquals("file:///opt/drivers/postgres.jar", opts.get("jdbc.driver_url"));
+        Assertions.assertEquals("org.postgresql.Driver", opts.get("jdbc.driver_class"));
+        Assertions.assertFalse(opts.values().contains("mysql.jar"),
+                "the raw lower-priority alias value must not survive in the BE options");
+    }
+
+    @Test
+    public void backendOptionsPreserveSchemeBearingDriverUrl() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("jdbc.driver_url", "file:///custom/path/mysql.jar");
+        props.put("jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+
+        // A value already carrying a scheme is shipped unchanged (no double-prefixing).
+        Assertions.assertEquals("file:///custom/path/mysql.jar",
+                provider.getBackendPaimonOptions().get("jdbc.driver_url"));
+    }
+
+    @Test
+    public void backendOptionsEmptyForNonJdbcFlavor() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "filesystem");
+        props.put("jdbc.driver_url", "mysql.jar");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+
+        // Regression guard: the driver_url logic must not leak into non-JDBC flavors.
+        Assertions.assertTrue(provider.getBackendPaimonOptions().isEmpty());
+    }
+
     // ---- FIX-SCHEMA-EVOLUTION (B-1a): native-reader schema dictionary ----
 
     @Test

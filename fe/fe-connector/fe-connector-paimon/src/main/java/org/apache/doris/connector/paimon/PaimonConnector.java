@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.ConnectorContext;
 
@@ -38,6 +39,7 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
@@ -196,6 +198,28 @@ public class PaimonConnector implements Connector {
     }
 
     /**
+     * Enforces JDBC driver-url security at CREATE CATALOG (rereview2 B-8b). For the JDBC flavor a
+     * configured {@code driver_url} — read from either the {@code jdbc.driver_url} or the
+     * {@code paimon.jdbc.driver_url} alias — is routed through the engine's
+     * {@link ConnectorValidationContext#validateAndResolveDriverPath} hook, which applies the FE
+     * format / {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path} gates (legacy
+     * {@code JdbcResource.getFullDriverUrl}). A rejected url throws here, so CREATE CATALOG fails
+     * before the jar is ever loaded into the FE JVM by {@link #maybeRegisterJdbcDriver}. Mirrors
+     * {@code JdbcDorisConnector.preCreateValidation}; non-JDBC flavors are a no-op.
+     */
+    @Override
+    public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
+        if (!PaimonConnectorProperties.JDBC.equals(PaimonCatalogFactory.resolveFlavor(properties))) {
+            return;
+        }
+        String driverUrl = PaimonCatalogFactory.firstNonBlank(
+                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
+        if (StringUtils.isNotBlank(driverUrl)) {
+            validationContext.validateAndResolveDriverPath(driverUrl);
+        }
+    }
+
+    /**
      * If a JDBC driver_url is configured, dynamically load + register the driver before creating
      * the catalog. {@link java.sql.DriverManager#getConnection} does not consult the thread context
      * class loader, so the driver must be registered globally. Ported from the legacy
@@ -216,34 +240,22 @@ public class PaimonConnector implements Connector {
     }
 
     /**
-     * Resolves a driver_url to a full URL string. If it is already a URL (contains {@code "://"})
-     * it is used as-is; an absolute path (starting with {@code "/"}) is returned unchanged;
-     * otherwise it is treated as a bare jar file name and resolved against the engine's configured
-     * {@code jdbc_drivers_dir} (defaulting to {@code $DORIS_HOME/plugins/jdbc_drivers}), mirroring
-     * the minimal {@code JdbcResource.getFullDriverUrl} behavior.
+     * Resolves a driver_url to a full, scheme-bearing URL string for FE driver registration,
+     * delegating to the shared {@link PaimonCatalogFactory#resolveDriverUrl} so the FE registration
+     * path and the BE-bound scan options ({@code PaimonScanPlanProvider.getBackendPaimonOptions})
+     * resolve a given driver_url identically.
      *
-     * <p>NOTE (B1/cutover-blocker): legacy JdbcResource.getFullDriverUrl enforced FE security
-     * allow-lists (jdbc_driver_url_white_list, jdbc_driver_secure_path) + jar-name format
-     * validation. Those gates are NOT enforced here (the connector cannot import fe-core).
-     * Before the jdbc driver_url path goes live at cutover (P5-B7), driver-url validation
-     * must be routed through a ConnectorContext hook (cf. sanitizeJdbcUrl). Until then,
-     * paimon is not in SPI_READY_TYPES so this path is not user-reachable.
+     * <p>FE security validation (format / {@code jdbc_driver_url_white_list} /
+     * {@code jdbc_driver_secure_path}) is enforced at CREATE CATALOG by {@link #preCreateValidation}
+     * via the engine's {@code ConnectorValidationContext.validateAndResolveDriverPath} hook — a
+     * rejected url fails catalog creation before this path is ever reached. Like the JDBC reference
+     * connector ({@code JdbcDorisConnector}), validation is CREATE-time only; catalogs reloaded after
+     * an FE restart or reconfigured via ALTER CATALOG are not re-validated against a since-tightened
+     * allow-list (a pre-existing fe-core gap shared by all plugin connectors — see deviations-log).
      */
     private String resolveFullDriverUrl(String driverUrl) {
-        if (driverUrl.contains("://")) {
-            return driverUrl;
-        }
-        if (driverUrl.startsWith("/")) {
-            // Absolute path, no scheme: legacy returns it as-is (no driversDir prepend).
-            return driverUrl;
-        }
-        Map<String, String> env = context.getEnvironment();
-        String driversDir = env.get("jdbc_drivers_dir");
-        if (StringUtils.isBlank(driversDir)) {
-            String dorisHome = env.getOrDefault("doris_home", ".");
-            driversDir = dorisHome + "/plugins/jdbc_drivers";
-        }
-        return "file://" + driversDir + "/" + driverUrl;
+        Map<String, String> env = context != null ? context.getEnvironment() : Collections.emptyMap();
+        return PaimonCatalogFactory.resolveDriverUrl(driverUrl, env);
     }
 
     private void registerJdbcDriver(String driverUrl, String driverClassName) {
