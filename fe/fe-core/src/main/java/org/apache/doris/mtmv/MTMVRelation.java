@@ -87,7 +87,7 @@ public class MTMVRelation implements GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         // For backward compatibility: previously created MTMV may not have baseViewsOneLevel
         if (baseViewsOneLevel == null) {
-            baseViewsOneLevel = baseViews == null ? null : new HashSet<>(baseViews);
+            baseViewsOneLevel = baseViews == null ? new HashSet<>() : new HashSet<>(baseViews);
         }
     }
 
