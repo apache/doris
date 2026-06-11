@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
@@ -71,22 +70,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalSort(any()).then(EliminateOrderByKey::eliminateSort).toRule(RuleType.ELIMINATE_ORDER_BY_KEY),
                 logicalWindow(any()).then(EliminateOrderByKey::eliminateWindow)
-                        .toRule(RuleType.ELIMINATE_ORDER_BY_KEY),
-                logicalPartitionTopN().then(EliminateOrderByKey::eliminatePartitionTopN)
                         .toRule(RuleType.ELIMINATE_ORDER_BY_KEY));
-    }
-
-    private static Plan eliminatePartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN) {
-        // A PartitionTopN created from a window inherits that window's order keys. An order key equal to one
-        // of the partition keys is constant within each partition, so ordering by it is redundant; prune it
-        // here (mirroring the window-side elimination) so BE does not sort by it.
-        List<OrderExpression> newOrderKeys = partitionTopN.getOrderKeys().stream()
-                .filter(orderKey -> !partitionTopN.getPartitionKeys().contains(orderKey.getOrderKey().getExpr()))
-                .collect(ImmutableList.toImmutableList());
-        if (newOrderKeys.size() == partitionTopN.getOrderKeys().size()) {
-            return partitionTopN;
-        }
-        return partitionTopN.withPartitionKeysAndOrderKeys(partitionTopN.getPartitionKeys(), newOrderKeys);
     }
 
     private static Plan eliminateWindow(LogicalWindow<Plan> window) {
