@@ -1826,8 +1826,8 @@ TEST(TableReaderTest, MaterializeMapKeyStructReordersRenamedChildren) {
     auto offsets_column = ColumnArray::ColumnOffsets::create();
     offsets_column->insert_value(2);
     offsets_column->insert_value(3);
-    auto file_column = ColumnMap::create(std::move(key_column), std::move(value_column),
-                                         std::move(offsets_column));
+    ColumnPtr file_column = ColumnMap::create(std::move(key_column), std::move(value_column),
+                                              std::move(offsets_column));
 
     TableReaderMaterializeTestHelper reader;
     ColumnPtr result_column;
