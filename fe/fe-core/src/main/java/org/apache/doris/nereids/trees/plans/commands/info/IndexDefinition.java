@@ -344,7 +344,7 @@ public class IndexDefinition {
         if (partitionNames != null) {
             partitionNames.validate();
         }
-        if (isBuildDeferred && indexType == IndexType.INVERTED) {
+        if (isBuildDeferred && (indexType == IndexType.INVERTED || indexType == IndexType.NGRAM_BF)) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
             }
