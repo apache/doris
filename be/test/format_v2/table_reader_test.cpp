@@ -28,6 +28,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 #include "common/consts.h"
@@ -203,10 +204,11 @@ VExprSPtr table_int32_literal(int32_t value) {
                                        Field::create_field<TYPE_INT>(value));
 }
 
-VExprSPtr table_function_expr(const std::string& function_name, const DataTypePtr& return_type,
+TExprNode table_function_node(const std::string& function_name, const DataTypePtr& return_type,
                               const std::vector<DataTypePtr>& arg_types,
-                              TExprNodeType::type node_type = TExprNodeType::FUNCTION_CALL,
-                              TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE) {
+                              TExprNodeType::type node_type,
+                              TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE,
+                              bool short_circuit_evaluation = false) {
     TFunctionName fn_name;
     fn_name.__set_function_name(function_name);
     TFunction fn;
@@ -228,6 +230,24 @@ VExprSPtr table_function_expr(const std::string& function_name, const DataTypePt
     node.__set_fn(fn);
     node.__set_num_children(static_cast<int16_t>(arg_types.size()));
     node.__set_is_nullable(return_type->is_nullable());
+    if (short_circuit_evaluation) {
+        node.__set_short_circuit_evaluation(true);
+    }
+    return node;
+}
+
+VExprSPtr create_expr_from_node(const TExprNode& node) {
+    VExprSPtr expr;
+    auto status = VExpr::create_expr(node, expr);
+    DORIS_CHECK(status.ok()) << status.to_string();
+    return expr;
+}
+
+VExprSPtr table_function_expr(const std::string& function_name, const DataTypePtr& return_type,
+                              const std::vector<DataTypePtr>& arg_types,
+                              TExprNodeType::type node_type = TExprNodeType::FUNCTION_CALL,
+                              TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE) {
+    const auto node = table_function_node(function_name, return_type, arg_types, node_type, opcode);
     return VectorizedFnCall::create_shared(node);
 }
 
@@ -351,6 +371,78 @@ VExprSPtr table_int32_sum_less_than_expr(int left_slot_id, int left_column_id, i
             table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
     expr->add_child(table_int32_literal(value));
     return expr;
+}
+
+VExprSPtr table_condition_function_expr(const std::string& function_name, bool short_circuit) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    std::vector<DataTypePtr> arg_types;
+    if (function_name == "if") {
+        arg_types = {std::make_shared<DataTypeUInt8>(), int_type, int_type};
+    } else {
+        arg_types = {int_type, int_type};
+    }
+    auto expr = create_expr_from_node(
+            table_function_node(function_name, int_type, arg_types, TExprNodeType::FUNCTION_CALL,
+                                TExprOpcode::INVALID_OPCODE, short_circuit));
+    if (function_name == "if") {
+        expr->add_child(table_int32_greater_than_expr(0, 0, 0));
+        expr->add_child(table_int32_literal(1));
+        expr->add_child(table_int32_literal(0));
+    } else {
+        expr->add_child(table_int32_slot_ref(0, 0, "id"));
+        expr->add_child(table_int32_literal(0));
+    }
+    return expr;
+}
+
+VExprSPtr table_case_expr(bool short_circuit) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    TCaseExpr case_node;
+    case_node.__set_has_case_expr(false);
+    case_node.__set_has_else_expr(true);
+
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::CASE_EXPR);
+    node.__set_type(int_type->to_thrift());
+    node.__set_is_nullable(false);
+    node.__set_num_children(3);
+    node.__set_case_expr(case_node);
+    if (short_circuit) {
+        node.__set_short_circuit_evaluation(true);
+    }
+
+    auto expr = create_expr_from_node(node);
+    expr->add_child(table_int32_greater_than_expr(0, 0, 0));
+    expr->add_child(table_int32_literal(1));
+    expr->add_child(table_int32_literal(0));
+    return expr;
+}
+
+TEST(CloneTableExprTreeTest, ClonesConditionalExpressions) {
+    const std::vector<VExprSPtr> expressions {
+            table_condition_function_expr("if", false),
+            table_condition_function_expr("if", true),
+            table_condition_function_expr("ifnull", false),
+            table_condition_function_expr("ifnull", true),
+            table_condition_function_expr("coalesce", false),
+            table_condition_function_expr("coalesce", true),
+            table_case_expr(false),
+            table_case_expr(true),
+    };
+
+    for (const auto& expr : expressions) {
+        VExprSPtr cloned;
+        const auto status = clone_table_expr_tree(expr, &cloned);
+        ASSERT_TRUE(status.ok()) << expr->debug_string() << ": " << status.to_string();
+        ASSERT_NE(cloned, nullptr);
+        const auto* original_expr = expr.get();
+        const auto* cloned_expr = cloned.get();
+        EXPECT_TRUE(typeid(*original_expr) == typeid(*cloned_expr))
+                << expr->expr_name() << " cloned as " << typeid(*cloned_expr).name();
+        EXPECT_EQ(expr->expr_name(), cloned->expr_name());
+        EXPECT_EQ(expr->get_num_children(), cloned->get_num_children());
+        EXPECT_NE(original_expr, cloned_expr);
+    }
 }
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {

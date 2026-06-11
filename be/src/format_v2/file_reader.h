@@ -109,6 +109,7 @@ enum class FileFormat {
     PARQUET,
     ORC,
     CSV,
+    JNI,
 };
 
 // 通用文件层 scan 请求。

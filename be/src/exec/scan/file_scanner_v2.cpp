@@ -52,6 +52,7 @@
 #include "format/format_common.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/slot_ref.h"
+#include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
@@ -81,6 +82,10 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
     return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
            table_format == "iceberg" || table_format == "paimon";
+}
+
+bool is_supported_jdbc_table_format(const TFileRangeDesc& range) {
+    return table_format_name(range) == "jdbc";
 }
 
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
@@ -473,10 +478,16 @@ Status FileScannerV2::TEST_build_nested_children_from_access_paths(
 }
 #endif
 
-// TODO: Only support parquet format now
 bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
-    return get_range_format_type(params, range) == TFileFormatType::FORMAT_PARQUET &&
-           is_supported_table_format(range);
+    const auto format_type = get_range_format_type(params, range);
+    if (format_type == TFileFormatType::FORMAT_PARQUET) {
+        return is_supported_table_format(range);
+    } else if (format_type == TFileFormatType::FORMAT_JNI) {
+        return is_supported_jdbc_table_format(range);
+    } else {
+        LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
+        return false;
+    }
 }
 
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
@@ -609,6 +620,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<iceberg::IcebergTableReader>();
     } else if (table_format == "paimon") {
         *reader = paimon::PaimonReader::create_unique();
+    } else if (table_format == "jdbc") {
+        *reader = std::make_unique<jdbc::JdbcJniReader>();
     } else {
         return Status::NotSupported("FileScannerV2 does not support table format {}", table_format);
     }
@@ -824,6 +837,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
     switch (format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         *file_format = format::FileFormat::PARQUET;
+        return Status::OK();
+    case TFileFormatType::FORMAT_JNI:
+        *file_format = format::FileFormat::JNI;
         return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",

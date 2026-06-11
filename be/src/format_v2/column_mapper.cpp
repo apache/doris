@@ -34,8 +34,11 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/short_circuit_evaluation_expr.h"
+#include "exprs/vcase_expr.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/vcondition_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
@@ -611,6 +614,22 @@ static TExprNode rebuild_expr_node(const VExpr& expr) {
         TInPredicate in_predicate;
         in_predicate.__set_is_not_in(in_pred->is_not_in());
         node.__set_in_predicate(in_predicate);
+    } else if (const auto* case_expr = dynamic_cast<const VCaseExpr*>(&expr)) {
+        TCaseExpr case_node;
+        case_node.__set_has_case_expr(false);
+        case_node.__set_has_else_expr(case_expr->has_else_expr());
+        node.__set_case_expr(case_node);
+    } else if (const auto* short_circuit_case_expr =
+                       dynamic_cast<const ShortCircuitCaseExpr*>(&expr)) {
+        TCaseExpr case_node;
+        case_node.__set_has_case_expr(false);
+        case_node.__set_has_else_expr(short_circuit_case_expr->has_else_expr());
+        node.__set_case_expr(case_node);
+        node.__set_short_circuit_evaluation(true);
+    } else if (dynamic_cast<const ShortCircuitIfExpr*>(&expr) != nullptr ||
+               dynamic_cast<const ShortCircuitIfNullExpr*>(&expr) != nullptr ||
+               dynamic_cast<const ShortCircuitCoalesceExpr*>(&expr) != nullptr) {
+        node.__set_short_circuit_evaluation(true);
     }
     return node;
 }
@@ -656,6 +675,29 @@ Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
     } else if (const auto* topn_pred = dynamic_cast<const VTopNPred*>(expr.get())) {
         cloned = VTopNPred::create_shared(rebuild_expr_node(*topn_pred),
                                           topn_pred->source_node_id(), nullptr);
+    } else if (const auto* if_null_expr = dynamic_cast<const VectorizedIfNullExpr*>(expr.get())) {
+        cloned = VectorizedIfNullExpr::create_shared(rebuild_expr_node(*if_null_expr));
+    } else if (const auto* if_expr = dynamic_cast<const VectorizedIfExpr*>(expr.get())) {
+        cloned = VectorizedIfExpr::create_shared(rebuild_expr_node(*if_expr));
+    } else if (const auto* coalesce_expr =
+                       dynamic_cast<const VectorizedCoalesceExpr*>(expr.get())) {
+        cloned = VectorizedCoalesceExpr::create_shared(rebuild_expr_node(*coalesce_expr));
+    } else if (const auto* case_expr = dynamic_cast<const VCaseExpr*>(expr.get())) {
+        cloned = VCaseExpr::create_shared(rebuild_expr_node(*case_expr));
+    } else if (const auto* short_circuit_if_expr =
+                       dynamic_cast<const ShortCircuitIfExpr*>(expr.get())) {
+        cloned = ShortCircuitIfExpr::create_shared(rebuild_expr_node(*short_circuit_if_expr));
+    } else if (const auto* short_circuit_if_null_expr =
+                       dynamic_cast<const ShortCircuitIfNullExpr*>(expr.get())) {
+        cloned = ShortCircuitIfNullExpr::create_shared(
+                rebuild_expr_node(*short_circuit_if_null_expr));
+    } else if (const auto* short_circuit_coalesce_expr =
+                       dynamic_cast<const ShortCircuitCoalesceExpr*>(expr.get())) {
+        cloned = ShortCircuitCoalesceExpr::create_shared(
+                rebuild_expr_node(*short_circuit_coalesce_expr));
+    } else if (const auto* short_circuit_case_expr =
+                       dynamic_cast<const ShortCircuitCaseExpr*>(expr.get())) {
+        cloned = ShortCircuitCaseExpr::create_shared(rebuild_expr_node(*short_circuit_case_expr));
     } else if (const auto* fn_call = dynamic_cast<const VectorizedFnCall*>(expr.get())) {
         cloned = VectorizedFnCall::create_shared(rebuild_expr_node(*fn_call));
     } else {

@@ -76,6 +76,7 @@ public:
     ShortCircuitCaseExpr(const TExprNode& node);
     ~ShortCircuitCaseExpr() override = default;
     const std::string& expr_name() const override { return CASE_NAME; }
+    bool has_else_expr() const { return _has_else_expr; }
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
 

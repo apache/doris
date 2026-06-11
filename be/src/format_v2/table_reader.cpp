@@ -70,6 +70,8 @@ std::string file_format_to_string(FileFormat format) {
         return "ORC";
     case FileFormat::CSV:
         return "CSV";
+    case FileFormat::JNI:
+        return "JNI";
     }
     return "UNKNOWN";
 }
@@ -537,19 +539,8 @@ Status TableReader::create_next_reader(bool* eos) {
         return Status::OK();
     }
 
-    switch (_format) {
-    case FileFormat::PARQUET: {
-        _data_reader.reader = std::make_unique<parquet::ParquetReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context);
-        break;
-    }
-    case FileFormat::ORC:
-    case FileFormat::CSV:
-        return Status::NotSupported("TableReader does not support file format {}",
-                                    static_cast<int>(_format));
-    }
-
+    RETURN_IF_ERROR(create_file_reader(&_data_reader.reader));
+    DORIS_CHECK(_data_reader.reader != nullptr);
     RETURN_IF_ERROR(_data_reader.reader->init(_runtime_state));
     RETURN_IF_ERROR(open_reader());
     if (_data_reader.reader == nullptr) {
@@ -558,6 +549,18 @@ Status TableReader::create_next_reader(bool* eos) {
     }
     *eos = false;
     return Status::OK();
+}
+
+Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
+    DORIS_CHECK(reader != nullptr);
+    if (_format == FileFormat::PARQUET) {
+        _data_reader.reader = std::make_unique<parquet::ParquetReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _global_rowid_context);
+        return Status::OK();
+    }
+    return Status::NotSupported("TableReader does not support file format {}",
+                                file_format_to_string(_format));
 }
 
 std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDesc& range) {
