@@ -45,7 +45,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileLock;
@@ -60,11 +59,16 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileSystemManager {
 
-    private static Logger logger = Logger
-            .getLogger(FileSystemManager.class.getName());
+    private static Logger logger = Logger.getLogger(FileSystemManager.class.getName());
     // supported scheme
     private static final String HDFS_SCHEME = "hdfs";
     private static final String VIEWFS_SCHEME = "viewfs";
@@ -80,9 +84,9 @@ public class FileSystemManager {
     private static final String GFS_SCHEME = "gfs";
 
     private static final String GCS_SCHEME = "gs";
-    
+
     private static final String FS_PREFIX = "fs.";
-    
+
     private static final String GCS_PROJECT_ID_KEY = "fs.gs.project.id";
 
     private static final String USER_NAME_KEY = "username";
@@ -167,11 +171,25 @@ public class FileSystemManager {
     private int writeBufferSize = 128 << 10; // 128k
 
     private ConcurrentHashMap<FileSystemIdentity, BrokerFileSystem> cachedFileSystem;
+    // Used to store expired file systems that have been phased out from the `cachedFileSystem` above,
+    // but there may be inputstreams and outputstreams that are transmitting data that depend on these file systems.
+    // Therefore, we use background threads to traverse this queue to determine whether it can be safely deleted.
+    private ConcurrentLinkedQueue<BrokerFileSystem> fileSystemRecycleBin;
     private ClientContextManager clientContextManager;
+
+    private ScheduledExecutorService fileSystemRecycleBinCleanupPool = Executors.newSingleThreadScheduledExecutor(
+        new ThreadFactory() {
+            private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) { return new Thread(r, "fileSystemCleanup-pool-" + threadNumber.getAndIncrement()); }
+        });
 
     public FileSystemManager() {
         cachedFileSystem = new ConcurrentHashMap<>();
+        fileSystemRecycleBin = new ConcurrentLinkedQueue<>();
         clientContextManager = new ClientContextManager();
+        fileSystemRecycleBinCleanupPool.scheduleWithFixedDelay(new CheckBrokerFileSystemExpirationTask(), 0, 3, TimeUnit.SECONDS);
         readBufferSize = BrokerConfig.hdfs_read_buffer_size_kb << 10;
         writeBufferSize = BrokerConfig.hdfs_write_buffer_size_kb << 10;
     }
@@ -198,13 +216,12 @@ public class FileSystemManager {
     /**
      * visible for test
      *
-     * @param path
-     * @param properties
+     * @param path the file path to be parsed (e.g., hdfs://...)
+     * @param properties the configuration properties for the file system
      * @return BrokerFileSystem with different FileSystem based on scheme
-     * @throws URISyntaxException
-     * @throws Exception
+     * @throws BrokerException if the input path is invalid or the scheme is not supported
      */
-    public BrokerFileSystem getFileSystem(String path, Map<String, String> properties) {
+    public BrokerFileSystem getFileSystem(String path, Map<String, String> properties) throws BrokerException {
         WildcardURI pathUri = new WildcardURI(path);
         String scheme = pathUri.getUri().getScheme();
         if (Strings.isNullOrEmpty(scheme)) {
@@ -249,11 +266,6 @@ public class FileSystemManager {
      * file system handle is cached, the identity is host + username_password
      * it will have safety problem if only hostname is used because one user may specify username and password
      * and then access hdfs, another user may not specify username and password but could also access data
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
      */
     public BrokerFileSystem getDistributedFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -438,6 +450,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -447,13 +460,7 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     *
      * file system handle is cached, the identity is host + accessKey_secretKey
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
      */
     public BrokerFileSystem getS3AFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -480,6 +487,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -519,6 +527,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -528,9 +537,6 @@ public class FileSystemManager {
 
     /**
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
-     * @param path
-     * @param properties
-     * @return
      */
     public BrokerFileSystem getOBSFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -541,7 +547,6 @@ public class FileSystemManager {
         String host = OBS_SCHEME + "://" + endpoint + "/" + pathUri.getUri().getHost();
         String obsUgi = accessKey + "," + secretKey;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, obsUgi);
-        cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
         BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
@@ -559,6 +564,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -568,14 +574,7 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     * <p>
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
-     *
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
      */
     public BrokerFileSystem getKS3FileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -605,6 +604,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -612,11 +612,8 @@ public class FileSystemManager {
         }
     }
 
-   /**
+    /**
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
-     * @param path
-     * @param properties
-     * @return
      */
     public BrokerFileSystem getOSSFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -627,7 +624,6 @@ public class FileSystemManager {
         String host = OSS_SCHEME + "://" + endpoint + "/" + pathUri.getUri().getHost();
         String ossUgi = accessKey + "," + secretKey;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, ossUgi);
-        cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
         BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
@@ -645,6 +641,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -654,13 +651,7 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     *
      * file system handle is cached, the identity is for all chdfs.
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
      */
     public BrokerFileSystem getChdfsFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -761,6 +752,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -770,14 +762,7 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     * <p>
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
-     *
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
      */
     public BrokerFileSystem getCOSFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -807,6 +792,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -816,14 +802,7 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     * <p>
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
-     *
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
      */
     public BrokerFileSystem getBOSFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -854,6 +833,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -863,13 +843,7 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     *
-     * file system handle is cached, the identity is for all juicefs.
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
+     * file system handle is cached, the identity is for all juiceFs.
      */
     public BrokerFileSystem getJuiceFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -980,6 +954,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
@@ -995,15 +970,9 @@ public class FileSystemManager {
         String group = properties.containsKey(HADOOP_JOB_GROUP_NAME) ? properties.get(HADOOP_JOB_GROUP_NAME) : "";
         String afsUgi = username + "," + password;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, afsUgi, group);
-        cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
         BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
-            if (!cachedFileSystem.containsKey(fileSystemIdentity)) {
-                // this means the file system is closed by file system checker thread
-                // it is a corner case
-                return null;
-            }
             if (fileSystem.getDFSFileSystem() == null) {
                 logger.info("could not find file system for path " + path + " create a new one");
                 // create a new file system
@@ -1021,6 +990,7 @@ public class FileSystemManager {
             }
             return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e, e.getMessage());
         } finally {
@@ -1028,13 +998,6 @@ public class FileSystemManager {
         }
     }
 
-    /**
-     * @param path
-     * @param properties
-     * @return
-     * @throws URISyntaxException
-     * @throws Exception
-     */
     public BrokerFileSystem getGooseFSFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         // endpoint is the server host, pathUri.getUri().getHost() is the bucket
@@ -1045,33 +1008,35 @@ public class FileSystemManager {
         String password = properties.getOrDefault(PASSWORD_KEY, "");
         String gfsUgi = username + "," + password;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, gfsUgi);
-        BrokerFileSystem brokerFileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
-        brokerFileSystem.getLock().lock();
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
+        fileSystem.getLock().lock();
         try {
-            if (brokerFileSystem.getDFSFileSystem() == null) {
-                logger.info("create goosefs client: " + path);
+            if (fileSystem.getDFSFileSystem() == null) {
+                logger.info("create gooseFs client: " + path);
                 Configuration conf = new Configuration();
                 for (Map.Entry<String, String> propElement : properties.entrySet()) {
                     conf.set(propElement.getKey(), propElement.getValue());
                 }
-                FileSystem fileSystem = FileSystem.get(pathUri.getUri(), conf);
-                brokerFileSystem.setFileSystem(fileSystem);
+                FileSystem gooseFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                fileSystem.setFileSystem(gooseFileSystem);
             }
-            return brokerFileSystem;
+            return fileSystem;
         } catch (Exception e) {
+            fileSystem.decrementActiveOperations();
             logger.error("errors while connect to " + path, e);
             throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
         } finally {
-            brokerFileSystem.getLock().unlock();
+            fileSystem.getLock().unlock();
         }
     }
 
     public List<TBrokerFileStatus> listLocatedFiles(String path, boolean onlyFiles,
                                                     boolean recursive, Map<String, String> properties) {
         List<TBrokerFileStatus> resultFileStatus = null;
-        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        BrokerFileSystem fileSystem = null;
         Path locatedPath = new Path(path);
         try {
+            fileSystem = getFileSystem(path, properties);
             FileSystem innerFileSystem = fileSystem.getDFSFileSystem();
             RemoteIterator<LocatedFileStatus> locatedFiles = onlyFiles ? innerFileSystem.listFiles(locatedPath, recursive)
                 : innerFileSystem.listLocatedStatus(locatedPath);
@@ -1082,9 +1047,11 @@ public class FileSystemManager {
                 e, "file not found");
         } catch (Exception e) {
             logger.error("errors while get file status ", e);
-            fileSystem.closeFileSystem();
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                 e, "unknown error when listLocatedFiles");
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
         }
     }
 
@@ -1112,9 +1079,10 @@ public class FileSystemManager {
     public List<TBrokerFileStatus> listPath(String path, boolean fileNameOnly, Map<String, String> properties) {
         List<TBrokerFileStatus> resultFileStatus = null;
         WildcardURI pathUri = new WildcardURI(path);
-        BrokerFileSystem fileSystem = getFileSystem(path, properties);
         Path pathPattern = new Path(pathUri.getPath());
+        BrokerFileSystem fileSystem = null;
         try {
+            fileSystem = getFileSystem(path, properties);
             FileStatus[] files = fileSystem.getDFSFileSystem().globStatus(pathPattern);
             if (files == null) {
                 resultFileStatus = new ArrayList<>(0);
@@ -1147,24 +1115,29 @@ public class FileSystemManager {
                     e, "file not found");
         } catch (Exception e) {
             logger.error("errors while get file status ", e);
-            fileSystem.closeFileSystem();
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "unknown error when get file status");
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
         }
         return resultFileStatus;
     }
 
     public void deletePath(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
-        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        BrokerFileSystem fileSystem = null;
         Path filePath = new Path(pathUri.getPath());
         try {
+            fileSystem = getFileSystem(path, properties);
             fileSystem.getDFSFileSystem().delete(filePath, true);
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("errors while delete path " + path);
-            fileSystem.closeFileSystem();
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "delete path {} error", path);
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
         }
     }
 
@@ -1175,54 +1148,63 @@ public class FileSystemManager {
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     "only allow rename in same file system");
         }
-        BrokerFileSystem fileSystem = getFileSystem(srcPath, properties);
+        BrokerFileSystem fileSystem = null;
         Path srcfilePath = new Path(srcPathUri.getPath());
         Path destfilePath = new Path(destPathUri.getPath());
         try {
+            fileSystem = getFileSystem(srcPath, properties);
             boolean isRenameSuccess = fileSystem.getDFSFileSystem().rename(srcfilePath, destfilePath);
             if (!isRenameSuccess) {
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                         "failed to rename path from {} to {}", srcPath, destPath);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("errors while rename path from " + srcPath + " to " + destPath);
-            fileSystem.closeFileSystem();
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "errors while rename {} to {}", srcPath, destPath);
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
         }
     }
 
     public boolean checkPathExist(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
-        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        BrokerFileSystem fileSystem = null;
         Path filePath = new Path(pathUri.getPath());
         try {
+            fileSystem = getFileSystem(path, properties);
             boolean isPathExist = fileSystem.getDFSFileSystem().exists(filePath);
             return isPathExist;
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("errors while check path exist: " + path);
-            fileSystem.closeFileSystem();
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "errors while check if path {} exist", path);
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
         }
     }
 
     public TBrokerFD openReader(String clientId, String path, long startOffset, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         Path inputFilePath = new Path(pathUri.getPath());
-        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        BrokerFileSystem fileSystem = null;
         try {
+            fileSystem = getFileSystem(path, properties);
             FSDataInputStream fsDataInputStream = fileSystem.getDFSFileSystem().open(inputFilePath, readBufferSize);
             fsDataInputStream.seek(startOffset);
             UUID uuid = UUID.randomUUID();
             TBrokerFD fd = parseUUIDToFD(uuid);
             clientContextManager.putNewInputStream(clientId, fd, fsDataInputStream, fileSystem);
             return fd;
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("errors while open path", e);
-            fileSystem.closeFileSystem();
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "could not open file {}", path);
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
         }
     }
 
@@ -1310,19 +1292,22 @@ public class FileSystemManager {
     public TBrokerFD openWriter(String clientId, String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         Path inputFilePath = new Path(pathUri.getPath());
-        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        BrokerFileSystem fileSystem = null;
         try {
+            fileSystem = getFileSystem(path, properties);
             FSDataOutputStream fsDataOutputStream = fileSystem.getDFSFileSystem().create(inputFilePath,
                     true, writeBufferSize);
             UUID uuid = UUID.randomUUID();
             TBrokerFD fd = parseUUIDToFD(uuid);
             clientContextManager.putNewOutputStream(clientId, fd, fsDataOutputStream, fileSystem);
             return fd;
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("errors while open path", e);
-            fileSystem.closeFileSystem();
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "could not open file {}", path);
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
         }
     }
 
@@ -1385,55 +1370,121 @@ public class FileSystemManager {
      *   2. For other authentication modes, the lastAccessTime is used to determine whether it has expired
      */
     private BrokerFileSystem updateCachedFileSystem(FileSystemIdentity fileSystemIdentity, Map<String, String> properties) {
-        BrokerFileSystem brokerFileSystem;
-        if (cachedFileSystem.containsKey(fileSystemIdentity)) {
-            brokerFileSystem = cachedFileSystem.get(fileSystemIdentity);
+        return cachedFileSystem.compute(fileSystemIdentity, (key, brokerFileSystemInMap) -> {
+            if (brokerFileSystemInMap == null) {
+                BrokerFileSystem newBrokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
+                newBrokerFileSystem.incrementActiveOperations();
+                return newBrokerFileSystem;
+            }
             if (UserGroupInformation.isSecurityEnabled()) {
                 try {
                     UserGroupInformation.getCurrentUser().checkTGTAndReloginFromKeytab();
                 } catch (Exception e) {
                     logger.error("errors while refresh TGT: ", e);
                 }
-            } else if (brokerFileSystem.isExpiredByLastAccessTime()) {
-                brokerFileSystem.getLock().lock();
-                BrokerFileSystem bfs = cachedFileSystem.get(fileSystemIdentity);
-                if (!bfs.isExpiredByLastAccessTime()) {
-                  return bfs;
-                }
-                try {
-                    logger.info("file system " + brokerFileSystem + " is expired, update it.");
-                    brokerFileSystem.closeFileSystem();
-                } catch (Throwable t) {
-                    logger.error("errors while close file system: ", t);
-                } finally {
-                    brokerFileSystem.getLock().unlock();
-                }
-                brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
-                cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
+            } else if (brokerFileSystemInMap.isExpiredByLastAccessTime()) {
+                logger.info("file system " + brokerFileSystemInMap + " is expired, move to recycle bin and update it.");
+                fileSystemRecycleBin.add(brokerFileSystemInMap);
+                BrokerFileSystem newBrokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
+                newBrokerFileSystem.incrementActiveOperations();
+                return newBrokerFileSystem;
             }
-        } else {
-            brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
-            cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
-        }
-        return brokerFileSystem;
+            brokerFileSystemInMap.incrementActiveOperations();
+            brokerFileSystemInMap.updateLastUpdateAccessTime();
+            return brokerFileSystemInMap;
+        });
     }
 
     public long fileSize(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
-        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        BrokerFileSystem fileSystem = null;
         Path filePath = new Path(pathUri.getPath());
         try {
+            fileSystem = getFileSystem(path, properties);
             FileStatus fileStatus = fileSystem.getDFSFileSystem().getFileStatus(filePath);
             if (fileStatus.isDirectory()) {
                 throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
                     "not a file: {}", path);
             }
             return fileStatus.getLen();
-        } catch (IOException e) {
+        } catch (BrokerException e) {
+            // Used to handle exceptions generated by fileStatus.isDirectory above.
+            if (e.errorCode != TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH) {
+                if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
+            }
             logger.error("errors while getting file size: " + path);
-            fileSystem.closeFileSystem();
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                e, "errors while getting file size {}", path);
+        } catch (Exception e) {
+            logger.error("errors while getting file size: " + path);
+            if (fileSystem != null) moveBrokerFileSystemToRecycleBin(fileSystem);
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "errors while getting file size {}", path);
+        } finally {
+            if (fileSystem != null) fileSystem.decrementActiveOperations();
+        }
+    }
+
+    private void moveBrokerFileSystemToRecycleBin(BrokerFileSystem brokerFileSystem) {
+        if (brokerFileSystem == null) {
+            return;
+        }
+        cachedFileSystem.compute(brokerFileSystem.getIdentity(), (k, v)-> {
+            if (brokerFileSystem == v) {
+                fileSystemRecycleBin.add(brokerFileSystem);
+                return null;
+            }
+            // this brokerFileSystem has been move to fileSystemRecycleBin by another thread, do nothing.
+            return v;
+        });
+    }
+
+    class CheckBrokerFileSystemExpirationTask implements Runnable {
+        @Override
+        public void run() {
+            UUID firstStillActiveFileSystemId = null;
+            BrokerFileSystem fs;
+            while ((fs = fileSystemRecycleBin.poll()) != null) {
+                fs.getLock().lock();
+                try {
+                    UUID fileSystemId = fs.getFileSystemId();
+                    // When retrieving the first fs that has been put back into the queue, break the loop.
+                    if (firstStillActiveFileSystemId != null && firstStillActiveFileSystemId.equals(fileSystemId)) {
+                        if (!ifSafeThenCloseFileSystem(fs)) {
+                            fileSystemRecycleBin.add(fs);
+                        }
+                        break;
+                    }
+                    if (!ifSafeThenCloseFileSystem(fs)) {
+                        if (firstStillActiveFileSystemId == null) {
+                            firstStillActiveFileSystemId = fileSystemId;
+                        }
+                        fileSystemRecycleBin.add(fs);
+                    }
+                } catch (IOException e) {
+                    // Fs.dfsFileSystem has been set to null, no need to add it back to the end of the queue.
+                    logger.warn("IO error while close file system: " + fs, e);
+                } catch (Exception e) {
+                    // Should not enter this branch！ defensive programming
+                    fileSystemRecycleBin.add(fs);
+                    logger.error("unexpected errors while close file system, please check the code: " + fs, e);
+                } finally {
+                    fs.getLock().unlock();
+                }
+            }
+        }
+
+        private boolean ifSafeThenCloseFileSystem(BrokerFileSystem fs) throws IOException {
+            if (fs.getActiveOperationsCount() == 0 && fs.getActiveStreamCount() == 0) {
+                fs.closeFileSystem();
+                logger.info(fs + " is expired, remove it. " +
+                    "last access time is " + fs.getLastAccessTimestamp());
+                return true;
+            } else {
+                logger.info(fs + " has expired but still has activeOperationCount:"+ fs.getActiveOperationsCount() +
+                    " and activeStreamCount:" + fs.getActiveStreamCount()+ ", wait for the next round to close.");
+                return false;
+            }
         }
     }
 }
