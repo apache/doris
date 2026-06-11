@@ -25,7 +25,6 @@ import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
@@ -34,10 +33,6 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
-import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -216,11 +211,5 @@ public class TVFScanNode extends FileQueryScanNode {
     @Override
     public int getNumInstances() {
         return scanRangeLocations.size();
-    }
-
-    @Override
-    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
-            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
-        return Pair.of(this, LocalExchangeType.PASSTHROUGH);
     }
 }

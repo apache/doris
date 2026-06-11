@@ -1223,12 +1223,11 @@ suite("test_local_shuffle_rqg_bugs") {
         }
         logger.info("Bug 21: PASSED (no crash, correct results)")
     } catch (Throwable t) {
-        if (t.message != null && t.message.contains("query timeout")) {
-            logger.warn("Bug 21: SKIPPED (query timeout - likely BE crash from previous test, not our bug)")
-        } else {
-            logger.error("Bug 21 FAILED: ${t.message}")
-            assertTrue(false, "Bug 21: Multi-distinct COUNT COREDUMP: ${t.message}")
-        }
+        // Timeout/hang is a real failure mode for this bug: an EOS/close-count mismatch in the
+        // coupled pipelines can hang instead of crashing, so a timeout here may be the very
+        // regression we are testing. Let it fail too — do not mask it as SKIPPED.
+        logger.error("Bug 21 FAILED: ${t.message}")
+        assertTrue(false, "Bug 21: Multi-distinct COUNT COREDUMP/hang: ${t.message}")
     }
 
     // ============================================================
