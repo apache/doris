@@ -1105,6 +1105,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         throw new DdlException("Partition name[" + newPartitionName + "] is already used");
                     }
                 }
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                        new BaseTableInfo(table, recyclePartitionInfo.getDbId()),
+                        "Base table partition was recovered without row binlog");
                 table.addPartition(recyclePartitionInfo.getPartition());
                 if (!Strings.isNullOrEmpty(newPartitionName)) {
                     table.renamePartition(recyclePartitionInfo.getPartition().getName(), newPartitionName);

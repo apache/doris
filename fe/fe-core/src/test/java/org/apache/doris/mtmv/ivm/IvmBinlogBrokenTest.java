@@ -17,13 +17,23 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
 
 public class IvmBinlogBrokenTest extends TestWithFeService {
 
@@ -51,9 +61,11 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
     public void testDropPartitionMarksBinlogBroken() throws Exception {
         String db = "ivm_broken_drop_partition";
         createPartitionedIvmTableAndMv(db);
+        IvmInfo ivmInfo = getMtmv(db).getIvmInfo();
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
 
+        Assertions.assertSame(ivmInfo, getMtmv(db).getIvmInfo());
         Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
     }
 
@@ -115,6 +127,76 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         Assertions.assertFalse(getMtmv(db).getIvmInfo().isBinlogBroken());
     }
 
+    @Test
+    public void testReplayDropPartitionMarksBinlogBroken() throws Exception {
+        String db = "ivm_broken_replay_drop_partition";
+        createPartitionedIvmTableAndMv(db);
+        Database database = getDb(db);
+        OlapTable table = getBaseTable(db);
+        Partition partition = table.getPartition("p202001");
+
+        DropPartitionInfo info = new DropPartitionInfo(database.getId(), table.getId(), partition.getId(),
+                "p202001", false, false, 0L, table.getVisibleVersion(), table.getVisibleVersionTime());
+        Env.getCurrentInternalCatalog().replayDropPartition(info);
+
+        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testReplayTruncateMarksBinlogBroken() throws Exception {
+        String db = "ivm_broken_replay_truncate";
+        createPartitionedIvmTableAndMv(db);
+        Database database = getDb(db);
+        OlapTable table = getBaseTable(db);
+        Partition oldPartition = table.getPartition("p202001");
+        Partition newPartition = new Partition(Env.getCurrentEnv().getNextId(), oldPartition.getName(),
+                new MaterializedIndex(table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL),
+                oldPartition.getDistributionInfo());
+
+        TruncateTableInfo info = new TruncateTableInfo(database.getId(), database.getFullName(), table.getId(),
+                table.getName(), Collections.singletonList(newPartition), false,
+                "TRUNCATE TABLE ivm_base PARTITION(p202001)", Collections.singletonList(oldPartition), true,
+                Collections.emptyMap());
+        Env.getCurrentInternalCatalog().replayTruncateTable(info);
+
+        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testReplayReplacePartitionMarksBinlogBroken() throws Exception {
+        String db = "ivm_broken_replay_replace_partition";
+        createPartitionedIvmTableAndMv(db);
+        executeSql("ALTER TABLE ivm_base ADD TEMPORARY PARTITION tp202001 "
+                + "VALUES [('2020-01-01'), ('2020-02-01'))");
+        Database database = getDb(db);
+        OlapTable table = getBaseTable(db);
+
+        ReplacePartitionOperationLog log = new ReplacePartitionOperationLog(database.getId(), database.getFullName(),
+                table.getId(), table.getName(), Collections.singletonList("p202001"),
+                Collections.singletonList("tp202001"), Collections.emptyList(), false, false,
+                table.getVisibleVersion(), table.getVisibleVersionTime(), false);
+        Env.getCurrentEnv().replayReplaceTempPartition(log);
+
+        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testReplayRecoverPartitionMarksBinlogBroken() throws Exception {
+        String db = "ivm_broken_replay_recover_partition";
+        createPartitionedIvmTableAndMv(db);
+        Database database = getDb(db);
+        OlapTable table = getBaseTable(db);
+        long partitionId = table.getPartition("p202001").getId();
+        executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
+        setBinlogBroken(getMtmv(db), false);
+
+        RecoverInfo info = new RecoverInfo(database.getId(), table.getId(), partitionId, "", table.getName(),
+                "", "p202001", null);
+        Env.getCurrentInternalCatalog().replayRecoverPartition(info);
+
+        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
     private void createPartitionedIvmTableAndMv(String db) throws Exception {
         createDatabaseAndUse(db);
         createTable("CREATE TABLE " + db + ".ivm_base (\n"
@@ -142,6 +224,14 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         return (MTMV) Env.getCurrentInternalCatalog()
                 .getDb(db).get()
                 .getTableOrMetaException("ivm_mv");
+    }
+
+    private Database getDb(String db) {
+        return Env.getCurrentInternalCatalog().getDb(db).get();
+    }
+
+    private OlapTable getBaseTable(String db) throws Exception {
+        return (OlapTable) getDb(db).getTableOrMetaException("ivm_base");
     }
 
     private void setBinlogBroken(MTMV mtmv, boolean binlogBroken) {

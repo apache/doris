@@ -500,6 +500,22 @@ public class MTMV extends OlapTable {
         }
     }
 
+    public boolean markIvmBinlogBroken() {
+        writeMvLock();
+        try {
+            if (ivmInfo == null) {
+                ivmInfo = new IvmInfo();
+            }
+            if (ivmInfo.isBinlogBroken()) {
+                return false;
+            }
+            ivmInfo.setBinlogBroken(true);
+            return true;
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
     public List<String> getInsertedColumnNames()  {
         List<Column> columns = getBaseSchema(true);
         List<String> columnNames = Lists.newArrayListWithExpectedSize(columns.size());

@@ -2047,6 +2047,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                        new BaseTableInfo(olapTable), "Base table partition was dropped without row binlog");
                 partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
@@ -3799,6 +3801,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.writeLock();
         try {
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap =  new HashMap<>();
+            if (!info.getPartitions().isEmpty()) {
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                        new BaseTableInfo(olapTable), "Base table was truncated without row binlog");
+            }
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
                                     recyclePartitionParamMap, isForceDrop);
 
