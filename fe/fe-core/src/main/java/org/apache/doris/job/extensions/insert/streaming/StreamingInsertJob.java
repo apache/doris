@@ -1406,6 +1406,32 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
+     * Actively pull the running task's fail reason from cdc_client and fail it immediately,
+     * so a hard write failure (e.g. data quality error) does not wait out the whole timeout.
+     * Only applies to StreamingMultiTask.
+     */
+    public void detectTaskFailure() throws JobException {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
+            return;
+        }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        String failReason = runningMultiTask.getFailReason();
+        if (StringUtils.isEmpty(failReason)) {
+            return;
+        }
+        writeLock();
+        try {
+            if (this.runningStreamTask == runningMultiTask
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())) {
+                runningMultiTask.onFail(failReason);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
      * The current streamingTask times out; create a new streamingTask.
      * Only applies to StreamingMultiTask.
      */
@@ -1421,7 +1447,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (this.runningStreamTask == runningMultiTask
                     && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
                     && runningMultiTask.isTimeout(progress)) {
-                String timeoutReason = runningMultiTask.getTimeoutReason();
+                String timeoutReason = runningMultiTask.getFailReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
                     timeoutReason = "task failed cause timeout";
                 }

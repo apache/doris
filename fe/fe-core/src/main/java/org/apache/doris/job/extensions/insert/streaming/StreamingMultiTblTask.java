@@ -427,7 +427,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
      * The job needs to obtain the reason for the timeout,
      * such as a data quality error, and needs to expose it to the user.
      */
-    public String getTimeoutReason() {
+    public String getFailReason() {
         if (runningBackendId <= 0) {
             log.info("No running backend for task {}", runningBackendId);
             return "";

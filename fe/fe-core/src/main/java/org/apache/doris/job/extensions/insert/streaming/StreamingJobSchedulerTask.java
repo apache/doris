@@ -84,6 +84,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     }
 
     private void handleRunningState() throws JobException {
+        streamingInsertJob.detectTaskFailure();
         streamingInsertJob.processTimeoutTasks();
         streamingInsertJob.fetchMeta();
         streamingInsertJob.advanceSplitsIfNeed();
