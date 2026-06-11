@@ -603,14 +603,23 @@ public class GsonSerializationTest {
         holder.tbl.put(1L, "col2", 20L);
         holder.tbl.put(2L, "col1", 30L);
 
+        Type tableType = new TypeToken<Table<Long, String, Long>>() {
+        }.getType();
         String streamingJson = GsonUtils.GSON.toJson(holder);
         // serializing the bare Table goes through the global tree mode GuavaTableAdapter
-        String legacyTableJson = GsonUtils.GSON.toJson(holder.tbl,
-                new TypeToken<Table<Long, String, Long>>() {
-                }.getType());
+        String legacyTableJson = GsonUtils.GSON.toJson(holder.tbl, tableType);
         Assert.assertEquals("{\"tbl\":" + legacyTableJson + "}", streamingJson);
 
-        StreamingTableHolder read = GsonUtils.GSON.fromJson(streamingJson, StreamingTableHolder.class);
+        // new-write-old-read: bytes produced by the streaming writer are parsed by the
+        // global tree mode GuavaTableAdapter, simulating rollback / rolling upgrade
+        String streamingTableJson = streamingJson.substring("{\"tbl\":".length(), streamingJson.length() - 1);
+        Table<Long, String, Long> oldRead = GsonUtils.GSON.fromJson(streamingTableJson, tableType);
+        Assert.assertEquals(holder.tbl, oldRead);
+
+        // old-write-new-read: bytes produced by the tree mode writer are parsed by the
+        // streaming reader of the @JsonAdapter field
+        StreamingTableHolder read = GsonUtils.GSON.fromJson("{\"tbl\":" + legacyTableJson + "}",
+                StreamingTableHolder.class);
         Assert.assertEquals(holder.tbl, read.tbl);
     }
 
