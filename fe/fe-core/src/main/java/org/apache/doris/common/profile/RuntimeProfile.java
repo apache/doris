@@ -190,6 +190,24 @@ public class RuntimeProfile {
         return childList.isEmpty();
     }
 
+    public boolean areChildrenDone(int expectedChildNum) {
+        childLock.readLock().lock();
+        try {
+            if (childList.isEmpty() || childList.size() < expectedChildNum) {
+                return false;
+            }
+            for (int i = 0; i < childList.size(); i++) {
+                RuntimeProfile childProfile = childList.get(i).first;
+                if (!(childProfile.getIsDone() || childProfile.getIsCancel())) {
+                    return false;
+                }
+            }
+            return true;
+        } finally {
+            childLock.readLock().unlock();
+        }
+    }
+
     public Map<String, RuntimeProfile> getChildMap() {
         return childMap;
     }

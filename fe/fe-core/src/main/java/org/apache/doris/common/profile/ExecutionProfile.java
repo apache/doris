@@ -288,17 +288,8 @@ public class ExecutionProfile {
     public boolean isCompleted() {
         for (Entry<Integer, RuntimeProfile> element : fragmentProfiles.entrySet()) {
             RuntimeProfile fragmentProfile = element.getValue();
-            // If any fragment is empty, it means BE does not report the profile, then the total
-            // execution profile is not completed.
-            if (fragmentProfile.isEmpty()
-                    || fragmentProfile.getChildList().size() < fragmentIdBeNum.get(element.getKey())) {
+            if (!fragmentProfile.areChildrenDone(fragmentIdBeNum.get(element.getKey()))) {
                 return false;
-            }
-            for (Pair<RuntimeProfile, Boolean> runtimeProfile : fragmentProfile.getChildList()) {
-                // If any child instance profile is not ready, then return false.
-                if (!(runtimeProfile.first.getIsDone() || runtimeProfile.first.getIsCancel())) {
-                    return false;
-                }
             }
         }
         return true;

@@ -633,7 +633,6 @@ public class Profile {
             }
         }
         return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
-
     }
 
     private void updateProfileCompletionStateForStorage() {
