@@ -27,7 +27,7 @@
 | 2 | FIX-STATIC-CREDS-BE | BLOCKER | B-9 | static s3/oss/cos/obs creds → BE as canonical `AWS_*` | **yes** | ✅ | ✅ | ✅ | ✅ `d23d5df9914` |
 | 3 | FIX-SCHEMA-EVOLUTION | BLOCKER | B-1a (M-10 deferred) | connector builds `current_schema_id`/`history_schema_info` thrift dict (Design C) | no¹ | ✅ | ✅ | ✅ 222/0/0 | ✅ `667f779af04` |
 | 4 | FIX-JDBC-DRIVER-URL | BLOCKER | B-8a + B-8b | resolve+alias `jdbc.driver_url` for BE; enforce security allow-list | no² | ✅ | ✅ | ✅ 232/0/0 | ✅ `2d15b1b7ed7` |
-| 5 | FIX-MAPPING-FLAG-KEYS | MAJOR | M-crit | dotted-vs-underscore type-mapping flag keys (wrong type) | no | ✅ | ✅ | ✅ 234/0/0 | 🔄 |
+| 5 | FIX-MAPPING-FLAG-KEYS | MAJOR | M-crit | dotted-vs-underscore type-mapping flag keys (wrong type) | no | ✅ | ✅ | ✅ 234/0/0 | ✅ `9dcf6d1a9e5` |
 | 6 | FIX-KERBEROS-DOAS | MAJOR | M-8 + M-11 | UGI `doAs` on fs/jdbc ops + partition-listing read path | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 | 7 | FIX-FORCE-JNI-SCANNER | MAJOR | M-1 | honor `force_jni_scanner` session var on connector scan | no | ⬜ | ⬜ | ⬜ | ⬜ |
 | 8 | FIX-COUNT-PUSHDOWN | MAJOR* | M-2 | FE-computed `mergedRowCount` / `paimon.row_count` (perf) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
