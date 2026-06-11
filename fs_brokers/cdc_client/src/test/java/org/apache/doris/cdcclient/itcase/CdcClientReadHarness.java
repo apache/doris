@@ -101,6 +101,36 @@ public final class CdcClientReadHarness implements AutoCloseable {
         return new CdcClientReadHarness(jobId, "MYSQL", config);
     }
 
+    /** Build a harness for a PostgreSQL source backed by a Testcontainers instance. */
+    public static CdcClientReadHarness postgres(
+            String jobId,
+            String host,
+            int port,
+            String user,
+            String password,
+            String database,
+            String schema,
+            String includeTables,
+            String offset) {
+        Map<String, String> config = new HashMap<>();
+        config.put(
+                DataSourceConfigKeys.JDBC_URL,
+                "jdbc:postgresql://" + host + ":" + port + "/" + database);
+        config.put(DataSourceConfigKeys.USER, user);
+        config.put(DataSourceConfigKeys.PASSWORD, password);
+        config.put(DataSourceConfigKeys.DATABASE, database);
+        config.put(DataSourceConfigKeys.SCHEMA, schema);
+        config.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
+        config.put(DataSourceConfigKeys.OFFSET, offset);
+        config.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "1");
+        // FE-assigned names so the reader owns and pre-creates the slot/publication.
+        config.put(DataSourceConfigKeys.SLOT_NAME, DataSourceConfigKeys.defaultSlotName(jobId));
+        config.put(
+                DataSourceConfigKeys.PUBLICATION_NAME,
+                DataSourceConfigKeys.defaultPublicationName(jobId));
+        return new CdcClientReadHarness(jobId, "POSTGRES", config);
+    }
+
     public String jobId() {
         return jobId;
     }

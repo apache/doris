@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.itcase;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.itcase.CdcClientReadHarness.SnapshotResult;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,30 +35,29 @@ import org.testcontainers.utility.DockerImageName;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Minimal end-to-end example: drive the cdc_client read path against a MySQL container and verify
- * that a basic table is read correctly in both the snapshot and the incremental (binlog) phase.
- *
- * <p>Serves as the template that the rest of the migrated reading scenarios build on.
+ * Verifies the from-to {@code writeRecords} path decodes per-column MySQL charsets correctly: a
+ * single row carrying utf8mb4 (CJK + emoji), GBK (CJK) and latin1 (accented) columns must round-trip
+ * to the exact original strings in the deserialized JSON.
  */
 @Testcontainers
-class MySqlBasicReadITCase {
+class MySqlCharsetITCase {
 
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(200_000);
+    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(980_000);
+
+    private static final String UTF8MB4_VALUE = "测试数据😀";
+    private static final String GBK_VALUE = "另一个测试数据";
+    private static final String LATIN1_VALUE = "ÀÆÉ Üæû";
 
     @Container
     static final MySQLContainer<?> MYSQL =
             new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
-                    .withConfigurationOverride("docker/server-allow-ancient-date-time")
                     .withDatabaseName("cdc_test")
                     .withUsername("cdc")
                     .withPassword("123456")
@@ -71,13 +69,25 @@ class MySqlBasicReadITCase {
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
-        database = "basic_db_" + jobId;
+        database = "charset_db_" + jobId;
         try (Connection conn = rootConnection("");
                 Statement st = conn.createStatement()) {
             st.execute("CREATE DATABASE " + database);
             st.execute("USE " + database);
-            st.execute("CREATE TABLE t_user (id INT NOT NULL, name VARCHAR(50), PRIMARY KEY (id))");
-            st.execute("INSERT INTO t_user VALUES (1,'alice'), (2,'bob'), (3,'carol')");
+            st.execute(
+                    "CREATE TABLE t_charset ("
+                            + "id INT NOT NULL,"
+                            + "c_utf8mb4 VARCHAR(50) CHARACTER SET utf8mb4,"
+                            + "c_gbk VARCHAR(50) CHARACTER SET gbk,"
+                            + "c_latin1 VARCHAR(50) CHARACTER SET latin1,"
+                            + "PRIMARY KEY (id))");
+            try (java.sql.PreparedStatement ps =
+                    conn.prepareStatement("INSERT INTO t_charset VALUES (1, ?, ?, ?)")) {
+                ps.setString(1, UTF8MB4_VALUE);
+                ps.setString(2, GBK_VALUE);
+                ps.setString(3, LATIN1_VALUE);
+                ps.execute();
+            }
         }
     }
 
@@ -91,54 +101,30 @@ class MySqlBasicReadITCase {
     }
 
     @Test
-    void readsSnapshotThenBinlogInsert() throws Exception {
-        try (CdcClientReadHarness harness =
-                CdcClientReadHarness.mysql(
-                        jobId,
-                        MYSQL.getHost(),
-                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
-                        ROOT_USER,
-                        ROOT_PASSWORD,
-                        database,
-                        "t_user",
-                        "initial")) {
+    void snapshotDecodesPerColumnCharsets() throws Exception {
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                jobId,
+                                MYSQL.getHost(),
+                                MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                ROOT_USER,
+                                ROOT_PASSWORD,
+                                database,
+                                "t_charset",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
 
-            // 1. snapshot reads the 3 seeded rows
-            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
-            SnapshotResult snapshot = harness.readSnapshot(splits);
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_charset");
+            harness.writeSnapshot(splits);
 
-            Map<Integer, String> names = namesById(snapshot.records());
-            assertThat(names).containsOnlyKeys(1, 2, 3);
-            assertThat(names.get(1)).isEqualTo("alice");
-            assertThat(names.get(2)).isEqualTo("bob");
-            assertThat(names.get(3)).isEqualTo("carol");
+            assertThat(harness.loadedRecords()).hasSize(1);
+            JsonNode row = MAPPER.readTree(harness.loadedRecords().get(0));
 
-            // 2. a row inserted after the snapshot shows up in the binlog phase
-            insert(4, "dave");
-
-            List<String> binlog =
-                    harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
-            assertThat(binlog).hasSize(1);
-            JsonNode row = MAPPER.readTree(binlog.get(0));
-            assertThat(row.get("id").asInt()).isEqualTo(4);
-            assertThat(row.get("name").asText()).isEqualTo("dave");
-            assertThat(row.get("__DORIS_DELETE_SIGN__").asInt()).isZero();
-        }
-    }
-
-    private Map<Integer, String> namesById(List<String> records) throws Exception {
-        Map<Integer, String> result = new HashMap<>();
-        for (String record : records) {
-            JsonNode node = MAPPER.readTree(record);
-            result.put(node.get("id").asInt(), node.get("name").asText());
-        }
-        return result;
-    }
-
-    private void insert(int id, String name) throws Exception {
-        try (Connection conn = rootConnection(database);
-                Statement st = conn.createStatement()) {
-            st.execute(String.format("INSERT INTO t_user VALUES (%d, '%s')", id, name));
+            assertThat(row.get("c_utf8mb4").asText()).isEqualTo(UTF8MB4_VALUE);
+            assertThat(row.get("c_gbk").asText()).isEqualTo(GBK_VALUE);
+            assertThat(row.get("c_latin1").asText()).isEqualTo(LATIN1_VALUE);
         }
     }
 
@@ -149,7 +135,8 @@ class MySqlBasicReadITCase {
                         + ":"
                         + MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT)
                         + "/"
-                        + db;
+                        + db
+                        + "?characterEncoding=UTF-8";
         return DriverManager.getConnection(url, ROOT_USER, ROOT_PASSWORD);
     }
 }

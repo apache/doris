@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.itcase;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.itcase.CdcClientReadHarness.SnapshotResult;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,25 +35,25 @@ import org.testcontainers.utility.DockerImageName;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.time.Duration;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Minimal end-to-end example: drive the cdc_client read path against a MySQL container and verify
- * that a basic table is read correctly in both the snapshot and the incremental (binlog) phase.
- *
- * <p>Serves as the template that the rest of the migrated reading scenarios build on.
+ * Simulates a snapshot interrupted partway and resumed: with a small chunk size the table splits
+ * into multiple chunks, and the from-to {@code writeRecords} path reads them as two separate windows
+ * (a first batch, then the remaining batch from the persisted chunk boundaries). The union of both
+ * windows must cover every row exactly once — no chunk re-read, no row skipped across the gap.
  */
 @Testcontainers
-class MySqlBasicReadITCase {
+class MySqlSnapshotResumeITCase {
 
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(200_000);
+    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(950_000);
+    private static final int ROW_COUNT = 20;
 
     @Container
     static final MySQLContainer<?> MYSQL =
@@ -71,13 +70,20 @@ class MySqlBasicReadITCase {
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
-        database = "basic_db_" + jobId;
+        database = "resume_snap_db_" + jobId;
         try (Connection conn = rootConnection("");
                 Statement st = conn.createStatement()) {
             st.execute("CREATE DATABASE " + database);
             st.execute("USE " + database);
             st.execute("CREATE TABLE t_user (id INT NOT NULL, name VARCHAR(50), PRIMARY KEY (id))");
-            st.execute("INSERT INTO t_user VALUES (1,'alice'), (2,'bob'), (3,'carol')");
+            StringBuilder values = new StringBuilder();
+            for (int i = 1; i <= ROW_COUNT; i++) {
+                if (i > 1) {
+                    values.append(',');
+                }
+                values.append("(").append(i).append(",'name-").append(i).append("')");
+            }
+            st.execute("INSERT INTO t_user VALUES " + values);
         }
     }
 
@@ -91,55 +97,59 @@ class MySqlBasicReadITCase {
     }
 
     @Test
-    void readsSnapshotThenBinlogInsert() throws Exception {
-        try (CdcClientReadHarness harness =
-                CdcClientReadHarness.mysql(
-                        jobId,
-                        MYSQL.getHost(),
-                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
-                        ROOT_USER,
-                        ROOT_PASSWORD,
-                        database,
-                        "t_user",
-                        "initial")) {
+    void resumedSnapshotReadsEveryChunkExactlyOnce() throws Exception {
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                        jobId,
+                                        MYSQL.getHost(),
+                                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                        ROOT_USER,
+                                        ROOT_PASSWORD,
+                                        database,
+                                        "t_user",
+                                        "initial",
+                                        "doris_target_db",
+                                        mock)
+                                .withSplitSize(3)) {
 
-            // 1. snapshot reads the 3 seeded rows
             List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
-            SnapshotResult snapshot = harness.readSnapshot(splits);
+            // a small chunk size must yield several chunks, otherwise there is nothing to resume
+            assertThat(splits.size()).isGreaterThan(1);
 
-            Map<Integer, String> names = namesById(snapshot.records());
-            assertThat(names).containsOnlyKeys(1, 2, 3);
-            assertThat(names.get(1)).isEqualTo("alice");
-            assertThat(names.get(2)).isEqualTo("bob");
-            assertThat(names.get(3)).isEqualTo("carol");
+            // snapshot_parallelism=1: FE issues one chunk per read window, mirrored here
+            int cut = splits.size() / 2;
+            // first window: read the leading chunks (snapshot interrupted after these)
+            for (int i = 0; i < cut; i++) {
+                harness.writeSnapshot(Collections.singletonList(splits.get(i)));
+            }
+            int afterFirst = harness.loadedRecords().size();
+            assertThat(afterFirst).isPositive();
 
-            // 2. a row inserted after the snapshot shows up in the binlog phase
-            insert(4, "dave");
+            // resume: read the remaining chunks from their persisted boundaries
+            for (int i = cut; i < splits.size(); i++) {
+                harness.writeSnapshot(Collections.singletonList(splits.get(i)));
+            }
 
-            List<String> binlog =
-                    harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
-            assertThat(binlog).hasSize(1);
-            JsonNode row = MAPPER.readTree(binlog.get(0));
-            assertThat(row.get("id").asInt()).isEqualTo(4);
-            assertThat(row.get("name").asText()).isEqualTo("dave");
-            assertThat(row.get("__DORIS_DELETE_SIGN__").asInt()).isZero();
+            List<Integer> ids = ids(harness.loadedRecords());
+            // every row read exactly once across the two windows
+            assertThat(ids).hasSize(ROW_COUNT);
+            assertThat(ids).doesNotHaveDuplicates();
+            List<Integer> expected = new ArrayList<>();
+            for (int i = 1; i <= ROW_COUNT; i++) {
+                expected.add(i);
+            }
+            assertThat(ids).containsExactlyInAnyOrderElementsOf(expected);
         }
     }
 
-    private Map<Integer, String> namesById(List<String> records) throws Exception {
-        Map<Integer, String> result = new HashMap<>();
+    private List<Integer> ids(List<String> records) throws Exception {
+        List<Integer> result = new ArrayList<>();
         for (String record : records) {
             JsonNode node = MAPPER.readTree(record);
-            result.put(node.get("id").asInt(), node.get("name").asText());
+            result.add(node.get("id").asInt());
         }
         return result;
-    }
-
-    private void insert(int id, String name) throws Exception {
-        try (Connection conn = rootConnection(database);
-                Statement st = conn.createStatement()) {
-            st.execute(String.format("INSERT INTO t_user VALUES (%d, '%s')", id, name));
-        }
     }
 
     private Connection rootConnection(String db) throws Exception {

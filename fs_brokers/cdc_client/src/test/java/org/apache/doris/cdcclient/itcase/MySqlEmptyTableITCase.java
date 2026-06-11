@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.itcase;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.itcase.CdcClientReadHarness.SnapshotResult;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -37,29 +36,24 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Minimal end-to-end example: drive the cdc_client read path against a MySQL container and verify
- * that a basic table is read correctly in both the snapshot and the incremental (binlog) phase.
- *
- * <p>Serves as the template that the rest of the migrated reading scenarios build on.
+ * Verifies the from-to {@code writeRecords} path handles an empty MySQL table: the snapshot yields
+ * zero records and cleanly transitions to the binlog phase, where a later insert is still captured.
  */
 @Testcontainers
-class MySqlBasicReadITCase {
+class MySqlEmptyTableITCase {
 
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(200_000);
+    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(990_000);
 
     @Container
     static final MySQLContainer<?> MYSQL =
             new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
-                    .withConfigurationOverride("docker/server-allow-ancient-date-time")
                     .withDatabaseName("cdc_test")
                     .withUsername("cdc")
                     .withPassword("123456")
@@ -71,13 +65,12 @@ class MySqlBasicReadITCase {
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
-        database = "basic_db_" + jobId;
+        database = "empty_db_" + jobId;
         try (Connection conn = rootConnection("");
                 Statement st = conn.createStatement()) {
             st.execute("CREATE DATABASE " + database);
             st.execute("USE " + database);
-            st.execute("CREATE TABLE t_user (id INT NOT NULL, name VARCHAR(50), PRIMARY KEY (id))");
-            st.execute("INSERT INTO t_user VALUES (1,'alice'), (2,'bob'), (3,'carol')");
+            st.execute("CREATE TABLE t_user (id INT PRIMARY KEY, name VARCHAR(50))");
         }
     }
 
@@ -91,54 +84,36 @@ class MySqlBasicReadITCase {
     }
 
     @Test
-    void readsSnapshotThenBinlogInsert() throws Exception {
-        try (CdcClientReadHarness harness =
-                CdcClientReadHarness.mysql(
-                        jobId,
-                        MYSQL.getHost(),
-                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
-                        ROOT_USER,
-                        ROOT_PASSWORD,
-                        database,
-                        "t_user",
-                        "initial")) {
+    void emptySnapshotTransitionsCleanlyToBinlog() throws Exception {
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                jobId,
+                                MYSQL.getHost(),
+                                MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                ROOT_USER,
+                                ROOT_PASSWORD,
+                                database,
+                                "t_user",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
 
-            // 1. snapshot reads the 3 seeded rows
             List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
-            SnapshotResult snapshot = harness.readSnapshot(splits);
+            harness.writeSnapshot(splits);
+            assertThat(harness.loadedRecords()).isEmpty();
 
-            Map<Integer, String> names = namesById(snapshot.records());
-            assertThat(names).containsOnlyKeys(1, 2, 3);
-            assertThat(names.get(1)).isEqualTo("alice");
-            assertThat(names.get(2)).isEqualTo("bob");
-            assertThat(names.get(3)).isEqualTo("carol");
-
-            // 2. a row inserted after the snapshot shows up in the binlog phase
-            insert(4, "dave");
-
-            List<String> binlog =
-                    harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
+            // The empty snapshot must still hand off to binlog cleanly.
+            harness.enterBinlog(splits);
+            try (Connection conn = rootConnection(database);
+                    Statement st = conn.createStatement()) {
+                st.execute("INSERT INTO t_user VALUES (1, 'alice')");
+            }
+            List<String> binlog = harness.continueBinlog(1, Duration.ofSeconds(90));
             assertThat(binlog).hasSize(1);
             JsonNode row = MAPPER.readTree(binlog.get(0));
-            assertThat(row.get("id").asInt()).isEqualTo(4);
-            assertThat(row.get("name").asText()).isEqualTo("dave");
-            assertThat(row.get("__DORIS_DELETE_SIGN__").asInt()).isZero();
-        }
-    }
-
-    private Map<Integer, String> namesById(List<String> records) throws Exception {
-        Map<Integer, String> result = new HashMap<>();
-        for (String record : records) {
-            JsonNode node = MAPPER.readTree(record);
-            result.put(node.get("id").asInt(), node.get("name").asText());
-        }
-        return result;
-    }
-
-    private void insert(int id, String name) throws Exception {
-        try (Connection conn = rootConnection(database);
-                Statement st = conn.createStatement()) {
-            st.execute(String.format("INSERT INTO t_user VALUES (%d, '%s')", id, name));
+            assertThat(row.get("id").asInt()).isEqualTo(1);
+            assertThat(row.get("name").asText()).isEqualTo("alice");
         }
     }
 

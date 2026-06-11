@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.itcase;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.itcase.CdcClientReadHarness.SnapshotResult;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,25 +35,23 @@ import org.testcontainers.utility.DockerImageName;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Minimal end-to-end example: drive the cdc_client read path against a MySQL container and verify
- * that a basic table is read correctly in both the snapshot and the incremental (binlog) phase.
- *
- * <p>Serves as the template that the rest of the migrated reading scenarios build on.
+ * Exercises the from-to {@code writeRecords} path end to end: read from a MySQL container ->
+ * deserialize -> stream-load + commit-offset to a {@link MockDorisServer}. Verifies the rows are
+ * actually stream-loaded and the offset is committed — behavior the TVF path does not cover.
  */
 @Testcontainers
-class MySqlBasicReadITCase {
+class MySqlWriteRecordITCase {
 
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(200_000);
+    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(300_000);
 
     @Container
     static final MySQLContainer<?> MYSQL =
@@ -71,7 +68,7 @@ class MySqlBasicReadITCase {
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
-        database = "basic_db_" + jobId;
+        database = "fromto_db_" + jobId;
         try (Connection conn = rootConnection("");
                 Statement st = conn.createStatement()) {
             st.execute("CREATE DATABASE " + database);
@@ -91,38 +88,38 @@ class MySqlBasicReadITCase {
     }
 
     @Test
-    void readsSnapshotThenBinlogInsert() throws Exception {
-        try (CdcClientReadHarness harness =
-                CdcClientReadHarness.mysql(
-                        jobId,
-                        MYSQL.getHost(),
-                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
-                        ROOT_USER,
-                        ROOT_PASSWORD,
-                        database,
-                        "t_user",
-                        "initial")) {
+    void snapshotStreamLoadsRowsAndCommitsOffset() throws Exception {
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                jobId,
+                                MYSQL.getHost(),
+                                MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                ROOT_USER,
+                                ROOT_PASSWORD,
+                                database,
+                                "t_user",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
 
-            // 1. snapshot reads the 3 seeded rows
             List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
-            SnapshotResult snapshot = harness.readSnapshot(splits);
+            harness.writeSnapshot(splits);
 
-            Map<Integer, String> names = namesById(snapshot.records());
+            // the 3 seeded rows were stream-loaded to the (mock) BE
+            Map<Integer, String> names = namesById(harness.loadedRecords());
             assertThat(names).containsOnlyKeys(1, 2, 3);
             assertThat(names.get(1)).isEqualTo("alice");
             assertThat(names.get(2)).isEqualTo("bob");
             assertThat(names.get(3)).isEqualTo("carol");
 
-            // 2. a row inserted after the snapshot shows up in the binlog phase
-            insert(4, "dave");
-
-            List<String> binlog =
-                    harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
-            assertThat(binlog).hasSize(1);
-            JsonNode row = MAPPER.readTree(binlog.get(0));
-            assertThat(row.get("id").asInt()).isEqualTo(4);
-            assertThat(row.get("name").asText()).isEqualTo("dave");
-            assertThat(row.get("__DORIS_DELETE_SIGN__").asInt()).isZero();
+            // the offset was committed to the (mock) FE, carrying the snapshot high-watermark
+            String offset = harness.committedOffset();
+            assertThat(offset).isNotNull();
+            JsonNode commit = MAPPER.readTree(offset);
+            assertThat(commit.get("jobId").asLong()).isEqualTo(Long.parseLong(jobId));
+            assertThat(commit.get("scannedRows").asLong()).isEqualTo(3);
+            assertThat(commit.get("offset").asText()).contains("splitId");
         }
     }
 
@@ -133,13 +130,6 @@ class MySqlBasicReadITCase {
             result.put(node.get("id").asInt(), node.get("name").asText());
         }
         return result;
-    }
-
-    private void insert(int id, String name) throws Exception {
-        try (Connection conn = rootConnection(database);
-                Statement st = conn.createStatement()) {
-            st.execute(String.format("INSERT INTO t_user VALUES (%d, '%s')", id, name));
-        }
     }
 
     private Connection rootConnection(String db) throws Exception {

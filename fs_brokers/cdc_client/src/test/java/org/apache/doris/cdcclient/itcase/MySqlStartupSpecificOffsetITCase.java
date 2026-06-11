@@ -20,8 +20,6 @@ package org.apache.doris.cdcclient.itcase;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.itcase.CdcClientReadHarness.SnapshotResult;
-import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,31 +33,29 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Duration;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Minimal end-to-end example: drive the cdc_client read path against a MySQL container and verify
- * that a basic table is read correctly in both the snapshot and the incremental (binlog) phase.
- *
- * <p>Serves as the template that the rest of the migrated reading scenarios build on.
+ * Verifies the specific-offset startup mode for MySQL: given a recorded binlog file/position, the
+ * job replays from exactly that point forward — capturing changes made after the recorded position
+ * (even ones that happened before the job started) while never re-reading anything before it.
  */
 @Testcontainers
-class MySqlBasicReadITCase {
+class MySqlStartupSpecificOffsetITCase {
 
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(200_000);
+    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(970_000);
 
     @Container
     static final MySQLContainer<?> MYSQL =
             new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
-                    .withConfigurationOverride("docker/server-allow-ancient-date-time")
                     .withDatabaseName("cdc_test")
                     .withUsername("cdc")
                     .withPassword("123456")
@@ -71,13 +67,13 @@ class MySqlBasicReadITCase {
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
-        database = "basic_db_" + jobId;
+        database = "specoff_db_" + jobId;
         try (Connection conn = rootConnection("");
                 Statement st = conn.createStatement()) {
             st.execute("CREATE DATABASE " + database);
             st.execute("USE " + database);
-            st.execute("CREATE TABLE t_user (id INT NOT NULL, name VARCHAR(50), PRIMARY KEY (id))");
-            st.execute("INSERT INTO t_user VALUES (1,'alice'), (2,'bob'), (3,'carol')");
+            st.execute("CREATE TABLE t_user (id INT PRIMARY KEY, name VARCHAR(50))");
+            st.execute("INSERT INTO t_user VALUES (1,'alice'), (2,'bob')");
         }
     }
 
@@ -91,54 +87,68 @@ class MySqlBasicReadITCase {
     }
 
     @Test
-    void readsSnapshotThenBinlogInsert() throws Exception {
-        try (CdcClientReadHarness harness =
-                CdcClientReadHarness.mysql(
-                        jobId,
-                        MYSQL.getHost(),
-                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
-                        ROOT_USER,
-                        ROOT_PASSWORD,
-                        database,
-                        "t_user",
-                        "initial")) {
+    void specificOffsetReplaysFromRecordedPositionForward() throws Exception {
+        // Record the binlog position right after the pre-existing rows.
+        String[] pos = currentBinlogPosition();
+        String offset = String.format("{\"file\":\"%s\",\"pos\":\"%s\"}", pos[0], pos[1]);
 
-            // 1. snapshot reads the 3 seeded rows
-            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
-            SnapshotResult snapshot = harness.readSnapshot(splits);
+        // This change happens after the recorded offset but before the job starts — it must be read.
+        insert("INSERT INTO t_user VALUES (3,'carol')");
 
-            Map<Integer, String> names = namesById(snapshot.records());
-            assertThat(names).containsOnlyKeys(1, 2, 3);
-            assertThat(names.get(1)).isEqualTo("alice");
-            assertThat(names.get(2)).isEqualTo("bob");
-            assertThat(names.get(3)).isEqualTo("carol");
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                jobId,
+                                MYSQL.getHost(),
+                                MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                ROOT_USER,
+                                ROOT_PASSWORD,
+                                database,
+                                "t_user",
+                                offset,
+                                "doris_target_db",
+                                mock)) {
 
-            // 2. a row inserted after the snapshot shows up in the binlog phase
-            insert(4, "dave");
+            // First window replays from the recorded position, so row 3 (already in the binlog)
+            // is read straight away rather than waited on as a fresh change.
+            List<Integer> first = ids(harness.readBinlogFromStartupMode(1, Duration.ofSeconds(90)));
+            assertThat(first).containsExactly(3);
 
-            List<String> binlog =
-                    harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
-            assertThat(binlog).hasSize(1);
-            JsonNode row = MAPPER.readTree(binlog.get(0));
-            assertThat(row.get("id").asInt()).isEqualTo(4);
-            assertThat(row.get("name").asText()).isEqualTo("dave");
-            assertThat(row.get("__DORIS_DELETE_SIGN__").asInt()).isZero();
+            insert("INSERT INTO t_user VALUES (4,'dave')");
+            List<Integer> second = ids(harness.continueBinlog(1, Duration.ofSeconds(90)));
+            assertThat(second).containsExactly(4);
+
+            // Replays from the recorded position forward: rows 3 and 4 only, never 1 or 2.
+            List<Integer> all = ids(harness.loadedRecords());
+            assertThat(all).doesNotContain(1, 2);
+            assertThat(all).containsExactlyInAnyOrder(3, 4);
         }
     }
 
-    private Map<Integer, String> namesById(List<String> records) throws Exception {
-        Map<Integer, String> result = new HashMap<>();
+    private String[] currentBinlogPosition() throws Exception {
+        try (Connection conn = rootConnection(database);
+                Statement st = conn.createStatement();
+                ResultSet rs = st.executeQuery("SHOW MASTER STATUS")) {
+            if (!rs.next()) {
+                throw new IllegalStateException("SHOW MASTER STATUS returned no row");
+            }
+            return new String[] {rs.getString("File"), rs.getString("Position")};
+        }
+    }
+
+    private List<Integer> ids(List<String> records) throws Exception {
+        List<Integer> result = new ArrayList<>();
         for (String record : records) {
             JsonNode node = MAPPER.readTree(record);
-            result.put(node.get("id").asInt(), node.get("name").asText());
+            result.add(node.get("id").asInt());
         }
         return result;
     }
 
-    private void insert(int id, String name) throws Exception {
+    private void insert(String sql) throws Exception {
         try (Connection conn = rootConnection(database);
                 Statement st = conn.createStatement()) {
-            st.execute(String.format("INSERT INTO t_user VALUES (%d, '%s')", id, name));
+            st.execute(sql);
         }
     }
 

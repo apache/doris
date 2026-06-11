@@ -19,8 +19,8 @@ package org.apache.doris.cdcclient.itcase;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.itcase.CdcClientReadHarness.SnapshotResult;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -43,18 +43,16 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Minimal end-to-end example: drive the cdc_client read path against a MySQL container and verify
- * that a basic table is read correctly in both the snapshot and the incremental (binlog) phase.
- *
- * <p>Serves as the template that the rest of the migrated reading scenarios build on.
+ * Exercises the from-to {@code writeRecords} path for incremental (binlog) DML: insert / update /
+ * delete after the snapshot must be stream-loaded with the correct values and delete sign.
  */
 @Testcontainers
-class MySqlBasicReadITCase {
+class MySqlWriteDmlITCase {
 
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(200_000);
+    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(400_000);
 
     @Container
     static final MySQLContainer<?> MYSQL =
@@ -71,7 +69,7 @@ class MySqlBasicReadITCase {
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
-        database = "basic_db_" + jobId;
+        database = "dml_db_" + jobId;
         try (Connection conn = rootConnection("");
                 Statement st = conn.createStatement()) {
             st.execute("CREATE DATABASE " + database);
@@ -91,55 +89,55 @@ class MySqlBasicReadITCase {
     }
 
     @Test
-    void readsSnapshotThenBinlogInsert() throws Exception {
-        try (CdcClientReadHarness harness =
-                CdcClientReadHarness.mysql(
-                        jobId,
-                        MYSQL.getHost(),
-                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
-                        ROOT_USER,
-                        ROOT_PASSWORD,
-                        database,
-                        "t_user",
-                        "initial")) {
+    void binlogDmlStreamLoadsInsertUpdateDelete() throws Exception {
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                jobId,
+                                MYSQL.getHost(),
+                                MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                ROOT_USER,
+                                ROOT_PASSWORD,
+                                database,
+                                "t_user",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
 
-            // 1. snapshot reads the 3 seeded rows
+            // snapshot first (establishes the high-watermark to resume binlog from)
             List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
-            SnapshotResult snapshot = harness.readSnapshot(splits);
+            harness.writeSnapshot(splits);
 
-            Map<Integer, String> names = namesById(snapshot.records());
-            assertThat(names).containsOnlyKeys(1, 2, 3);
-            assertThat(names.get(1)).isEqualTo("alice");
-            assertThat(names.get(2)).isEqualTo("bob");
-            assertThat(names.get(3)).isEqualTo("carol");
+            // three DML ops after the snapshot
+            try (Connection conn = rootConnection(database);
+                    Statement st = conn.createStatement()) {
+                st.execute("INSERT INTO t_user VALUES (4, 'dave')");
+                st.execute("UPDATE t_user SET name = 'alice2' WHERE id = 1");
+                st.execute("DELETE FROM t_user WHERE id = 2");
+            }
 
-            // 2. a row inserted after the snapshot shows up in the binlog phase
-            insert(4, "dave");
+            List<String> binlog = harness.writeBinlogUntil(splits, 3, Duration.ofSeconds(60));
 
-            List<String> binlog =
-                    harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
-            assertThat(binlog).hasSize(1);
-            JsonNode row = MAPPER.readTree(binlog.get(0));
-            assertThat(row.get("id").asInt()).isEqualTo(4);
-            assertThat(row.get("name").asText()).isEqualTo("dave");
-            assertThat(row.get("__DORIS_DELETE_SIGN__").asInt()).isZero();
+            Map<Integer, JsonNode> byId = indexById(binlog);
+            assertThat(byId).containsKeys(1, 2, 4);
+            // insert
+            assertThat(byId.get(4).get("name").asText()).isEqualTo("dave");
+            assertThat(byId.get(4).get(Constants.DORIS_DELETE_SIGN).asInt()).isZero();
+            // update carries the new value
+            assertThat(byId.get(1).get("name").asText()).isEqualTo("alice2");
+            assertThat(byId.get(1).get(Constants.DORIS_DELETE_SIGN).asInt()).isZero();
+            // delete carries the delete sign
+            assertThat(byId.get(2).get(Constants.DORIS_DELETE_SIGN).asInt()).isEqualTo(1);
         }
     }
 
-    private Map<Integer, String> namesById(List<String> records) throws Exception {
-        Map<Integer, String> result = new HashMap<>();
+    private Map<Integer, JsonNode> indexById(List<String> records) throws Exception {
+        Map<Integer, JsonNode> result = new HashMap<>();
         for (String record : records) {
             JsonNode node = MAPPER.readTree(record);
-            result.put(node.get("id").asInt(), node.get("name").asText());
+            result.put(node.get("id").asInt(), node);
         }
         return result;
-    }
-
-    private void insert(int id, String name) throws Exception {
-        try (Connection conn = rootConnection(database);
-                Statement st = conn.createStatement()) {
-            st.execute(String.format("INSERT INTO t_user VALUES (%d, '%s')", id, name));
-        }
     }
 
     private Connection rootConnection(String db) throws Exception {

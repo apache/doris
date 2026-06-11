@@ -37,24 +37,21 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Minimal end-to-end example: drive the cdc_client read path against a MySQL container and verify
- * that a basic table is read correctly in both the snapshot and the incremental (binlog) phase.
- *
- * <p>Serves as the template that the rest of the migrated reading scenarios build on.
+ * Investigates MySQL date/year handling across the snapshot and binlog phases: whether genuinely
+ * ancient 4-digit years are preserved, whether 2-digit-input years stay completed, and whether the
+ * YEAR type is affected — for both phases.
  */
 @Testcontainers
-class MySqlBasicReadITCase {
+class MySqlDateAdjusterITCase {
 
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(200_000);
+    private static final AtomicLong JOB_ID_SEQ = new AtomicLong(800_000);
 
     @Container
     static final MySQLContainer<?> MYSQL =
@@ -71,13 +68,24 @@ class MySqlBasicReadITCase {
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
-        database = "basic_db_" + jobId;
+        database = "date_db_" + jobId;
         try (Connection conn = rootConnection("");
                 Statement st = conn.createStatement()) {
             st.execute("CREATE DATABASE " + database);
             st.execute("USE " + database);
-            st.execute("CREATE TABLE t_user (id INT NOT NULL, name VARCHAR(50), PRIMARY KEY (id))");
-            st.execute("INSERT INTO t_user VALUES (1,'alice'), (2,'bob'), (3,'carol')");
+            st.execute(
+                    "CREATE TABLE t_dates ("
+                            + "id INT NOT NULL,"
+                            + "d_anc DATE,"      // ancient, 4-digit input
+                            + "d_2d DATE,"       // 2-digit input -> MySQL completes
+                            + "d_norm DATE,"     // normal
+                            + "dt_anc DATETIME," // ancient datetime
+                            + "yr YEAR,"
+                            + "PRIMARY KEY (id))");
+            // row read in the snapshot phase
+            st.execute(
+                    "INSERT INTO t_dates VALUES "
+                            + "(1, '0099-01-01', '99-01-01', '2020-07-17', '0099-01-01 00:00:00', 1999)");
         }
     }
 
@@ -91,7 +99,7 @@ class MySqlBasicReadITCase {
     }
 
     @Test
-    void readsSnapshotThenBinlogInsert() throws Exception {
+    void ancientYearsPreservedInBothPhases() throws Exception {
         try (CdcClientReadHarness harness =
                 CdcClientReadHarness.mysql(
                         jobId,
@@ -100,45 +108,41 @@ class MySqlBasicReadITCase {
                         ROOT_USER,
                         ROOT_PASSWORD,
                         database,
-                        "t_user",
+                        "t_dates",
                         "initial")) {
 
-            // 1. snapshot reads the 3 seeded rows
-            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_dates");
             SnapshotResult snapshot = harness.readSnapshot(splits);
+            JsonNode snap = MAPPER.readTree(snapshot.records().get(0));
+            System.out.println("[ADJUSTER] snapshot row = " + snap);
 
-            Map<Integer, String> names = namesById(snapshot.records());
-            assertThat(names).containsOnlyKeys(1, 2, 3);
-            assertThat(names.get(1)).isEqualTo("alice");
-            assertThat(names.get(2)).isEqualTo("bob");
-            assertThat(names.get(3)).isEqualTo("carol");
+            // ancient row in the binlog phase
+            insertAncient(2);
+            List<String> binlog = harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
+            JsonNode bin = MAPPER.readTree(binlog.get(0));
+            System.out.println("[ADJUSTER] binlog row   = " + bin);
 
-            // 2. a row inserted after the snapshot shows up in the binlog phase
-            insert(4, "dave");
+            // snapshot phase: faithful ancient years; 2-digit stays completed; normal unchanged
+            assertThat(snap.get("d_anc").asText()).isEqualTo("0099-01-01");
+            assertThat(snap.get("d_2d").asText()).isEqualTo("1999-01-01");
+            assertThat(snap.get("d_norm").asText()).isEqualTo("2020-07-17");
+            assertThat(snap.get("dt_anc").asText()).startsWith("0099-01-01 00:00:00");
+            assertThat(snap.get("yr").asInt()).isEqualTo(1999);
 
-            List<String> binlog =
-                    harness.readBinlogUntil(snapshot, splits, 1, Duration.ofSeconds(60));
-            assertThat(binlog).hasSize(1);
-            JsonNode row = MAPPER.readTree(binlog.get(0));
-            assertThat(row.get("id").asInt()).isEqualTo(4);
-            assertThat(row.get("name").asText()).isEqualTo("dave");
-            assertThat(row.get("__DORIS_DELETE_SIGN__").asInt()).isZero();
+            // binlog phase: faithful ancient years
+            assertThat(bin.get("d_anc").asText()).isEqualTo("0017-08-12");
+            assertThat(bin.get("dt_anc").asText()).startsWith("0017-08-12 00:00:00");
         }
     }
 
-    private Map<Integer, String> namesById(List<String> records) throws Exception {
-        Map<Integer, String> result = new HashMap<>();
-        for (String record : records) {
-            JsonNode node = MAPPER.readTree(record);
-            result.put(node.get("id").asInt(), node.get("name").asText());
-        }
-        return result;
-    }
-
-    private void insert(int id, String name) throws Exception {
+    private void insertAncient(int id) throws Exception {
         try (Connection conn = rootConnection(database);
                 Statement st = conn.createStatement()) {
-            st.execute(String.format("INSERT INTO t_user VALUES (%d, '%s')", id, name));
+            st.execute(
+                    String.format(
+                            "INSERT INTO t_dates VALUES (%d, '0017-08-12', '70-01-01', '2021-01-01',"
+                                    + " '0017-08-12 00:00:00', 2000)",
+                            id));
         }
     }
 
