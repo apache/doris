@@ -102,6 +102,25 @@ TEST_F(BlockCompressionTest, single) {
     test_single_slice(segment_v2::CompressionTypePB::ZSTD);
 }
 
+TEST_F(BlockCompressionTest, zstdLargeInputDoesNotReserveCompressBound) {
+    BlockCompressionCodec* codec = nullptr;
+    auto st = get_block_compression_codec(segment_v2::CompressionTypePB::ZSTD, &codec);
+    ASSERT_TRUE(st.ok());
+
+    std::string orig(9 * 1024 * 1024, 'a');
+    faststring compressed;
+    st = codec->compress(orig, &compressed);
+    ASSERT_TRUE(st.ok());
+    ASSERT_GT(compressed.size(), 0);
+    EXPECT_LT(compressed.capacity(), MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE);
+
+    std::string uncompressed(orig.size(), '\0');
+    Slice uncompressed_slice(uncompressed);
+    st = codec->decompress(compressed, &uncompressed_slice);
+    ASSERT_TRUE(st.ok());
+    EXPECT_EQ(orig, uncompressed);
+}
+
 void test_multi_slices(segment_v2::CompressionTypePB type) {
     BlockCompressionCodec* codec;
     auto st = get_block_compression_codec(type, &codec);

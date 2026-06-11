@@ -1098,12 +1098,13 @@ public:
 
         try {
             size_t max_len = max_compressed_len(uncompressed_size);
+            const bool reuse_context_buffer = max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE;
+            const size_t output_chunk_size = ZSTD_CStreamOutSize();
             Slice compressed_buf;
-            if (max_len > MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
-                // use output directly
-                output->resize(max_len);
+            if (!reuse_context_buffer) {
+                output->resize(output_chunk_size);
                 compressed_buf.data = reinterpret_cast<char*>(output->data());
-                compressed_buf.size = max_len;
+                compressed_buf.size = output->size();
             } else {
                 {
                     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
@@ -1139,6 +1140,11 @@ public:
 
                 bool finished = false;
                 do {
+                    if (!reuse_context_buffer && out_buf.pos == out_buf.size) {
+                        output->resize(output->size() + output_chunk_size);
+                        out_buf.dst = output->data();
+                        out_buf.size = output->size();
+                    }
                     // do compress
                     ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
 
@@ -1149,7 +1155,7 @@ public:
                     }
 
                     // ret is ZSTD hint for needed output buffer size
-                    if (ret > 0 && out_buf.pos == out_buf.size) {
+                    if (reuse_context_buffer && ret > 0 && out_buf.pos == out_buf.size) {
                         compress_failed = true;
                         return Status::InternalError("ZSTD_compressStream2 output buffer full");
                     }
@@ -1160,7 +1166,7 @@ public:
 
             // set compressed size for caller
             output->resize(out_buf.pos);
-            if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+            if (reuse_context_buffer) {
                 output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), out_buf.pos);
             }
         } catch (std::exception& e) {
