@@ -17,15 +17,40 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorContext;
+
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.io.DataInputViewStreamWrapper;
+import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.sink.BatchTableCommit;
+import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
+import org.apache.paimon.table.sink.CommitMessage;
+import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -240,5 +265,275 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertSame(table, resolved);
         Assertions.assertTrue(ops.log.isEmpty(),
                 "with a present transient table, no remote getTable reload must happen");
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-CPP-READER — split serialization format must match the BE reader
+    // ---------------------------------------------------------------------
+
+    /** FE Java-serde leg, byte-identical to PaimonScanPlanProvider.encodeObjectToString (private). */
+    private static String feJavaEncode(Object obj) throws Exception {
+        byte[] bytes = InstantiationUtil.serializeObject(obj);
+        return new String(Base64.getEncoder().encode(bytes), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Builds a REAL paimon {@link DataSplit} offline: a local FileSystemCatalog over LocalFileIO
+     * under the @TempDir warehouse, a real keyed table, two committed rows, then plan().splits().
+     * (Same local-catalog recipe proven by PaimonTableSerdeRoundTripTest; this adds the write step.)
+     */
+    private static DataSplit buildRealDataSplit(Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            for (Split s : table.newReadBuilder().newScan().plan().splits()) {
+                if (s instanceof DataSplit) {
+                    return (DataSplit) s;
+                }
+            }
+            throw new IllegalStateException("test fixture produced no DataSplit");
+        }
+    }
+
+    @Test
+    public void cppReaderFlagSelectsNativeBinaryForDataSplit(@TempDir Path warehouse) throws Exception {
+        DataSplit dataSplit = buildRealDataSplit(warehouse);
+
+        String nativeWire = PaimonScanPlanProvider.encodeSplit(dataSplit, /*cppReader*/ true);
+        byte[] bytes = Base64.getDecoder().decode(nativeWire.getBytes(StandardCharsets.UTF_8));
+        DataSplit roundTripped = DataSplit.deserialize(
+                new DataInputViewStreamWrapper(new ByteArrayInputStream(bytes)));
+
+        // WHY: when enable_paimon_cpp_reader is on, BE's PaimonCppReader runs the NATIVE
+        // paimon::Split::Deserialize over the blob. So FE must emit DataSplit.serialize (native
+        // binary), NOT Java object serde — else BE dies with "paimon-cpp deserialize split failed".
+        // The native wire must (a) decode back to an equal DataSplit (the format BE consumes), and
+        // (b) DIFFER from the Java-serde wire (proves the format actually switched).
+        // MUTATION: dropping the cppReader branch -> both encodings equal / native deserialize fails -> red.
+        Assertions.assertEquals(dataSplit, roundTripped,
+                "native-format wire must round-trip via DataSplit.deserialize (what BE cpp reader decodes)");
+        Assertions.assertNotEquals(feJavaEncode(dataSplit), nativeWire,
+                "flag-on must produce the native binary format, not Java object serialization");
+    }
+
+    @Test
+    public void cppReaderFlagOffKeepsJavaSerialization(@TempDir Path warehouse) throws Exception {
+        DataSplit dataSplit = buildRealDataSplit(warehouse);
+
+        // WHY: default reads (flag off) must be byte-for-byte the existing Java object serialization
+        // for the Java JNI reader — no behavior change when the cpp reader is disabled.
+        // MUTATION: always-native -> the encoding differs from the Java leg -> red.
+        Assertions.assertEquals(feJavaEncode(dataSplit),
+                PaimonScanPlanProvider.encodeSplit(dataSplit, /*cppReader*/ false),
+                "flag-off must keep the Java object serialization byte-for-byte");
+    }
+
+    /** A non-DataSplit Split (the only abstract method is rowCount(); Split is Serializable). */
+    private static final class NonDataSplitStub implements Split {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public long rowCount() {
+            return 0;
+        }
+    }
+
+    @Test
+    public void nonDataSplitStaysJavaSerializedEvenWithCppFlag() throws Exception {
+        NonDataSplitStub stub = new NonDataSplitStub();
+
+        // WHY: the native binary format only exists for DataSplit. System splits (the nonDataSplits
+        // loop) and the no-raw-file JNI fallback have no native form, so they MUST stay Java-serialized
+        // even when the flag is on (legacy's `split instanceof DataSplit` gate). MUTATION: removing the
+        // instanceof guard -> ClassCastException / wrong format applied to a non-DataSplit -> red.
+        Assertions.assertEquals(feJavaEncode(stub),
+                PaimonScanPlanProvider.encodeSplit(stub, /*cppReader*/ true),
+                "a non-DataSplit must never take the native format, even with the cpp flag on");
+    }
+
+    private static ConnectorSession sessionWithProps(Map<String, String> sessionProps) {
+        return new ConnectorSession() {
+            @Override
+            public String getQueryId() {
+                return "q";
+            }
+
+            @Override
+            public String getUser() {
+                return "u";
+            }
+
+            @Override
+            public String getTimeZone() {
+                return "UTC";
+            }
+
+            @Override
+            public String getLocale() {
+                return "en_US";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+
+            @Override
+            public String getCatalogName() {
+                return "c";
+            }
+
+            @Override
+            public <T> T getProperty(String name, Class<T> type) {
+                return null;
+            }
+
+            @Override
+            public Map<String, String> getCatalogProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> getSessionProperties() {
+                return sessionProps;
+            }
+        };
+    }
+
+    @Test
+    public void isCppReaderEnabledReadsSessionProperty() {
+        // WHY: pins the EXACT session key ("enable_paimon_cpp_reader", byte-identical to
+        // SessionVariable.ENABLE_PAIMON_CPP_READER) and the default-false semantics. The format choice
+        // hinges on reading this flag correctly. MUTATION: wrong key, or defaulting true -> red.
+        Assertions.assertTrue(PaimonScanPlanProvider.isCppReaderEnabled(
+                sessionWithProps(Collections.singletonMap("enable_paimon_cpp_reader", "true"))));
+        Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(
+                sessionWithProps(Collections.singletonMap("enable_paimon_cpp_reader", "false"))));
+        Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(
+                sessionWithProps(Collections.emptyMap())), "absent flag must default to false");
+        Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(null),
+                "a null session must default to false");
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-REST-VENDED — per-table vended credentials overlaid as location.*
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void extractVendedTokenEmptyForNullAndNonRestFileIO() {
+        // WHY: vended credentials must be attempted ONLY for REST tables (RESTTokenFileIO). A null
+        // table, a table with no FileIO, and a table with a non-REST FileIO must ALL yield nothing —
+        // never leak/attempt a token. MUTATION: vending for any FileIO type -> red. (The positive
+        // RESTTokenFileIO branch needs a live REST stack -> covered by the fe-core bridge test + E2E.)
+        Assertions.assertTrue(PaimonScanPlanProvider.extractVendedToken(null).isEmpty(),
+                "a null table yields no vended token");
+
+        FakePaimonTable nullFileIo = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        Assertions.assertTrue(PaimonScanPlanProvider.extractVendedToken(nullFileIo).isEmpty(),
+                "a table with no FileIO yields no vended token");
+
+        FakePaimonTable nonRest = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        nonRest.fileIO = LocalFileIO.create();   // a real, non-REST FileIO
+        Assertions.assertTrue(PaimonScanPlanProvider.extractVendedToken(nonRest).isEmpty(),
+                "a non-RESTTokenFileIO table must yield no vended token");
+    }
+
+    /** A ConnectorContext whose vendStorageCredentials returns a fixed normalized map (the engine's
+     * StorageProperties normalization is exercised by the fe-core DefaultConnectorContextVendTest). */
+    private static ConnectorContext vendingContext(Map<String, String> fixed) {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "c";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+
+            @Override
+            public Map<String, String> vendStorageCredentials(Map<String, String> raw) {
+                return fixed;
+            }
+        };
+    }
+
+    @Test
+    public void getScanNodePropertiesOverlaysVendedCreds() {
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+
+        Map<String, String> vended = new HashMap<>();
+        vended.put("AWS_ACCESS_KEY", "vended-ak");
+        vended.put("AWS_SECRET_KEY", "vended-sk");
+        vended.put("AWS_TOKEN", "vended-tok");
+        vended.put("s3.endpoint", "vended-ep");   // collides with the static s3.endpoint below
+
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "static-ep");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(), vendingContext(vended));
+
+        Map<String, String> scanProps = provider.getScanNodeProperties(
+                null, handle, Collections.emptyList(), Optional.empty());
+
+        // WHY (BLOCKER): native-reader REST tables must receive normalized vended AWS_* creds under
+        // location.*; without them BE hits the object store with no credentials (403). Vended overlays
+        // static (legacy precedence). MUTATION: no overlay loop / context not threaded -> AWS_* absent
+        // -> red; overlaying BEFORE the static loop -> the colliding location.s3.endpoint keeps the
+        // static value -> red.
+        Assertions.assertEquals("vended-ak", scanProps.get("location.AWS_ACCESS_KEY"));
+        Assertions.assertEquals("vended-sk", scanProps.get("location.AWS_SECRET_KEY"));
+        Assertions.assertEquals("vended-tok", scanProps.get("location.AWS_TOKEN"));
+        Assertions.assertEquals("vended-ep", scanProps.get("location.s3.endpoint"),
+                "vended creds must overlay (win over) the static location key on collision");
+    }
+
+    @Test
+    public void getScanNodePropertiesNoContextUnchanged() {
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "static-ep");
+        // 2-arg ctor -> context == null (the offline harness path).
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(props, new RecordingPaimonCatalogOps());
+
+        Map<String, String> scanProps = provider.getScanNodeProperties(
+                null, handle, Collections.emptyList(), Optional.empty());
+
+        // WHY: with no context (offline / no vended support) the static-only behavior is preserved —
+        // no overlay, no NPE. MUTATION: NPE on null context, or adding vended keys -> red.
+        Assertions.assertEquals("static-ep", scanProps.get("location.s3.endpoint"));
+        Assertions.assertFalse(scanProps.containsKey("location.AWS_ACCESS_KEY"),
+                "no context -> no vended overlay");
     }
 }

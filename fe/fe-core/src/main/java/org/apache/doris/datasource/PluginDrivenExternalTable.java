@@ -48,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -221,7 +222,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 }
             }
         }
-        return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames);
+        return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
+                tableSchema.getProperties());
     }
 
     @Override
@@ -248,6 +250,28 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumns())
                 .orElse(Collections.emptyList());
+    }
+
+    /**
+     * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
+     * write-only), used by SHOW CREATE TABLE to render LOCATION + PROPERTIES (D-046). The
+     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
+     * the connector so {@link #initSchema()} can derive the partition columns) are stripped — they
+     * are not user-facing options and must not leak into the rendered PROPERTIES(...).
+     */
+    public Map<String, String> getTableProperties() {
+        makeSureInitialized();
+        Map<String, String> raw = getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableProperties())
+                .orElse(Collections.emptyMap());
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : raw.entrySet()) {
+            if ("partition_columns".equals(entry.getKey()) || "primary_keys".equals(entry.getKey())) {
+                continue;
+            }
+            result.put(entry.getKey(), entry.getValue());
+        }
+        return result;
     }
 
     @Override
@@ -449,6 +473,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 // TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName() returns null
                 // (no switch case in TableType.toEngineName), matching legacy behavior.
                 return TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName();
+            case "paimon":
+                // TableType.PAIMON_EXTERNAL_TABLE.toEngineName() returns "paimon",
+                // preserving the legacy PaimonExternalTable engine name.
+                return TableType.PAIMON_EXTERNAL_TABLE.toEngineName();
             default:
                 return super.getEngine();
         }
@@ -467,6 +495,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.name();
             case "max_compute":
                 return TableType.MAX_COMPUTE_EXTERNAL_TABLE.name();
+            case "paimon":
+                return TableType.PAIMON_EXTERNAL_TABLE.name();
             default:
                 return TableType.PLUGIN_EXTERNAL_TABLE.name();
         }

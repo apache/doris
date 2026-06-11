@@ -563,4 +563,206 @@ public class PaimonCatalogFactoryTest {
                         "dlf.catalog.uid", "uid-1")));
         Assertions.assertTrue(ex.getMessage().contains("dlf.endpoint"));
     }
+
+    // ---------------------------------------------------------------------
+    // FIX-STORAGE-CREDS — canonical s3.*/oss.*/AWS_* alias translation
+    // (ported legacy appendS3HdfsProperties + OSSProperties.initializeHadoopStorageConfig)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHadoopConfigurationTranslatesCanonicalS3Credentials() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "s3.access_key", "ak",
+                "s3.secret_key", "sk",
+                "s3.endpoint", "s3.ap-east-1.amazonaws.com"));
+
+        // WHY (BLOCKER, Finding 9.1): a filesystem catalog created with the DOCUMENTED canonical
+        // keys (the same ones test_paimon_s3.groovy passes) must reach the S3 FileIO with real
+        // credentials. Before the fix applyStorageConfig recognized only paimon.*/raw fs.* keys, so
+        // s3.access_key/s3.secret_key/s3.endpoint were SILENTLY DROPPED and the Paimon FileSystem
+        // catalog hit S3 anonymously -> access-denied at plan time. MUTATION: dropping the canonical
+        // s3.* translation (today's behavior) leaves fs.s3a.access.key null -> red.
+        Assertions.assertEquals("ak", conf.get("fs.s3a.access.key"));
+        Assertions.assertEquals("sk", conf.get("fs.s3a.secret.key"));
+        Assertions.assertEquals("s3.ap-east-1.amazonaws.com", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+                conf.get("fs.s3a.aws.credentials.provider"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.s3a.impl"));
+        Assertions.assertEquals("true", conf.get("fs.s3.impl.disable.cache"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationTranslatesAwsEnvAliases() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "AWS_ACCESS_KEY", "ak",
+                "AWS_SECRET_KEY", "sk",
+                "AWS_TOKEN", "tok",
+                "AWS_ENDPOINT", "s3.amazonaws.com",
+                "AWS_REGION", "us-east-1"));
+
+        // WHY: legacy accepted the AWS_* alias family (S3Properties @ConnectorProperty names). This
+        // verifies the alias priority list resolves them (not just the primary s3.* key), including
+        // the session token and endpoint region. MUTATION: dropping any AWS_* alias -> red.
+        Assertions.assertEquals("ak", conf.get("fs.s3a.access.key"));
+        Assertions.assertEquals("sk", conf.get("fs.s3a.secret.key"));
+        Assertions.assertEquals("tok", conf.get("fs.s3a.session.token"));
+        Assertions.assertEquals("s3.amazonaws.com", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("us-east-1", conf.get("fs.s3a.endpoint.region"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationDoesNotEmitCredsProviderForAnonymousBucket() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "s3.endpoint", "s3.amazonaws.com",
+                "s3.region", "us-east-1"));
+
+        // WHY (parity): legacy guards the credentials provider + access/secret keys behind
+        // isNotBlank(accessKey), so a public/anonymous bucket (endpoint/region but no keys) still
+        // gets fs.s3.impl + endpoint but is NOT forced onto our single SimpleAWSCredentialsProvider
+        // override (which would break the env/IAM fallback chain). access.key has no Hadoop default
+        // so it stays null; the provider key DOES have a Hadoop default chain, so the meaningful
+        // check is that we did not override it to Simple-only. MUTATION: emitting the provider or a
+        // blank access key unconditionally -> red (would force credentialed auth on a public bucket).
+        Assertions.assertEquals("s3.amazonaws.com", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("us-east-1", conf.get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.s3a.impl"));
+        Assertions.assertNull(conf.get("fs.s3a.access.key"));
+        Assertions.assertNotEquals("org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+                conf.get("fs.s3a.aws.credentials.provider"),
+                "anonymous bucket must not be forced onto our Simple-only credentials provider");
+    }
+
+    @Test
+    public void buildHadoopConfigurationExplicitFsS3aKeyOverridesCanonical() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "s3.access_key", "canon",
+                "fs.s3a.access.key", "explicit"));
+
+        // WHY: the raw fs.* passthrough runs AFTER the canonical translation (last-write-wins =
+        // legacy addResource(getHadoopStorageConfig) THEN appendUserHadoopConfig ordering), so a
+        // power user who explicitly set fs.s3a.access.key still wins over the canonical alias.
+        // MUTATION: a refactor that reverses precedence (canonical overlays raw) -> "canon" -> red.
+        Assertions.assertEquals("explicit", conf.get("fs.s3a.access.key"));
+    }
+
+    @Test
+    public void buildDlfHiveConfTranslatesCanonicalOssCredentials() {
+        HiveConf hc = PaimonCatalogFactory.buildDlfHiveConf(props(
+                "dlf.access_key", "dak",
+                "dlf.secret_key", "dsk",
+                "dlf.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                "dlf.region", "cn-hangzhou",
+                "oss.access_key", "oak",
+                "oss.secret_key", "osk",
+                "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com",
+                "oss.region", "cn-hangzhou"));
+
+        // WHY (BLOCKER, Finding 9.2): the DLF gate passes when an oss.* key is present, but before
+        // the fix buildDlfHiveConf overlaid storage only through the old applyStorageConfig, which
+        // dropped the canonical oss.access_key/oss.secret_key/oss.endpoint/oss.region -> the HiveConf
+        // carried NO usable OSS FileIO config -> DLF/HMS catalog could not read OSS data files. The
+        // dlf.catalog.* metastore keys must still be present AND the OSS (Jindo) storage keys set.
+        // MUTATION: dropping the canonical OSS translation leaves fs.oss.accessKeyId null -> red.
+        Assertions.assertEquals("dak", hc.get("dlf.catalog.accessKeyId"));
+        Assertions.assertEquals("dlf.cn-hangzhou.aliyuncs.com", hc.get("dlf.catalog.endpoint"));
+        Assertions.assertEquals("oak", hc.get("fs.oss.accessKeyId"));
+        Assertions.assertEquals("osk", hc.get("fs.oss.accessKeySecret"));
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", hc.get("fs.oss.endpoint"));
+        Assertions.assertEquals("cn-hangzhou", hc.get("fs.oss.region"));
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", hc.get("fs.oss.impl"));
+    }
+
+    @Test
+    public void requireOssStorageForDlfThenBuildDlfHiveConfYieldsOssCreds() {
+        Map<String, String> p = props(
+                "dlf.access_key", "dak",
+                "dlf.secret_key", "dsk",
+                "dlf.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "oak",
+                "oss.secret_key", "osk",
+                "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+
+        // WHY (BLOCKER end-to-end): the gate and the storage translation must agree on the SAME key
+        // set. With canonical oss.* only (no paimon.fs.oss.*), the gate must pass AND the resulting
+        // HiveConf must carry usable OSS credentials. Before the fix the gate passed but the conf had
+        // no creds. MUTATION: gate/translation disagreeing on the oss.* key set -> red.
+        Assertions.assertDoesNotThrow(() -> PaimonCatalogFactory.requireOssStorageForDlf(p));
+        Assertions.assertEquals("oak", PaimonCatalogFactory.buildDlfHiveConf(p).get("fs.oss.accessKeyId"));
+    }
+
+    @Test
+    public void buildDlfHiveConfDerivesOssEndpointFromRegion() {
+        HiveConf vpc = PaimonCatalogFactory.buildDlfHiveConf(props(
+                "dlf.access_key", "dak",
+                "dlf.secret_key", "dsk",
+                "dlf.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                "oss.region", "cn-hangzhou"));
+
+        // WHY (DLF parity, Finding 9.2 completeness): DLF users typically pass a region, not an
+        // explicit oss.endpoint. Legacy derived the OSS endpoint from the region via
+        // OSSProperties.getOssEndpoint(region, accessPublic); the DEFAULT (non-public) is the
+        // -internal endpoint. MUTATION: not deriving (fs.oss.endpoint null) or using the public form
+        // by default -> red.
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", vpc.get("fs.oss.endpoint"));
+
+        HiveConf pub = PaimonCatalogFactory.buildDlfHiveConf(props(
+                "dlf.access_key", "dak",
+                "dlf.secret_key", "dsk",
+                "dlf.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                "oss.region", "cn-hangzhou",
+                "dlf.access.public", "true"));
+
+        // WHY: when access is public the endpoint has no -internal suffix. MUTATION: ignoring
+        // accessPublic -> red.
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", pub.get("fs.oss.endpoint"));
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-HMS-CONFRES — buildHmsHiveConf(props, hiveConfResources) base-merge
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHmsHiveConfOverlaysResolvedHiveConfResourcesAsBase() {
+        Map<String, String> fileKeys = new HashMap<>();
+        fileKeys.put("hive.metastore.sasl.qop", "auth-conf");
+        fileKeys.put("hive.metastore.thrift.transport", "custom");
+        HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(
+                props("uri", "thrift://nn:9083"), fileKeys);
+
+        // WHY (MAJOR, Finding §8): connection-critical keys present ONLY in the external hive-site.xml
+        // (hive.conf.resources) must reach the catalog HiveConf — before the fix buildHmsHiveConf
+        // built the conf from the raw prop map only and dropped the file entirely. MUTATION: dropping
+        // the file-keys base merge (today's behavior) -> these keys absent -> red.
+        Assertions.assertEquals("auth-conf", hc.get("hive.metastore.sasl.qop"));
+        Assertions.assertEquals("custom", hc.get("hive.metastore.thrift.transport"));
+        Assertions.assertEquals("thrift://nn:9083", hc.get("hive.metastore.uris"));
+    }
+
+    @Test
+    public void buildHmsHiveConfUserHivePropOverridesFileResource() {
+        // A non-uri hive.* key avoids the separate uri-alias resolution (HMS_URI), isolating the
+        // file-base vs user-hive.* precedence under test.
+        Map<String, String> fileKeys = new HashMap<>();
+        fileKeys.put("hive.metastore.sasl.qop", "FILE-qop");
+        HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(props(
+                "uri", "thrift://nn:9083",
+                "hive.metastore.sasl.qop", "USER-qop"), fileKeys);
+
+        // WHY: legacy precedence is file=base, user hive.* WINS. This can only pass if the file map is
+        // applied FIRST (as the base), then overridden by the verbatim user hive.* copy. MUTATION:
+        // applying the file map AFTER the user keys -> the file value "FILE-qop" wins -> red.
+        Assertions.assertEquals("USER-qop", hc.get("hive.metastore.sasl.qop"),
+                "a user hive.* prop must override the same key from the file base");
+    }
+
+    @Test
+    public void buildHmsHiveConfSingleArgUsesEmptyResources() {
+        HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(props("uri", "thrift://nn:9083"));
+
+        // WHY: the back-compat 1-arg overload must behave exactly as before (empty file resources),
+        // so all existing callers/tests are unaffected. MUTATION: the 1-arg overload diverging from
+        // the 2-arg-with-empty-map -> red.
+        Assertions.assertEquals("thrift://nn:9083", hc.get("hive.metastore.uris"));
+        Assertions.assertEquals("10", hc.get("hive.metastore.client.socket.timeout"));
+    }
 }

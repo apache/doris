@@ -103,4 +103,40 @@ public interface ConnectorContext {
     default ConnectorMetaInvalidator getMetaInvalidator() {
         return ConnectorMetaInvalidator.NOOP;
     }
+
+    /**
+     * Resolves the catalog's {@code hive.conf.resources} (comma-separated hive-site.xml file names
+     * under the FE's {@code hadoop_config_dir}) into a flat key-&gt;value map the connector can
+     * overlay onto its {@code HiveConf}. The connector cannot perform this filesystem/Config-dir
+     * resolution itself (it must not import fe-core/fe-common); the engine context loads the files
+     * via {@code CatalogConfigFileUtils}, matching legacy HMS behavior.
+     *
+     * <p>The default returns empty (no external file support), so connectors that do not use it —
+     * and every other connector — are unaffected.
+     *
+     * @param resources the raw {@code hive.conf.resources} value (may be null/blank)
+     * @return a flat map of the resolved hive-site.xml key/values, or empty when none
+     * @throws RuntimeException if a referenced file is missing/unreadable (fail-loud, legacy parity)
+     */
+    default Map<String, String> loadHiveConfResources(String resources) {
+        return Collections.emptyMap();
+    }
+
+    /**
+     * Normalizes raw per-table vended cloud-storage credentials (the token map a REST catalog
+     * returns, e.g. {@code fs.oss.accessKeyId} / {@code s3.access-key}) into the BE-facing storage
+     * property map ({@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} / {@code AWS_TOKEN} /
+     * {@code AWS_ENDPOINT} / {@code AWS_REGION}). The connector extracts the raw token from the live
+     * table (paimon SDK only); the engine performs the same {@code StorageProperties} normalization
+     * it uses for static catalog credentials (the connector cannot import fe-core).
+     *
+     * <p>The default returns empty (no normalization machinery / empty input), so every other
+     * connector is unaffected.
+     *
+     * @param rawVendedCredentials the raw per-table token map (may be null/empty)
+     * @return the BE-facing normalized storage-property map, or empty when none
+     */
+    default Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
+        return Collections.emptyMap();
+    }
 }

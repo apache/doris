@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -32,7 +33,12 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.rest.RESTToken;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -41,17 +47,24 @@ import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -98,12 +111,37 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final TypeReference<Map<String, String>> MAP_TYPE_REF =
             new TypeReference<Map<String, String>>() {};
 
+    // Session variable name (byte-identical to SessionVariable.ENABLE_PAIMON_CPP_READER) surfaced
+    // through ConnectorSession.getSessionProperties() (VariableMgr.toMap). When true, BE routes the
+    // JNI-format paimon split to PaimonCppReader, which deserializes the NATIVE paimon binary format
+    // (paimon::Split::Deserialize), so FE must serialize a DataSplit with that format, not Java serde.
+    private static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
+
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
+    private final ConnectorContext context;
 
     public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps) {
+        this(properties, catalogOps, null);
+    }
+
+    public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps,
+            ConnectorContext context) {
         this.properties = properties;
         this.catalogOps = catalogOps;
+        this.context = context;
+    }
+
+    /**
+     * Reads the {@code enable_paimon_cpp_reader} session flag from the SPI session properties
+     * (forwarded by the engine via {@code VariableMgr.toMap}). Default false (legacy default), so
+     * normal reads are unaffected. Package-private static for offline unit testing.
+     */
+    static boolean isCppReaderEnabled(ConnectorSession session) {
+        if (session == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(session.getSessionProperties().get(ENABLE_PAIMON_CPP_READER));
     }
 
     /**
@@ -203,16 +241,19 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
+        // Read the cpp-reader flag once: it selects the JNI split serialization format (see encodeSplit).
+        boolean cppReader = isCppReaderEnabled(session);
+
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
             ranges.add(buildJniScanRange(split, tableLocation, defaultFileFormat,
-                    Collections.emptyMap(), false));
+                    Collections.emptyMap(), false, cppReader));
         }
 
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             Map<String, String> partitionValues = getPartitionInfoMap(
-                    table, dataSplit.partition());
+                    table, dataSplit.partition(), session.getTimeZone());
 
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
@@ -247,7 +288,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // JNI reader path
                 ranges.add(buildJniScanRange(
                         dataSplit, tableLocation, defaultFileFormat,
-                        partitionValues, true));
+                        partitionValues, true, cppReader));
             }
         }
 
@@ -303,7 +344,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             props.put("paimon.options_json", sb.toString());
         }
 
-        // Location / storage properties
+        // Location / storage properties (static catalog-level keys)
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("hadoop.") || key.startsWith("fs.")
@@ -314,12 +355,44 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        // FIX-REST-VENDED: overlay per-table vended cloud-storage credentials (REST catalogs).
+        // The raw token is extracted from the live, snapshot-pinned table's RESTTokenFileIO (paimon
+        // SDK only), then normalized to BE-facing AWS_* keys by the engine (the connector cannot
+        // import fe-core's StorageProperties). Vended overlays static (legacy precedence). Skipped
+        // when no context (offline unit tests) or the table is non-REST (empty token -> no-op).
+        if (context != null) {
+            Map<String, String> vendedBeProps = context.vendStorageCredentials(extractVendedToken(table));
+            for (Map.Entry<String, String> e : vendedBeProps.entrySet()) {
+                props.put("location." + e.getKey(), e.getValue());
+            }
+        }
+
         return props;
+    }
+
+    /**
+     * Extracts the raw per-table vended credential token from a REST catalog table's
+     * {@link RESTTokenFileIO} (port of legacy {@code PaimonVendedCredentialsProvider
+     * .extractRawVendedCredentials}, paimon SDK only). Returns empty for a non-REST table (different
+     * FileIO) or when no valid token is available — the gate is the table's FileIO type, equivalent
+     * to legacy's "metastore is REST" check for the read path.
+     */
+    static Map<String, String> extractVendedToken(Table table) {
+        if (table == null) {
+            return Collections.emptyMap();
+        }
+        FileIO fileIO = table.fileIO();
+        if (!(fileIO instanceof RESTTokenFileIO)) {
+            return Collections.emptyMap();
+        }
+        RESTToken token = ((RESTTokenFileIO) fileIO).validToken();
+        Map<String, String> raw = token == null ? null : token.token();
+        return raw == null ? Collections.emptyMap() : new HashMap<>(raw);
     }
 
     private PaimonScanRange buildJniScanRange(Split split, String tableLocation,
             String defaultFileFormat, Map<String, String> partitionValues,
-            boolean isDataSplit) {
+            boolean isDataSplit, boolean cppReader) {
         long splitWeight = 0;
         if (isDataSplit) {
             splitWeight = computeSplitWeight((DataSplit) split);
@@ -327,7 +400,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             splitWeight = split.rowCount();
         }
 
-        String serializedSplit = encodeObjectToString(split);
+        String serializedSplit = encodeSplit(split, cppReader);
 
         return new PaimonScanRange.Builder()
                 .fileFormat("jni")
@@ -380,7 +453,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
-    private Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValue) {
+    private Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValue, String timeZone) {
         List<String> partitionKeys = table.partitionKeys();
         if (partitionKeys == null || partitionKeys.isEmpty()) {
             return Collections.emptyMap();
@@ -392,11 +465,78 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         Map<String, String> result = new LinkedHashMap<>();
         for (int i = 0; i < partitionKeys.size(); i++) {
-            String key = partitionKeys.get(i);
-            String value = values[i] != null ? values[i].toString() : null;
-            result.put(key, value);
+            try {
+                String value = serializePartitionValue(
+                        partitionType.getFields().get(i).type(), values[i], timeZone);
+                result.put(partitionKeys.get(i).toLowerCase(Locale.ROOT), value);
+            } catch (UnsupportedOperationException e) {
+                // Legacy parity (PaimonUtil.getPartitionInfoMap): an unsupported partition column
+                // type (e.g. binary/varbinary) drops the ENTIRE map — BE then materializes no
+                // columnsFromPath for this split, rather than emitting non-deterministic [B@hash
+                // garbage. Legacy returned null; the connector returns an empty map, which
+                // PaimonScanRange.populateRangeParams treats identically (no columnsFromPath emitted).
+                LOG.warn("Failed to serialize partition value for key {} of table {}: {}",
+                        partitionKeys.get(i), table.name(), e.getMessage());
+                return Collections.emptyMap();
+            }
         }
         return result;
+    }
+
+    /**
+     * Renders one Paimon partition value to the canonical string BE expects in columnsFromPath.
+     * Byte-faithful port of legacy PaimonUtil.serializePartitionValue. Pure static (no Table /
+     * ReadBuilder needed) so the correctness-critical per-type rendering is unit-testable offline.
+     * Only TIMESTAMP_WITH_LOCAL_TIME_ZONE consumes {@code timeZone} (session zone, UTC-&gt;session
+     * shift); all other cases ignore it.
+     *
+     * <p>For native ORC/Parquet reads, partition columns are NOT stored in the data files — BE
+     * materializes them from this string. A raw {@code Object.toString()} corrupts several types:
+     * DATE renders as epoch-days ("19723"), LTZ keeps the un-shifted UTC wall clock, BINARY becomes
+     * a JVM-identity {@code [B@hash}. This per-type switch restores legacy correctness.
+     */
+    static String serializePartitionValue(DataType type, Object value, String timeZone) {
+        switch (type.getTypeRoot()) {
+            case BOOLEAN:
+            case INTEGER:
+            case BIGINT:
+            case SMALLINT:
+            case TINYINT:
+            case DECIMAL:
+            case VARCHAR:
+            case CHAR:
+                return value == null ? null : value.toString();
+            case FLOAT:
+                return value == null ? null : Float.toString((Float) value);
+            case DOUBLE:
+                return value == null ? null : Double.toString((Double) value);
+            // BINARY / VARBINARY intentionally unsupported (falls to default -> throws -> map
+            // dropped): a utf8 string render can corrupt the bytes (legacy comment).
+            case DATE:
+                return value == null ? null
+                        : LocalDate.ofEpochDay((Integer) value).format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME_WITHOUT_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                return LocalTime.ofNanoOfDay(((Long) value) * 1000)
+                        .format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                return value == null ? null
+                        : ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                return ((Timestamp) value).toLocalDateTime()
+                        .atZone(ZoneId.of("UTC"))
+                        .withZoneSameInstant(ZoneId.of(timeZone))
+                        .toLocalDateTime()
+                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            default:
+                throw new UnsupportedOperationException(
+                        "Unsupported type for serializePartitionValue: " + type);
+        }
     }
 
     private String getTableLocation(Table table) {
@@ -460,6 +600,30 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public String getSerializedTable(Map<String, String> properties) {
         return properties.get("paimon.serialized_table");
+    }
+
+    /**
+     * Selects the split serialization that matches the BE reader the engine will use.
+     * When the paimon-cpp reader is enabled AND the split is a {@link DataSplit}, serialize with
+     * Paimon's NATIVE binary format ({@code DataSplit.serialize}) so BE's PaimonCppReader
+     * ({@code paimon::Split::Deserialize}) can decode it. Otherwise (flag off, or a non-DataSplit
+     * system split / no-raw-file fallback that has no native format) fall back to Java object
+     * serialization for the Java JNI reader. Mirrors legacy PaimonScanNode.setPaimonParams +
+     * PaimonUtil.encodeDataSplitToString; the {@code instanceof DataSplit} guard is load-bearing
+     * parity (non-DataSplit splits MUST stay Java-serialized even when the flag is on).
+     */
+    static String encodeSplit(Split split, boolean cppReader) {
+        if (cppReader && split instanceof DataSplit) {
+            try {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ((DataSplit) split).serialize(new DataOutputViewStreamWrapper(baos));
+                return new String(BASE64_ENCODER.encode(baos.toByteArray()), StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to serialize Paimon DataSplit (native format): "
+                        + e.getMessage(), e);
+            }
+        }
+        return encodeObjectToString(split);
     }
 
     @SuppressWarnings("unchecked")

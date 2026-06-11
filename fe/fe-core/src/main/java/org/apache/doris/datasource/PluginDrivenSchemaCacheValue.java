@@ -19,7 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * {@link SchemaCacheValue} for plugin-driven external tables.
@@ -46,12 +48,23 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
     private final List<Column> partitionColumns;
     private final List<String> partitionColumnRemoteNames;
+    // The connector's raw table-properties map (e.g. paimon coreOptions: path / file.format /
+    // write-only), retained so SHOW CREATE TABLE can render LOCATION + PROPERTIES (D-046). The
+    // transient ConnectorTableSchema is not kept on the table, so this is the persisted-via-cache
+    // carrier (mirroring how the partition-column views are cached).
+    private final Map<String, String> tableProperties;
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames) {
+        this(schema, partitionColumns, partitionColumnRemoteNames, Collections.emptyMap());
+    }
+
+    public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
+            List<String> partitionColumnRemoteNames, Map<String, String> tableProperties) {
         super(schema);
         this.partitionColumns = partitionColumns;
         this.partitionColumnRemoteNames = partitionColumnRemoteNames;
+        this.tableProperties = tableProperties == null ? Collections.emptyMap() : tableProperties;
     }
 
     public List<Column> getPartitionColumns() {
@@ -60,5 +73,9 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
     public List<String> getPartitionColumnRemoteNames() {
         return partitionColumnRemoteNames;
+    }
+
+    public Map<String, String> getTableProperties() {
+        return tableProperties;
     }
 }

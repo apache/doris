@@ -27,6 +27,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.DataField;
 
@@ -143,6 +144,16 @@ public interface PaimonCatalogOps {
      * Optional.empty(), which the fe-core consumer later translates to "can't find branch").
      */
     boolean branchExists(Table table, String branchName);
+
+    /**
+     * Returns the total row count of {@code table} = sum of {@code split.rowCount()} over
+     * {@code table.newReadBuilder().newScan().plan().splits()} (legacy
+     * {@code PaimonExternalTable.fetchRowCount} / {@code PaimonSysExternalTable.fetchRowCount}).
+     * Returns a plain {@code long} (never a paimon {@code Split} list) so the metadata layer's
+     * &gt;0-else-UNKNOWN logic is unit-testable offline with {@code RecordingPaimonCatalogOps}
+     * ({@code FakePaimonTable.newReadBuilder()} throws).
+     */
+    long rowCount(Table table);
 
     void close() throws Exception;
 
@@ -323,6 +334,17 @@ public interface PaimonCatalogOps {
                 return false;
             }
             return ((FileStoreTable) table).branchManager().branchExists(branchName);
+        }
+
+        @Override
+        public long rowCount(Table table) {
+            // Legacy PaimonExternalTable.fetchRowCount / PaimonSysExternalTable.fetchRowCount: sum
+            // the planned-split record counts.
+            long rowCount = 0;
+            for (Split split : table.newReadBuilder().newScan().plan().splits()) {
+                rowCount += split.rowCount();
+            }
+            return rowCount;
         }
 
         @Override

@@ -68,6 +68,8 @@ final class FakePaimonTable implements Table {
     Map<String, String> lastCopyOptions;
     /** The table returned by {@link #copy(Map)}; defaults to {@code this} when unset. */
     Table copyResult;
+    /** The FileIO returned by {@link #fileIO()}; {@code null} (the legacy throw) unless set. */
+    FileIO fileIO;
 
     FakePaimonTable(String name, RowType rowType,
             List<String> partitionKeys, List<String> primaryKeys) {
@@ -121,7 +123,9 @@ final class FakePaimonTable implements Table {
 
     @Override
     public FileIO fileIO() {
-        throw new UnsupportedOperationException();
+        // Settable so FIX-REST-VENDED tests can inject a non-REST FileIO double (the positive
+        // RESTTokenFileIO path needs a live REST stack, covered by the fe-core bridge test + E2E).
+        return fileIO;
     }
 
     @Override

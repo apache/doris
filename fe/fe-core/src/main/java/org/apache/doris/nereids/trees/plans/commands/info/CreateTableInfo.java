@@ -50,7 +50,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -385,14 +384,12 @@ public class CreateTableInfo {
             throw new AnalysisException("Hms type catalog can only use `hive` engine.");
         } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
             throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
-        } else if (catalog instanceof PaimonExternalCatalog && !engineName.equals(ENGINE_PAIMON)) {
-            throw new AnalysisException("Paimon type catalog can only use `paimon` engine.");
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
-            // After the SPI cutover a max_compute catalog is a PluginDrivenExternalCatalog; mirror the
-            // legacy MaxComputeExternalCatalog consistency check, keyed on the connector type.
+            // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; mirror
+            // the legacy per-type consistency check, keyed on the connector type.
             String pluginEngine = pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog);
             if (pluginEngine != null && !engineName.equals(pluginEngine)) {
-                throw new AnalysisException("MaxCompute type catalog can only use `maxcompute` engine.");
+                throw new AnalysisException("This catalog can only use `" + pluginEngine + "` engine.");
             }
         }
     }
@@ -912,12 +909,10 @@ public class CreateTableInfo {
                 engineName = ENGINE_HIVE;
             } else if (catalog instanceof IcebergExternalCatalog) {
                 engineName = ENGINE_ICEBERG;
-            } else if (catalog instanceof PaimonExternalCatalog) {
-                engineName = ENGINE_PAIMON;
             } else if (catalog instanceof PluginDrivenExternalCatalog
                     && pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog) != null) {
-                // After the SPI cutover a max_compute catalog is a PluginDrivenExternalCatalog; pad the
-                // legacy engine so the no-ENGINE CREATE TABLE keeps working (mirrors the MC branch above).
+                // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; pad
+                // the legacy engine so the no-ENGINE CREATE TABLE keeps working (mirrors the MC/Iceberg above).
                 engineName = pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog);
             } else {
                 throw new AnalysisException("Current catalog does not support create table: " + ctlName);
@@ -938,6 +933,8 @@ public class CreateTableInfo {
         switch (catalog.getType()) {
             case "max_compute":
                 return ENGINE_MAXCOMPUTE;
+            case "paimon":
+                return ENGINE_PAIMON;
             default:
                 return null;
         }

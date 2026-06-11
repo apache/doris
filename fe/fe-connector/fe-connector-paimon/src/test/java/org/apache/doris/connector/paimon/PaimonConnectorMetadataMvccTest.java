@@ -302,27 +302,86 @@ public class PaimonConnectorMetadataMvccTest {
     }
 
     @Test
-    public void resolveTimestampStringWithUnsupportedZoneAliasThrowsClearError() {
+    public void resolveTimestampStringWithGenuinelyUnknownZoneFailsLoud() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         PaimonTableHandle handle = normalHandle(ops);
 
-        // WHY (parity landmine): Doris accepts session zone aliases like "CST"/"PST"/"EST" that
-        // java.time.ZoneId.of() REJECTS (ZoneRulesException, a DateTimeException). Legacy resolved
-        // these via the fe-core Doris alias map and succeeded; the connector is import-gated out of
-        // that map. A SILENT fallback (e.g. UTC) would resolve the WRONG snapshot -> silently wrong
-        // rows, so the connector must FAIL LOUD with an actionable error instead.
-        // MUTATION: removing the catch -> a raw ZoneRulesException propagates (assertThrows on the
-        // wrong type) red; degrading to UTC instead of throwing -> assertThrows finds no exception red.
+        // WHY (FIX-TZ-ALIAS, no-silent-degrade invariant): after the fix the connector replicates the
+        // legacy alias map (SHORT_IDS + 4 Doris overrides), so CST/PST/EST now RESOLVE (see the two
+        // tests below). But an id absent from BOTH ZoneId.of's native set AND the alias map (e.g.
+        // "XYZ") must still FAIL LOUD — never silently degrade to a wrong zone (a wrong zone resolves
+        // the WRONG snapshot -> silently wrong rows). The fix only NARROWS the failure set to
+        // genuinely-unknown ids; it must not become a silent UTC fallback.
+        // MUTATION: catching and degrading to UTC -> assertThrows finds no exception -> red;
+        // a raw DateTimeException leaking (no DorisConnectorException wrap) -> wrong type -> red.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadataWith(ops).resolveTimeTravel(new TzSession("CST"), handle,
+                () -> metadataWith(ops).resolveTimeTravel(new TzSession("XYZ"), handle,
                         ConnectorTimeTravelSpec.timestamp("2023-01-01 00:00:00", false)),
-                "an unsupported Doris zone alias must fail loud, not crash with a raw "
-                        + "ZoneRulesException nor silently degrade to a wrong zone");
-        Assertions.assertTrue(ex.getMessage().contains("CST"),
-                "the error must name the offending session zone alias ('CST')");
+                "a genuinely-unknown zone id must fail loud, not crash with a raw "
+                        + "DateTimeException nor silently degrade to a wrong zone");
+        Assertions.assertTrue(ex.getMessage().contains("XYZ"),
+                "the error must name the offending session zone id ('XYZ')");
         Assertions.assertTrue(ex.getMessage().contains("standard")
                         && ex.getMessage().contains("zone id"),
                 "the error must give actionable guidance (use a standard zone id)");
+    }
+
+    @Test
+    public void resolveTimestampStringResolvesCstAliasToShanghai() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonTableHandle handle = normalHandle(ops);
+        ops.snapshotIdAtOrBefore = OptionalLong.of(8L);
+
+        String literal = "2023-11-15 00:00:00";
+        long expectedShanghai = DateTimeUtils.parseTimestampData(literal, 3,
+                TimeZone.getTimeZone("Asia/Shanghai")).getMillisecond();
+        long expectedUtc = DateTimeUtils.parseTimestampData(literal, 3,
+                TimeZone.getTimeZone("UTC")).getMillisecond();
+        Assertions.assertNotEquals(expectedShanghai, expectedUtc,
+                "test precondition: the literal must resolve to different millis in CST vs UTC");
+
+        metadataWith(ops).resolveTimeTravel(new TzSession("CST"), handle,
+                ConnectorTimeTravelSpec.timestamp(literal, false));
+
+        // WHY (FIX-TZ-ALIAS): CST is Doris's DEFAULT region alias for Asia/Shanghai; legacy resolved
+        // it via the alias map (the 4 overrides put CST -> Asia/Shanghai). Pinning the *Shanghai*
+        // millis (not UTC, not a throw) is the byte-parity intent. Before the fix the alias-less
+        // ZoneId.of threw -> FOR TIME AS OF a datetime string was broken under the DEFAULT time zone.
+        // MUTATION: alias-less ZoneId.of -> throws (red); a wrong override (CST->UTC) -> captures
+        // expectedUtc (red).
+        Assertions.assertEquals(expectedShanghai, ops.snapshotIdAtOrBeforeArg,
+                "CST must resolve to Asia/Shanghai (Doris default alias), matching legacy");
+    }
+
+    @Test
+    public void resolveTimestampStringResolvesPstAndEstViaShortIds() {
+        String literal = "2023-11-15 00:00:00";
+
+        // PST resolves through ZoneId.SHORT_IDS -> America/Los_Angeles (NOT one of the 4 explicit
+        // Doris overrides). This is the report-suggestion correction: a fix that inlined only the 4
+        // entries would leave PST/EST THROWING. The full SHORT_IDS map is required.
+        RecordingPaimonCatalogOps pstOps = new RecordingPaimonCatalogOps();
+        pstOps.snapshotIdAtOrBefore = OptionalLong.of(3L);
+        long expectedPst = DateTimeUtils.parseTimestampData(literal, 3,
+                TimeZone.getTimeZone("America/Los_Angeles")).getMillisecond();
+        metadataWith(pstOps).resolveTimeTravel(new TzSession("PST"), normalHandle(pstOps),
+                ConnectorTimeTravelSpec.timestamp(literal, false));
+        // WHY: PST must resolve via SHORT_IDS to America/Los_Angeles. MUTATION: dropping
+        // putAll(ZoneId.SHORT_IDS) -> PST throws -> red.
+        Assertions.assertEquals(expectedPst, pstOps.snapshotIdAtOrBeforeArg,
+                "PST must resolve via ZoneId.SHORT_IDS to America/Los_Angeles, matching legacy");
+
+        // EST resolves through ZoneId.SHORT_IDS -> the fixed offset "-05:00".
+        RecordingPaimonCatalogOps estOps = new RecordingPaimonCatalogOps();
+        estOps.snapshotIdAtOrBefore = OptionalLong.of(4L);
+        long expectedEst = DateTimeUtils.parseTimestampData(literal, 3,
+                TimeZone.getTimeZone(java.time.ZoneId.of("-05:00"))).getMillisecond();
+        metadataWith(estOps).resolveTimeTravel(new TzSession("EST"), normalHandle(estOps),
+                ConnectorTimeTravelSpec.timestamp(literal, false));
+        // WHY: EST must resolve via SHORT_IDS to the -05:00 offset. MUTATION: dropping
+        // putAll(ZoneId.SHORT_IDS) -> EST throws -> red.
+        Assertions.assertEquals(expectedEst, estOps.snapshotIdAtOrBeforeArg,
+                "EST must resolve via ZoneId.SHORT_IDS to the -05:00 offset, matching legacy");
     }
 
     @Test
@@ -332,18 +391,22 @@ public class PaimonConnectorMetadataMvccTest {
         ops.snapshotIdAtOrBefore = OptionalLong.of(11L);
 
         // WHY: the zone-id catch must be scoped to the STRING path only. A DIGITAL timestamp is raw
-        // epoch-millis and never touches ZoneId.of, so it must succeed even under a CST session that
-        // would reject a datetime string. MUTATION: over-broadening the catch to the whole parse (or
-        // resolving the zone unconditionally) -> the digital path throws under "CST" -> red.
+        // epoch-millis and never touches ZoneId.of, so it must succeed even under a session whose
+        // zone id is GENUINELY unknown (would reject a datetime string). NOTE: this uses "XYZ" (a
+        // truly-unknown id) deliberately — after FIX-TZ-ALIAS "CST" now resolves, so a CST session
+        // would no longer prove the bypass (it would parse fine for strings too). "XYZ" still throws
+        // on the string path, so the test keeps its discriminating power. MUTATION: dropping the
+        // spec.isDigital() short-circuit -> the digital value goes to parseTimestampData with zone
+        // "XYZ" -> throws -> red.
         ConnectorMvccSnapshot snap = metadataWith(ops)
-                .resolveTimeTravel(new TzSession("CST"), handle,
+                .resolveTimeTravel(new TzSession("XYZ"), handle,
                         ConnectorTimeTravelSpec.timestamp("1700000000000", true))
                 .get();
 
         Assertions.assertEquals(1_700_000_000_000L, ops.snapshotIdAtOrBeforeArg,
-                "a digital timestamp must be fed verbatim even under an unsupported zone alias");
+                "a digital timestamp must be fed verbatim even under an unknown zone id");
         Assertions.assertEquals(11L, snap.getSnapshotId(),
-                "the digital timestamp path must resolve normally under a CST session (no zone needed)");
+                "the digital timestamp path must resolve normally under an unknown-zone session (no zone needed)");
     }
 
     @Test

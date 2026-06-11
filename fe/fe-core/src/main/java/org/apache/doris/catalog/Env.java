@@ -101,6 +101,8 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
@@ -4936,6 +4938,35 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
+            PluginDrivenExternalTable pluginExternalTable;
+            if (table instanceof PluginDrivenSysExternalTable) {
+                // Mirror the legacy paimon unwrap: a system table ($snapshots etc.) renders the
+                // DDL of its source table. Check the sys subclass FIRST (it extends
+                // PluginDrivenExternalTable).
+                pluginExternalTable = ((PluginDrivenSysExternalTable) table).getSourceTable();
+            } else if (table instanceof PluginDrivenExternalTable) {
+                pluginExternalTable = (PluginDrivenExternalTable) table;
+            } else {
+                throw new RuntimeException("Unexpected plugin table type: " + table.getClass().getSimpleName());
+            }
+            // Connectors that surface table properties (e.g. paimon coreOptions: path / file.format)
+            // render LOCATION + PROPERTIES for SHOW CREATE TABLE parity (D-046). Connectors that do
+            // NOT (e.g. MaxCompute) return an empty map and stay comment-only — no empty LOCATION ''
+            // / PROPERTIES () lines, preserving their pre-existing DDL.
+            Map<String, String> properties = pluginExternalTable.getTableProperties();
+            if (!properties.isEmpty()) {
+                sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
+                sb.append("\nPROPERTIES (");
+                Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Entry<String, String> prop = iterator.next();
+                    sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                    if (iterator.hasNext()) {
+                        sb.append(",");
+                    }
+                }
+                sb.append("\n)");
+            }
         }
 
         createTableStmt.add(sb + ";");

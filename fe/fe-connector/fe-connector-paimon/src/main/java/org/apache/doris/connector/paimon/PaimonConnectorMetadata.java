@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
@@ -42,6 +43,7 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
@@ -155,6 +157,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // table. Sharing buildTableSchema with the at-snapshot path keeps the two from drifting.
         return buildTableSchema(
                 paimonHandle.getTableName(),
+                table,
                 table.rowType().getFields(),
                 paimonHandle.getPartitionKeys(),
                 table.primaryKeys());
@@ -188,6 +191,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 catalogOps.schemaAt(table, snapshot.getSchemaId());
         return buildTableSchema(
                 paimonHandle.getTableName(),
+                table,
                 schema.fields(),
                 schema.partitionKeys(),
                 schema.primaryKeys());
@@ -199,11 +203,26 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * out so the latest path and the at-snapshot path ({@link #getTableSchema(ConnectorSession,
      * ConnectorTableHandle, ConnectorMvccSnapshot)}) share ONE mapping and cannot drift.
      */
-    private ConnectorTableSchema buildTableSchema(String tableName, List<DataField> fields,
+    private ConnectorTableSchema buildTableSchema(String tableName, Table table, List<DataField> fields,
             List<String> partitionKeys, List<String> primaryKeys) {
         List<ConnectorColumn> columns = mapFields(fields, primaryKeys);
 
-        Map<String, String> schemaProps = new HashMap<>();
+        // LinkedHashMap so the table-options order (used by SHOW CREATE TABLE's PROPERTIES) is
+        // deterministic across runs.
+        Map<String, String> schemaProps = new LinkedHashMap<>();
+        // D-046: surface the paimon table options (path, file.format, write-only, ...) so SHOW
+        // CREATE TABLE can render LOCATION + PROPERTIES with legacy parity. Mirrors legacy
+        // PaimonExternalTable.getTableProperties() = coreOptions().toMap() (+ injected primary-key).
+        // System tables are not DataTable (legacy getTableProperties returns empty for them), so
+        // the coreOptions() / "path" surface is guarded the same way. "path" is already a key inside
+        // coreOptions().toMap(), which the fe-core LOCATION render reads. These are plain string keys
+        // (no fe-core dependency); the fe-core consumer filters out the schema-control keys below.
+        if (table instanceof DataTable) {
+            schemaProps.putAll(((DataTable) table).coreOptions().toMap());
+            if (primaryKeys != null && !primaryKeys.isEmpty()) {
+                schemaProps.put(CoreOptions.PRIMARY_KEY.key(), String.join(",", primaryKeys));
+            }
+        }
         if (partitionKeys != null && !partitionKeys.isEmpty()) {
             // Emit "partition_columns" (NOT "partition_keys"): the generic fe-core consumer
             // PluginDrivenExternalTable.initSchema reads "partition_columns" — keying it under
@@ -486,6 +505,30 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Doris session time-zone alias map, replicated from fe-core
+     * {@code TimeUtils.timeZoneAliasMap} (TimeUtils.java:106-117). The connector cannot import
+     * fe-core, so the map is rebuilt here byte-for-byte: {@link java.time.ZoneId#SHORT_IDS} (the
+     * JDK-provided short ids, which is where "PST"/"EST" resolve) overlaid with the four Doris
+     * overrides (CST/PRC -&gt; Asia/Shanghai, UTC/GMT -&gt; UTC). Case-insensitive, exactly like
+     * legacy, because {@code SET time_zone} stores the alias verbatim in any case.
+     *
+     * <p>NOTE (FIX-TZ-ALIAS): the full {@code SHORT_IDS} map is required, NOT just the 4 explicit
+     * overrides — PST and EST resolve via {@code SHORT_IDS}, so a 4-entry-only map would still
+     * reject them (verified by JDK harness).
+     */
+    private static final Map<String, String> SESSION_TIME_ZONE_ALIASES;
+
+    static {
+        Map<String, String> m = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        m.putAll(java.time.ZoneId.SHORT_IDS);
+        m.put("CST", "Asia/Shanghai");
+        m.put("PRC", "Asia/Shanghai");
+        m.put("UTC", "UTC");
+        m.put("GMT", "UTC");
+        SESSION_TIME_ZONE_ALIASES = Collections.unmodifiableMap(m);
+    }
+
+    /**
      * Derives epoch-millis from a {@code TIMESTAMP} spec, byte-faithful to legacy
      * {@code PaimonUtil.getPaimonSnapshotByTimestamp}: a digital value is {@code Long.parseLong};
      * a non-digital value is parsed by paimon {@code DateTimeUtils.parseTimestampData(value, 3, TZ)}
@@ -493,19 +536,19 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      *
      * <p>BYTE-PARITY TZ DECISION: legacy passed {@code TimeUtils.getTimeZone()} =
      * {@code TimeZone.getTimeZone(ZoneId.of(sessionTz, dorisAliasMap))}. The connector cannot import
-     * the fe-core Doris alias map, so it derives the zone from {@link ConnectorSession#getTimeZone()}
-     * via {@code TimeZone.getTimeZone(ZoneId.of(tz))} — identical to legacy for every standard zone
-     * id (e.g. "Asia/Shanghai", "UTC").
+     * the fe-core Doris alias map, so it replicates it as {@link #SESSION_TIME_ZONE_ALIASES} and
+     * resolves the zone via {@code ZoneId.of(tz, SESSION_TIME_ZONE_ALIASES)} — byte-identical to
+     * legacy {@code TimeUtils.getTimeZone()} for every id legacy accepted (standard IANA ids,
+     * offsets, the {@code SHORT_IDS} aliases like "PST"/"EST", and the Doris overrides
+     * CST/PRC/UTC/GMT).
      *
-     * <p>FAIL-LOUD on unsupported alias (NOT silent degrade): time-travel is STRICTER than predicate
-     * pushdown. Doris-specific aliases that {@link java.time.ZoneId#of} rejects (e.g. "CST", "PST",
-     * "EST") are a KNOWN LIMITATION for datetime-string time-travel — the connector cannot import the
-     * fe-core alias map to resolve them. Rather than silently falling back to another zone (a wrong
-     * zone would resolve the WRONG snapshot -> silently wrong rows), such an alias is rejected with a
-     * clear, actionable {@link DorisConnectorException}. (This deliberately does NOT follow the
-     * MaxComputePredicateConverter pattern of degrading to NO_PREDICATE on a bad alias: that is safe
-     * only because BE re-applies the predicate, whereas a mis-resolved time-travel zone has no such
-     * safety net.) The legacy {@code millis < 0} guard is preserved.
+     * <p>FAIL-LOUD on genuinely-unknown id (NOT silent degrade): an id absent from BOTH
+     * {@code ZoneId.of}'s native set AND the alias map (e.g. "XYZ", "NOPE/ZZZ") is rejected with a
+     * clear, actionable {@link DorisConnectorException}, never silently degraded to a wrong zone (a
+     * wrong zone resolves the WRONG snapshot -> silently wrong rows). (This deliberately does NOT
+     * follow the MaxComputePredicateConverter pattern of degrading to NO_PREDICATE on a bad alias:
+     * that is safe only because BE re-applies the predicate, whereas a mis-resolved time-travel zone
+     * has no such safety net.) The legacy {@code millis < 0} guard is preserved.
      */
     private long parseTimestampMillis(ConnectorSession session, ConnectorTimeTravelSpec spec) {
         String value = spec.getStringValue();
@@ -513,13 +556,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Long.parseLong(value);
         }
         // Resolve the session zone ONLY inside this catch so a legitimate
-        // DateTimeUtils.parseTimestampData("can't parse time") below is NOT swallowed: an unsupported
-        // Doris-alias zone (e.g. "CST"/"PST", which ZoneId.of rejects with a DateTimeException) must
+        // DateTimeUtils.parseTimestampData("can't parse time") below is NOT swallowed: a genuinely
+        // unknown zone id (absent from ZoneId.of's native set AND the replicated alias map) must
         // fail loud with actionable guidance, never silently degrade to a wrong zone (a wrong zone
-        // selects the WRONG snapshot -> silently wrong rows).
+        // selects the WRONG snapshot -> silently wrong rows). The alias map resolves every id legacy
+        // accepted (CST/PST/EST/... via SHORT_IDS + the 4 Doris overrides).
         java.time.ZoneId zoneId;
         try {
-            zoneId = java.time.ZoneId.of(session.getTimeZone());
+            zoneId = java.time.ZoneId.of(session.getTimeZone(), SESSION_TIME_ZONE_ALIASES);
         } catch (java.time.DateTimeException e) {
             throw new DorisConnectorException(
                     "session time zone '" + session.getTimeZone() + "' is not a standard zone id and "
@@ -894,9 +938,38 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     Collections.emptyMap(),
                     partition.recordCount(),
                     partition.fileSizeInBytes(),
-                    partition.lastFileCreationTime()));
+                    partition.lastFileCreationTime(),
+                    partition.fileCount()));
         }
         return result;
+    }
+
+    /**
+     * Returns the base-table row count = sum of planned-split row counts (legacy
+     * {@code PaimonExternalTable.fetchRowCount}: {@code rowCount > 0 ? rowCount : UNKNOWN}). Shared
+     * by normal AND system paimon tables: fe-core {@code PluginDrivenSysExternalTable} inherits
+     * {@code PluginDrivenExternalTable.fetchRowCount}, and {@link #resolveTable} is sys-aware, so a
+     * sys handle plans its OWN synthetic table's splits (closes Finding 5.1 with one override).
+     * Returns {@code Optional.empty()} (→ fe-core -1 / UNKNOWN) when the count is 0 (legacy parity)
+     * or planning fails (best-effort, like the other connector read paths — stats run in background
+     * analysis / SHOW and must not surface a transient remote error as a query-killing exception).
+     * {@code dataSize} is left UNKNOWN (-1): legacy computed no base-table dataSize here.
+     */
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        long rowCount;
+        try {
+            rowCount = catalogOps.rowCount(resolveTable(paimonHandle));
+        } catch (Exception e) {
+            LOG.warn("Failed to compute Paimon row count for {}", paimonHandle, e);
+            return Optional.empty();
+        }
+        if (rowCount > 0) {
+            return Optional.of(new ConnectorTableStatistics(rowCount, -1));
+        }
+        return Optional.empty();   // 0 rows -> UNKNOWN, legacy parity
     }
 
     /**
@@ -923,7 +996,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             ConnectorType connectorType = PaimonTypeMapping.toConnectorType(
                     field.type(), typeMappingOptions);
             String comment = field.description();
-            boolean nullable = field.type().isNullable();
+            // Legacy parity (FIX-READ-NOTNULL): PaimonExternalTable / PaimonSysExternalTable always
+            // built each Doris column with isAllowNull=true regardless of the paimon field's NOT NULL
+            // flag. Paimon PK columns are always NOT NULL, so propagating that would flip nullability
+            // metadata for almost every PK table and let nereids fold null-rejecting predicates the
+            // legacy path never permitted (rows can still read as NULL under schema-evolution
+            // default-fill). Keep columns nullable; do not propagate the paimon NOT NULL constraint
+            // on the read path.
+            boolean nullable = true;
             columns.add(new ConnectorColumn(
                     field.name().toLowerCase(),
                     connectorType,

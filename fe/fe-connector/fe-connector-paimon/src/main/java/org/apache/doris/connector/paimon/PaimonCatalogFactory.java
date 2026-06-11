@@ -77,6 +77,41 @@ public final class PaimonCatalogFactory {
     /** Hadoop S3A standard prefix (legacy {@code AbstractPaimonProperties.FS_S3A_PREFIX}). */
     private static final String FS_S3A_PREFIX = "fs.s3a.";
 
+    // Canonical Doris storage aliases (ported from fe-core S3Properties / OSSProperties
+    // @ConnectorProperty names), listed in legacy priority order. Kept as literal strings to avoid
+    // importing fe-core StorageProperties. Added by FIX-STORAGE-CREDS: before this, a catalog
+    // created with the DOCUMENTED canonical keys (s3.access_key / oss.access_key / AWS_*) had every
+    // credential silently dropped by applyStorageConfig (only paimon.* / raw fs.* were recognized),
+    // so a private S3/OSS bucket was hit with no credentials. These are translated to the Hadoop
+    // fs.s3a.* / fs.oss.* keys the live FileIO actually reads.
+    private static final String[] S3_ACCESS_KEY_ALIASES = {
+            "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "s3.access-key-id"};
+    private static final String[] S3_SECRET_KEY_ALIASES = {
+            "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "s3.secret-access-key"};
+    private static final String[] S3_SESSION_TOKEN_ALIASES = {
+            "s3.session_token", "session_token", "s3.session-token", "AWS_TOKEN"};
+    private static final String[] S3_ENDPOINT_ALIASES = {
+            "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"};
+    private static final String[] S3_REGION_ALIASES = {
+            "s3.region", "AWS_REGION", "region", "REGION"};
+
+    private static final String[] OSS_ACCESS_KEY_ALIASES = {
+            "oss.access_key", "fs.oss.accessKeyId", "dlf.access_key"};
+    private static final String[] OSS_SECRET_KEY_ALIASES = {
+            "oss.secret_key", "fs.oss.accessKeySecret", "dlf.secret_key"};
+    private static final String[] OSS_SESSION_TOKEN_ALIASES = {
+            "oss.session_token", "fs.oss.securityToken"};
+    private static final String[] OSS_ENDPOINT_ALIASES = {
+            "oss.endpoint", "fs.oss.endpoint"};
+    private static final String[] OSS_REGION_ALIASES = {"oss.region", "dlf.region"};
+
+    private static final String S3A_IMPL = "org.apache.hadoop.fs.s3a.S3AFileSystem";
+    private static final String S3A_SIMPLE_CRED_PROVIDER =
+            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider";
+    // JindoOSS impls (literals; avoid the Aliyun compile dep, same pattern as appendDlfOptions).
+    private static final String JINDO_OSS_IMPL = "com.aliyun.jindodata.oss.JindoOssFileSystem";
+    private static final String JINDO_OSS_ABSTRACT_IMPL = "com.aliyun.jindodata.oss.JindoOSS";
+
     private PaimonCatalogFactory() {
     }
 
@@ -304,6 +339,10 @@ public final class PaimonCatalogFactory {
      * .normalizeS3Config()/appendUserHadoopConfig()} with a fe-core-free port:
      *
      * <ul>
+     *   <li>canonical {@code s3.*}/{@code AWS_*} and {@code oss.*}/{@code fs.oss.*}/{@code dlf.*}
+     *       aliases are translated to {@code fs.s3a.*} / Jindo {@code fs.oss.*} (ported legacy
+     *       {@code appendS3HdfsProperties} + {@code OSSProperties.initializeHadoopStorageConfig};
+     *       see {@link #applyStorageConfig});</li>
      *   <li>{@code paimon.s3.*} / {@code paimon.s3a.*} / {@code paimon.fs.s3.*} / {@code paimon.fs.oss.*}
      *       are normalized to the Hadoop S3A prefix {@code fs.s3a.} (strip the matched prefix,
      *       re-key as {@code fs.s3a.} + remainder), matching legacy {@code normalizeS3Config};</li>
@@ -320,12 +359,24 @@ public final class PaimonCatalogFactory {
     }
 
     /**
-     * Applies the normalized storage config (S3 normalization + raw fs./dfs./hadoop. passthrough)
-     * via the given setter. Shared by {@link #buildHadoopConfiguration} and the HiveConf builders
-     * (which overlay the same storage config onto the HiveConf, mirroring legacy
-     * {@code appendUserHadoopConfig(hiveConf)} + {@code ossProps.getHadoopStorageConfig()}).
+     * Applies the normalized storage config via the given setter. Shared by
+     * {@link #buildHadoopConfiguration} and the HiveConf builders (which overlay the same storage
+     * config onto the HiveConf, mirroring legacy {@code appendUserHadoopConfig(hiveConf)} +
+     * {@code ossProps.getHadoopStorageConfig()}). Three steps, in legacy precedence order:
+     *
+     * <ol>
+     *   <li>canonical {@code s3.*}/{@code AWS_*} aliases -&gt; {@code fs.s3a.*} (ported legacy
+     *       {@code AbstractS3CompatibleProperties.appendS3HdfsProperties}, credential subset);</li>
+     *   <li>canonical {@code oss.*}/{@code fs.oss.*}/{@code dlf.*} aliases -&gt; Jindo {@code fs.oss.*}
+     *       (ported legacy {@code OSSProperties.initializeHadoopStorageConfig});</li>
+     *   <li>the original {@code paimon.s3./s3a./fs.s3./fs.oss.} re-key + raw {@code fs./dfs./hadoop.}
+     *       passthrough, which run LAST and overlay the canonical translation (last-write-wins =
+     *       legacy {@code addResource(getHadoopStorageConfig())} then {@code appendUserHadoopConfig}).</li>
+     * </ol>
      */
     private static void applyStorageConfig(Map<String, String> props, BiConsumer<String, String> setter) {
+        applyCanonicalS3Config(props, setter);
+        applyCanonicalOssConfig(props, setter);
         props.forEach((key, value) -> {
             for (String prefix : USER_STORAGE_PREFIXES) {
                 if (key.startsWith(prefix)) {
@@ -337,6 +388,79 @@ public final class PaimonCatalogFactory {
                 setter.accept(key, value);
             }
         });
+    }
+
+    /**
+     * Translates the canonical {@code s3.*}/{@code AWS_*} credential aliases into the Hadoop
+     * {@code fs.s3a.*} keys the live S3AFileSystem reads. Port of the credential-bearing subset of
+     * legacy {@code AbstractS3CompatibleProperties.appendS3HdfsProperties}: it intentionally omits
+     * the connection/timeout/path-style keys (not credentials; Hadoop S3A supplies its own
+     * defaults — the pre-fix code set none of them either). The {@code SimpleAWSCredentialsProvider}
+     * + access/secret/token are emitted only when an access key is present (matches legacy's
+     * {@code isNotBlank(accessKey)} guard, so anonymous public buckets stay anonymous).
+     */
+    private static void applyCanonicalS3Config(Map<String, String> props, BiConsumer<String, String> setter) {
+        String ak = firstNonBlank(props, S3_ACCESS_KEY_ALIASES);
+        String sk = firstNonBlank(props, S3_SECRET_KEY_ALIASES);
+        String endpoint = firstNonBlank(props, S3_ENDPOINT_ALIASES);
+        String region = firstNonBlank(props, S3_REGION_ALIASES);
+        String token = firstNonBlank(props, S3_SESSION_TOKEN_ALIASES);
+        // Only emit S3A config when the user actually configured an S3-style storage key.
+        if (ak == null && endpoint == null && region == null) {
+            return;
+        }
+        setter.accept("fs.s3.impl", S3A_IMPL);
+        setter.accept("fs.s3a.impl", S3A_IMPL);
+        setter.accept("fs.s3.impl.disable.cache", "true");
+        setter.accept("fs.s3a.impl.disable.cache", "true");
+        if (StringUtils.isNotBlank(endpoint)) {
+            setter.accept("fs.s3a.endpoint", endpoint);
+        }
+        if (StringUtils.isNotBlank(region)) {
+            setter.accept("fs.s3a.endpoint.region", region);
+        }
+        if (StringUtils.isNotBlank(ak)) {
+            setter.accept("fs.s3a.aws.credentials.provider", S3A_SIMPLE_CRED_PROVIDER);
+            setter.accept("fs.s3a.access.key", ak);
+            setter.accept("fs.s3a.secret.key", nullToEmpty(sk));
+            if (StringUtils.isNotBlank(token)) {
+                setter.accept("fs.s3a.session.token", token);
+            }
+        }
+    }
+
+    /**
+     * Translates the canonical {@code oss.*}/{@code fs.oss.*}/{@code dlf.*} credential aliases into
+     * the Jindo {@code fs.oss.*} keys the live OSS FileIO reads. Port of legacy
+     * {@code OSSProperties.initializeHadoopStorageConfig} OSS block. Detection keys off OSS-specific
+     * aliases only (NOT {@code s3.*}), so a pure-{@code s3.*} catalog does not trigger the Jindo
+     * block (it is an S3 catalog, covered by {@link #applyCanonicalS3Config}); a pure-{@code oss.*}
+     * catalog triggers this block.
+     */
+    private static void applyCanonicalOssConfig(Map<String, String> props, BiConsumer<String, String> setter) {
+        String ak = firstNonBlank(props, OSS_ACCESS_KEY_ALIASES);
+        String sk = firstNonBlank(props, OSS_SECRET_KEY_ALIASES);
+        String endpoint = firstNonBlank(props, OSS_ENDPOINT_ALIASES);
+        String region = firstNonBlank(props, OSS_REGION_ALIASES);
+        String token = firstNonBlank(props, OSS_SESSION_TOKEN_ALIASES);
+        if (ak == null && endpoint == null && region == null) {
+            return;
+        }
+        setter.accept("fs.oss.impl", JINDO_OSS_IMPL);
+        setter.accept("fs.AbstractFileSystem.oss.impl", JINDO_OSS_ABSTRACT_IMPL);
+        if (StringUtils.isNotBlank(ak)) {
+            setter.accept("fs.oss.accessKeyId", ak);
+            setter.accept("fs.oss.accessKeySecret", nullToEmpty(sk));
+        }
+        if (StringUtils.isNotBlank(token)) {
+            setter.accept("fs.oss.securityToken", token);
+        }
+        if (StringUtils.isNotBlank(endpoint)) {
+            setter.accept("fs.oss.endpoint", endpoint);
+        }
+        if (StringUtils.isNotBlank(region)) {
+            setter.accept("fs.oss.region", region);
+        }
     }
 
     /**
@@ -352,16 +476,33 @@ public final class PaimonCatalogFactory {
      * (when the auth type is kerberos), the metastore SERVICE principal
      * {@code hive.metastore.kerberos.principal} (sourced from {@code hive.metastore.service.principal}
      * or {@code hive.metastore.kerberos.principal}), and {@code hadoop.security.auth_to_local}.
-     * What remains DEFERRED is loading an external hive-site.xml FILE ({@code hive.conf.resources}) —
-     * legacy resolved it through fe-core {@code CatalogConfigFileUtils}, which the connector cannot
-     * import. The real Kerberos UGI {@code doAs} is injected by the FE via
+     * An external hive-site.xml FILE ({@code hive.conf.resources}) is loaded FE-side via
+     * {@code ConnectorContext.loadHiveConfResources} (legacy {@code CatalogConfigFileUtils}, which the
+     * connector cannot import) and passed in to the 2-arg overload as the {@code HiveConf} BASE — see
+     * {@link #buildHmsHiveConf(Map, Map)}. The real Kerberos UGI {@code doAs} is injected by the FE via
      * {@code ConnectorContext.executeAuthenticated}; here we only carry the auth keys into the conf
      * (legacy additionally built a {@code HadoopAuthenticator} from them).
      *
-     * <p>PURE: depends only on {@code props}.
+     * <p>PURE: depends only on {@code props} (and the pre-resolved file keys in the overload).
      */
     public static HiveConf buildHmsHiveConf(Map<String, String> props) {
+        return buildHmsHiveConf(props, java.util.Collections.emptyMap());
+    }
+
+    /**
+     * As {@link #buildHmsHiveConf(Map)}, but seeds {@code hiveConfResources} (the pre-resolved
+     * key/values of an external {@code hive.conf.resources} hive-site.xml, loaded FE-side via
+     * {@code ConnectorContext.loadHiveConfResources}) as the {@code HiveConf} BASE, BEFORE the user
+     * {@code hive.*} overrides — matching legacy {@code HMSBaseProperties.checkAndInit} precedence
+     * (file is base, user {@code hive.*} and the resolved uri win). PURE: depends only on the two maps.
+     */
+    public static HiveConf buildHmsHiveConf(Map<String, String> props, Map<String, String> hiveConfResources) {
         HiveConf hiveConf = new HiveConf();
+        // External hive-site.xml (hive.conf.resources) as the BASE (legacy checkAndInit loads the
+        // file first); the user hive.* keys below then correctly OVERRIDE it.
+        if (hiveConfResources != null) {
+            hiveConfResources.forEach(hiveConf::set);
+        }
         // All user-supplied hive.* keys verbatim (legacy initUserHiveConfig).
         props.forEach((k, v) -> {
             if (k.startsWith("hive.")) {
@@ -486,6 +627,17 @@ public final class PaimonCatalogFactory {
         hiveConf.set("dlf.catalog.proxyMode", proxyMode);
         // Overlay the OSS storage config (legacy ossProps.getHadoopStorageConfig + appendUserHadoopConfig).
         applyStorageConfig(props, hiveConf::set);
+        // DLF parity: when the user supplied only a region (no explicit oss.endpoint), derive the OSS
+        // storage endpoint from it, mirroring legacy OSSProperties.getOssEndpoint(region, accessPublic).
+        // DLF users typically pass dlf.region/oss.region, not oss.endpoint. Kept DLF-local (not in the
+        // shared applyCanonicalOssConfig, which the filesystem flavor requires an explicit endpoint for).
+        if (StringUtils.isBlank(hiveConf.get("fs.oss.endpoint"))) {
+            String ossRegion = firstNonBlank(props, OSS_REGION_ALIASES);
+            if (StringUtils.isNotBlank(ossRegion)) {
+                hiveConf.set("fs.oss.endpoint", "oss-" + ossRegion
+                        + (BooleanUtils.toBoolean(accessPublic) ? "" : "-internal") + ".aliyuncs.com");
+            }
+        }
         return hiveConf;
     }
 

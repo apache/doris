@@ -5,48 +5,60 @@
 
 ---
 
-# 🔥 2026-06-10 — P5 paimon B4 完成（sys-tables E7 + MVCC E5，T16-T20）；下一步 = B5（MTMV 桥）
+# ✅ 已完成（本 session，2026-06-11）— P5 paimon fullpath-review 修复执行（全 8 fix IMPL）
 
-> **本 session**：按 [tasks/P5-paimon-migration.md](./tasks/P5-paimon-migration.md) 落地 **B4**。subagent-driven（understand workflow 6-agent → 主线 firsthand 核读 → 用户签 D-039 + T20 留 B4 → 5 dispatch 各 implement→双审/fix-loop → 3-lens final holistic review + 主线 firsthand 复跑）。**B0–B3 已 commit（`a2b765677d1`）；B4 改动未提交**（用户控时机，工作树仅含 B4）。
+**用户选定 scope = "BLOCKERs + key MAJORs" = 8 fix。本 session 完成全部 8 个 fix 的 IMPL + UT + 文档。**
+进度表：[`plan-doc/task-list-P5-paimon-fixes.md`](./task-list-P5-paimon-fixes.md)（8/8 全勾）。每 fix 的 IMPL SUMMARY 写回 `plan-doc/tasks/designs/P5-fix-<id>-design.md` 尾部。
 
-## ✅ 本 session 已完成（B4 = T16-T20）
+## 8 fix 全绿（build+连接器 UT，maven 绝对 -f，读 surefire XML）
+| # | id | sev | 改动 | UT |
+|---|----|-----|------|-----|
+| 1 | FIX-STORAGE-CREDS | BLOCKER×2 | `applyStorageConfig` 加 canonical s3.*/oss.*/AWS_* → fs.s3a./fs.oss.（+DLF region 派生 OSS endpoint） | PaimonCatalogFactoryTest 38/0 |
+| 2 | FIX-NATIVE-PARTVAL | BLOCKER+MAJOR | `serializePartitionValue` 全类型 port + session-TZ（仅 LTZ 用） | PaimonPartitionValueRenderTest 7/0 |
+| 3 | FIX-TZ-ALIAS | MAJOR | 完整 legacy 别名图（`ZoneId.SHORT_IDS`+4 override，TreeMap CI） | PaimonConnectorMetadataMvccTest 37/0 |
+| 4 | FIX-TABLE-STATS | MAJOR | `getTableStatistics` override + `PaimonCatalogOps.rowCount` seam | PaimonConnectorMetadataStatisticsTest 4/0 |
+| 5 | FIX-CPP-READER | BLOCKER | `enable_paimon_cpp_reader` → `encodeSplit` 原生 DataSplit.serialize | PaimonScanPlanProviderTest（含真 DataSplit 往返） |
+| 6 | FIX-READ-NOTNULL | MAJOR | `mapFields` 一行 `nullable=true`（legacy parity restore） | PaimonConnectorMetadataTest 12/0 |
+| 7 | FIX-HMS-CONFRES | MAJOR | **扩 SPI** `loadHiveConfResources` + `buildHmsHiveConf(props,fileMap)` base 合并 | conn 42/0 + PaimonHmsConfResWiringTest |
+| 8 | FIX-REST-VENDED | BLOCKER | **扩 SPI** `vendStorageCredentials` + scan-props `location.*` overlay | conn 15/0 + fe-core DefaultConnectorContextVendTest 2/0 |
 
-- **T16**（greenfield E7 SPI）：`ConnectorTableOps` 加 `listSupportedSysTables(session, baseHandle)`→`List<String>` + `getSysTableHandle(session, baseHandle, sysName)`→`Optional<ConnectorTableHandle>`，**default no-op**（MC/jdbc/es/trino 不受影响）。唯一 `fe-connector-api` 改动。
-- **T17**（paimon 实现 E7）：`PaimonConnectorMetadata.listSupportedSysTables`=`SystemTableLoader.SYSTEM_TABLES`；`getSysTableHandle` 经**现有** `getTable(Identifier)` seam 喂 4-arg `new Identifier(db,table,"main",sysName)`（branch 硬编 "main"）。`PaimonTableHandle` 加 serializable `sysTableName`+`forceJni`(="binlog"||"audit_log")，`forSystemTable` factory，lowercase 规范化，equals/hashCode 含 sysTableName。**fix-loop**：抽共享 `PaimonTableResolver.resolve(catalogOps, handle)`（metadata+scan **一处** sys-aware reload；修 scan-twin 丢 sys-Table）+ Java 序列化 round-trip 测 + null-guard。
-- **T18**（fe-core 通用）：`PluginDrivenExternalTable` 把 4 处 handle 获取集中入 `protected resolveConnectorTableHandle(session, metadata)` seam + `getSupportedSysTables()` override 委托连接器 `listSupportedSysTables`；新 `PluginDrivenSysExternalTable extends PluginDrivenExternalTable`（**报 PLUGIN_EXTERNAL_TABLE**，override `resolveConnectorTableHandle` 喂 sys handle，transient 不持久化/**不 GSON 注册**）+ 新 `PluginDrivenSysTable extends NativeSysTable`（`createSysExternalTable`）。复用 live `SysTableResolver`/`TableIf.getSupportedSysTables/findSysTable` 机制（D-039）。
-- **T19**（forceJni + 描述符 + fail-loud）：`PaimonScanPlanProvider` DataSplit 分支 gate `shouldUseNativeReader(forceJni,…)`=`!forceJni && supportNativeReader`（ro 仍 native、metadata 表经 non-DataSplit JNI）；`PaimonConnectorMetadata.buildTableDescriptor`→`HIVE_TABLE`+`THiveTable`（**同修 B2 遗留** SCHEMA_TABLE fallback [DV-024]，普通+sys 表共修）；`PluginDrivenScanNode` 加 `checkSysTableScanConstraints()`（sys 表 + scan-params/snapshot → fail-loud，跑于 getSplits+startSplit 两入口）。
-- **T20**（首个 E5 消费者，**inert until B5**）：`beginQuerySnapshot/getSnapshotAt/getSnapshotById`（snapshot seam `latestSnapshotId`/`snapshotIdAtOrBefore`/`snapshotExists`：SDK 实现在 `CatalogBackedPaimonCatalogOps`、fake 在 `RecordingPaimonCatalogOps`；sys handle→`Optional.empty`；空表→-1；SPI **empty-if-none** vs legacy throw 已 doc——B5 消费方 surface 用户错误）+ `PaimonConnector.getCapabilities`=`SUPPORTS_MVCC_SNAPSHOT/TIME_TRAVEL`。
-- **验证（主线 firsthand 复跑）**：import-gate 0；连接器 `Tests run: 124, Failures: 0, Errors: 0, Skipped: 1`(live)；fe-core `PluginDriven*Test` `Tests run: 100, Failures: 0, Errors: 0`；checkstyle 0；**无 cutover 泄漏**（paimon 未入 `SPI_READY_TYPES`、GsonUtils/CatalogFactory/PhysicalPlanTranslator 零改）+ **无 B5 泄漏**（`PluginDrivenExternalTable` 仍非 MvccTable）。每 dispatch 双审/mutation-verified；3-lens final holistic = PARITY/SCOPE READY + 1 ADVERSARIAL BLOCKER 已修。
+- **最终整模块 checkpoint**：`fe-connector-paimon` 19 测试类 / **213 tests / 0 fail / 0 err / 1 skip**（skip=live-gated `PaimonLiveConnectivityTest`）。
+- **fe-core 编译干净** + fe-core 新测 `DefaultConnectorContextVendTest` 2/0（验真 `StorageProperties` 归一化产出 AWS_*）。
+- 连接器禁 import fe-core：`bash tools/check-connector-imports.sh` 全程 clean。
 
-## 🧠 核心发现 / 纠偏（understand 纠偏 2 处 + final review 1 BLOCKER）
+## ⚠️ 实现中查出的设计订正（已落各 design 尾 + 已修，复审锚点）
+- **FIX-STORAGE-CREDS**：设计的 anon-bucket 测断言 `assertNull(fs.s3a.aws.credentials.provider)` 错——Hadoop `Configuration` 有 baked-in 默认 provider 链；改 `assertNotEquals(Simple-single,…)`（产线正确，仅测断言订正）。
+- **FIX-NATIVE-PARTVAL**：`ISO_LOCAL_DATE_TIME` 在秒+纳秒皆 0 时**省略秒**（`08:00:00`→`"…T08:00"`，legacy 同行为）；测用非零秒 wall clock（`01:02:03`）避歧义。
+- **FIX-TZ-ALIAS**：把 `resolveTimestampDigitalUnaffectedByUnsupportedZoneAlias` 的 `"CST"`→`"XYZ"`（CST 修后会解析，留 CST 则测失去捕变力）——设计说"keep as-is"，此为 Rule 9 必要订正。
+- **FIX-HMS-CONFRES**：设计 test2 用 `hive.metastore.uris`，被 `HMS_URI` 别名二次解析干扰；改用非 uri 键 `hive.metastore.sasl.qop` 隔离 file-base-vs-user 优先级（产线正确）。
+- **FIX-REST-VENDED**：设计"Construction change"（线程 `Supplier<CatalogProperty>` 入 ctor + 改 `PluginDrivenExternalCatalog`/`CatalogFactory`）**实际不需要**——impl 仅用 `rawVendedCredentials` 入参，故 0 ctor 改、0 `PluginDrivenExternalCatalog` 改（blast-radius 更小）。
 
-1. **D-039（签字）— E7 形状 = 复用 live SysTable 机制（非 RFC §10）**：RFC §10 的「`$`-后缀普通表 + 连接器 `getTableHandle` 内解析 + `listSysTableSuffixes`」**从未落地**；live fe-core 用 `SysTableResolver`+`NativeSysTable`+`TableIf.getSupportedSysTables/findSysTable`（iceberg+legacy-paimon 共用）。用户签复用该机制。RFC §10 已加 superseded 脚注（[DV-023]）。
-2. **T20 MVCC inert until B5（签字留 B4）**：E5 SPI 方法早存在 default-no-op，但 `PluginDrivenExternalTable` 非 `MvccTable`、`ConnectorMvccSnapshotAdapter` 零构造方、capability 零 reader → T20 实现纯连接器侧 groundwork，无可观察行为，须 B5 接活。翻闸(B7) gated on B5，故 inert capability 不达用户（安全）。
-3. **final review BLOCKER（已修）**：`PluginDrivenScanNode.create` 原直调 `metadata.getTableHandle(remoteName)` **绕过** T18 的 `resolveConnectorTableHandle` seam → sys 表得普通 handle（forceJni=false）→ binlog/audit_log DataSplit 走 native **静默错行**（inert today，翻闸后 live）。修 = `create` 改走 `table.resolveConnectorTableHandle(session, metadata)`（普通表字节等价、sys 表得 sys handle），TDD red→green。**教训**：scan node 有独立 handle 获取面，T18 集中 seam 时漏了它——下轮改 fe-core handle 流时须 grep 全 `metadata.getTableHandle(` 调用方。
-4. **DV-024（B2 遗留缺陷，B4 顺修）**：连接器无 `buildTableDescriptor` override → 普通 paimon plugin 表 toThrift 走 SCHEMA_TABLE fallback（BE `descriptors.cpp:635` SchemaTableDescriptor），legacy+sys 须 HIVE_TABLE（`:644`）。T19 一处 override 同修普通+sys。
+---
 
-## 🎯 下一 session = B5（MTMV 桥；gated on B4 全完，现满足）
+# ▶️ 下一步 — 用户决策：commit + live-e2e → B8 删 legacy → B9 回归
 
-- **核心任务 = 把 B4 inert 的 E5 接活 + 落 MTMV 桥**。批次依赖见 [tasks/P5](./tasks/P5-paimon-migration.md) §批次依赖。**gated on D2=A（已签）**。
-- **T21（GAP-LISTPART-AT-SNAPSHOT）**：`listPartitions` 加 at-snapshot 重载（按 pin 的 snapshotId 列分区）；连接器实现；默认保 latest 向后兼容。单-pin 不变式前提。
-- **T22（fe-core）**：`PaimonPluginDrivenExternalTable extends PluginDrivenExternalTable` implements `MTMVRelatedTableIf`+`MTMVBaseTableIf`+`MvccTable`；`loadSnapshot`（`beginQuerySnapshot` 定 snapshotId + at-snapshot 物化分区集**一次**）。**这是 E5 接活点**：须调 `connector.getMetadata().beginQuerySnapshot` + 构造 `ConnectorMvccSnapshotAdapter`（现零构造方）；并把 scan-params/time-travel 接到 `PluginDrivenScanNode`（接活后 T19 sys-table fail-loud guard 才生效，否则现 dormant）。
-- **T23**：子类 MTMV 方法（getTableSnapshot→`MTMVSnapshotIdSnapshot`(-1)/getPartitionSnapshot→`MTMVTimestampSnapshot`(缺抛 AnalysisException)/getAndCopyPartitionItems(读 pin 非重列)/getPartitionType/getPartitionColumnNames/isPartitionColumnAllowNull(true)/beforeMTMVRefresh(no-op)/getNewestUpdateVersionOrTime(**绕 pin**)）。
-- **T24**：rehome fe-core `PaimonMvccSnapshot`（包 `ConnectorMvccSnapshot` + fe-core 物化 name→PartitionItem/lastModifiedMillis/listed-count）；downcast 留 fe-core 内。
-- **T25**：isPartitionInvalid parity（捕 listPartitions count vs 成功构建 PartitionItem count，size 不匹配→UNPARTITIONED 全表刷）；MTMV 单-pin 不变式测 + UT。
-- **B5 还须翻 `partition_columns` schema key + 6-arg planScan/requiredPartitions + FE 消费 `listPartitions*`**（B2 遗留前置硬门——`getTableSchema` 现发 `partition_keys`，fe-core `PluginDrivenExternalTable:181` 读 `partition_columns`，FE 现把 paimon 当非分区）。raw-vs-rendered（`listPartitionValues` 返 RAW epoch-day vs legacy TVF RENDERED）须核。
-- **B6**（procedure doc no-op，独立）可随时穿插。
+**全 8 fix IMPL 完，commit 仍 HELD（项目规矩：无用户 ask 不 commit）。** 等用户决定：
+1. **commit 分组**：B7 翻闸（core cutover）+ 2 restore + 8 fix + 测 + docs 一并未提交在树。用户定 commit 分组（建议：B7 一组、8 fix 一组或逐 fix 一组）。
+2. **commit 前必 scrub** `regression-test/conf/regression-conf.groovy`（明文 Aliyun key），用 path-whitelist `git add fe/... plan-doc/...`，**勿 `git add -A`**；scratch 勿提交（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。[[catalog-spi-gson-migrate-all-three]] GSON atomic landmine 仍适用。
+3. **live-e2e（CI 跳，需真 infra）**：8 fix 的凭据/原生渲染/HMS-file/REST-vended 路径都列了 gated live 验证（见各 design 尾"Live-e2e"段）。
+4. 之后 → **B8 删 legacy**（`datasource/paimon/*` + 死 `property/metastore/Paimon*`）→ **B9 回归**。
+
+---
+
+# 📦 仓库状态
+
+- **HEAD = `d2a2c8d761a`**。working tree **uncommitted**：B7 翻闸 + 2 restore + **8 fix** + 测 + docs + 上一轮 review 产物。
+- **本 session 改的产线文件（7）**：`PaimonCatalogFactory` / `PaimonCatalogOps` / `PaimonConnector` / `PaimonConnectorMetadata` / `PaimonScanPlanProvider`（连接器）+ `ConnectorContext`（SPI）+ `DefaultConnectorContext`（fe-core）。
+- **新测文件（4）**：`PaimonPartitionValueRenderTest` / `PaimonConnectorMetadataStatisticsTest` / `PaimonHmsConfResWiringTest`（连接器）+ `DefaultConnectorContextVendTest`（fe-core）。改测：`PaimonCatalogFactoryTest` / `PaimonScanPlanProviderTest` / `PaimonConnectorMetadataTest` / `PaimonConnectorMetadataMvccTest` / `RecordingPaimonCatalogOps` / `RecordingConnectorContext` / `FakePaimonTable`。
+- **legacy 基线** = `1872ea05310`。迁移链：`512a67ee3ac`(B0)→`807308993fb`(B1)→`a2b765677d1`(B2/B3)→`ae5ad30b938`(B4)→`d2a2c8d761a`(B5/B6)；B7 + 8 fix 未 commit。
 
 ## ⚙️ 操作须知（复用）
-
-- maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> -am -Dmaven.build.cache.enabled=false`（**须 -am**）；改连接器 `:fe-connector-paimon`、改 SPI `:fe-connector-api`、改 fe-core `:fe-core`（**fe-core 大，测试用 `-Dtest='PluginDriven*Test' -DfailIfNoTests=false` SCOPE**）。读真实 `Tests run:`/`BUILD`，勿信后台 echo exit（[[doris-build-verify-gotchas]]）。
-- 连接器禁 import fe-core/fe-common（`org.apache.doris.{catalog,common,datasource,qe,analysis,nereids,planner}`；import-gate `bash tools/check-connector-imports.sh`）。**允许** `org.apache.paimon.*`、`org.apache.doris.connector.{api,spi}.*`、**`org.apache.doris.thrift.*`**（thrift provided，MC/paimon 均用）。连接器测试无 mockito（手写 `RecordingPaimonCatalogOps`/`RecordingConnectorContext`/`FakePaimonTable`，测带 WHY+MUTATION）；**fe-core 测可用 mockito**；checkstyle 含 test 源、绑 validate。
-- **subagent-driven 节奏（B4 用，B5 复用）**：understand workflow（read-only fan-out 验 plan 前提，**警惕退化 stub**）→ 主线 firsthand 核读 + 用户签决策 → 每 dispatch 用 Agent 工具（非 worktree、共享 dirty tree、顺序 build-on-previous）implement→spec/quality 双审→fix-loop → final holistic Workflow（3 lens 并行：parity/adversarial/scope）+ 主线 firsthand 复跑。**所有 subagent prompt 禁 `git checkout/restore/stash/reset`** + 嘱「不要 commit」。**无 SendMessage 工具**——fix-loop 用新 Agent dispatch（带全上下文）。
-- 翻闸（B7）GSON **7 注册原子齐迁**（5 catalog + db + table→`PaimonPluginDrivenExternalTable` 非裸 base，[[catalog-spi-gson-migrate-all-three]]）；删 legacy（B8）后验 paimon-core FE classpath 恰一份（[[catalog-spi-be-java-ext-shared-classpath]]）。
-- **未跟踪/本地 scratch 勿提交**：`regression-test/conf/regression-conf.groovy`(+`.bak`，含明文凭据)、`.audit-scratch/`、`conf.cmy/`、`.claude/scheduled_tasks.lock`、**`META-INF/`**（本 session 出现的 maven 构建产物，勿 `git add`）。B4 未碰它们。
+- maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> -am -Dmaven.build.cache.enabled=false -DfailIfNoTests=false`（`-am` 跨上游模块须带 `-DfailIfNoTests=false`，否则 fe-thrift 报 "No tests were executed"）；验证读 surefire XML + `MVN_EXIT`（[[doris-build-verify-gotchas]]）。
+- **`-pl :fe-connector-paimon -am` 不重编 fe-core**（连接器不依赖 fe-core）；改 `DefaultConnectorContext`/fe-core 须单独 `-pl :fe-core -am` 编/测验证。
+- 连接器禁 import fe-core(`bash tools/check-connector-imports.sh`)；单测基建技巧见 [[catalog-spi-fe-core-test-infra]]。
+- cwd 跨 Bash 调用持久，`cd` 会破相对路径 → 一律绝对路径（本 session 踩过一次）。
 
 ## 🧠 给下一个 agent 的 meta
-
-- **D1/D2/D4/D5/D6/D7/D-039 已签字**，B0+B1+B2+B3+B4 已落 —— 按设计 doc B5→B9 续。**B4 未提交**（工作树 = 仅 B4 改动）。
-- **live e2e（真实 paimon 各 flavor 环境）= 翻闸真正完成门**（CI 跳）。**B4 新增 live-e2e 硬门**：① `buildTableDescriptor`→HIVE_TABLE 在 BE 真 paimon 普通表+sys 表（离线只到连接器边界，[DV-024]）；② MVCC SDK-delegation（`CatalogBackedPaimonCatalogOps` DataTable cast / `earlierOrEqualTimeMills` / `tryGetSnapshot`，离线仅 fake）；③ binlog/audit_log 真走 JNI（forceJni 端到端）+ snapshots/schemas sys 表查询；④ sys 表 time-travel fail-loud（须 B5 接活 scan-params/snapshot 后）。累计前批 live 门见 tasks/P5 §当前阻塞项。
-- **B5 最高 correctness 风险**：MTMV 单-pin 不变式（snapshotId 与分区集同源）；`lastFileCreationTime()` 跨 flavor 可靠性（SDK 行为，源码不可验，须 live）。
-- auto-memory：[[catalog-spi-p5-paimon-design]]（设计）、[[catalog-spi-p5-b1-design]]（B1）、[[catalog-spi-p5-b2-design]]（B2）、[[catalog-spi-p5-b3-design]]（B3）、[[catalog-spi-p5-b4-design]]（B4：D-039 E7 机制 + T20 inert + BLOCKER + DV-024）、[[catalog-spi-connector-session-tz-gotcha]]（含 paimon 例外）。
+- 8 fix 的逐条 root-cause + patch + UT + 实现订正已落各 `P5-fix-<id>-design.md`（IMPL SUMMARY 段）。复审以各 design 尾为锚。
+- review 报告 [`P5-paimon-fullpath-review-2026-06-11.md`](./reviews/P5-paimon-fullpath-review-2026-06-11.md) 的 file:line 是 review-only 基线（修复后行号已漂移）。
+- 记忆 [[catalog-spi-p5-fullpath-review-result]] 记 review 结论；本 session 的修复执行结论应新增/更新记忆（见下）。

@@ -119,6 +119,36 @@ public class PaimonConnectorMetadataPartitionTest {
     }
 
     @Test
+    public void listPartitionsCarriesFileCount() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", dtRegionRowType(), Arrays.asList("dt", "region"), Collections.emptyList());
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "true"));
+        ops.table = table;
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("dt", String.valueOf(DT_EPOCH_DAY));
+        spec.put("region", "cn");
+        // Every stat is a DISTINCT value so an arg-swap mutation cannot pass by coincidence.
+        // Paimon Partition ctor order: (spec, recordCount, fileSizeInBytes, fileCount,
+        // lastFileCreationTime, done).
+        ops.partitions = Collections.singletonList(new Partition(
+                spec, /*recordCount*/ 42L, /*fileSizeInBytes*/ 1024L, /*fileCount*/ 7L,
+                /*lastFileCreationTime*/ 1700000000000L, /*done*/ true));
+
+        ConnectorPartitionInfo info = metadataWith(ops)
+                .listPartitions(null, dtRegionHandle(table), Optional.empty()).get(0);
+
+        // WHY: the SHOW PARTITIONS FileCount column (D-045) reads ConnectorPartitionInfo.getFileCount(),
+        // which MUST carry Paimon Partition.fileCount() — the 7th ctor arg added for this feature.
+        // MUTATION: dropping the partition.fileCount() feed (-> UNKNOWN=-1), or passing any other stat
+        // (recordCount/fileSizeInBytes/lastFileCreationTime) into the fileCount slot -> red.
+        Assertions.assertEquals(7L, info.getFileCount());
+        Assertions.assertEquals(42L, info.getRowCount());
+        Assertions.assertEquals(1024L, info.getSizeBytes());
+        Assertions.assertEquals(1700000000000L, info.getLastModifiedMillis());
+    }
+
+    @Test
     public void legacyNameFalseDoesNotRenderDateKey() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(

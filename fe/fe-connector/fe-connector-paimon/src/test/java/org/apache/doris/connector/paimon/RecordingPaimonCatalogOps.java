@@ -116,6 +116,14 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     /** The base table the metadata layer passed to the most recent {@link #branchExists} call. */
     Table lastBranchExistsTable;
 
+    // ---- FIX-TABLE-STATS: row-count seam ----
+    /** Configurable row count returned by {@link #rowCount}. */
+    long rowCount;
+    /** The table the metadata layer passed to the most recent {@link #rowCount} call. */
+    Table lastRowCountTable;
+    /** When set, {@link #rowCount} throws (drives the best-effort planning-failure path). */
+    boolean throwOnRowCount;
+
     @Override
     public List<String> listDatabases() {
         log.add("listDatabases");
@@ -280,6 +288,16 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         lastBranchExistsTable = table;
         lastBranchExistsArg = branchName;
         return branchExists;
+    }
+
+    @Override
+    public long rowCount(Table table) {
+        log.add("rowCount");
+        lastRowCountTable = table;
+        if (throwOnRowCount) {
+            throw new RuntimeException("simulated planning failure");
+        }
+        return rowCount;
     }
 
     @Override

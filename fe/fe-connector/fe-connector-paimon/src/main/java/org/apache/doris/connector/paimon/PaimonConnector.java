@@ -91,7 +91,7 @@ public class PaimonConnector implements Connector {
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
         return new PaimonScanPlanProvider(properties,
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()));
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), context);
     }
 
     /**
@@ -104,7 +104,10 @@ public class PaimonConnector implements Connector {
     public Set<ConnectorCapability> getCapabilities() {
         return EnumSet.of(
                 ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
-                ConnectorCapability.SUPPORTS_TIME_TRAVEL);
+                ConnectorCapability.SUPPORTS_TIME_TRAVEL,
+                // Paimon exposes per-partition stats (record/size/file count) via listPartitions,
+                // so SHOW PARTITIONS renders the legacy 5-column result (D-045).
+                ConnectorCapability.SUPPORTS_PARTITION_STATS);
     }
 
     private Catalog ensureCatalog() {
@@ -152,7 +155,13 @@ public class PaimonConnector implements Connector {
                 // that a real HMS-backed metastore=hive paimon catalog created through the plugin
                 // throws neither NoClassDefFoundError (.../IMetaStoreClient) nor a Configuration/
                 // HiveConf LinkageError/ClassCastException.
-                HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(properties);
+                // FIX-HMS-CONFRES: resolve an external hive-site.xml (hive.conf.resources) FE-side
+                // (the connector cannot import fe-core/fe-common's CatalogConfigFileUtils), then seed
+                // its keys as the HiveConf BASE so connection-critical settings present only in that
+                // file reach the live metastore client (legacy HMSBaseProperties parity).
+                Map<String, String> hiveConfFiles = context.loadHiveConfResources(
+                        PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"));
+                HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(properties, hiveConfFiles);
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with HMS metastore");
             }

@@ -621,7 +621,8 @@ public class PluginDrivenMvccExternalTableTest {
 
     private static ConnectorPartitionInfo cpi(String name, long lastModifiedMillis) {
         return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
-                ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis);
+                ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
+                ConnectorPartitionInfo.UNKNOWN);
     }
 
     /**

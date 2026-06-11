@@ -18,19 +18,30 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
+import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
+import com.google.common.base.Strings;
+import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Default implementation of {@link ConnectorContext}.
@@ -39,6 +50,8 @@ import java.util.function.Supplier;
  * during creation. Additional context fields can be added here as the SPI evolves.
  */
 public class DefaultConnectorContext implements ConnectorContext {
+
+    private static final Logger LOG = LogManager.getLogger(DefaultConnectorContext.class);
 
     private static final ExecutionAuthenticator NOOP_AUTH = new ExecutionAuthenticator() {};
 
@@ -108,6 +121,48 @@ public class DefaultConnectorContext implements ConnectorContext {
     @Override
     public <T> T executeAuthenticated(Callable<T> task) throws Exception {
         return authSupplier.get().execute(task);
+    }
+
+    @Override
+    public Map<String, String> loadHiveConfResources(String resources) {
+        if (Strings.isNullOrEmpty(resources)) {
+            return Collections.emptyMap();
+        }
+        // Reuse the EXACT legacy loader (same hadoop_config_dir base, comma-split, fail-if-missing)
+        // so the file-resolution semantics are byte-identical to legacy HMSBaseProperties; only the
+        // resolved key/values cross into the connector (no HiveConf/Configuration identity hazard).
+        HiveConf hc = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resources);
+        Map<String, String> out = new HashMap<>();
+        for (Map.Entry<String, String> e : hc) {   // HiveConf IS-A Iterable<Map.Entry<String,String>>
+            out.put(e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
+    @Override
+    public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
+        if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        // Reuse the EXACT legacy normalization tail (AbstractVendedCredentialsProvider): filter to
+        // cloud-storage props, run StorageProperties.createAll (normalizes arbitrary token key shapes
+        // + derives region/endpoint), then map to the BE-facing AWS_* properties. Single source of
+        // truth — no re-ported normalization that could drift. Fail-soft (empty) on any error,
+        // matching the legacy provider, so a malformed token degrades gracefully rather than killing
+        // the scan.
+        try {
+            Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
+            if (filtered.isEmpty()) {
+                return Collections.emptyMap();
+            }
+            List<StorageProperties> vended = StorageProperties.createAll(filtered);
+            Map<StorageProperties.Type, StorageProperties> map = vended.stream()
+                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+            return CredentialUtils.getBackendPropertiesFromStorageMap(map);
+        } catch (Exception e) {
+            LOG.warn("Failed to normalize vended credentials", e);
+            return Collections.emptyMap();
+        }
     }
 
     private static Map<String, String> buildEnvironment() {

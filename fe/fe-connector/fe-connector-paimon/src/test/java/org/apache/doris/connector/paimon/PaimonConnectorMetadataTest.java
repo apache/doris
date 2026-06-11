@@ -17,9 +17,13 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
@@ -225,5 +229,62 @@ public class PaimonConnectorMetadataTest {
                 "Paimon must disable CAST-predicate pushdown: the converter unwraps CAST shells "
                         + "and pushing the stripped predicate under-matches at the source, "
                         + "silently dropping rows BE re-eval cannot recover");
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-READ-NOTNULL — read-path columns forced nullable (legacy parity)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void getTableSchemaForcesColumnsNullableForLegacyParity() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        // A paimon NOT NULL field (PK-like) mixed with a nullable field; DataTypes.INT() is nullable
+        // by default, .notNull() flips it. Paimon forces PK columns NOT NULL, so this is the common case.
+        RowType rt = RowType.builder()
+                .field("id", DataTypes.INT().notNull())
+                .field("val", DataTypes.INT())
+                .build();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rt, Collections.emptyList(), Collections.singletonList("id"));
+        ops.table = table;
+
+        ConnectorTableHandle handle = metadataWith(ops).getTableHandle(null, "db1", "t1").get();
+        ConnectorTableSchema schema = metadataWith(ops).getTableSchema(null, handle);
+
+        // WHY: legacy PaimonExternalTable always declared paimon columns nullable (isAllowNull=true)
+        // regardless of the field's NOT NULL flag, so nereids cannot fold null-rejecting predicates
+        // on a NOT NULL external column that can still read NULL (schema-evolution default-fill). A
+        // paimon PK NOT NULL field MUST still surface as nullable to Doris. MUTATION: reverting
+        // mapFields to field.type().isNullable() -> the 'id' column becomes isNullable()==false -> red.
+        ConnectorColumn id = schema.getColumns().get(0);
+        ConnectorColumn val = schema.getColumns().get(1);
+        Assertions.assertEquals("id", id.getName());
+        Assertions.assertTrue(id.isNullable(),
+                "a paimon NOT NULL (PK) column must surface as nullable to Doris (legacy parity)");
+        Assertions.assertTrue(val.isNullable());
+    }
+
+    @Test
+    public void getTableSchemaAtSnapshotAlsoForcesNullable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.singletonList("id"));
+        ops.table = table;
+        // The historical (at-snapshot) schema's 'id' field is NOT NULL.
+        ops.schemaAt = new PaimonCatalogOps.PaimonSchemaSnapshot(
+                Collections.singletonList(new DataField(0, "id", DataTypes.INT().notNull())),
+                Collections.emptyList(),
+                Collections.singletonList("id"));
+
+        ConnectorTableHandle handle = metadataWith(ops).getTableHandle(null, "db1", "t1").get();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().schemaId(5).build();
+        ConnectorTableSchema schema = metadataWith(ops).getTableSchema(null, handle, snapshot);
+
+        // WHY: the latest and at-snapshot read paths share mapFields; this pins that the time-travel
+        // path also obeys legacy nullable parity and cannot drift from the latest path. MUTATION:
+        // reverting mapFields to field.type().isNullable() -> the at-snapshot 'id' becomes
+        // non-nullable -> red.
+        Assertions.assertTrue(schema.getColumns().get(0).isNullable(),
+                "the at-snapshot read path must also force columns nullable (legacy parity)");
     }
 }

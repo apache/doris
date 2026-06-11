@@ -19,6 +19,8 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorContext;
 
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 /**
@@ -36,9 +38,24 @@ final class RecordingConnectorContext implements ConnectorContext {
     int authCount;
     boolean failAuth;
 
+    // ---- FIX-HMS-CONFRES: loadHiveConfResources hook ----
+    /** Map the fake returns from {@link #loadHiveConfResources} (the "resolved" hive-site.xml keys). */
+    Map<String, String> hiveConfResources = Collections.emptyMap();
+    /** Whether the connector invoked {@link #loadHiveConfResources}. */
+    boolean hiveConfResourcesCalled;
+    /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
+    String lastHiveConfResourcesArg;
+
     @Override
     public String getCatalogName() {
         return "test";
+    }
+
+    @Override
+    public Map<String, String> loadHiveConfResources(String resources) {
+        hiveConfResourcesCalled = true;
+        lastHiveConfResourcesArg = resources;
+        return hiveConfResources;
     }
 
     @Override
