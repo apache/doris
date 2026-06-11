@@ -42,8 +42,14 @@ public:
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
+    Status load_nested_batch(int64_t rows) override;
+    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                               int64_t* values_read) override;
+    const std::vector<int16_t>& nested_definition_levels() const override;
+    const std::vector<int16_t>& nested_repetition_levels() const override;
+    int64_t nested_levels_written() const override;
+    bool is_or_has_repeated_child() const override;
 
-    Status skip_non_scalar_children(int64_t rows);
     size_t child_count() const { return _children.size(); }
     ParquetColumnReader* child_reader(size_t child_idx) const { return _children[child_idx].get(); }
     int child_output_index(size_t child_idx) const { return _child_output_indices[child_idx]; }

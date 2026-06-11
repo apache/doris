@@ -21,8 +21,8 @@
 #include <string>
 
 #include "format_v2/parquet/parquet_type.h"
-#include "format_v2/parquet/reader/arrow_leaf_reader_adapter.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/parquet/reader/parquet_leaf_reader.h"
 
 namespace parquet {
 class ColumnDescriptor;
@@ -45,15 +45,23 @@ public:
                        const ParquetPageSkipPlan* page_skip_plan = nullptr,
                        const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false,
                        ParquetColumnReaderProfile profile = {});
+    ~ScalarColumnReader() override;
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
+    Status load_nested_batch(int64_t rows) override;
+    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                               int64_t* values_read) override;
+    Status append_nested_value(int64_t level_idx, MutableColumnPtr& column) const;
+    const std::vector<int16_t>& nested_definition_levels() const override;
+    const std::vector<int16_t>& nested_repetition_levels() const override;
+    int64_t nested_levels_written() const override;
+    bool is_or_has_repeated_child() const override;
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
-    ArrowLeafReaderContext leaf_context() const {
-        return ArrowLeafReaderContext {_descriptor, _type_descriptor,   _type,
-                                       _name,       _record_reader,     _profile,
-                                       _timezone,   _enable_strict_mode};
+    ParquetLeafReader leaf_reader() const {
+        return ParquetLeafReader(_descriptor, _type_descriptor, _type, _name, _record_reader,
+                                 _profile, _timezone, _enable_strict_mode);
     }
     void advance_rows_read(int64_t rows);
 
@@ -68,6 +76,7 @@ private:
     const cctz::time_zone* _timezone = nullptr;
     bool _enable_strict_mode = false;
     int64_t _row_group_rows_read = 0;
+    std::unique_ptr<ParquetNestedScalarBatch> _nested_batch;
 };
 
 } // namespace doris::parquet

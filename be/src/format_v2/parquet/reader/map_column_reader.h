@@ -24,7 +24,6 @@
 
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/reader/column_reader.h"
-#include "format_v2/parquet/reader/nested_column_reader.h"
 
 namespace doris::parquet {
 
@@ -40,12 +39,19 @@ public:
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
+    Status load_nested_batch(int64_t rows) override;
+    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
+                               int64_t* values_read) override;
+    const std::vector<int16_t>& nested_definition_levels() const override;
+    const std::vector<int16_t>& nested_repetition_levels() const override;
+    int64_t nested_levels_written() const override;
+    bool is_or_has_repeated_child() const override;
+    ParquetColumnReader* key_reader() const { return _key_reader.get(); }
+    ParquetColumnReader* value_reader() const { return _value_reader.get(); }
 
+private:
     std::unique_ptr<ParquetColumnReader> _key_reader;
     std::unique_ptr<ParquetColumnReader> _value_reader;
-    NestedScalarOverflow _key_overflow;
-    NestedScalarOverflow _value_overflow;
-    NestedStructOverflow _struct_value_overflow;
 };
 
 } // namespace doris::parquet

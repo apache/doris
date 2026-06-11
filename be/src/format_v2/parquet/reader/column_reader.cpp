@@ -350,7 +350,7 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
             RETURN_IF_ERROR(create(*child_schema, child_projection, &child_reader));
         }
         child_output_indices.push_back(static_cast<int>(projected_child_types.size()));
-        projected_child_types.push_back(child_reader->type());
+        projected_child_types.push_back(make_nullable(child_reader->type()));
         projected_child_names.push_back(child_reader->name());
         child_readers.push_back(std::move(child_reader));
     }
@@ -402,16 +402,8 @@ Status ParquetColumnReaderFactory::create_list_column_reader(
                     column_schema.name);
         }
         RETURN_IF_ERROR(create_nested_scalar_column_reader(element_schema, &element_reader));
-    } else if (element_schema.kind == ParquetColumnSchemaKind::STRUCT) {
-        RETURN_IF_ERROR(
-                create_struct_column_reader(element_schema, element_projection, &element_reader));
-    } else if (element_schema.kind == ParquetColumnSchemaKind::LIST) {
-        RETURN_IF_ERROR(
-                create_list_column_reader(element_schema, element_projection, &element_reader));
     } else {
-        return Status::NotSupported(
-                "Current parquet LIST reader does not support nested complex element column {}",
-                column_schema.name);
+        RETURN_IF_ERROR(create(element_schema, element_projection, &element_reader));
     }
     DataTypePtr type = column_schema.type;
     if (format::is_partial_projection(element_projection)) {
@@ -455,18 +447,13 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
                     column_schema.name);
         }
         RETURN_IF_ERROR(create_nested_scalar_column_reader(value_schema, &value_reader));
-    } else if (value_schema.kind == ParquetColumnSchemaKind::STRUCT) {
-        RETURN_IF_ERROR(create_struct_column_reader(value_schema, value_projection, &value_reader));
-    } else if (value_schema.kind == ParquetColumnSchemaKind::LIST) {
-        RETURN_IF_ERROR(create_list_column_reader(value_schema, value_projection, &value_reader));
     } else {
-        return Status::NotSupported(
-                "Current parquet MAP reader does not support nested complex value column {}",
-                column_schema.name);
+        RETURN_IF_ERROR(create(value_schema, value_projection, &value_reader));
     }
     DataTypePtr type = column_schema.type;
     if (format::is_partial_projection(value_projection)) {
-        type = std::make_shared<DataTypeMap>(key_reader->type(), value_reader->type());
+        type = std::make_shared<DataTypeMap>(make_nullable(key_reader->type()),
+                                             make_nullable(value_reader->type()));
         if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
             type = make_nullable(type);
         }
@@ -504,7 +491,48 @@ ParquetColumnReader::ParquetColumnReader(const ParquetColumnSchema& schema, cons
           _leaf_column_id(schema.leaf_column_id),
           _nullable_definition_level(schema.nullable_definition_level),
           _repeated_repetition_level(schema.repeated_repetition_level),
+          _definition_level(schema.definition_level),
+          _repetition_level(schema.repetition_level),
+          _repeated_ancestor_definition_level(schema.repeated_ancestor_definition_level),
           _type(std::move(type)),
           _name(schema.name) {}
+
+Status ParquetColumnReader::load_nested_batch(int64_t) {
+    return Status::NotSupported("Parquet nested batch load is not supported for column {}", _name);
+}
+
+Status ParquetColumnReader::build_nested_column(int64_t, MutableColumnPtr&, int64_t*) {
+    return Status::NotSupported("Parquet nested column build is not supported for column {}",
+                                _name);
+}
+
+Status ParquetColumnReader::skip_nested_column(int64_t rows) {
+    auto scratch_column = _type->create_column();
+    int64_t values_read = 0;
+    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &values_read));
+    if (values_read != rows) {
+        return Status::Corruption("Failed to skip nested parquet column {}: skipped {} of {} rows",
+                                  _name, values_read, rows);
+    }
+    return Status::OK();
+}
+
+const std::vector<int16_t>& ParquetColumnReader::nested_definition_levels() const {
+    static const std::vector<int16_t> empty;
+    return empty;
+}
+
+const std::vector<int16_t>& ParquetColumnReader::nested_repetition_levels() const {
+    static const std::vector<int16_t> empty;
+    return empty;
+}
+
+int64_t ParquetColumnReader::nested_levels_written() const {
+    return 0;
+}
+
+bool ParquetColumnReader::is_or_has_repeated_child() const {
+    return _repetition_level > 0;
+}
 
 } // namespace doris::parquet

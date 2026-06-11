@@ -162,7 +162,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
 
     const int num_fields = static_cast<int>(_state->file_schema.size());
     for (const auto& column_filter : request_snapshot->column_predicate_filters) {
-        const auto file_column_id = column_filter.file_column_id;
+        const auto file_column_id = column_filter.effective_file_column_id();
         if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
             return Status::InvalidArgument("Invalid parquet filter top-level local id {}",
                                            file_column_id.value());

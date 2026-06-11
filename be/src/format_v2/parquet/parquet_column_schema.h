@@ -73,6 +73,12 @@ struct ParquetColumnSchema {
     // Complex readers use this to distinguish null containers from empty containers while
     // assembling STRUCT/LIST/MAP values.
     int16_t nullable_definition_level = 0;
+    // Definition/repetition levels used to reconstruct this node from a descendant leaf level
+    // stream. These mirror parquet::internal::LevelInfo but are kept in Doris schema state so
+    // complex readers do not depend on Arrow's Arrow-array reader internals.
+    int16_t definition_level = 0;
+    int16_t repetition_level = 0;
+    int16_t repeated_ancestor_definition_level = 0;
     // Repetition level introduced by this node's repeated container, or the nearest repeated
     // container carried from its parent.
     int16_t repeated_repetition_level = 0;
