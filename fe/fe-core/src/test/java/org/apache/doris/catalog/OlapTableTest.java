@@ -261,6 +261,35 @@ public class OlapTableTest {
         Assert.assertTrue(schemaAllIndexes.contains(col2));
     }
 
+    // DORIS-22946: getInvertedIndex must return null instead of NPE when
+    // the table has no TableIndexes set (the default state for an MTMV
+    // created via OlapTableFactory, which never calls withIndexes()).
+    @Test
+    public void testGetInvertedIndexWhenIndexesNull() {
+        OlapTable table = new OlapTable();
+        Assert.assertNull(table.getTableIndexes());
+
+        Column titleColumn = new Column("title", PrimitiveType.VARCHAR);
+        Assert.assertNull(table.getInvertedIndex(titleColumn, null));
+        Assert.assertNull(table.getInvertedIndex(titleColumn, Lists.newArrayList()));
+        Assert.assertNull(table.getInvertedIndex(titleColumn, Lists.newArrayList("sub")));
+    }
+
+    @Test
+    public void testGetInvertedIndexWhenIndexesPresent() {
+        OlapTable table = new OlapTable();
+        Column titleColumn = new Column("title", PrimitiveType.VARCHAR);
+        Column contentColumn = new Column("content", PrimitiveType.VARCHAR);
+
+        Index titleIdx = new Index(1L, "idx_title", Lists.newArrayList("title"),
+                IndexDef.IndexType.INVERTED, Maps.newHashMap(), "");
+        table.setIndexes(Lists.newArrayList(titleIdx));
+
+        Assert.assertNotNull(table.getInvertedIndex(titleColumn, null));
+        Assert.assertEquals("idx_title", table.getInvertedIndex(titleColumn, null).getIndexName());
+        Assert.assertNull(table.getInvertedIndex(contentColumn, null));
+    }
+
     @Test
     public void testTopNPushDownWithTag() throws Exception {
         FeConstants.runningUnitTest = true;
