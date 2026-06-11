@@ -342,6 +342,11 @@ private:
     DeleteRows _delete_rows_storage;
 };
 
+class TableReaderMaterializeTestHelper final : public TableReader {
+public:
+    using TableReader::_materialize_map_mapping_column;
+};
+
 VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                int right_column_id) {
     const auto int_type = std::make_shared<DataTypeInt32>();
@@ -1726,6 +1731,108 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, MaterializeMapKeyStructReordersRenamedChildren) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto file_key_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    const auto table_key_type = std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, int_type}, Strings {"renamed_b", "renamed_a"});
+    const auto file_map_type = std::make_shared<DataTypeMap>(file_key_type, int_type);
+    const auto table_map_type = std::make_shared<DataTypeMap>(table_key_type, int_type);
+
+    ColumnMapping a_mapping;
+    a_mapping.table_column_name = "renamed_a";
+    a_mapping.file_column_name = "a";
+    a_mapping.file_local_id = 0;
+    a_mapping.table_type = int_type;
+    a_mapping.file_type = int_type;
+    a_mapping.is_trivial = true;
+
+    ColumnMapping b_mapping;
+    b_mapping.table_column_name = "renamed_b";
+    b_mapping.file_column_name = "b";
+    b_mapping.file_local_id = 1;
+    b_mapping.table_type = string_type;
+    b_mapping.file_type = string_type;
+    b_mapping.is_trivial = true;
+
+    ColumnMapping key_mapping;
+    key_mapping.table_column_name = "key";
+    key_mapping.file_column_name = "key";
+    key_mapping.file_local_id = 0;
+    key_mapping.table_type = table_key_type;
+    key_mapping.file_type = file_key_type;
+    key_mapping.is_trivial = false;
+    key_mapping.child_mappings = {b_mapping, a_mapping};
+
+    ColumnMapping value_mapping;
+    value_mapping.table_column_name = "value";
+    value_mapping.file_column_name = "value";
+    value_mapping.file_local_id = 1;
+    value_mapping.table_type = int_type;
+    value_mapping.file_type = int_type;
+    value_mapping.is_trivial = true;
+
+    ColumnMapping entry_mapping;
+    entry_mapping.child_mappings = {key_mapping, value_mapping};
+
+    ColumnMapping map_mapping;
+    map_mapping.table_column_name = "kv";
+    map_mapping.file_column_name = "kv";
+    map_mapping.table_type = table_map_type;
+    map_mapping.file_type = file_map_type;
+    map_mapping.is_trivial = false;
+    map_mapping.child_mappings = {entry_mapping};
+
+    auto a_keys = ColumnInt32::create();
+    a_keys->insert_value(10);
+    a_keys->insert_value(20);
+    a_keys->insert_value(30);
+    auto b_keys = ColumnString::create();
+    b_keys->insert_value("x");
+    b_keys->insert_value("y");
+    b_keys->insert_value("z");
+    MutableColumns key_children;
+    key_children.push_back(std::move(a_keys));
+    key_children.push_back(std::move(b_keys));
+    auto key_column = ColumnStruct::create(std::move(key_children));
+
+    auto value_column = ColumnInt32::create();
+    value_column->insert_value(100);
+    value_column->insert_value(200);
+    value_column->insert_value(300);
+    auto offsets_column = ColumnArray::ColumnOffsets::create();
+    offsets_column->insert_value(2);
+    offsets_column->insert_value(3);
+    auto file_column = ColumnMap::create(std::move(key_column), std::move(value_column),
+                                         std::move(offsets_column));
+
+    TableReaderMaterializeTestHelper reader;
+    ColumnPtr result_column;
+    ASSERT_TRUE(reader._materialize_map_mapping_column(map_mapping, file_column, 2, &result_column)
+                        .ok());
+
+    const auto& result_map = assert_cast<const ColumnMap&>(*result_column);
+    EXPECT_EQ(result_map.get_offsets()[0], 2);
+    EXPECT_EQ(result_map.get_offsets()[1], 3);
+    const auto& result_key = assert_cast<const ColumnStruct&>(result_map.get_keys());
+    ASSERT_EQ(result_key.get_columns().size(), 2);
+    const auto& b_result = assert_cast<const ColumnString&>(result_key.get_column(0));
+    const auto& a_result = assert_cast<const ColumnInt32&>(result_key.get_column(1));
+    EXPECT_EQ(b_result.get_data_at(0).to_string(), "x");
+    EXPECT_EQ(b_result.get_data_at(1).to_string(), "y");
+    EXPECT_EQ(b_result.get_data_at(2).to_string(), "z");
+    EXPECT_EQ(a_result.get_element(0), 10);
+    EXPECT_EQ(a_result.get_element(1), 20);
+    EXPECT_EQ(a_result.get_element(2), 30);
+
+    const auto& result_value = assert_cast<const ColumnInt32&>(result_map.get_values());
+    EXPECT_EQ(result_value.get_element(0), 100);
+    EXPECT_EQ(result_value.get_element(1), 200);
+    EXPECT_EQ(result_value.get_element(2), 300);
 }
 
 TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
@@ -3936,6 +4043,50 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
     ASSERT_TRUE(mappings[2].file_local_id.has_value());
     EXPECT_EQ(*mappings[2].file_local_id, 2);
     EXPECT_EQ(mappings[2].file_column_name, "_col2");
+}
+
+TEST(TableColumnMapperTest, MatchingProjectedStructDoesNotNeedComplexRematerialize) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+                                                               Strings {"a", "b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "b", string_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type, int_type},
+                                             Strings {"a", "b", "c"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", string_type),
+            make_file_column(3, "c", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.non_predicate_columns.size(), 1);
+    const auto& projection = file_request.non_predicate_columns[0];
+    EXPECT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 2);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
+    EXPECT_EQ(projection.children[1].local_id(), 2);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
 }
 
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {

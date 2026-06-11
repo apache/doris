@@ -144,9 +144,6 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
-    // True when the nested value read from file has a pruned/remapped child layout and must be
-    // reconstructed before returning to table/global schema.
-    bool has_complex_projection = false;
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;

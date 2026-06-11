@@ -493,7 +493,6 @@ std::string ColumnMapping::debug_string() const {
         << join_debug_strings(child_mappings,
                               [](const ColumnMapping& child) { return child.debug_string(); })
         << ", is_trivial=" << is_trivial << ", is_constant=" << constant_index.has_value()
-        << ", has_complex_projection=" << has_complex_projection
         << ", filter_conversion=" << filter_conversion_type_to_string(filter_conversion)
         << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
         << ", has_default_expr=" << (default_expr != nullptr) << "}";
@@ -1770,7 +1769,10 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
 
-static bool complex_projection_has_pruned_children(const ColumnMapping& mapping) {
+// Returns true when the current file type is not the exact nested type the scan should expose.
+// This is about building the projected file-side type/projection, not about whether TableReader
+// later needs to rematerialize the complex value back to table layout.
+static bool needs_projected_file_type_rebuild(const ColumnMapping& mapping) {
     if (!is_complex_type(mapping.file_type->get_primitive_type())) {
         return false;
     }
@@ -1791,11 +1793,36 @@ static bool complex_projection_has_pruned_children(const ColumnMapping& mapping)
         // `!child_mapping.file_local_id.has_value()` means this column is miss in file
         if (child_mapping.table_column_name != child_mapping.file_column_name ||
             !child_mapping.file_local_id.has_value() ||
-            complex_projection_has_pruned_children(child_mapping)) {
+            needs_projected_file_type_rebuild(child_mapping)) {
             return true;
         }
     }
     return false;
+}
+
+static bool has_projected_file_children(const ColumnMapping& mapping) {
+    if (mapping.original_file_children.empty() || mapping.projected_file_children.empty()) {
+        return false;
+    }
+    if (mapping.original_file_children.size() != mapping.projected_file_children.size()) {
+        return true;
+    }
+    for (size_t idx = 0; idx < mapping.original_file_children.size(); ++idx) {
+        if (mapping.original_file_children[idx].file_local_id() !=
+            mapping.projected_file_children[idx].file_local_id()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool needs_nested_file_projection(const ColumnMapping& mapping) {
+    if (has_projected_file_children(mapping)) {
+        return true;
+    }
+    return std::ranges::any_of(mapping.child_mappings, [](const ColumnMapping& child_mapping) {
+        return needs_nested_file_projection(child_mapping);
+    });
 }
 
 // Build the projected file type according to the pruned complex projection. For example, if we
@@ -1838,29 +1865,6 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     return Status::OK();
 }
 
-// Re-build file type according to the pruned complex projection.
-// For example, if we have a struct column `s` with children `id` and `name`,
-// and the projection only keeps `s.name`, then we need to rebuild the file type of `s` to only
-// contain `name` so that the file reader can read it correctly.
-static Status rebuild_projected_file_type(ColumnMapping* mapping) {
-    if (mapping == nullptr) {
-        return Status::InvalidArgument("mapping is null");
-    }
-    if (mapping->original_file_type == nullptr) {
-        mapping->original_file_type = mapping->file_type;
-    }
-    DORIS_CHECK(
-            is_complex_type(remove_nullable(mapping->original_file_type)->get_primitive_type()));
-    RETURN_IF_ERROR(build_projected_child_type(mapping->original_file_type, mapping->child_mappings,
-                                               &mapping->file_type));
-    mapping->projected_file_children = projected_file_children_from_child_mappings(
-            mapping->original_file_children, mapping->child_mappings);
-    mapping->is_trivial =
-            mapping->table_type != nullptr && mapping->table_type->equals(*mapping->file_type);
-    mapping->has_complex_projection = true;
-    return Status::OK();
-}
-
 using FilterProjectionMap = std::map<LocalColumnId, LocalColumnIndex>;
 
 static Status apply_projection_to_mapping_file_type(const LocalColumnIndex& projection,
@@ -1880,7 +1884,6 @@ static Status apply_projection_to_mapping_file_type(const LocalColumnIndex& proj
     RETURN_IF_ERROR(project_column_definition(field, projection, &projected_field));
     mapping->file_type = std::move(projected_field.type);
     mapping->projected_file_children = std::move(projected_field.children);
-    mapping->has_complex_projection = !projection.project_all_children;
     mapping->is_trivial =
             mapping->table_type != nullptr && mapping->table_type->equals(*mapping->file_type);
     return Status::OK();
@@ -1933,10 +1936,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
                                               LocalIndex(file_request->local_positions.size()));
     }
     LocalColumnIndex projection = LocalColumnIndex::top_level(file_column_id);
-    if (mapping->has_complex_projection) {
-        if (complex_projection_has_pruned_children(*mapping)) {
-            RETURN_IF_ERROR(rebuild_projected_file_type(mapping));
-        }
+    if (needs_nested_file_projection(*mapping)) {
         RETURN_IF_ERROR(build_complex_projection(*mapping, &projection));
     }
     if (is_predicate_column) {
@@ -2017,9 +2017,13 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
     return Status::OK();
 }
 
+static bool needs_complex_rematerialize(const ColumnMapping& mapping) {
+    return !mapping.is_trivial && !mapping.child_mappings.empty();
+}
+
 static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position) {
     DORIS_CHECK(mapping->file_local_id.has_value());
-    if (mapping->is_trivial || mapping->has_complex_projection) {
+    if (mapping->is_trivial || needs_complex_rematerialize(*mapping)) {
         mapping->projection = VExprContext::create_shared(TableSlotRef::create_shared(
                 cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
                 mapping->file_type, mapping->file_column_name));
@@ -2067,7 +2071,8 @@ static const ColumnDefinition* find_file_child_for_complex_wrapper(
     if (file_field.children.empty()) {
         return nullptr;
     }
-    const auto* file_child = find_file_child_by_table_column(table_child, file_field.children, mode);
+    const auto* file_child =
+            find_file_child_by_table_column(table_child, file_field.children, mode);
     if (file_child != nullptr) {
         return file_child;
     }
@@ -2394,7 +2399,6 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.file_column_name = table_child.name;
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
-                child_mapping.has_complex_projection = !table_child.children.empty();
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
@@ -2405,8 +2409,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
             RETURN_IF_ERROR(_create_direct_mapping(table_child, *file_child, &child_mapping));
             mapping->child_mappings.push_back(std::move(child_mapping));
         }
-        if (complex_projection_has_pruned_children(*mapping)) {
-            mapping->has_complex_projection = true;
+        if (needs_projected_file_type_rebuild(*mapping)) {
             // If complex projection prunes some children, we have to rebuild the projected file type to make sure the reader expression can find the correct child types by name.
             RETURN_IF_ERROR(build_projected_child_type(mapping->file_type, mapping->child_mappings,
                                                        &mapping->file_type));
