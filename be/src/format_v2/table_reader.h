@@ -150,6 +150,10 @@ public:
                 return Status::OK();
             }
             if (!_data_reader.reader) {
+                if (_is_table_level_count_active()) {
+                    RETURN_IF_ERROR(_read_table_level_count(block, eos));
+                    return Status::OK();
+                }
                 RETURN_IF_ERROR(create_next_reader(eos));
                 if (!_data_reader.reader) {
                     DCHECK(*eos);
@@ -199,6 +203,8 @@ public:
         if (_data_reader.reader) {
             RETURN_IF_ERROR(close_current_reader());
         }
+        _current_task.reset();
+        _remaining_table_level_count = -1;
         return Status::OK();
     }
 
@@ -401,6 +407,41 @@ protected:
 
     virtual Status customize_file_scan_request(FileScanRequest* file_request) {
         return _append_delete_predicate(file_request);
+    }
+
+    bool _is_table_level_count_active() const { return _remaining_table_level_count >= 0; }
+
+    Status _materialize_count_rows(size_t rows, Block* block) const {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(block->columns() > 0 || rows == 0);
+        for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
+            auto column = block->get_by_position(column_idx).type->create_column();
+            column->resize(rows);
+            block->replace_by_position(column_idx, std::move(column));
+        }
+        return Status::OK();
+    }
+
+    Status _read_table_level_count(Block* block, bool* eos) {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(eos != nullptr);
+        DORIS_CHECK(_push_down_agg_type == TPushAggOp::type::COUNT);
+        DORIS_CHECK(_remaining_table_level_count >= 0);
+        if (_remaining_table_level_count == 0) {
+            _remaining_table_level_count = -1;
+            _current_task.reset();
+            *eos = true;
+            return Status::OK();
+        }
+
+        const int64_t batch_size =
+                _runtime_state == nullptr ? _remaining_table_level_count
+                                          : static_cast<int64_t>(_runtime_state->batch_size());
+        const auto rows = std::min(_remaining_table_level_count, batch_size);
+        RETURN_IF_ERROR(_materialize_count_rows(cast_set<size_t>(rows), block));
+        _remaining_table_level_count -= rows;
+        *eos = false;
+        return Status::OK();
     }
 
     static LocalIndex _next_block_position(const FileScanRequest& request) {
@@ -906,13 +947,7 @@ protected:
             // upper COUNT(*) aggregate can count them and produce the final result, including
             // zero rows when count is 0.
             DORIS_CHECK(file_result.count >= 0);
-            const auto rows = cast_set<size_t>(file_result.count);
-            for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
-                auto column = block->get_by_position(column_idx).type->create_column();
-                column->resize(rows);
-                block->replace_by_position(column_idx, std::move(column));
-            }
-            return Status::OK();
+            return _materialize_count_rows(cast_set<size_t>(file_result.count), block);
         }
         // MIN/MAX pushdown emits two rows, min first and max second, for each projected column.
         // The upper MIN/MAX aggregate consumes those two rows to produce the final aggregate value.
@@ -996,6 +1031,7 @@ protected:
     RuntimeProfile* _scanner_profile;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    int64_t _remaining_table_level_count = -1;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
     TableColumnMapperOptions _mapper_options;

@@ -424,6 +424,17 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _global_rowid_context = options.global_rowid_context;
     _delete_rows = nullptr;
     _aggregate_pushdown_tried = false;
+    _remaining_table_level_count = -1;
+    if (_push_down_agg_type == TPushAggOp::type::COUNT &&
+        options.current_range.__isset.table_format_params &&
+        options.current_range.table_format_params.__isset.table_level_row_count) {
+        DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
+        _remaining_table_level_count =
+                options.current_range.table_format_params.table_level_row_count;
+    }
+    if (_is_table_level_count_active()) {
+        return Status::OK();
+    }
     return _parse_delete_predicates(options);
 }
 
