@@ -226,6 +226,8 @@ public:
                                                         InstanceLoId sender_ins_id);
     VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
 
+    bool use_default_implementation_for_constants() const override { return false; }
+
 private:
     friend class ExchangeSinkLocalState;
 
