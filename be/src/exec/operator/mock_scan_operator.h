@@ -39,10 +39,6 @@ private:
         return PushDownType::ACCEPTABLE;
     }
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::ACCEPTABLE;
-    }
-
     bool _should_push_down_common_expr(const VExprSPtr&) override { return true; }
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 

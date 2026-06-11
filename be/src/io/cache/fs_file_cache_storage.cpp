@@ -905,7 +905,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         args.is_tmp = false;
 
         CacheContext ctx;
-        ctx.cache_type = static_cast<FileCacheType>(meta_value.type);
+        ctx.cache_type = meta_value.type;
         ctx.expiration_time = meta_value.ttl;
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
@@ -1031,7 +1031,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     CacheContext context_original;
     context_original.query_id = TUniqueId();
     context_original.expiration_time = block_meta->ttl;
-    context_original.cache_type = static_cast<FileCacheType>(block_meta->type);
+    context_original.cache_type = block_meta->type;
     context_original.tablet_id = key.meta.tablet_id;
 
     if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,

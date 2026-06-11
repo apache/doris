@@ -1988,7 +1988,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         }
         break;
     case ParseConfig::ParseTo::OnlyDocValueColumn: {
-        CHECK(column_variant.enable_doc_mode()) << "OnlyDocValueColumn requires doc mode enabled";
         std::vector<size_t> doc_item_indexes;
         doc_item_indexes.reserve(paths.size());
         phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
@@ -1998,6 +1997,14 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
             FieldInfo field_info;
             get_field_info(values[i], &field_info);
             if (paths[i].empty()) {
+                // Plain non-doc VARIANT can use doc-value KV as writer-side staging. An
+                // invalid root entry from JSON object/array is neither a scalar root value nor
+                // a doc KV path, so leave this row's doc offset empty. Doc-mode and valid scalar
+                // roots still populate the root subcolumn below.
+                if (!column_variant.enable_doc_mode() &&
+                    field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
+                    continue;
+                }
                 auto* subcolumn = column_variant.get_subcolumn(paths[i]);
                 DCHECK(subcolumn != nullptr);
                 flush_defaults(subcolumn);
@@ -2217,6 +2224,49 @@ Status parse_and_materialize_variant_columns(Block& block, const std::vector<uin
             { return _parse_and_materialize_variant_columns(block, variant_pos, configs); });
 }
 
+namespace {
+
+ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& column,
+                                                         const ParseConfig& config) {
+    // NestedGroup consumes the parse-time subcolumn tree to build nested storage structures, so it
+    // must not go through doc-value staging.
+    if (column.variant_enable_nested_group()) {
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    }
+
+    // Persistent doc mode owns doc-value bucket columns in VariantDocWriter. Keep it separate from
+    // the plain non-doc staging optimization, even when typed paths or parent indexes exist.
+    if (column.variant_enable_doc_mode()) {
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    }
+
+    // Deprecated flatten-nested still consumes parse-time subcolumns. Predefined typed paths and
+    // parent inverted indexes are handled later by regular doc-value staging: typed paths are
+    // forced into the materialized set unless typed-to-sparse is enabled, and materialized dynamic
+    // subcolumns inherit parent indexes while sparse payloads stay unindexed.
+    if (config.deprecated_enable_flatten_nested) {
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    }
+
+    // Plain dynamic non-doc VARIANT can avoid eagerly creating thousands of parse-time subcolumns.
+    // The segment writer will pick the materialized/sparse split from this doc-value KV staging.
+    // Keep a BE switch so tests and rollouts can compare the old parse-time path with staging under
+    // the same writer and schema.
+    switch (config::variant_storage_parse_mode) {
+    case 0:
+    case 2:
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    case 1:
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    default:
+        CHECK(false) << "invalid variant_storage_parse_mode: "
+                     << config::variant_storage_parse_mode;
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    }
+}
+
+} // namespace
+
 Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
                                              const std::vector<uint32_t>& column_pos) {
     std::vector<uint32_t> variant_column_pos;
@@ -2247,13 +2297,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        // if doc mode is not enabled, no need to parse to doc value column
-        if (!column.variant_enable_doc_mode()) {
-            configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
-            continue;
-        }
-
-        configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        configs[i].parse_to = select_storage_variant_parse_target(column, configs[i]);
     }
 
     RETURN_IF_ERROR(parse_and_materialize_variant_columns(block, variant_column_pos, configs));

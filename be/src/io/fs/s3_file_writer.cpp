@@ -364,7 +364,7 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
     s3_bytes_written_total << buf.get_size();
 
     ObjectCompleteMultiPart completed_part {
-            static_cast<int>(part_num), resp.etag.has_value() ? std::move(resp.etag.value()) : ""};
+            part_num, resp.etag.has_value() ? std::move(resp.etag.value()) : ""};
 
     std::unique_lock<std::mutex> lck {_completed_lock};
     _completed_parts.emplace_back(std::move(completed_part));

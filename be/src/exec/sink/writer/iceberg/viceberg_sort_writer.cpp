@@ -56,10 +56,10 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 
 Status VIcebergSortWriter::write(Block& block) {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
-
+    // Sample row size before append_block clears the block.
+    _update_spill_block_batch_row_count(block);
     // Append incoming block data to the sorter's internal buffer
     RETURN_IF_ERROR(_sorter->append_block(&block));
-    _update_spill_block_batch_row_count(block);
 
     // When accumulated data size reaches the target file size threshold,
     // sort the data in memory and flush it directly to a Parquet/ORC file.

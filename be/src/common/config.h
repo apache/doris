@@ -1280,6 +1280,7 @@ DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
+DECLARE_mInt64(file_cache_background_block_lru_update_queue_max_size);
 DECLARE_mBool(enable_file_cache_async_touch_on_get_or_set);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
@@ -1293,6 +1294,7 @@ DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
+DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
@@ -1428,6 +1430,9 @@ DECLARE_mInt32(variant_max_json_key_length);
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable duplicate path check when parsing json into variant subcolumns/jsonb.
 DECLARE_mBool(variant_enable_duplicate_json_path_check);
+// Controls storage-layer parse target for plain non-doc VARIANT columns:
+// 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
+DECLARE_mInt32(variant_storage_parse_mode);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
@@ -1799,8 +1804,8 @@ DECLARE_mInt32(max_segment_partial_column_cache_size);
 DECLARE_String(ann_index_ivf_list_cache_limit);
 // Stale sweep time for ANN index IVF list cache in seconds.
 DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
-// Chunk size for ANN/vector index building per training/adding batch
-DECLARE_mInt64(ann_index_build_chunk_size);
+// Minimum segment rows required to persist an ANN index.
+DECLARE_mInt64(ann_index_build_min_segment_rows);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);

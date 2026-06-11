@@ -99,8 +99,7 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
 #else
         const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
 #endif
-        size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
-                                                   static_cast<size_t>(block_size));
+        size_t disk_capacity = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(block_size);
         if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
             LOG_INFO(
                     "The cache {} config size {} is larger than disk size {} or zero, recalc "
@@ -298,8 +297,7 @@ std::string validate_capacity(const std::string& path, int64_t new_capacity,
 #else
     const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
 #endif
-    size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
-                                               static_cast<size_t>(block_size));
+    size_t disk_capacity = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(block_size);
     if (new_capacity == 0 || disk_capacity < new_capacity) {
         auto ret = fmt::format(
                 "The cache {} config size {} is larger than disk size {} or zero, recalc "

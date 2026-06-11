@@ -20,6 +20,7 @@
 #include <iostream>
 #include <memory>
 
+#include "common/exception.h"
 #include "core/column/column_const.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type.h"
@@ -34,7 +35,7 @@
 
 namespace doris {
 
-TEST(FunctionStructElementTest, test_return_type) {
+TEST(FunctionElementAtStructTest, test_return_type) {
     auto index_type = std::make_shared<DataTypeString>();
 
     auto index_column = ColumnHelper::create_column<DataTypeString>({"key2"});
@@ -50,7 +51,7 @@ TEST(FunctionStructElementTest, test_return_type) {
                                                      {index_column, index_type, "index"}};
 
     auto function = SimpleFunctionFactory::instance().get_function(
-            "struct_element", argument_template,
+            "element_at", argument_template,
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), {true},
             BeExecVersionManager::get_newest_version());
 
@@ -62,7 +63,7 @@ TEST(FunctionStructElementTest, test_return_type) {
     std::cout << "Return type: " << return_type->get_name() << std::endl;
 }
 
-TEST(FunctionStructElementTest, test_return_column) {
+TEST(FunctionElementAtStructTest, test_return_column) {
     auto index_type = std::make_shared<DataTypeString>();
 
     ColumnPtr index_column =
@@ -79,7 +80,7 @@ TEST(FunctionStructElementTest, test_return_column) {
                                                      {index_column, index_type, "index"}};
 
     auto function = SimpleFunctionFactory::instance().get_function(
-            "struct_element", argument_template,
+            "element_at", argument_template,
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), {true},
             BeExecVersionManager::get_newest_version());
 
@@ -112,6 +113,57 @@ TEST(FunctionStructElementTest, test_return_column) {
     EXPECT_TRUE(function->execute(nullptr, block, ColumnNumbers {0, 1}, 2, 1));
 
     EXPECT_TRUE(block.get_by_position(2).column->is_nullable());
+}
+
+TEST(FunctionElementAtStructTest, test_field_name_case_insensitive) {
+    auto index_type = std::make_shared<DataTypeString>();
+    // query uses "KEY2" but the struct field is stored as "key2"
+    auto index_column = ColumnHelper::create_column<DataTypeString>({"KEY2"});
+
+    DataTypes struct_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
+                              std::make_shared<DataTypeFloat64>()};
+    Strings names = {"key1", "key2", "key3"};
+    auto type_struct = std::make_shared<DataTypeStruct>(struct_types, names);
+
+    auto argument_template = ColumnsWithTypeAndName {{nullptr, type_struct, "struct"},
+                                                     {index_column, index_type, "index"}};
+
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "element_at", argument_template,
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), {true},
+            BeExecVersionManager::get_newest_version());
+
+    EXPECT_TRUE(function != nullptr);
+    EXPECT_EQ("Nullable(INT)", function->get_return_type()->get_name());
+}
+
+TEST(FunctionElementAtStructTest, test_field_not_found) {
+    auto index_type = std::make_shared<DataTypeString>();
+    auto index_column = ColumnHelper::create_column<DataTypeString>({"not_exist_field"});
+
+    DataTypes struct_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
+                              std::make_shared<DataTypeFloat64>()};
+    Strings names = {"key1", "key2", "key3"};
+    auto type_struct = std::make_shared<DataTypeStruct>(struct_types, names);
+
+    auto argument_template = ColumnsWithTypeAndName {{nullptr, type_struct, "struct"},
+                                                     {index_column, index_type, "index"}};
+
+    std::string err;
+    try {
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "element_at", argument_template,
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), {true},
+                BeExecVersionManager::get_newest_version());
+        if (function != nullptr) {
+            static_cast<void>(function->get_return_type());
+        }
+    } catch (const doris::Exception& e) {
+        err = e.what();
+    }
+
+    std::cout << "field-not-found error: " << err << std::endl;
+    EXPECT_TRUE(err.find("not found") != std::string::npos);
 }
 
 } // namespace doris

@@ -1008,7 +1008,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_DATEV2>(v);
         data += sizeof(UInt32);
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        const uint8_t scale = *data;
         data += sizeof(uint8_t);
         UInt64 v = unaligned_load<UInt64>(data);
         info.precision = -1;

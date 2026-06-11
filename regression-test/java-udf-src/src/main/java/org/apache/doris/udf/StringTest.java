@@ -17,7 +17,7 @@
 
 package org.apache.doris.udf;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.ql.exec.UDF;
 
 public class StringTest extends UDF {

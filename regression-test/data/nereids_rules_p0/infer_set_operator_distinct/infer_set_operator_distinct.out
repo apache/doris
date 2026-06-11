@@ -157,10 +157,12 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalTopN[MERGE_SORT]
-----------------PhysicalDistribute[DistributionSpecGather]
-------------------PhysicalTopN[LOCAL_SORT]
---------------------PhysicalOlapScan[t2]
+--------------PhysicalProject
+----------------PhysicalLazyMaterialize[materializedSlots:(t2.id) lazySlots:(t2.name,t2.score)]
+------------------PhysicalTopN[MERGE_SORT]
+--------------------PhysicalDistribute[DistributionSpecGather]
+----------------------PhysicalTopN[LOCAL_SORT]
+------------------------PhysicalLazyMaterializeOlapScan[t2 lazySlots:(t2.score,t2.name)]
 
 -- !union_inner_join_combination --
 PhysicalResultSink
@@ -564,10 +566,12 @@ PhysicalResultSink
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
-------------------PhysicalTopN[MERGE_SORT]
---------------------PhysicalDistribute[DistributionSpecGather]
-----------------------PhysicalTopN[LOCAL_SORT]
-------------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalLazyMaterialize[materializedSlots:(t2.id) lazySlots:(t2.name,t2.score)]
+----------------------PhysicalTopN[MERGE_SORT]
+------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------PhysicalTopN[LOCAL_SORT]
+----------------------------PhysicalLazyMaterializeOlapScan[t2 lazySlots:(t2.score,t2.name)]
 
 Hint log:
 Used: use_INFER_SET_OPERATOR_DISTINCT
@@ -1023,10 +1027,12 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalTopN[MERGE_SORT]
-----------------PhysicalDistribute[DistributionSpecGather]
-------------------PhysicalTopN[LOCAL_SORT]
---------------------PhysicalOlapScan[t2]
+--------------PhysicalProject
+----------------PhysicalLazyMaterialize[materializedSlots:(t2.id) lazySlots:(t2.name,t2.score)]
+------------------PhysicalTopN[MERGE_SORT]
+--------------------PhysicalDistribute[DistributionSpecGather]
+----------------------PhysicalTopN[LOCAL_SORT]
+------------------------PhysicalLazyMaterializeOlapScan[t2 lazySlots:(t2.score,t2.name)]
 
 Hint log:
 Used:

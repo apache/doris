@@ -1166,12 +1166,18 @@ DEFINE_Int32(blocking_pipeline_executor_size, "0");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
+// Controls storage-layer parse target for plain non-doc VARIANT columns:
+// 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
+// NestedGroup, deprecated flatten-nested, and persistent doc mode keep their required paths.
+DEFINE_mInt32(variant_storage_parse_mode, "0");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
+DEFINE_Validator(variant_storage_parse_mode,
+                 [](const int config) -> bool { return config >= 0 && config <= 2; });
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1229,6 +1235,7 @@ DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
+DEFINE_mInt64(file_cache_background_block_lru_update_queue_max_size, "500000");
 DEFINE_mBool(enable_file_cache_async_touch_on_get_or_set, "false");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
@@ -1239,7 +1246,8 @@ DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
-DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
+DEFINE_mInt64(file_cache_background_lru_log_queue_max_size, "500000");
+DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
 DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
@@ -1740,12 +1748,10 @@ DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
 // Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
 DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
-
-// Chunk size for ANN/vector index building per training/adding batch
-// 1M By default.
-DEFINE_mInt64(ann_index_build_chunk_size, "1000000");
-DEFINE_Validator(ann_index_build_chunk_size,
-                 [](const int64_t config) -> bool { return config > 0; });
+// Minimum segment rows required to persist an ANN index. 0 keeps the default behavior.
+DEFINE_mInt64(ann_index_build_min_segment_rows, "0");
+DEFINE_Validator(ann_index_build_min_segment_rows,
+                 [](const int64_t config) -> bool { return config >= 0; });
 
 DEFINE_mBool(enable_wal_tde, "false");
 

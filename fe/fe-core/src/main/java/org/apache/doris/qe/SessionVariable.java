@@ -1431,7 +1431,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "3 表示打开一些可能导致性能回退的 Counter", "The level of query profile, "
                             + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
                             + " 3 means open some Counters that may cause performance degradation"})
-    public int profileLevel = 1;
+    public int profileLevel = 2;
 
     @VarAttrDef.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
@@ -1740,6 +1740,15 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
     public boolean topNLazyMaterializationUsingIndex = false;
+
+    @VarAttrDef.VarAttr(name = "enable_topn_expr_pullup", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否将TopN下方Project中的非平凡表达式上拉至TopN之上，"
+                    + "以扩大延迟物化范围",
+                    "Whether to pull up non-trivial expressions from Project below TopN, "
+                            + "to expand lazy materialization scope"})
+    public boolean enableTopnExprPullup = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
             fuzzy = false,
@@ -3556,6 +3565,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableAddIndexForNewData = false;
 
     @VarAttrDef.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+            checker = "checkHnswEfSearch",
             description = {"HNSW 索引的 EF 搜索参数，控制搜索的精度和速度",
                     "HNSW index EF search parameter, controls the precision and speed of the search"})
     public int hnswEFSearch = 32;
@@ -3571,6 +3581,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean hnswBoundedQueue = true;
 
     @VarAttrDef.VarAttr(name = IVF_NPROBE, needForward = true,
+            checker = "checkIvfNprobe",
             description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
                     "IVF index nprobe parameter, controls the number of clusters to search"})
     public int ivfNprobe = 32;
@@ -4691,7 +4702,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setRuntimeFilterType(int runtimeFilterType) {
-        this.runtimeFilterType = runtimeFilterType;
+        this.runtimeFilterType = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(runtimeFilterType);
     }
 
     public int getRuntimeFilterMaxInNum() {
@@ -5697,7 +5708,7 @@ public class SessionVariable implements Serializable, Writable {
                         break;
                     case "int":
                         // root.get(attr.name()) always return Long type, so need to convert it.
-                        field.set(this, Integer.valueOf(root.get(attr.name()).toString()));
+                        field.set(this, normalizeIntValue(attr.name(), root.get(attr.name()).toString()));
                         break;
                     case "long":
                         field.set(this, (Long) root.get(attr.name()));
@@ -5750,7 +5761,7 @@ public class SessionVariable implements Serializable, Writable {
                         }
                         break;
                     case "int":
-                        field.set(this, Integer.valueOf(sessionVarMap.get(attr.name())));
+                        field.set(this, normalizeIntValue(attr.name(), sessionVarMap.get(attr.name())));
                         break;
                     case "long":
                         field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
@@ -5773,6 +5784,14 @@ public class SessionVariable implements Serializable, Writable {
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
+    }
+
+    private static int normalizeIntValue(String name, String value) {
+        int intValue = Integer.valueOf(value);
+        if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+        }
+        return intValue;
     }
 
     /**
@@ -6434,10 +6453,6 @@ public class SessionVariable implements Serializable, Writable {
     public static boolean enableStrictCast() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            StatementContext statementContext = connectContext.getStatementContext();
-            if (statementContext != null && statementContext.isInsert()) {
-                return connectContext.getSessionVariable().enableInsertStrict;
-            }
             return connectContext.getSessionVariable().enableStrictCast;
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
@@ -6449,6 +6464,22 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkHnswEfSearch(String efSearch) {
+        int value = Integer.valueOf(efSearch);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "hnsw_ef_search must be >= 1, got: " + efSearch);
+        }
+    }
+
+    public void checkIvfNprobe(String nprobe) {
+        int value = Integer.valueOf(nprobe);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "ivf_nprobe must be >= 1, got: " + nprobe);
         }
     }
 

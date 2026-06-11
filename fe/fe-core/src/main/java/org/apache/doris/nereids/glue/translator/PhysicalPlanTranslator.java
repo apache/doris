@@ -20,7 +20,6 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.AssertNumRowsElement;
-import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
@@ -237,7 +236,6 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -1933,9 +1931,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
             List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
             runtimeFilterTranslator.createLegacyRuntimeFilters(filters, nestedLoopJoinNode, context);
-            if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
-                nestedLoopJoinNode.setOutputLeftSideOnly(true);
-            }
         });
 
         Map<ExprId, SlotReference> leftChildOutputMap = nestedLoopJoin.child(0).getOutput().stream()
@@ -2036,13 +2031,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
         List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
-                .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
-
-        if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
-            // left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
-            joinConjuncts.add(new BoolLiteral(true));
-        }
 
         nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
