@@ -223,4 +223,9 @@ suite("ann_topn_small_candidate_fallback", "nonConcurrent") {
         sql "set ann_index_candidate_rows_percent_threshold=1.1;"
         exception "ann_index_candidate_rows_percent_threshold should be between 0 and 1"
     }
+
+    test {
+        sql "set ann_index_candidate_rows_percent_threshold=NaN;"
+        exception "ann_index_candidate_rows_percent_threshold should be between 0 and 1"
+    }
 }

@@ -3614,7 +3614,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkAnnIndexCandidateRowsPercentThreshold(String value) {
         double threshold = Double.parseDouble(value);
-        if (threshold < 0 || threshold > 1) {
+        if (Double.isNaN(threshold) || Double.isInfinite(threshold) || threshold < 0 || threshold > 1) {
             throw new InvalidParameterException(
                     ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD + " should be between 0 and 1");
         }

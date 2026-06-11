@@ -1056,8 +1056,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 
     size_t pre_size = _row_bitmap.cardinality();
     size_t rows_of_segment = _segment->num_rows();
-    DORIS_CHECK(_opts.runtime_state != nullptr);
-    const auto user_params = _opts.runtime_state->get_vector_search_params();
+    const auto& user_params = _ann_topn_runtime->user_params();
     if (user_params.should_fallback_ann_index_by_small_candidate(pre_size, rows_of_segment)) {
         VLOG_DEBUG << fmt::format(
                 "Ann topn predicate input rows {} reach small candidate threshold, "
