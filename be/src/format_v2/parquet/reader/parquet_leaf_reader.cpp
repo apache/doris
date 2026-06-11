@@ -112,8 +112,7 @@ Status build_binary_values(const std::string& column_name,
     for (const auto& chunk : chunks) {
         if (chunk == nullptr) {
             return Status::Corruption(
-                    "Parquet binary record reader returned null chunk for column {}",
-                    column_name);
+                    "Parquet binary record reader returned null chunk for column {}", column_name);
         }
         if (auto* binary_array = dynamic_cast<::arrow::BinaryArray*>(chunk.get())) {
             for (int64_t row_idx = 0; row_idx < binary_array->length(); ++row_idx) {
@@ -143,8 +142,7 @@ Status build_binary_values(const std::string& column_name,
         if (null_map == nullptr || null_map->size() != static_cast<size_t>(records_read)) {
             return Status::Corruption(
                     "Invalid dense nullable parquet null map for column {}: rows={}, null_map={}",
-                    column_name, records_read,
-                    null_map == nullptr ? 0 : null_map->size());
+                    column_name, records_read, null_map == nullptr ? 0 : null_map->size());
         }
         const int64_t non_null_count = static_cast<int64_t>(simd::count_zero_num(
                 reinterpret_cast<const int8_t*>(null_map->data()), null_map->size()));
@@ -197,8 +195,8 @@ Status build_float16_values(const std::string& column_name,
                             const std::vector<StringRef>& binary_values, int64_t row_count,
                             std::vector<float>* float_values) {
     if (type_descriptor.fixed_length != 2) {
-        return Status::Corruption("Invalid parquet Float16 length for column {}: {}",
-                                  column_name, type_descriptor.fixed_length);
+        return Status::Corruption("Invalid parquet Float16 length for column {}: {}", column_name,
+                                  type_descriptor.fixed_length);
     }
     if (binary_values.size() != static_cast<size_t>(row_count)) {
         return Status::Corruption(
@@ -287,9 +285,8 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
     if (_type_descriptor.extra_type_info == ParquetExtraTypeInfo::FLOAT16) {
         RETURN_IF_ERROR(build_binary_values(_name, batch._binary_chunks, row_count, null_map,
                                             read_dense_for_nullable, &binary_values));
-        RETURN_IF_ERROR(
-                build_float16_values(_name, _type_descriptor, binary_values, row_count,
-                                     &float_values));
+        RETURN_IF_ERROR(build_float16_values(_name, _type_descriptor, binary_values, row_count,
+                                             &float_values));
         view.value_kind = DecodedValueKind::FLOAT;
         view.values = reinterpret_cast<const uint8_t*>(float_values.data());
     } else if (batch.is_binary_value()) {
@@ -311,8 +308,7 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
 }
 
 bool ParquetLeafBatch::is_binary_value() const {
-    return _value_kind == DecodedValueKind::BINARY ||
-           _value_kind == DecodedValueKind::FIXED_BINARY;
+    return _value_kind == DecodedValueKind::BINARY || _value_kind == DecodedValueKind::FIXED_BINARY;
 }
 
 Status ParquetLeafReader::build_spaced_fixed_values(const ParquetLeafBatch& batch,
@@ -367,7 +363,7 @@ Status ParquetLeafReader::read_batch(int64_t batch_rows, ParquetLeafBatch* batch
     }
     if (_record_reader == nullptr) {
         return Status::InternalError("Parquet record reader is not initialized for column {}",
-                                      _name);
+                                     _name);
     }
 
     try {
@@ -412,8 +408,7 @@ Status ParquetLeafReader::build_null_map(const ParquetLeafBatch& batch, int64_t 
     return Status::OK();
 }
 
-Status ParquetLeafReader::read_nested_batch(int64_t batch_rows,
-                                            int16_t value_slot_definition_level,
+Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_slot_definition_level,
                                             ParquetNestedScalarBatch* batch,
                                             int16_t value_slot_repetition_level) const {
     if (batch == nullptr) {
@@ -437,8 +432,8 @@ Status ParquetLeafReader::read_nested_batch(int64_t batch_rows,
                 _name, batch->levels_written, leaf_batch.decoded_level_count());
     }
     if (batch->levels_written == 0 && batch->records_read > 0 &&
-        values_written == batch->records_read &&
-        _descriptor->max_definition_level() == 0 && _descriptor->max_repetition_level() == 0) {
+        values_written == batch->records_read && _descriptor->max_definition_level() == 0 &&
+        _descriptor->max_repetition_level() == 0) {
         batch->levels_written = batch->records_read;
     }
     if (batch->levels_written < batch->records_read || values_written < 0 ||
@@ -525,8 +520,8 @@ Status ParquetLeafReader::read_nested_batch(int64_t batch_rows,
                 "Nested parquet reader returned inconsistent value count for column {}: values={}, "
                 "levels={}, slots={}, leaf_values={}, payload_slots={}, "
                 "payload_slot_definition_level={}",
-                _name, values_written, batch->levels_written, value_slot_count,
-                leaf_value_count, payload_value_slot_count, payload_slot_definition_level);
+                _name, values_written, batch->levels_written, value_slot_count, leaf_value_count,
+                payload_value_slot_count, payload_slot_definition_level);
     }
 
     batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
