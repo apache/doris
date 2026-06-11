@@ -40,7 +40,6 @@ import java.util.stream.Collectors;
  * PushDownAggContext
  */
 public class PushDownAggContext {
-    public static final int BIG_JOIN_BUILD_SIZE = 400_000;
     // count(if(...)): if(...) push down as a whole
     // sum/min/max(if(truePart, elsePart)): if(...) can be split to sum(truePart) and sum(elsePart)
     public final boolean hasDecomposedAggIf;
@@ -96,7 +95,7 @@ public class PushDownAggContext {
         this.passThroughBigJoin = passThroughBigJoin;
         this.hasDecomposedAggIf = hasDecomposedAggIf;
         this.hasCaseWhen = hasCaseWhen;
-        this.bilateralState = Objects.requireNonNull(bilateralState);
+        this.bilateralState = Objects.requireNonNull(bilateralState, "bilateralState cannot be null");
         for (Map.Entry<AggregateFunction, Alias> entry : this.aliasMap.entrySet()) {
             AggregateFunction aggFunction = entry.getKey();
             ExprId id = entry.getValue().getExprId();
@@ -108,7 +107,7 @@ public class PushDownAggContext {
 
     /**
      * check validation
-     * @return true, if groupKeys is not empty and no group by key is in aggFunctionsInputSlots
+     * @return true, if groupKeys is not empty
      */
     public boolean isValid() {
         return !groupKeys.isEmpty();
@@ -135,7 +134,7 @@ public class PushDownAggContext {
     /**
      * Derive a child context for one branch of a join during bilateral push-down.
      */
-    public PushDownAggContext forBilateralBranch(List<AggregateFunction> branchAggFunctions,
+    public PushDownAggContext forOneBranch(List<AggregateFunction> branchAggFunctions,
             Map<AggregateFunction, Alias> branchAliasMap, List<SlotReference> groupKeys, boolean passThroughBigJoin) {
         return new PushDownAggContext(branchAggFunctions, groupKeys, branchAliasMap,
                 cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
