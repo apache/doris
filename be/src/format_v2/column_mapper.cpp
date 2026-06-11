@@ -1509,6 +1509,10 @@ static bool extract_nested_null_filter(const VExprSPtr& expr,
     return true;
 }
 
+// Merge predicates that target the same physical file column or nested leaf. For example,
+// `WHERE s.b > 1 AND s.b < 10` produces two predicates for the same target `s -> b`; keeping them
+// in one FileColumnPredicateFilter lets the file reader apply both pruning checks to the same leaf
+// instead of carrying duplicate target entries.
 static void merge_column_predicate_filter(FileColumnPredicateFilter column_filter,
                                           std::vector<FileColumnPredicateFilter>* filters) {
     DORIS_CHECK(filters != nullptr);
