@@ -230,7 +230,11 @@ public class VariableMgr {
                 field.setShort(obj, Short.parseShort(value));
                 break;
             case "int":
-                field.setInt(obj, Integer.parseInt(value));
+                int intValue = Integer.parseInt(value);
+                if (SessionVariable.RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+                    intValue = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+                }
+                field.setInt(obj, intValue);
                 break;
             case "long":
                 field.setLong(obj, Long.parseLong(value));
