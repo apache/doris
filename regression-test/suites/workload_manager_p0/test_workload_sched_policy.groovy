@@ -249,9 +249,9 @@ suite("test_workload_sched_policy") {
     sql "drop workload policy test_alter_policy"
 
     // ============================================================================
-    // Test mixed policy (Username + Query Time)
+    // Test policy creation with username (shared metric) and query_time (BE metric)
     // ============================================================================
-    
+
     // 1. Create a user
     sql "DROP USER IF EXISTS 'test_policy_user_be'"
     sql "CREATE USER 'test_policy_user_be'@'%' IDENTIFIED BY '12345'"
@@ -264,11 +264,11 @@ suite("test_workload_sched_policy") {
 
     // 3. Create a policy with both username (shared metric) and query_time (BE metric)
     sql "DROP WORKLOAD POLICY IF EXISTS test_mixed_policy"
-    
+
     sql """
         CREATE WORKLOAD POLICY test_mixed_policy
         CONDITIONS(username='test_policy_user_be', query_time > 1000)
-        ACTIONS(cancel_query) 
+        ACTIONS(cancel_query)
         PROPERTIES('workload_group'='${currentCgName}policy_group_be')
     """
 
@@ -276,10 +276,11 @@ suite("test_workload_sched_policy") {
     def policy = sql "SELECT * FROM information_schema.workload_policy WHERE name='test_mixed_policy'"
     assertTrue(policy.size() > 0, "Policy should be created successfully")
 
-    // 5. Test execution
+    // 5. Smoke check the test user can run in the workload group. This is not intended to trigger
+    //    cancel_query; the policy creation above is the behavior covered by this case.
     connect('test_policy_user_be', '12345', context.config.jdbcUrl) {
         sql "set workload_group = 'policy_group_be'"
-        sql "SELECT 1" 
+        sql "SELECT 1"
     }
 
     // Cleanup
