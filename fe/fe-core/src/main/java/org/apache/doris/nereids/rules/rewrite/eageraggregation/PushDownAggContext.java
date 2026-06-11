@@ -94,8 +94,7 @@ public class PushDownAggContext {
      * @return true, if groupKeys is not empty and no group by key is in aggFunctionsInputSlots
      */
     public boolean isValid() {
-        return !groupKeys.isEmpty()
-                && !groupKeys.stream().anyMatch(s -> aggFunctionsInputSlots.contains(s));
+        return !groupKeys.isEmpty();
     }
 
     public PushDownAggContext passThroughBigJoin() {

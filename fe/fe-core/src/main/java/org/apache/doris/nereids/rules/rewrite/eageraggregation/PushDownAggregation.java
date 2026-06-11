@@ -177,10 +177,10 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         If body = (If) (aggFunction).child(0);
                         Set<Slot> valueSlots = Sets.newHashSet(body.getTrueValue().getInputSlots());
                         valueSlots.addAll(body.getFalseValue().getInputSlots());
-                        if (body.getCondition().getInputSlots().stream().anyMatch(s -> valueSlots.contains(s))) {
-                            // do not push down sum(if a then a else b)
-                            return agg;
-                        }
+                        // if (body.getCondition().getInputSlots().stream().anyMatch(s -> valueSlots.contains(s))) {
+                        //     // do not push down sum(if a then a else b)
+                        //     return agg;
+                        // }
                         AggregateFunction aggTrue = (AggregateFunction) aggFunction.withChildren(body.getTrueValue());
                         aggFunctions.add(aggTrue);
                         funcs.add(aggTrue);
