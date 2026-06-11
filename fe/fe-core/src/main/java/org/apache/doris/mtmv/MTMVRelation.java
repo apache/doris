@@ -18,13 +18,15 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 
+import java.io.IOException;
 import java.util.Set;
 
-public class MTMVRelation {
+public class MTMVRelation implements GsonPostProcessable {
     // t1 => v1 => v2
     // t2 => mv1
     // mv1 join v2 => mv2
@@ -73,12 +75,19 @@ public class MTMVRelation {
     }
 
     public Set<BaseTableInfo> getBaseViewsOneLevel() {
-        // For compatibility, previously created MTMV may not have baseViewsOneLevel
-        return baseViewsOneLevel == null ? baseViews : baseViewsOneLevel;
+        return baseViewsOneLevel;
     }
 
     public Set<BaseTableInfo> getBaseViews() {
         return baseViews;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // For backward compatibility: previously created MTMV may not have baseViewsOneLevel
+        if (baseViewsOneLevel == null) {
+            baseViewsOneLevel = baseViews;
+        }
     }
 
     // toString() is not easy to find where to call the method
