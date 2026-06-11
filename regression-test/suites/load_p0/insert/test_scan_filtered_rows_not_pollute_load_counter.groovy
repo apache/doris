@@ -91,8 +91,4 @@ suite("test_scan_filtered_rows_not_pollute_load_counter", "p0") {
         )
     """
     qt_update_noop "select * from ${uniqTable} order by k1"
-
-    sql """ DROP TABLE IF EXISTS ${srcTable} """
-    sql """ DROP TABLE IF EXISTS ${dstTable} """
-    sql """ DROP TABLE IF EXISTS ${uniqTable} """
 }
