@@ -42,20 +42,6 @@ import java.util.Set;
  * Nested loop join between left child and right child.
  */
 public class NestedLoopJoinNode extends JoinNodeBase {
-    // If isOutputLeftSideOnly=true, the data from the left table is returned directly without a join operation.
-    // This is used to optimize `in bitmap`, because bitmap will make a lot of copies when doing Nested Loop Join,
-    // which is very resource intensive.
-    // `in bitmap` has two cases:
-    // 1. select * from tbl1 where k1 in (select bitmap_col from tbl2);
-    //   This will generate a bitmap runtime filter to filter the left table, because the bitmap is an exact filter
-    //   and does not need to be filtered again in the NestedLoopJoinNode, so it returns the left table data directly.
-    // 2. select * from tbl1 where 1 in (select bitmap_col from tbl2);
-    //    This sql will be rewritten to
-    //    "select * from tbl1 left semi join tbl2 where bitmap_contains(tbl2.bitmap_col, 1);"
-    //    return all data in the left table to parent node when there is data on the build side, and return empty when
-    //    there is no data on the build side.
-    private boolean isOutputLeftSideOnly = false;
-
     private List<Expr> joinConjuncts;
 
     private List<Expr> markJoinConjuncts;
@@ -114,10 +100,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         children.add(inner);
     }
 
-    public void setOutputLeftSideOnly(boolean outputLeftSideOnly) {
-        isOutputLeftSideOnly = outputLeftSideOnly;
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
@@ -138,7 +120,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
                 msg.nested_loop_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
-        msg.nested_loop_join_node.setIsOutputLeftSideOnly(isOutputLeftSideOnly);
         msg.nested_loop_join_node.setUseSpecificProjections(false);
         if (hasMaterializedSlotIds) {
             List<Integer> slotIds = new ArrayList<>();
@@ -175,7 +156,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
 
-        output.append(detailPrefix).append("is output left side only: ").append(isOutputLeftSideOnly).append("\n");
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
 
         if (vIntermediateTupleDescList != null) {

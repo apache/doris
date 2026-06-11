@@ -1139,15 +1139,11 @@ NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, con
                                                            int operator_id,
                                                            const DescriptorTbl& descs)
         : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, operator_id, descs),
-          _is_output_probe_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
-                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _has_materialized_slot_ids(tnode.__isset.nested_loop_join_node &&
                                      tnode.nested_loop_join_node.__isset.materialized_slot_ids),
           _materialized_slot_ids(_has_materialized_slot_ids
                                          ? tnode.nested_loop_join_node.materialized_slot_ids
-                                         : std::vector<SlotId> {}) {
-    _keep_origin = _is_output_probe_side_only;
-}
+                                         : std::vector<SlotId> {}) {}
 
 Status NestedLoopJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::init(tnode, state));
@@ -1211,7 +1207,7 @@ Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
     bool supported_lazy_join = _join_op == TJoinOp::INNER_JOIN || _join_op == TJoinOp::CROSS_JOIN ||
                                _enable_lazy_probe_finalize || _enable_lazy_build_finalize ||
                                _enable_lazy_mark_finalize;
-    _enable_lazy_materialize = _has_materialized_slot_ids && !_is_output_probe_side_only &&
+    _enable_lazy_materialize = _has_materialized_slot_ids &&
                                (!_is_mark_join || _enable_lazy_mark_finalize) &&
                                supported_lazy_join && !projections().empty() &&
                                &projections_row_desc() == &intermediate_row_desc();
@@ -1244,7 +1240,50 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* blo
     local_state._need_more_input_data = false;
     local_state._shared_state->probe_side_eos = eos;
 
-    if (!_is_output_probe_side_only) {
+    auto func = [&](auto&& join_op_variants, auto set_build_side_flag, auto set_probe_side_flag) {
+        using JoinOpType = std::decay_t<decltype(join_op_variants)>;
+
+        if constexpr (JoinOpType::value == TJoinOp::INNER_JOIN ||
+                      JoinOpType::value == TJoinOp::CROSS_JOIN) {
+            DCHECK(!set_build_side_flag && !set_probe_side_flag)
+                    << "Inner Join should not set visited flags but set_build_side_flag: "
+                    << set_build_side_flag << ", set_probe_side_flag: " << set_probe_side_flag;
+            return local_state.generate_inner_join_block_data(state);
+        } else {
+            return local_state.generate_other_join_block_data<JoinOpType, set_build_side_flag,
+                                                              set_probe_side_flag>(
+                    state, join_op_variants);
+        }
+    };
+    SCOPED_TIMER(local_state._loop_join_timer);
+    RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
+                               make_bool_variant(_match_all_build || _is_right_semi_anti),
+                               make_bool_variant(_match_all_probe || _is_left_semi_anti)));
+    return Status::OK();
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): existing pull dispatch handles all NLJ variants.
+Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block, bool* eos) const {
+    auto& local_state = get_local_state(state);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+    *eos = ((_match_all_build || _is_right_semi_anti)
+                    ? local_state._output_null_idx_build_side ==
+                                      local_state._shared_state->build_blocks.size() &&
+                              local_state._matched_rows_done
+                    : local_state._matched_rows_done);
+
+    size_t join_block_column_size = local_state._join_block.columns();
+    {
+        {
+            SCOPED_TIMER(local_state._join_filter_timer);
+
+            RETURN_IF_ERROR(
+                    local_state.filter_block(local_state._conjuncts, &local_state._join_block));
+        }
+        RETURN_IF_ERROR(local_state._build_output_block(&local_state._join_block, block));
+    }
+    local_state._join_block.clear_column_data(join_block_column_size);
+    if (!(*eos) and !local_state._need_more_input_data) {
         auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
                         auto set_probe_side_flag) {
             using JoinOpType = std::decay_t<decltype(join_op_variants)>;
@@ -1256,70 +1295,17 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* blo
                         << set_build_side_flag << ", set_probe_side_flag: " << set_probe_side_flag;
                 return local_state.generate_inner_join_block_data(state);
             } else {
-                return local_state.generate_other_join_block_data<JoinOpType, set_build_side_flag,
-                                                                  set_probe_side_flag>(
-                        state, join_op_variants);
+                return local_state
+                        .generate_other_join_block_data<std::decay_t<decltype(join_op_variants)>,
+                                                        set_build_side_flag, set_probe_side_flag>(
+                                state, join_op_variants);
             }
         };
         SCOPED_TIMER(local_state._loop_join_timer);
+        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
         RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
                                    make_bool_variant(_match_all_build || _is_right_semi_anti),
                                    make_bool_variant(_match_all_probe || _is_left_semi_anti)));
-    }
-    return Status::OK();
-}
-
-// NOLINTNEXTLINE(readability-function-cognitive-complexity): existing pull dispatch handles all NLJ variants.
-Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block, bool* eos) const {
-    auto& local_state = get_local_state(state);
-    if (_is_output_probe_side_only) {
-        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-        RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
-        *eos = local_state._shared_state->probe_side_eos;
-        local_state._need_more_input_data = !local_state._shared_state->probe_side_eos;
-    } else {
-        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-        *eos = ((_match_all_build || _is_right_semi_anti)
-                        ? local_state._output_null_idx_build_side ==
-                                          local_state._shared_state->build_blocks.size() &&
-                                  local_state._matched_rows_done
-                        : local_state._matched_rows_done);
-
-        size_t join_block_column_size = local_state._join_block.columns();
-        {
-            {
-                SCOPED_TIMER(local_state._join_filter_timer);
-
-                RETURN_IF_ERROR(
-                        local_state.filter_block(local_state._conjuncts, &local_state._join_block));
-            }
-            RETURN_IF_ERROR(local_state._build_output_block(&local_state._join_block, block));
-        }
-        local_state._join_block.clear_column_data(join_block_column_size);
-        if (!(*eos) and !local_state._need_more_input_data) {
-            auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
-                            auto set_probe_side_flag) {
-                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-
-                if constexpr (JoinOpType::value == TJoinOp::INNER_JOIN ||
-                              JoinOpType::value == TJoinOp::CROSS_JOIN) {
-                    DCHECK(!set_build_side_flag && !set_probe_side_flag)
-                            << "Inner Join should not set visited flags but set_build_side_flag: "
-                            << set_build_side_flag
-                            << ", set_probe_side_flag: " << set_probe_side_flag;
-                    return local_state.generate_inner_join_block_data(state);
-                } else {
-                    return local_state.generate_other_join_block_data<
-                            std::decay_t<decltype(join_op_variants)>, set_build_side_flag,
-                            set_probe_side_flag>(state, join_op_variants);
-                }
-            };
-            SCOPED_TIMER(local_state._loop_join_timer);
-            SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-            RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
-                                       make_bool_variant(_match_all_build || _is_right_semi_anti),
-                                       make_bool_variant(_match_all_probe || _is_left_semi_anti)));
-        }
     }
 
     local_state.reached_limit(block, eos);

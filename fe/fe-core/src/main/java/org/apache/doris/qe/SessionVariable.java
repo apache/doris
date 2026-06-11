@@ -4702,7 +4702,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setRuntimeFilterType(int runtimeFilterType) {
-        this.runtimeFilterType = runtimeFilterType;
+        this.runtimeFilterType = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(runtimeFilterType);
     }
 
     public int getRuntimeFilterMaxInNum() {
@@ -5708,7 +5708,7 @@ public class SessionVariable implements Serializable, Writable {
                         break;
                     case "int":
                         // root.get(attr.name()) always return Long type, so need to convert it.
-                        field.set(this, Integer.valueOf(root.get(attr.name()).toString()));
+                        field.set(this, normalizeIntValue(attr.name(), root.get(attr.name()).toString()));
                         break;
                     case "long":
                         field.set(this, (Long) root.get(attr.name()));
@@ -5761,7 +5761,7 @@ public class SessionVariable implements Serializable, Writable {
                         }
                         break;
                     case "int":
-                        field.set(this, Integer.valueOf(sessionVarMap.get(attr.name())));
+                        field.set(this, normalizeIntValue(attr.name(), sessionVarMap.get(attr.name())));
                         break;
                     case "long":
                         field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
@@ -5784,6 +5784,14 @@ public class SessionVariable implements Serializable, Writable {
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
+    }
+
+    private static int normalizeIntValue(String name, String value) {
+        int intValue = Integer.valueOf(value);
+        if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+        }
+        return intValue;
     }
 
     /**

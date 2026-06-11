@@ -37,7 +37,6 @@
 #include "core/arena.h"
 #include "core/block/block.h"
 #include "exec/common/variant_util.h"
-#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
