@@ -2204,7 +2204,7 @@ bool SegmentIterator::_prune_column(ColumnId cid, MutableColumnPtr& column, bool
     if (!fill_defaults) {
         return true;
     }
-    if (column->is_nullable()) {
+    if (is_column_nullable(*column)) {
         auto nullable_col_ptr = reinterpret_cast<ColumnNullable*>(column.get());
         nullable_col_ptr->get_null_map_column().insert_many_defaults(num_of_defaults);
         nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(num_of_defaults);
@@ -2910,7 +2910,7 @@ Status SegmentIterator::copy_column_data_by_selector(IColumn* input_col_ptr,
                                                      MutableColumnPtr& output_col,
                                                      uint16_t* sel_rowid_idx, uint16_t select_size,
                                                      size_t batch_size) {
-    if (output_col->is_nullable() != input_col_ptr->is_nullable()) {
+    if (is_column_nullable(*output_col) != is_column_nullable(*input_col_ptr)) {
         LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
                      << " input_column: " << input_col_ptr->dump_structure()
                      << " select_size: " << select_size;
@@ -3488,7 +3488,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& col
         return false;
     }
 
-    if (column->is_nullable()) {
+    if (is_column_nullable(*column)) {
         auto* nullable_col_ptr = reinterpret_cast<ColumnNullable*>(column.get());
         nullable_col_ptr->get_null_map_column().insert_many_defaults(nrows_read);
         nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(nrows_read);

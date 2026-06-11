@@ -52,8 +52,7 @@ public:
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
-        if (src_column->is_nullable()) {
-            auto nullable_array = assert_cast<const ColumnNullable*>(src_column.get());
+        if (const auto* nullable_array = check_and_get_column<ColumnNullable>(src_column.get())) {
             array_column = assert_cast<const ColumnArray*>(&nullable_array->get_nested_column());
             array_null_map = nullable_array->get_null_map_column().get_data().data();
         } else {

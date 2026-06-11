@@ -396,8 +396,8 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
         auto& ref_col = ref_block->get_by_position(it.first).column;
         auto& new_col = new_block->get_by_position(it.second).column;
 
-        bool ref_col_nullable = ref_col->is_nullable();
-        bool new_col_nullable = new_col->is_nullable();
+        bool ref_col_nullable = is_column_nullable(*ref_col);
+        bool new_col_nullable = is_column_nullable(*new_col);
 
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
@@ -438,14 +438,9 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
 
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
-            const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
-                                               .get_null_map_column()
-                                               .get_data()
-                                               .data();
-
             bool is_changed = false;
             for (size_t i = 0; i < input_column->size(); i++) {
-                is_changed |= ref_null_map[i];
+                is_changed |= input_column->is_null_at(i);
             }
             if (is_changed) {
                 return Status::DataQualityError(
@@ -453,28 +448,30 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
                         input_column->get_name());
             }
         } else {
-            const auto& output_nullable = assert_cast<const ColumnNullable&>(*output_column);
-            const auto& null_map_column = output_nullable.get_null_map_column();
-            const auto& nested_column = output_nullable.get_nested_column();
-            const auto* new_null_map = null_map_column.get_data().data();
+            if (const auto* output_nullable =
+                        check_and_get_column<ColumnNullable>(output_column.get())) {
+                const auto& null_map_column = output_nullable->get_null_map_column();
+                const auto& nested_column = output_nullable->get_nested_column();
 
-            if (null_map_column.size() != output_column->size()) {
-                return Status::InternalError(
-                        "null_map_column size mismatch output_column_size, "
-                        "null_map_column_size={}, output_column_size={}; input_column={}",
-                        null_map_column.size(), output_column->size(), input_column->get_name());
-            }
+                if (null_map_column.size() != output_column->size()) {
+                    return Status::InternalError(
+                            "null_map_column size mismatch output_column_size, "
+                            "null_map_column_size={}, output_column_size={}; input_column={}",
+                            null_map_column.size(), output_column->size(),
+                            input_column->get_name());
+                }
 
-            if (nested_column.size() != output_column->size()) {
-                return Status::InternalError(
-                        "nested_column size is changed, nested_column_size={}, "
-                        "ouput_column_size={}; input_column={}",
-                        nested_column.size(), output_column->size(), input_column->get_name());
+                if (nested_column.size() != output_column->size()) {
+                    return Status::InternalError(
+                            "nested_column size is changed, nested_column_size={}, "
+                            "ouput_column_size={}; input_column={}",
+                            nested_column.size(), output_column->size(), input_column->get_name());
+                }
             }
 
             bool is_changed = false;
             for (size_t i = 0; i < input_column->size(); i++) {
-                is_changed |= new_null_map[i];
+                is_changed |= output_column->is_null_at(i);
             }
             if (is_changed) {
                 return Status::DataQualityError(
@@ -485,18 +482,9 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
     }
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
-        const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
-                                           .get_null_map_column()
-                                           .get_data()
-                                           .data();
-        const auto* new_null_map = assert_cast<const ColumnNullable&>(*output_column)
-                                           .get_null_map_column()
-                                           .get_data()
-                                           .data();
-
         bool is_changed = false;
         for (size_t i = 0; i < input_column->size(); i++) {
-            is_changed |= (ref_null_map[i] != new_null_map[i]);
+            is_changed |= (input_column->is_null_at(i) != output_column->is_null_at(i));
         }
         if (is_changed) {
             return Status::DataQualityError(

@@ -72,7 +72,7 @@ size_t count_true_with_notnull(const ColumnPtr& col) {
         return 0;
     }
 
-    if (const auto* const_col = check_and_get_column_const<ColumnUInt8>(col.get())) {
+    if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
         bool is_true = const_col->get_bool(0);
         return is_true ? col->size() : 0;
     }

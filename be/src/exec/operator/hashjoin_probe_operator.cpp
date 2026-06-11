@@ -25,6 +25,8 @@
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
@@ -349,21 +351,35 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
 
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (!column->is_nullable() &&
-            _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
+        const auto& column_ptr = block.get_by_position(res_col_ids[i]).column;
+        const auto* column = column_ptr.get();
+        const bool serialize_null_into_key =
+                _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i];
+        if (!column->is_nullable() && serialize_null_into_key) {
             _key_columns_holder.emplace_back(
                     make_nullable(block.get_by_position(res_col_ids[i]).column));
             _probe_columns[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
-                   nullable &&
-                   !_parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
+                   nullable && !serialize_null_into_key) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
             DCHECK(_null_map_column);
             VectorizedUtils::update_null_map(_null_map_column->get_data(), col_nullmap);
             _probe_columns[i] = &col_nested;
+        } else if (const auto* const_column = check_and_get_column<ColumnConst>(*column);
+                   const_column && const_column->is_nullable()) {
+            if (serialize_null_into_key) {
+                _key_columns_holder.emplace_back(column_ptr->convert_to_full_column_if_const());
+            } else {
+                const auto& const_nullable =
+                        assert_cast<const ColumnNullable&>(const_column->get_data_column());
+                DCHECK(_null_map_column);
+                VectorizedUtils::update_null_map(_null_map_column->get_data(),
+                                                 const_nullable.get_null_map_data(), true);
+                _key_columns_holder.emplace_back(remove_nullable(column_ptr));
+            }
+            _probe_columns[i] = _key_columns_holder.back().get();
         } else {
             _probe_columns[i] = column;
         }

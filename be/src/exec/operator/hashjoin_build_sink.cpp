@@ -22,6 +22,7 @@
 #include <variant>
 
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "exec/common/template_helpers.hpp"
@@ -544,21 +545,35 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
     DCHECK(_should_build_hash_table);
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (!column->is_nullable() &&
-            _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i]) {
+        const auto& column_ptr = block.get_by_position(res_col_ids[i]).column;
+        const auto* column = column_ptr.get();
+        const bool serialize_null_into_key =
+                _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i];
+        if (!column->is_nullable() && serialize_null_into_key) {
             _key_columns_holder.emplace_back(
                     make_nullable(block.get_by_position(res_col_ids[i]).column));
             raw_ptrs[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
-                   !_parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i] &&
-                   nullable) {
+                   !serialize_null_into_key && nullable) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
             DCHECK(null_map);
             VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
             raw_ptrs[i] = &col_nested;
+        } else if (const auto* const_column = check_and_get_column<ColumnConst>(*column);
+                   const_column && const_column->is_nullable()) {
+            if (serialize_null_into_key) {
+                _key_columns_holder.emplace_back(column_ptr->convert_to_full_column_if_const());
+            } else {
+                const auto& const_nullable =
+                        assert_cast<const ColumnNullable&>(const_column->get_data_column());
+                DCHECK(null_map);
+                VectorizedUtils::update_null_map(null_map->get_data(),
+                                                 const_nullable.get_null_map_data(), true);
+                _key_columns_holder.emplace_back(remove_nullable(column_ptr));
+            }
+            raw_ptrs[i] = _key_columns_holder.back().get();
         } else {
             raw_ptrs[i] = column;
         }
@@ -574,7 +589,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     // 1. Dispose the overflow of ColumnString
     // 2. Finalize the ColumnVariant to speed up
     for (auto& data : block) {
-        data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
+        data.column = IColumn::mutate(std::move(data.column))->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {
             auto mutable_column = IColumn::mutate(std::move(data.column));
             mutable_column->finalize();

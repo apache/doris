@@ -397,7 +397,7 @@ public:
             try_reset_judge_selectivity();
         });
 
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
             const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
@@ -490,7 +490,7 @@ public:
 
 private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
             const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
@@ -543,7 +543,7 @@ private:
     template <bool is_and>
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
             const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();

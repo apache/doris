@@ -17,7 +17,6 @@
 
 #include "exec/common/variant_util.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -349,13 +348,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
             return Status::OK();
         }
         // set variant root column/type to from column/type
-        CHECK(arg.column->is_nullable());
+        CHECK(is_column_nullable(*arg.column));
         auto to_type = remove_nullable(type);
         const auto& data_type_object = assert_cast<const DataTypeVariant&>(*to_type);
         auto variant = ColumnVariant::create(data_type_object.variant_max_subcolumns_count(),
                                              data_type_object.enable_doc_mode());
 
-        variant->create_root(arg.type, std::move(*arg.column).mutate());
+        variant->create_root(arg.type, IColumn::mutate(arg.column));
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
                 assert_cast<const ColumnNullable*>(arg.column.get())->get_null_map_column_ptr());
@@ -2152,14 +2151,14 @@ Status _parse_and_materialize_variant_columns(Block& block,
                                               const std::vector<ParseConfig>& configs) {
     for (size_t i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
-        bool is_nullable = column_ref->is_nullable();
-        MutableColumnPtr owner_column = std::move(*column_ref).mutate();
+        bool is_nullable = is_column_nullable(*column_ref);
+        MutableColumnPtr owner_column = IColumn::mutate(std::move(column_ref));
         ColumnPtr nullable_null_map;
         MutableColumnPtr var_column;
         if (is_nullable) {
             const auto& nullable = assert_cast<const ColumnNullable&>(*owner_column);
             nullable_null_map = nullable.get_null_map_column_ptr();
-            var_column = std::move(*nullable.get_nested_column_ptr()).mutate();
+            var_column = IColumn::mutate(nullable.get_nested_column_ptr());
         } else {
             var_column = std::move(owner_column);
         }
@@ -2182,14 +2181,14 @@ Status _parse_and_materialize_variant_columns(Block& block,
                                                 ? make_nullable(std::make_shared<DataTypeString>())
                                                 : std::make_shared<DataTypeString>(),
                                         &scalar_root_column));
-            if (scalar_root_column->is_nullable()) {
+            if (is_column_nullable(*scalar_root_column)) {
                 scalar_root_column = assert_cast<const ColumnNullable*>(scalar_root_column.get())
                                              ->get_nested_column_ptr();
             }
         } else {
             const auto& root = *var.get_root();
             scalar_root_column =
-                    root.is_nullable()
+                    is_column_nullable(root)
                             ? assert_cast<const ColumnNullable&>(root).get_nested_column_ptr()
                             : var.get_root();
         }

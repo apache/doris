@@ -148,10 +148,8 @@ private:
     void handle_nullable_column(const ColumnPtr& column, PaddedPODArray<ResultType>& vec_res,
                                 size_t input_rows_count) const {
         if (column->is_nullable()) {
-            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& null_map = column_nullable->get_null_map_data();
             for (size_t i = 0; i != input_rows_count; ++i) {
-                if (null_map[i] == 1) {
+                if (column->is_null_at(i)) {
                     vec_res[i] = 0;
                 }
             }
