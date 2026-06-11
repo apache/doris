@@ -168,12 +168,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.warn("cdc_client RPC timeout api=/api/writeRecords taskId={} jobId={} backend={}:{} timeout_sec={}",
                     taskId, getJobId(), backend.getHost(), backend.getBrpcPort(),
                     Config.streaming_cdc_heavy_rpc_timeout_sec);
-            // the request may have been dispatched, the retry must not reuse the reader
-            markJobNeedRebuildReader();
+            // the request may have been dispatched and still running remotely
+            noRetry = true;
             throw new JobException("cdc_client RPC timeout: /api/writeRecords taskId=" + taskId);
         } catch (ExecutionException | InterruptedException ex) {
             log.error("Send write request failed: ", ex);
-            markJobNeedRebuildReader();
+            noRetry = true;
             throw new JobException(ex);
         }
     }
@@ -193,13 +193,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private StreamingInsertJob getStreamingJob() {
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         return job instanceof StreamingInsertJob ? (StreamingInsertJob) job : null;
-    }
-
-    private void markJobNeedRebuildReader() {
-        StreamingInsertJob job = getStreamingJob();
-        if (job != null) {
-            job.setNeedRebuildReader(true);
-        }
     }
 
     private String getToken() throws JobException {
