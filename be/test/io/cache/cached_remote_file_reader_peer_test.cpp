@@ -2329,7 +2329,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_wins_race) {
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(local_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer(10, '#');
     size_t bytes_read = 0;
@@ -2337,7 +2337,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_wins_race) {
     FileCacheStatistics cache_stats;
     io_ctx.file_cache_stats = &cache_stats;
 
-    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
 
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(bytes_read, 10);
@@ -2414,11 +2414,11 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_race_updates_workload_group_remote_s
         opts.is_doris_table = true;
         opts.mtime = 1;
         opts.tablet_id = kCrossTabletId;
-        CachedRemoteFileReader reader(local_reader, opts);
+        auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
         IOContext io_ctx;
         io_ctx.file_cache_stats = &cache_stats;
-        read_status = reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
+        read_status = reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
     }};
     read_thread.join();
 
@@ -2505,12 +2505,12 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_race_respects_workload_group_remote_
         opts.is_doris_table = true;
         opts.mtime = 1;
         opts.tablet_id = kCrossTabletId;
-        CachedRemoteFileReader reader(local_reader, opts);
+        auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
         IOContext io_ctx;
         io_ctx.file_cache_stats = &cache_stats;
         const auto start = std::chrono::steady_clock::now();
-        read_status = reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
+        read_status = reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
         elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - start)
                              .count();
@@ -2572,7 +2572,7 @@ TEST_F(CrossCGWinnerRaceTest,
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(remote_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(remote_reader, opts);
 
     FileCacheStatistics cache_stats;
     std::string buffer(10, '#');
@@ -2589,7 +2589,7 @@ TEST_F(CrossCGWinnerRaceTest,
         IOContext io_ctx;
         io_ctx.file_cache_stats = &cache_stats;
         const auto start = std::chrono::steady_clock::now();
-        read_status = reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
+        read_status = reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
         elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - start)
                              .count();
@@ -2651,7 +2651,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_s3_wins_when_peer_fails) {
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(local_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer(10, '#');
     size_t bytes_read = 0;
@@ -2660,7 +2660,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_s3_wins_when_peer_fails) {
     io_ctx.file_cache_stats = &cache_stats;
 
     // Read should still succeed via S3 fallback.
-    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
 
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(bytes_read, 10);
@@ -2861,7 +2861,7 @@ TEST_F(CrossCGWinnerRaceTest, same_cg_candidate_peer_wins_race_no_cross_cg_stats
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(local_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer(10, '#');
     size_t bytes_read = 0;
@@ -2869,7 +2869,7 @@ TEST_F(CrossCGWinnerRaceTest, same_cg_candidate_peer_wins_race_no_cross_cg_stats
     FileCacheStatistics cache_stats;
     io_ctx.file_cache_stats = &cache_stats;
 
-    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
 
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(bytes_read, 10);
@@ -2951,7 +2951,7 @@ TEST_F(CrossCGWinnerRaceTest, mixed_candidates_peer_retries_to_same_cg_hit) {
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(local_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer(10, '#');
     size_t bytes_read = 0;
@@ -2959,7 +2959,7 @@ TEST_F(CrossCGWinnerRaceTest, mixed_candidates_peer_retries_to_same_cg_hit) {
     FileCacheStatistics cache_stats;
     io_ctx.file_cache_stats = &cache_stats;
 
-    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
 
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(bytes_read, 10);
@@ -3060,7 +3060,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_cache_miss_rotates_not_evicts_candidate) 
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(local_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer(10, '#');
     size_t bytes_read = 0;
@@ -3070,7 +3070,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_cache_miss_rotates_not_evicts_candidate) 
 
     // read_at: peer tries cg_remote (front, cache miss NOT_FOUND) → rotates to back,
     // then tries cg_remote2 (now front, data available) → peer wins race.
-    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(bytes_read, 10);
     // miss_service must have been called at least once (cg_remote was tried first).
@@ -3142,7 +3142,7 @@ TEST_F(CrossCGWinnerRaceTest, cooldown_skips_peer_after_consecutive_all_miss) {
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(local_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer(10, '#');
     size_t bytes_read = 0;
@@ -3153,7 +3153,7 @@ TEST_F(CrossCGWinnerRaceTest, cooldown_skips_peer_after_consecutive_all_miss) {
     // Read uncached ranges so each read forces a fresh peer-vs-S3 decision for the same tablet.
     // The hedge delay gives the peer path a head start, making the all-miss accounting
     // deterministic instead of racing with the local-reader S3 path.
-    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(cache_stats.num_peer_race_s3_win, 1);
     int rpc_count_after_read1 = miss_service.rpc_count.load();
@@ -3161,7 +3161,8 @@ TEST_F(CrossCGWinnerRaceTest, cooldown_skips_peer_after_consecutive_all_miss) {
 
     // Read 2: peer miss again → S3 wins. consecutive_all_miss becomes 2 → cooldown triggered.
     cache_stats = {};
-    ASSERT_TRUE(reader.read_at(13, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(
+            reader->read_at(13, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(buffer, content.substr(13, 10));
     EXPECT_EQ(cache_stats.num_peer_race_s3_win, 1);
     int rpc_count_after_read2 = miss_service.rpc_count.load();
@@ -3173,7 +3174,8 @@ TEST_F(CrossCGWinnerRaceTest, cooldown_skips_peer_after_consecutive_all_miss) {
 
     // Read 3: cooldown active → candidates empty → S3 directly, NO peer RPC.
     cache_stats = {};
-    ASSERT_TRUE(reader.read_at(25, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(
+            reader->read_at(25, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(buffer, content.substr(25, 10));
     // No race entered — S3 was called directly via the empty-candidates path.
     EXPECT_EQ(cache_stats.num_peer_race_peer_win, 0);
@@ -3394,7 +3396,7 @@ TEST_F(CrossCGWinnerRaceTest, race_peer_stops_when_s3_wins) {
     opts.is_doris_table = true;
     opts.mtime = 1;
     opts.tablet_id = kCrossTabletId;
-    CachedRemoteFileReader reader(local_reader, opts);
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer(10, '#');
     size_t bytes_read = 0;
@@ -3402,7 +3404,7 @@ TEST_F(CrossCGWinnerRaceTest, race_peer_stops_when_s3_wins) {
     FileCacheStatistics cache_stats;
     io_ctx.file_cache_stats = &cache_stats;
 
-    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(bytes_read, 10);
 
