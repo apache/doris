@@ -19,6 +19,8 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <cstdint>
+#include <limits>
 #include <variant>
 
 #include "common/exception.h"
@@ -58,9 +60,12 @@ public:
 
     void set_context(const IndexQueryContextPtr& context) { _context = context; }
     IndexQueryContextPtr get_context() const { return _context; }
+    void set_column_id(uint32_t column_id) { _column_id = column_id; }
+    uint32_t column_id() const { return _column_id; }
 
 protected:
     IndexQueryContextPtr _context = nullptr;
+    uint32_t _column_id = std::numeric_limits<uint32_t>::max();
 };
 
 } // namespace doris::segment_v2

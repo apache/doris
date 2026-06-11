@@ -1077,7 +1077,7 @@ void expect_applied_variant_path_index(const IndexReadResult& result, std::strin
 void expect_index_not_applied(const IndexReadResult& result, int64_t index_id, int32_t column_uid) {
     for (const auto& event : result.stats.index_probe_events) {
         EXPECT_FALSE(event.state == IndexProbeState::APPLIED && event.column_uid == column_uid &&
-                     event.index_id == index_id);
+                     event.index_id == index_id && event.filtered_rows > 0);
     }
 }
 

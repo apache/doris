@@ -17,9 +17,11 @@
 
 #include "storage/index/inverted/inverted_index_iterator.h"
 
+#include <limits>
 #include <memory>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/logging.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_parser.h"
@@ -36,8 +38,9 @@ void InvertedIndexIterator::record_read_probe(const InvertedIndexReaderPtr& read
         !_context->stats->collect_index_probe_events || reader == nullptr) {
         return;
     }
+    DORIS_CHECK(_column_id != std::numeric_limits<uint32_t>::max());
     _context->index_read_probes.push_back(IndexReadProbe {
-            .iterator = this,
+            .column_id = _column_id,
             .index_id = static_cast<int64_t>(reader->get_index_id()),
             .is_null_bitmap = is_null_bitmap,
     });

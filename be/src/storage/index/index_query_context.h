@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -27,10 +28,8 @@
 
 namespace doris::segment_v2 {
 
-class IndexIterator;
-
 struct IndexReadProbe {
-    const IndexIterator* iterator = nullptr;
+    uint32_t column_id = std::numeric_limits<uint32_t>::max();
     int64_t index_id = -1;
     bool is_null_bitmap = false;
 };
