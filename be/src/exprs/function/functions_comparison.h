@@ -137,6 +137,13 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
         return false;
     }
 
+    // A NULL literal makes the comparison evaluate to NULL instead of a byte range predicate on
+    // the slot. This zonemap evaluator only derives bounds from non-NULL literals, so reject this
+    // shape here before evaluate_zonemap_filter is called.
+    if (slot_literal->literal.is_null()) {
+        return false;
+    }
+
     DORIS_CHECK(slot_literal->slot_type != nullptr);
     DORIS_CHECK(slot_literal->literal_type != nullptr);
     DORIS_CHECK_EQ(expr_zonemap::data_types_compatible(slot_literal->slot_type,
@@ -145,10 +152,7 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
             << "slot type: " << slot_literal->slot_type->get_name()
             << ", literal type: " << slot_literal->literal_type->get_name();
 
-    // A NULL literal makes the comparison evaluate to NULL instead of a byte range predicate on
-    // the slot. This zonemap evaluator only derives bounds from non-NULL literals, so reject this
-    // shape here before evaluate_zonemap_filter is called.
-    return !slot_literal->literal.is_null();
+    return true;
 }
 
 } // namespace comparison_zonemap_detail

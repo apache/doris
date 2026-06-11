@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
@@ -238,6 +239,19 @@ VExprSPtr make_fixed_zonemap_expr(ZoneMapFilterResult result) {
 }
 
 } // namespace
+
+TEST(ExprZonemapFilterTest, DataTypesCompatibleRequiresExactNonStringType) {
+    EXPECT_TRUE(expr_zonemap::data_types_compatible(std::make_shared<DataTypeInt32>(),
+                                                    std::make_shared<DataTypeInt32>()));
+    EXPECT_TRUE(expr_zonemap::data_types_compatible(
+            std::make_shared<DataTypeString>(10, TYPE_CHAR),
+            std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)));
+
+    EXPECT_FALSE(expr_zonemap::data_types_compatible(std::make_shared<DataTypeInt32>(),
+                                                     std::make_shared<DataTypeInt64>()));
+    EXPECT_FALSE(expr_zonemap::data_types_compatible(std::make_shared<DataTypeDecimal64>(10, 2),
+                                                     std::make_shared<DataTypeDecimal64>(10, 0)));
+}
 
 TEST(ExprZonemapFilterTest, ComparisonZonemapPrunesDisjointRanges) {
     auto type = int_type();

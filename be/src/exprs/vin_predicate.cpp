@@ -133,6 +133,10 @@ Status VInPredicate::_materialize_for_zonemap_filter() {
             _seg_filter_contains_null = true;
             continue;
         }
+        DORIS_CHECK(expr_zonemap::data_types_compatible(_children[0]->data_type(),
+                                                        literal->get_data_type()))
+                << "slot type: " << _children[0]->data_type()->get_name()
+                << ", literal type: " << literal->get_data_type()->get_name();
         _seg_filter_values.emplace_back(std::move(field));
     }
     if (_seg_filter_values.empty()) {

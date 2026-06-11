@@ -56,12 +56,14 @@ inline bool data_types_compatible(const DataTypePtr& lhs, const DataTypePtr& rhs
     if (lhs == nullptr || rhs == nullptr) {
         return false;
     }
-    const auto lhs_type = remove_nullable(lhs)->get_primitive_type();
-    const auto rhs_type = remove_nullable(rhs)->get_primitive_type();
-    if (field_types_compatible(lhs_type, rhs_type)) {
+    const auto lhs_type = remove_nullable(lhs);
+    const auto rhs_type = remove_nullable(rhs);
+    const auto lhs_primitive_type = lhs_type->get_primitive_type();
+    const auto rhs_primitive_type = rhs_type->get_primitive_type();
+    if (is_string_type(lhs_primitive_type) && is_string_type(rhs_primitive_type)) {
         return true;
     }
-    return remove_nullable(lhs)->equals(*remove_nullable(rhs));
+    return lhs_type->equals(*rhs_type);
 }
 
 inline DataTypePtr fetch_compatible_slot_type(const ZoneMapEvalContext& ctx, int slot_index,

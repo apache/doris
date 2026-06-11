@@ -210,8 +210,6 @@ private:
     std::shared_ptr<HybridSetBase> _filter;
     bool _set_values_match_child_type = true;
     std::string _expr_name;
-    std::once_flag _zonemap_materialize_once;
-    Status _zonemap_materialize_status;
     bool _zonemap_materialized = false;
     std::vector<Field> _seg_filter_values;
     Field _seg_filter_min;
