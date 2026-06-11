@@ -73,7 +73,7 @@ under the License.
         <lombok.version>1.18.24</lombok.version>
         <commons-codec.version>1.15</commons-codec.version>
         <testcontainers.version>1.21.4</testcontainers.version>
-        <assertj.version>3.25.3</assertj.version>
+        <assertj.version>3.27.7</assertj.version>
         <awaitility.version>4.2.1</awaitility.version>
         <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
     </properties>
