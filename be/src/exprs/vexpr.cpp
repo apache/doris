@@ -343,16 +343,6 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
     return node;
 }
 
-TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
-                                                  int precision, int scale) {
-    if (is_string_type(type)) {
-        const auto* value = reinterpret_cast<const StringRef*>(data);
-        auto field = Field::create_field<TYPE_STRING>(String(value->data, value->size));
-        return create_texpr_node_from(field, type, precision, scale);
-    }
-    return create_texpr_node_from(data, type, precision, scale);
-}
-
 // NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)
 } // namespace doris

@@ -98,19 +98,11 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
     DORIS_CHECK(ctx != nullptr);
     std::set<int> slot_indexes;
     for (const auto& conjunct : conjuncts) {
-        DORIS_CHECK(conjunct != nullptr);
-        auto root = conjunct->root();
-        DORIS_CHECK(root != nullptr);
-        if (!root->can_evaluate_zonemap_filter()) {
+        auto slot_index = expr_zonemap::single_slot_zonemap_index(conjunct);
+        if (!slot_index.has_value()) {
             continue;
         }
-        std::set<int> expr_slot_indexes;
-        root->collect_slot_column_ids(expr_slot_indexes);
-
-        if (expr_slot_indexes.size() != 1) {
-            continue;
-        }
-        slot_indexes.insert(expr_slot_indexes.begin(), expr_slot_indexes.end());
+        slot_indexes.insert(*slot_index);
     }
     for (const int slot_index : slot_indexes) {
         if (slot_index < 0 || cast_set<size_t>(slot_index) >= schema.num_column_ids()) {

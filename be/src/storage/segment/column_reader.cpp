@@ -617,9 +617,7 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
 
 Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
     DORIS_CHECK(zone_map != nullptr);
-    if (_segment_zone_map == nullptr) {
-        return Status::NotFound("segment zone map not found");
-    }
+    DORIS_CHECK(_segment_zone_map != nullptr);
     return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
 }
 

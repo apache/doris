@@ -25,7 +25,6 @@
 #include <cstddef>
 #include <ostream>
 
-#include "common/exception.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
@@ -143,14 +142,10 @@ Status VInPredicate::_materialize_for_zonemap_filter() {
         _zonemap_materialized = true;
         return Status::OK();
     }
-    try {
-        auto minmax = std::ranges::minmax_element(_seg_filter_values, expr_zonemap::field_less);
-        _seg_filter_min = *minmax.min;
-        _seg_filter_max = *minmax.max;
-        _zonemap_materialized = true;
-    } catch (const Exception&) {
-        _zonemap_materialized = false;
-    }
+    auto minmax = std::ranges::minmax_element(_seg_filter_values, expr_zonemap::field_less);
+    _seg_filter_min = *minmax.min;
+    _seg_filter_max = *minmax.max;
+    _zonemap_materialized = true;
     return Status::OK();
 }
 

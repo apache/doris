@@ -17,10 +17,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/field.h"
+#include "core/string_ref.h"
+#include "core/types.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/vexpr.h"
@@ -35,10 +39,10 @@ class VDirectInPredicate final : public VExpr {
 
 public:
     VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter,
-                       bool set_values_match_child_type = true)
+                       bool hybrid_set_values_match_child_type = true)
             : VExpr(node),
               _filter(filter),
-              _set_values_match_child_type(set_values_match_child_type),
+              _hybrid_set_values_match_child_type(hybrid_set_values_match_child_type),
               _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
 
@@ -89,7 +93,7 @@ public:
     }
 
     bool get_slot_in_expr(VExprSPtr& new_root) const {
-        if (!_set_values_match_child_type) {
+        if (!_hybrid_set_values_match_child_type) {
             return false;
         }
         if (!get_child(0)->is_slot_ref()) {
@@ -119,7 +123,7 @@ public:
                 DCHECK(iter->get_value() != nullptr);
                 const void* value = iter->get_value();
 
-                TExprNode node = create_texpr_node_from_hybrid_set_value(
+                TExprNode node = _create_texpr_node_from_hybrid_set_value(
                         value, slot_data_type->get_primitive_type(),
                         slot_data_type->get_precision(), slot_data_type->get_scale());
                 new_root->add_child(VLiteral::create_shared(node));
@@ -172,7 +176,7 @@ private:
     }
 
     Status _materialize_for_zonemap_filter() {
-        if (!_set_values_match_child_type) {
+        if (!_hybrid_set_values_match_child_type) {
             _zonemap_materialized = false;
             return Status::OK();
         }
@@ -184,7 +188,7 @@ private:
         while (iterator->has_next()) {
             const void* value = iterator->get_value();
             if (value != nullptr) {
-                TExprNode literal_node = create_texpr_node_from_hybrid_set_value(
+                TExprNode literal_node = _create_texpr_node_from_hybrid_set_value(
                         value, remove_nullable(data_type)->get_primitive_type(),
                         remove_nullable(data_type)->get_precision(),
                         remove_nullable(data_type)->get_scale());
@@ -206,8 +210,22 @@ private:
         return Status::OK();
     }
 
+    static TExprNode _create_texpr_node_from_hybrid_set_value(const void* data,
+                                                              const PrimitiveType& type,
+                                                              int precision, int scale) {
+        if (is_string_type(type)) {
+            const auto* value = reinterpret_cast<const StringRef*>(data);
+            auto field = Field::create_field<TYPE_STRING>(String(value->data, value->size));
+            return create_texpr_node_from(field, type, precision, scale);
+        }
+        return create_texpr_node_from(data, type, precision, scale);
+    }
+
     std::shared_ptr<HybridSetBase> _filter;
-    bool _set_values_match_child_type = true;
+    // Dictionary-filter rewrites may store physical dictionary codes in the HybridSet while the
+    // child slot keeps the original logical type. Such values must not be materialized as child-type
+    // literals for zonemap pruning or slot-IN rewrite.
+    bool _hybrid_set_values_match_child_type = true;
     std::string _expr_name;
     bool _zonemap_materialized = false;
     std::vector<Field> _seg_filter_values;

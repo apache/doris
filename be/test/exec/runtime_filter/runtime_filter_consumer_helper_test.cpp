@@ -15,34 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/runtime_filter/runtime_filter_consumer_helper.h"
+
 #include <glog/logging.h>
 #include <gtest/gtest.h>
-
-#include <atomic>
-#include <cstdint>
-#include <memory>
-#include <mutex>
-#include <set>
-#include <string>
-#include <string_view>
-#include <vector>
-
-// Use #define private public to access helper internals for white-box RF state tests.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wkeyword-macro"
-#endif
-#define private public
-#include "exec/runtime_filter/runtime_filter_consumer_helper.h"
-#undef private
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
 
 #include "common/object_pool.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
-#include "core/field.h"
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator.h"
@@ -50,8 +30,6 @@
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "runtime/descriptors.h"
-#include "storage/index/zone_map/zonemap_eval_context.h"
-#include "testutil/column_helper.h"
 
 namespace doris {
 

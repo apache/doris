@@ -18,6 +18,7 @@
 #include "exprs/expr_zonemap_filter.h"
 
 #include <algorithm>
+#include <set>
 
 #include "common/check.h"
 #include "common/logging.h"
@@ -26,6 +27,7 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
@@ -212,6 +214,27 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
 bool can_eval_in_zonemap(const VExprSPtr& slot_expr, const std::vector<Field>&, const Field&,
                          const Field&) {
     return slot_from_expr(slot_expr).has_value();
+}
+
+std::optional<int> single_slot_zonemap_index(const VExprContextSPtr& ctx) {
+    DORIS_CHECK(ctx != nullptr);
+    const auto& root = ctx->root();
+    DORIS_CHECK(root != nullptr);
+    if (!root->can_evaluate_zonemap_filter()) {
+        return std::nullopt;
+    }
+
+    std::set<int> slot_indexes;
+    root->collect_slot_column_ids(slot_indexes);
+    if (slot_indexes.size() != 1) {
+        return std::nullopt;
+    }
+
+    const int slot_index = *slot_indexes.begin();
+    if (slot_index < 0) {
+        return std::nullopt;
+    }
+    return slot_index;
 }
 
 bool is_expr_zonemap_filter_enabled(const RuntimeState* state) {

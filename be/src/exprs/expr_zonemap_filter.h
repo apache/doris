@@ -109,6 +109,8 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
 bool can_eval_in_zonemap(const VExprSPtr& slot_expr, const std::vector<Field>& values,
                          const Field& min_value, const Field& max_value);
 
+std::optional<int> single_slot_zonemap_index(const VExprContextSPtr& ctx);
+
 bool is_expr_zonemap_filter_enabled(const RuntimeState* state);
 
 } // namespace doris::expr_zonemap

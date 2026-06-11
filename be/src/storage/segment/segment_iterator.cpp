@@ -235,26 +235,6 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
     return Status::OK();
 }
 
-namespace {
-
-std::optional<int> single_slot_zonemap_index(const VExprContextSPtr& ctx) {
-    if (ctx == nullptr || ctx->root() == nullptr) {
-        return std::nullopt;
-    }
-    std::set<int> slot_indexes;
-    ctx->root()->collect_slot_column_ids(slot_indexes);
-    if (slot_indexes.size() != 1) {
-        return std::nullopt;
-    }
-    const int slot_index = *slot_indexes.begin();
-    if (slot_index < 0) {
-        return std::nullopt;
-    }
-    return slot_index;
-}
-
-} // namespace
-
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
@@ -3457,8 +3437,8 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
 
     std::unordered_map<int, VExprContextSPtrs> ctxs_by_slot;
     for (const auto& conjunct : conjuncts) {
-        auto slot_index = single_slot_zonemap_index(conjunct);
-        if (slot_index.has_value() && conjunct->root()->can_evaluate_zonemap_filter()) {
+        auto slot_index = expr_zonemap::single_slot_zonemap_index(conjunct);
+        if (slot_index.has_value()) {
             ctxs_by_slot[*slot_index].emplace_back(conjunct);
         }
     }
