@@ -1022,7 +1022,7 @@ static bool resolve_nested_projection_with_index_mapping(const NestedStructPath&
     }
 
     const auto root_index_mapping = build_index_mapping(*mapping_it, LocalIndex(0));
-    *root_projection = LocalColumnIndex::partial_field(*mapping_it->file_local_id);
+    *root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
     auto* current_projection = root_projection;
     const auto* current_mapping = &*mapping_it;
     const auto* current_index_mapping = &root_index_mapping;
@@ -1043,7 +1043,7 @@ static bool resolve_nested_projection_with_index_mapping(const NestedStructPath&
         DORIS_CHECK(child_mapping != nullptr);
         DORIS_CHECK(child_mapping->file_local_id.has_value());
 
-        auto child_projection = LocalColumnIndex::partial_field(index_mapping_it->second->index);
+        auto child_projection = LocalColumnIndex::partial_local(index_mapping_it->second->index);
         child_projection.project_all_children = selector_idx + 1 == path.selectors.size();
         current_projection->children.push_back(std::move(child_projection));
         current_projection = &current_projection->children.back();
@@ -1065,7 +1065,7 @@ static Status build_filter_projection_path(const std::vector<ColumnDefinition>& 
     if (child == nullptr) {
         return Status::OK();
     }
-    *projection = LocalColumnIndex::field(child->file_local_id());
+    *projection = LocalColumnIndex::local(child->file_local_id());
     projection->project_all_children = selectors.size() == 1;
     projection->children.clear();
     if (selectors.size() == 1) {
@@ -1079,7 +1079,7 @@ static Status build_filter_projection_path(const std::vector<ColumnDefinition>& 
     LocalColumnIndex child_projection;
     RETURN_IF_ERROR(
             build_filter_projection_path(child->children, selectors.subspan(1), &child_projection));
-    if (child_projection.field_id() < 0) {
+    if (child_projection.local_id() < 0) {
         *projection = LocalColumnIndex {};
         return Status::OK();
     }
@@ -1106,7 +1106,7 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
         *projection = LocalColumnIndex {};
         return Status::OK();
     }
-    *projection = LocalColumnIndex::field(*child_mapping->file_local_id);
+    *projection = LocalColumnIndex::local(*child_mapping->file_local_id);
     projection->project_all_children = selectors.size() == 1;
     projection->children.clear();
     if (selectors.size() == 1) {
@@ -1120,7 +1120,7 @@ static Status build_filter_projection_path(const ColumnMapping& mapping,
         RETURN_IF_ERROR(build_filter_projection_path(*child_mapping, selectors.subspan(1),
                                                      &child_projection));
     }
-    if (child_projection.field_id() < 0) {
+    if (child_projection.local_id() < 0) {
         *projection = LocalColumnIndex {};
         return Status::OK();
     }
@@ -1135,7 +1135,7 @@ static bool table_root_is_struct(const ColumnMapping& mapping) {
 static const ColumnDefinition* resolve_file_leaf_from_projection(
         const std::vector<ColumnDefinition>& children, const LocalColumnIndex& projection) {
     const auto child_it = std::ranges::find_if(children, [&](const ColumnDefinition& child) {
-        return child.file_local_id() == projection.field_id();
+        return child.file_local_id() == projection.local_id();
     });
     if (child_it == children.end()) {
         return nullptr;
@@ -1159,7 +1159,7 @@ struct NestedPredicateTarget {
 static std::unique_ptr<FileStructPredicateTarget> build_struct_predicate_target_from_projection(
         const std::vector<ColumnDefinition>& children, const LocalColumnIndex& projection) {
     const auto child_it = std::ranges::find_if(children, [&](const ColumnDefinition& child) {
-        return child.file_local_id() == projection.field_id();
+        return child.file_local_id() == projection.local_id();
     });
     if (child_it == children.end()) {
         return nullptr;
@@ -1227,7 +1227,7 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
     if (!build_filter_projection_path(mapping_it->original_file_children, path.selectors,
                                       &child_projection)
                  .ok() ||
-        child_projection.field_id() < 0) {
+        child_projection.local_id() < 0) {
         return false;
     }
     const auto* file_leaf =
@@ -1240,7 +1240,7 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
         return false;
     }
     target->leaf_name = file_leaf->name;
-    target->file_projection = LocalColumnIndex::partial_field(*mapping_it->file_local_id);
+    target->file_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
     target->file_projection.children.push_back(std::move(child_projection));
     if (!build_struct_predicate_target(*mapping_it, target->file_projection,
                                        &target->file_target)) {
@@ -1321,7 +1321,7 @@ static bool extract_child_id_path_from_projection(const LocalColumnIndex& root_p
             return false;
         }
         current_projection = &current_projection->children[0];
-        file_child_id_path->push_back(current_projection->field_id());
+        file_child_id_path->push_back(current_projection->local_id());
     }
     return !file_child_id_path->empty();
 }
@@ -1823,7 +1823,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
         return Status::InvalidArgument("projection is null");
     }
     DORIS_CHECK(mapping.file_local_id.has_value());
-    *projection = LocalColumnIndex::field(*mapping.file_local_id);
+    *projection = LocalColumnIndex::local(*mapping.file_local_id);
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     for (const auto* child_mapping : present_child_mappings_in_file_order(mapping.child_mappings)) {
@@ -1910,7 +1910,7 @@ static void sort_projection_children_by_file_id(LocalColumnIndex* projection) {
     }
     std::ranges::sort(projection->children,
                       [](const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
-                          return lhs.field_id() < rhs.field_id();
+                          return lhs.local_id() < rhs.local_id();
                       });
 }
 
@@ -1998,10 +1998,10 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
                 LocalColumnIndex child_projection;
                 RETURN_IF_ERROR(build_filter_projection_path(*mapping_it, path.selectors,
                                                              &child_projection));
-                if (child_projection.field_id() < 0) {
+                if (child_projection.local_id() < 0) {
                     continue;
                 }
-                root_projection = LocalColumnIndex::partial_field(*mapping_it->file_local_id);
+                root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
                 root_projection.children.push_back(std::move(child_projection));
             }
             auto filter_projection_it = filter_projections->find(root_projection.column_id());

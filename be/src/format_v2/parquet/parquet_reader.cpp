@@ -69,13 +69,13 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
     const auto& child_projection = projection.children[0];
     const auto child_schema_it =
             std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
-                return child_schema->local_id == child_projection.field_id();
+                return child_schema->local_id == child_projection.local_id();
             });
     if (child_schema_it != column_schema.children.end()) {
         return find_projected_minmax_leaf(**child_schema_it, child_projection, leaf_schema);
     }
     return Status::InvalidArgument("Invalid parquet aggregate projection local id {} for column {}",
-                                   child_projection.field_id(), column_schema.name);
+                                   child_projection.local_id(), column_schema.name);
 }
 
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
@@ -184,7 +184,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
 
     for (const auto& col : request_snapshot->predicate_columns) {
         DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
-        const auto local_id = col.field_id();
+        const auto local_id = col.local_id();
         if (local_id == format::ROW_POSITION_COLUMN_ID ||
             local_id == format::GLOBAL_ROWID_COLUMN_ID) {
             continue;
@@ -193,7 +193,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     for (const auto& col : request_snapshot->non_predicate_columns) {
         DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
-        const auto local_id = col.field_id();
+        const auto local_id = col.local_id();
         if (local_id == format::ROW_POSITION_COLUMN_ID ||
             local_id == format::GLOBAL_ROWID_COLUMN_ID) {
             continue;
@@ -312,7 +312,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
     result->columns.resize(request.columns.size());
     for (size_t request_column_idx = 0; request_column_idx < request.columns.size();
          ++request_column_idx) {
-        const auto file_column_id = request.columns[request_column_idx].projection.field_id();
+        const auto file_column_id = request.columns[request_column_idx].projection.local_id();
         if (file_column_id < 0 ||
             file_column_id >= static_cast<int32_t>(_state->file_schema.size())) {
             return Status::InvalidArgument("Invalid parquet aggregate column id {}",

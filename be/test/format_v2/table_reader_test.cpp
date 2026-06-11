@@ -111,7 +111,7 @@ TEST(LocalColumnIndexTest, FindsProjectedChildren) {
     EXPECT_FALSE(is_full_projection(&projection));
     EXPECT_TRUE(is_partial_projection(&projection));
     ASSERT_NE(find_child_projection(&projection, 2), nullptr);
-    EXPECT_EQ(find_child_projection(&projection, 2)->field_id(), 2);
+    EXPECT_EQ(find_child_projection(&projection, 2)->local_id(), 2);
     EXPECT_EQ(find_child_projection(&projection, 3), nullptr);
     EXPECT_TRUE(is_child_projected(nullptr, 3));
     EXPECT_TRUE(is_child_projected(&projection, 1));

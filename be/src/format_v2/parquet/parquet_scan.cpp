@@ -291,7 +291,7 @@ Status ParquetScanScheduler::open_next_row_group(
             _page_skip_profile, _timezone, _enable_strict_mode,
             _scan_profile.column_reader_profile);
     for (const auto& col : request.predicate_columns) {
-        const auto local_id = col.field_id();
+        const auto local_id = col.local_id();
         if (local_id == format::ROW_POSITION_COLUMN_ID) {
             _current_predicate_columns[local_id] =
                     column_reader_factory.create_row_position_column_reader(
@@ -314,7 +314,7 @@ Status ParquetScanScheduler::open_next_row_group(
         _current_predicate_columns[local_id] = std::move(column_reader);
     }
     for (const auto& col : request.non_predicate_columns) {
-        const auto local_id = col.field_id();
+        const auto local_id = col.local_id();
         if (local_id == format::ROW_POSITION_COLUMN_ID) {
             _current_non_predicate_columns[local_id] =
                     column_reader_factory.create_row_position_column_reader(

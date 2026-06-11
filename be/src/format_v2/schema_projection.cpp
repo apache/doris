@@ -85,22 +85,22 @@ Status project_column_definition(const ColumnDefinition& field, const LocalColum
 
     projected_field->children.clear();
     for (const auto& child_projection : projection.children) {
-        if (child_projection.field_id() == -1) {
+        if (child_projection.local_id() == -1) {
             return Status::InvalidArgument("Empty projection path for field {}", field.name);
         }
         const auto child_it =
                 std::ranges::find_if(field.children, [&](const ColumnDefinition& child) {
-                    return child.file_local_id() == child_projection.field_id();
+                    return child.file_local_id() == child_projection.local_id();
                 });
         if (child_it == field.children.end()) {
             return Status::InvalidArgument("Invalid projection child id {} for field {}",
-                                           child_projection.field_id(), field.name);
+                                           child_projection.local_id(), field.name);
         }
     }
     for (const auto& child : field.children) {
         const auto child_projection_it =
                 std::ranges::find_if(projection.children, [&](const LocalColumnIndex& child_proj) {
-                    return child_proj.field_id() == child.file_local_id();
+                    return child_proj.local_id() == child.file_local_id();
                 });
         if (child_projection_it == projection.children.end()) {
             continue;

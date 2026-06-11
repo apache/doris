@@ -1128,7 +1128,7 @@ private:
                                              LocalColumnIndex* projection) {
         DORIS_CHECK(projection != nullptr);
         DORIS_CHECK(mapping.file_local_id.has_value());
-        *projection = LocalColumnIndex::field(*mapping.file_local_id);
+        *projection = LocalColumnIndex::local(*mapping.file_local_id);
         projection->children.clear();
         projection->project_all_children = true;
         if (mapping.child_mappings.empty()) {
