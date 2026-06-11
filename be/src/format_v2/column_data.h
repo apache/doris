@@ -326,7 +326,8 @@ inline ColumnDefinition global_rowid_column_definition() {
 //
 // For a root entry in FileScanRequest::{predicate_columns, non_predicate_columns}, index is the
 // top-level file column id and column_id() is valid. For children, index is the file-local child id
-// under the parent node, not a table child id and not a child output ordinal.
+// under the parent node. This is the reader schema local id, not an Iceberg/Parquet field id, not a
+// table child id, and not a child output ordinal.
 //
 // project_all_children=true means the whole subtree under this node is needed. When false, children
 // lists the selected child paths. File readers can use this to avoid constructing readers for
@@ -340,14 +341,14 @@ struct LocalColumnIndex {
         return {.index = column_id.value()};
     }
 
-    static LocalColumnIndex field(int32_t field_id) { return {.index = field_id}; }
+    static LocalColumnIndex local(int32_t local_id) { return {.index = local_id}; }
 
-    static LocalColumnIndex partial_field(int32_t field_id) {
-        return {.index = field_id, .project_all_children = false};
+    static LocalColumnIndex partial_local(int32_t local_id) {
+        return {.index = local_id, .project_all_children = false};
     }
 
     LocalColumnId column_id() const { return LocalColumnId(index); }
-    int32_t field_id() const { return index; }
+    int32_t local_id() const { return index; }
     std::string debug_string() const;
 };
 
@@ -360,18 +361,18 @@ inline bool is_partial_projection(const LocalColumnIndex* projection) {
 }
 
 inline const LocalColumnIndex* find_child_projection(const LocalColumnIndex* projection,
-                                                     int32_t field_id) {
+                                                     int32_t local_id) {
     if (is_full_projection(projection)) {
         return nullptr;
     }
     const auto child_it = std::find_if(
             projection->children.begin(), projection->children.end(),
-            [&](const LocalColumnIndex& child) { return child.field_id() == field_id; });
+            [&](const LocalColumnIndex& child) { return child.local_id() == local_id; });
     return child_it == projection->children.end() ? nullptr : &*child_it;
 }
 
-inline bool is_child_projected(const LocalColumnIndex* projection, int32_t field_id) {
-    return is_full_projection(projection) || find_child_projection(projection, field_id) != nullptr;
+inline bool is_child_projected(const LocalColumnIndex* projection, int32_t local_id) {
+    return is_full_projection(projection) || find_child_projection(projection, local_id) != nullptr;
 }
 
 // Merge two projection trees that point to the same file-local node.

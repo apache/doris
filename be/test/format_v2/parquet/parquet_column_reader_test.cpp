@@ -895,8 +895,8 @@ protected:
                       EXPECT_FALSE(nullable_column.is_null_at(3));
                       EXPECT_FALSE(nullable_column.is_null_at(4));
 
-                      const auto& values =
-                              assert_cast<const ColumnFloat32&>(nullable_column.get_nested_column());
+                      const auto& values = assert_cast<const ColumnFloat32&>(
+                              nullable_column.get_nested_column());
                       EXPECT_FLOAT_EQ(values.get_element(1), 0.0F);
                       EXPECT_FALSE(std::signbit(values.get_element(1)));
                       EXPECT_FLOAT_EQ(values.get_element(2), -0.0F);
@@ -3546,10 +3546,9 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
                     "required_float", ::parquet::Repetition::REQUIRED, ::parquet::Type::FLOAT),
             ::parquet::schema::PrimitiveNode::Make(
                     "required_double", ::parquet::Repetition::REQUIRED, ::parquet::Type::DOUBLE),
-            ::parquet::schema::PrimitiveNode::Make("optional_float16",
-                                                   ::parquet::Repetition::OPTIONAL,
-                                                   ::parquet::LogicalType::Float16(),
-                                                   ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 2),
+            ::parquet::schema::PrimitiveNode::Make(
+                    "optional_float16", ::parquet::Repetition::OPTIONAL,
+                    ::parquet::LogicalType::Float16(), ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 2),
             ::parquet::schema::PrimitiveNode::Make("required_binary",
                                                    ::parquet::Repetition::REQUIRED,
                                                    ::parquet::Type::BYTE_ARRAY),

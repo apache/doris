@@ -111,7 +111,7 @@ TEST(LocalColumnIndexTest, FindsProjectedChildren) {
     EXPECT_FALSE(is_full_projection(&projection));
     EXPECT_TRUE(is_partial_projection(&projection));
     ASSERT_NE(find_child_projection(&projection, 2), nullptr);
-    EXPECT_EQ(find_child_projection(&projection, 2)->field_id(), 2);
+    EXPECT_EQ(find_child_projection(&projection, 2)->local_id(), 2);
     EXPECT_EQ(find_child_projection(&projection, 3), nullptr);
     EXPECT_TRUE(is_child_projected(nullptr, 3));
     EXPECT_TRUE(is_child_projected(&projection, 1));
@@ -260,6 +260,25 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+VExprSPtr table_struct_child_int32_greater_than_expr(int slot_id, int column_id,
+                                                     const DataTypePtr& struct_type,
+                                                     const std::string& column_name,
+                                                     const std::string& child_name, int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto child_expr = table_function_expr("struct_element", int_type, {struct_type, string_type});
+    child_expr->add_child(
+            TableSlotRef::create_shared(slot_id, column_id, slot_id, struct_type, column_name));
+    child_expr->add_child(
+            TableLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(child_name)));
+
+    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
+                                    TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    expr->add_child(child_expr);
+    expr->add_child(table_int32_literal(value));
+    return expr;
+}
+
 class NullableArrayBigintDefaultExpr final : public VExpr {
 public:
     explicit NullableArrayBigintDefaultExpr(DataTypePtr data_type)
@@ -340,6 +359,11 @@ private:
     std::unique_ptr<TQueryGlobals> _query_globals;
     std::unique_ptr<RuntimeState> _state;
     DeleteRows _delete_rows_storage;
+};
+
+class TableReaderMaterializeTestHelper final : public TableReader {
+public:
+    using TableReader::_materialize_map_mapping_column;
 };
 
 VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
@@ -829,6 +853,14 @@ void expect_nullable_int64_column_values(const IColumn& column,
         EXPECT_EQ(nullable_column.get_null_map_data()[row], 0);
         EXPECT_EQ(values[row], expected_values[row]);
     }
+}
+
+const IColumn& expect_not_null_nullable_nested_column(const IColumn& column) {
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+    for (const auto is_null : nullable_column.get_null_map_data()) {
+        EXPECT_EQ(is_null, 0);
+    }
+    return nullable_column.get_nested_column();
 }
 
 DataTypePtr make_iceberg_rowid_type() {
@@ -1362,7 +1394,8 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     ASSERT_EQ(block.rows(), 2);
     const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
     ASSERT_EQ(struct_result.get_columns().size(), 1);
-    const auto& ids = assert_cast<const ColumnInt32&>(struct_result.get_column(0));
+    const auto& ids = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(struct_result.get_column(0)));
     EXPECT_EQ(ids.get_element(0), 1);
     EXPECT_EQ(ids.get_element(1), 5);
 
@@ -1380,9 +1413,12 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     write_list_struct_parquet_file(file_path);
 
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto element_type =
-            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    const auto nullable_int_type = make_nullable(int_type);
+    auto element_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, nullable_int_type}, Strings {"a", "b"});
+    auto nullable_element_type = make_nullable(element_type);
+    auto list_column =
+            make_table_column(100, "xs", std::make_shared<DataTypeArray>(nullable_element_type));
     std::vector<ColumnDefinition> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -1420,12 +1456,14 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     const auto& element_struct =
             assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 2);
-    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    const auto& a_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(0)));
     EXPECT_EQ(a_values.get_element(0), 10);
     EXPECT_EQ(a_values.get_element(1), 20);
     EXPECT_EQ(a_values.get_element(2), 30);
     EXPECT_EQ(a_values.get_element(3), 40);
-    const auto& b_values = assert_cast<const ColumnInt32&>(element_struct.get_column(1));
+    const auto& b_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(1)));
     EXPECT_EQ(b_values.get_element(0), 11);
     EXPECT_EQ(b_values.get_element(1), 21);
     EXPECT_EQ(b_values.get_element(2), 31);
@@ -1505,15 +1543,16 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
     write_list_struct_parquet_file(file_path);
 
     const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
     const auto string_type = std::make_shared<DataTypeString>();
-    auto b_child = make_table_column(1, "renamed_b", int_type);
+    auto b_child = make_table_column(1, "renamed_b", nullable_int_type);
     b_child.name_mapping = {"b"};
     auto missing_child = make_table_column(99, "missing_child", string_type);
-    auto a_child = make_table_column(0, "renamed_a", int_type);
+    auto a_child = make_table_column(0, "renamed_a", nullable_int_type);
     a_child.name_mapping = {"a"};
-    auto element_type =
-            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type, int_type},
-                                             Strings {"renamed_b", "missing_child", "renamed_a"});
+    auto element_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, string_type, nullable_int_type},
+            Strings {"renamed_b", "missing_child", "renamed_a"});
     auto nullable_element_type = make_nullable(element_type);
     auto element_child = make_table_column(0, "element", nullable_element_type);
     element_child.children = {b_child, missing_child, a_child};
@@ -1552,9 +1591,11 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
     const auto& element_struct =
             assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 3);
-    const auto& b_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    const auto& b_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(0)));
     const auto& missing_values = assert_cast<const ColumnString&>(element_struct.get_column(1));
-    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(2));
+    const auto& a_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(2)));
     EXPECT_EQ(b_values.get_element(0), 11);
     EXPECT_EQ(b_values.get_element(1), 21);
     EXPECT_EQ(b_values.get_element(2), 31);
@@ -1582,9 +1623,11 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
 
     const auto key_type = std::make_shared<DataTypeInt32>();
     const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
     auto key_child = make_table_column(0, "key", key_type);
-    auto b_child = make_table_column(1, "b", string_type);
-    auto value_type = std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"b"});
+    auto b_child = make_table_column(1, "b", nullable_string_type);
+    auto value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_string_type}, Strings {"b"});
     auto nullable_value_type = make_nullable(value_type);
     auto value_child = make_table_column(1, "value", nullable_value_type);
     value_child.children = {b_child};
@@ -1624,7 +1667,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);
-    const auto& keys = assert_cast<const ColumnInt32&>(map_result.get_keys());
+    const auto& keys = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(map_result.get_keys()));
     EXPECT_EQ(keys.get_element(0), 1);
     EXPECT_EQ(keys.get_element(1), 2);
     EXPECT_EQ(keys.get_element(2), 3);
@@ -1635,7 +1679,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     const auto& value_struct =
             assert_cast<const ColumnStruct&>(nullable_values.get_nested_column());
     ASSERT_EQ(value_struct.get_columns().size(), 1);
-    const auto& b_values = assert_cast<const ColumnString&>(value_struct.get_column(0));
+    const auto& b_values = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(value_struct.get_column(0)));
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
     EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
     EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
@@ -1655,16 +1700,18 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
 
     const auto key_type = std::make_shared<DataTypeInt32>();
     const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
     const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
     auto key_child = make_table_column(0, "key", key_type);
-    auto b_child = make_table_column(1, "renamed_b", string_type);
+    auto b_child = make_table_column(1, "renamed_b", nullable_string_type);
     b_child.name_mapping = {"b"};
     auto missing_child = make_table_column(99, "missing_child", string_type);
-    auto a_child = make_table_column(0, "renamed_a", int_type);
+    auto a_child = make_table_column(0, "renamed_a", nullable_int_type);
     a_child.name_mapping = {"a"};
-    auto value_type =
-            std::make_shared<DataTypeStruct>(DataTypes {string_type, string_type, int_type},
-                                             Strings {"renamed_b", "missing_child", "renamed_a"});
+    auto value_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_string_type, string_type, nullable_int_type},
+            Strings {"renamed_b", "missing_child", "renamed_a"});
     auto nullable_value_type = make_nullable(value_type);
     auto value_child = make_table_column(1, "value", nullable_value_type);
     value_child.children = {b_child, missing_child, a_child};
@@ -1703,7 +1750,8 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);
-    const auto& keys = assert_cast<const ColumnInt32&>(map_result.get_keys());
+    const auto& keys = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(map_result.get_keys()));
     EXPECT_EQ(keys.get_element(0), 1);
     EXPECT_EQ(keys.get_element(1), 2);
     EXPECT_EQ(keys.get_element(2), 3);
@@ -1711,9 +1759,11 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     const auto& value_struct =
             assert_cast<const ColumnStruct&>(nullable_values.get_nested_column());
     ASSERT_EQ(value_struct.get_columns().size(), 3);
-    const auto& b_values = assert_cast<const ColumnString&>(value_struct.get_column(0));
+    const auto& b_values = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(value_struct.get_column(0)));
     const auto& missing_values = assert_cast<const ColumnString&>(value_struct.get_column(1));
-    const auto& a_values = assert_cast<const ColumnInt32&>(value_struct.get_column(2));
+    const auto& a_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(value_struct.get_column(2)));
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
     EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
     EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
@@ -1726,6 +1776,108 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, MaterializeMapKeyStructReordersRenamedChildren) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto file_key_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    const auto table_key_type = std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, int_type}, Strings {"renamed_b", "renamed_a"});
+    const auto file_map_type = std::make_shared<DataTypeMap>(file_key_type, int_type);
+    const auto table_map_type = std::make_shared<DataTypeMap>(table_key_type, int_type);
+
+    ColumnMapping a_mapping;
+    a_mapping.table_column_name = "renamed_a";
+    a_mapping.file_column_name = "a";
+    a_mapping.file_local_id = 0;
+    a_mapping.table_type = int_type;
+    a_mapping.file_type = int_type;
+    a_mapping.is_trivial = true;
+
+    ColumnMapping b_mapping;
+    b_mapping.table_column_name = "renamed_b";
+    b_mapping.file_column_name = "b";
+    b_mapping.file_local_id = 1;
+    b_mapping.table_type = string_type;
+    b_mapping.file_type = string_type;
+    b_mapping.is_trivial = true;
+
+    ColumnMapping key_mapping;
+    key_mapping.table_column_name = "key";
+    key_mapping.file_column_name = "key";
+    key_mapping.file_local_id = 0;
+    key_mapping.table_type = table_key_type;
+    key_mapping.file_type = file_key_type;
+    key_mapping.is_trivial = false;
+    key_mapping.child_mappings = {b_mapping, a_mapping};
+
+    ColumnMapping value_mapping;
+    value_mapping.table_column_name = "value";
+    value_mapping.file_column_name = "value";
+    value_mapping.file_local_id = 1;
+    value_mapping.table_type = int_type;
+    value_mapping.file_type = int_type;
+    value_mapping.is_trivial = true;
+
+    ColumnMapping entry_mapping;
+    entry_mapping.child_mappings = {key_mapping, value_mapping};
+
+    ColumnMapping map_mapping;
+    map_mapping.table_column_name = "kv";
+    map_mapping.file_column_name = "kv";
+    map_mapping.table_type = table_map_type;
+    map_mapping.file_type = file_map_type;
+    map_mapping.is_trivial = false;
+    map_mapping.child_mappings = {entry_mapping};
+
+    auto a_keys = ColumnInt32::create();
+    a_keys->insert_value(10);
+    a_keys->insert_value(20);
+    a_keys->insert_value(30);
+    auto b_keys = ColumnString::create();
+    b_keys->insert_value("x");
+    b_keys->insert_value("y");
+    b_keys->insert_value("z");
+    MutableColumns key_children;
+    key_children.push_back(std::move(a_keys));
+    key_children.push_back(std::move(b_keys));
+    auto key_column = ColumnStruct::create(std::move(key_children));
+
+    auto value_column = ColumnInt32::create();
+    value_column->insert_value(100);
+    value_column->insert_value(200);
+    value_column->insert_value(300);
+    auto offsets_column = ColumnArray::ColumnOffsets::create();
+    offsets_column->insert_value(2);
+    offsets_column->insert_value(3);
+    ColumnPtr file_column = ColumnMap::create(std::move(key_column), std::move(value_column),
+                                              std::move(offsets_column));
+
+    TableReaderMaterializeTestHelper reader;
+    ColumnPtr result_column;
+    ASSERT_TRUE(reader._materialize_map_mapping_column(map_mapping, file_column, 2, &result_column)
+                        .ok());
+
+    const auto& result_map = assert_cast<const ColumnMap&>(*result_column);
+    EXPECT_EQ(result_map.get_offsets()[0], 2);
+    EXPECT_EQ(result_map.get_offsets()[1], 3);
+    const auto& result_key = assert_cast<const ColumnStruct&>(result_map.get_keys());
+    ASSERT_EQ(result_key.get_columns().size(), 2);
+    const auto& b_result = assert_cast<const ColumnString&>(result_key.get_column(0));
+    const auto& a_result = assert_cast<const ColumnInt32&>(result_key.get_column(1));
+    EXPECT_EQ(b_result.get_data_at(0).to_string(), "x");
+    EXPECT_EQ(b_result.get_data_at(1).to_string(), "y");
+    EXPECT_EQ(b_result.get_data_at(2).to_string(), "z");
+    EXPECT_EQ(a_result.get_element(0), 10);
+    EXPECT_EQ(a_result.get_element(1), 20);
+    EXPECT_EQ(a_result.get_element(2), 30);
+
+    const auto& result_value = assert_cast<const ColumnInt32&>(result_map.get_values());
+    EXPECT_EQ(result_value.get_element(0), 100);
+    EXPECT_EQ(result_value.get_element(1), 200);
+    EXPECT_EQ(result_value.get_element(2), 300);
 }
 
 TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
@@ -3936,6 +4088,248 @@ TEST(TableColumnMapperByIndexTest, MapsTopLevelColumnsByPositionIgnoringFileName
     ASSERT_TRUE(mappings[2].file_local_id.has_value());
     EXPECT_EQ(*mappings[2].file_local_id, 2);
     EXPECT_EQ(mappings[2].file_column_name, "_col2");
+}
+
+TEST(TableColumnMapperTest, MatchingProjectedStructDoesNotNeedComplexRematerialize) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+                                                               Strings {"a", "b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "b", string_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type, int_type},
+                                             Strings {"a", "b", "c"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", string_type),
+            make_file_column(3, "c", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.non_predicate_columns.size(), 1);
+    const auto& projection = file_request.non_predicate_columns[0];
+    EXPECT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 2);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
+    EXPECT_EQ(projection.children[1].local_id(), 2);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+}
+
+TEST(TableColumnMapperTest, RenameOnlyProjectedStructDoesNotRebuildFileProjection) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                               Strings {"a", "renamed_b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "renamed_b", int_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+    EXPECT_EQ(mapper.mappings()[0].projected_file_children.size(),
+              mapper.mappings()[0].original_file_children.size());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].child_mappings[1].table_column_name, "renamed_b");
+    EXPECT_EQ(mapper.mappings()[0].child_mappings[1].file_column_name, "b");
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(file_request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(file_request.non_predicate_columns[0].children.empty());
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+}
+
+TEST(TableColumnMapperTest, PredicateProjectionRebuildsProjectedStructFileType) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+                                                               Strings {"a", "b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "b", string_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type, int_type},
+                                             Strings {"a", "b", "c"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", string_type),
+            make_file_column(3, "c", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(table_struct_child_int32_greater_than_expr(
+                    0, 0, table_struct.type, "s", "c", 0)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.predicate_columns.size(), 1);
+    EXPECT_TRUE(file_request.non_predicate_columns.empty());
+    const auto& projection = file_request.predicate_columns[0];
+    EXPECT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 3);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
+    EXPECT_EQ(projection.children[1].local_id(), 2);
+    EXPECT_EQ(projection.children[2].local_id(), 3);
+
+    const auto* mapped_type = assert_cast<const DataTypeStruct*>(
+            remove_nullable(mapper.mappings()[0].file_type).get());
+    ASSERT_EQ(mapped_type->get_elements().size(), 3);
+    EXPECT_EQ(mapped_type->get_element_name(0), "a");
+    EXPECT_EQ(mapped_type->get_element_name(1), "b");
+    EXPECT_EQ(mapped_type->get_element_name(2), "c");
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+}
+
+TEST(TableColumnMapperTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    const auto table_id = make_table_column(0, "id", int_type);
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type},
+                                                               Strings {"c"}));
+
+    const auto file_id = make_file_column(0, "id", int_type);
+    auto file_struct = make_file_column(
+            10, "s", std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"c"}));
+    file_struct.children = {
+            make_file_column(11, "c", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_id};
+    const std::vector<ColumnDefinition> file_schema = {file_id, file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].table_column_name, "id");
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(table_struct_child_int32_greater_than_expr(
+                    7, 1, table_struct.type, "s", "c", 0)),
+            .global_indices = {GlobalIndex(1)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].table_column_name, "id");
+
+    ASSERT_EQ(file_request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(file_request.non_predicate_columns[0].column_id(), LocalColumnId(0));
+    ASSERT_EQ(file_request.predicate_columns.size(), 1);
+    EXPECT_EQ(file_request.predicate_columns[0].column_id(), LocalColumnId(10));
+    ASSERT_EQ(file_request.predicate_columns[0].children.size(), 1);
+    EXPECT_EQ(file_request.predicate_columns[0].children[0].local_id(), 11);
+
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    ASSERT_EQ(file_request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_column_id(),
+              LocalColumnId(10));
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_child_id_path(),
+              std::vector<int32_t>({11}));
+}
+
+TEST(TableColumnMapperTest, NestedPredicateProjectionUsesMappedRenamedChild) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                               Strings {"a", "renamed_b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "renamed_b", int_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(table_struct_child_int32_greater_than_expr(
+                    0, 0, table_struct.type, "s", "renamed_b", 0)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_column_id(),
+              LocalColumnId(10));
+    EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_child_id_path(),
+              std::vector<int32_t>({2}));
+    ASSERT_EQ(file_request.predicate_columns.size(), 1);
+    EXPECT_TRUE(file_request.predicate_columns[0].project_all_children);
+    EXPECT_TRUE(file_request.predicate_columns[0].children.empty());
 }
 
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {

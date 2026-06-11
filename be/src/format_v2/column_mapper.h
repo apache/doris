@@ -144,9 +144,6 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
-    // True when the nested value read from file has a pruned/remapped child layout and must be
-    // reconstructed before returning to table/global schema.
-    bool has_complex_projection = false;
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
@@ -199,8 +196,11 @@ public:
                                     RuntimeState* runtime_state = nullptr);
     void clear() {
         _mappings.clear();
+        _hidden_mappings.clear();
         _constant_map.clear();
         _filter_entries.clear();
+        _file_schema.clear();
+        _partition_values.clear();
     }
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
     const std::map<GlobalIndex, FilterEntry>& filter_entries() const { return _filter_entries; }
@@ -221,14 +221,30 @@ private:
     Status _build_result_column_mapping(const FileScanRequest& file_request);
 
     void _set_constant_mapping(ColumnMapping* mapping, VExprContextSPtr expr);
+    Status _create_mapping_for_column(const ColumnDefinition& table_column, GlobalIndex global_index,
+                                      ColumnMapping* mapping);
+    Status _create_hidden_filter_mapping(const ColumnDefinition& table_column,
+                                         GlobalIndex global_index, ColumnMapping* mapping);
+    Status _build_hidden_filter_mappings(const std::vector<TableFilter>& table_filters);
+    std::vector<ColumnMapping> _filter_visible_mappings() const;
 
     ColumnMapping* _find_mapping(GlobalIndex global_index);
+    ColumnMapping* _find_filter_mapping(GlobalIndex global_index);
 
     TableColumnMapperOptions _options;
-    // Column mapping for each projected column, in the same order as projected_columns. Each entry describes how to get one table/global column from file-local sources, and carries metadata for filter localization and result finalize.
+    // Column mapping for each projected column, in the same order as projected_columns. Each entry
+    // describes how to get one table/global column from file-local sources, and carries metadata
+    // for filter localization and result finalize.
     std::vector<ColumnMapping> _mappings;
+    // Predicate-only top-level columns are not output projection columns, so keep their mappings
+    // here. They are visible only to filter localization and file-reader predicate construction.
+    std::vector<ColumnMapping> _hidden_mappings;
     std::map<GlobalIndex, FilterEntry> _filter_entries;
     ConstantMap _constant_map;
+    // Split-local schema state retained from create_mapping() so create_scan_request() can build
+    // hidden mappings for top-level filter slots that are absent from projected_columns.
+    std::vector<ColumnDefinition> _file_schema;
+    std::map<std::string, Field> _partition_values;
 };
 
 } // namespace doris::format

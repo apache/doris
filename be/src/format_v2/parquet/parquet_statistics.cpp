@@ -1083,7 +1083,7 @@ void collect_request_leaf_schemas(
         std::vector<const ParquetColumnSchema*>* leaf_schemas) {
     std::set<int> seen_leaf_ids;
     auto collect_projection = [&](const format::LocalColumnIndex& projection) {
-        const int32_t local_id = projection.field_id();
+        const int32_t local_id = projection.local_id();
         if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
             return;
         }
