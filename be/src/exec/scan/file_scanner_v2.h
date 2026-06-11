@@ -82,8 +82,9 @@ private:
     Status _init_io_ctx();
     Status _init_expr_ctxes();
     Status _prepare_next_split(bool* eos);
-    Status _create_table_reader(const TFileRangeDesc& range);
-    Status _create_table_reader_for_format(const TFileRangeDesc& range);
+    Status _init_table_reader(const TFileRangeDesc& range);
+    Status _create_table_reader_for_format(const TFileRangeDesc& range,
+                                           std::unique_ptr<format::TableReader>* reader) const;
     Status _prepare_table_reader_split(const TFileRangeDesc& range);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
@@ -92,7 +93,7 @@ private:
                                       std::map<std::string, Field>* partition_values) const;
     Status _parse_partition_value(const SlotDescriptor* slot_desc, const std::string& value,
                                   bool is_null, Field* field) const;
-    Status _build_projected_columns();
+    Status _build_projected_columns(const format::TableReader& table_reader);
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static format::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
     Status _build_table_column_predicates(format::TableColumnPredicates* predicates) const;
@@ -108,6 +109,7 @@ private:
     const TFileScanRangeParams* _params = nullptr;
     std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
+    bool _has_prepared_split = false;
     TFileRangeDesc _current_range;
     std::string _current_range_path;
 

@@ -29,6 +29,11 @@ public:
 
     Status init(format::TableReadOptions&& options) override;
     format::TableColumnMappingMode mapping_mode() const override { return _mode; }
+    Status annotate_projected_column(const TFileScanSlotInfo& slot_info,
+                                     format::ProjectedColumnBuildContext* context,
+                                     format::ColumnDefinition* column) const override;
+    Status validate_projected_columns(
+            const format::ProjectedColumnBuildContext& context) const override;
 
 private:
     format::TableColumnMappingMode _mode = format::TableColumnMappingMode::BY_NAME;

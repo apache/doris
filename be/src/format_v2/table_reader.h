@@ -62,6 +62,7 @@ namespace doris {
 class Block;
 class ColumnPredicate;
 struct DeleteFileDesc;
+class RuntimeState;
 } // namespace doris
 
 namespace doris::format {
@@ -79,6 +80,14 @@ struct ScanTask {
     virtual ~ScanTask() = default;
 
     std::unique_ptr<io::FileDescription> data_file;
+};
+
+struct ProjectedColumnBuildContext {
+    const TFileScanRangeParams* scan_params = nullptr;
+    const TFileRangeDesc* range = nullptr;
+    RuntimeState* runtime_state = nullptr;
+    std::optional<ColumnDefinition> schema_column;
+    size_t next_file_column_idx = 0;
 };
 
 struct ReadProfile {
@@ -209,6 +218,15 @@ public:
     }
 
     std::string debug_string() const;
+
+    virtual Status annotate_projected_column(const TFileScanSlotInfo& slot_info,
+                                             ProjectedColumnBuildContext* context,
+                                             ColumnDefinition* column) const;
+
+    virtual Status validate_projected_columns(const ProjectedColumnBuildContext& context) const {
+        (void)context;
+        return Status::OK();
+    }
 
 protected:
     // Parse deletion vector information from table format specific file description.

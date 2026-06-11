@@ -17,18 +17,24 @@
 
 #include "format_v2/table_reader.h"
 
+#include <gen_cpp/ExternalTableSchema_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <algorithm>
 #include <cstring>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -37,6 +43,7 @@
 #include "format_v2/parquet/parquet_reader.h"
 #include "io/io_common.h"
 #include "roaring/roaring64map.hh"
+#include "util/string_util.h"
 
 namespace doris::format {
 namespace {
@@ -108,6 +115,141 @@ std::string partition_values_debug_string(const std::map<std::string, Field>& pa
     }
     out << "}";
     return out.str();
+}
+
+const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
+    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
+        return nullptr;
+    }
+    return field_ptr.field_ptr.get();
+}
+
+bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
+    if (field.__isset.name && to_lower(field.name) == to_lower(name)) {
+        return true;
+    }
+    return field.__isset.name_mapping &&
+           std::ranges::any_of(field.name_mapping, [&](const std::string& alias) {
+               return to_lower(alias) == to_lower(name);
+           });
+}
+
+DataTypePtr find_struct_child_type_by_name(const DataTypeStruct& struct_type,
+                                           const std::string& field_name) {
+    for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
+        if (to_lower(struct_type.get_element_name(field_idx)) == to_lower(field_name)) {
+            return struct_type.get_element(field_idx);
+        }
+    }
+    return nullptr;
+}
+
+ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
+                                                         DataTypePtr type) {
+    ColumnDefinition column {
+            .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
+            .name = field.__isset.name ? field.name : "",
+            .name_mapping =
+                    field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
+            .type = std::move(type),
+            .children = {},
+            .default_expr = nullptr,
+            .is_partition_key = false,
+    };
+    if (column.type == nullptr || !field.__isset.nestedField) {
+        return column;
+    }
+
+    const auto nested_type = remove_nullable(column.type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        if (!field.nestedField.__isset.struct_field ||
+            !field.nestedField.struct_field.__isset.fields) {
+            return column;
+        }
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*nested_type);
+        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
+            const auto* child_field = get_field_ptr(child_ptr);
+            if (child_field == nullptr || !child_field->__isset.name) {
+                continue;
+            }
+            auto child_type = find_struct_child_type_by_name(struct_type, child_field->name);
+            if (child_type == nullptr) {
+                continue;
+            }
+            column.children.push_back(
+                    build_schema_column_from_external_field(*child_field, child_type));
+        }
+        break;
+    }
+    case TYPE_ARRAY: {
+        if (!field.nestedField.__isset.array_field ||
+            !field.nestedField.array_field.__isset.item_field) {
+            return column;
+        }
+        const auto* item_field = get_field_ptr(field.nestedField.array_field.item_field);
+        if (item_field == nullptr) {
+            return column;
+        }
+        const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
+        column.children.push_back(
+                build_schema_column_from_external_field(*item_field, array_type.get_nested_type()));
+        break;
+    }
+    case TYPE_MAP: {
+        if (!field.nestedField.__isset.map_field ||
+            !field.nestedField.map_field.__isset.key_field ||
+            !field.nestedField.map_field.__isset.value_field) {
+            return column;
+        }
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        const auto* key_field = get_field_ptr(field.nestedField.map_field.key_field);
+        if (key_field != nullptr) {
+            column.children.push_back(
+                    build_schema_column_from_external_field(*key_field, map_type.get_key_type()));
+        }
+        const auto* value_field = get_field_ptr(field.nestedField.map_field.value_field);
+        if (value_field != nullptr) {
+            column.children.push_back(build_schema_column_from_external_field(
+                    *value_field, map_type.get_value_type()));
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return column;
+}
+
+const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
+                                                         const ColumnDefinition& column) {
+    if (params == nullptr || !params->__isset.history_schema_info ||
+        params->history_schema_info.empty()) {
+        return nullptr;
+    }
+    const auto* schema = &params->history_schema_info.front();
+    if (params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == params->current_schema_id) {
+                schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+        return nullptr;
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field == nullptr) {
+            continue;
+        }
+        if (external_field_matches_name(*field, column.name)) {
+            return field;
+        }
+    }
+    return nullptr;
 }
 
 std::string expr_context_debug_string(const VExprContextSPtr& context) {
@@ -307,6 +449,23 @@ std::string TableReader::debug_string() const {
         << ", block_template_columns=" << _data_reader.block_template.columns()
         << ", column_mapper=" << _data_reader.column_mapper.debug_string() << "}";
     return out.str();
+}
+
+Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info,
+                                              ProjectedColumnBuildContext* context,
+                                              ColumnDefinition* column) const {
+    (void)slot_info;
+    DORIS_CHECK(context != nullptr);
+    DORIS_CHECK(column != nullptr);
+    context->schema_column.reset();
+    const auto* schema_field = find_external_root_field(context->scan_params, *column);
+    if (schema_field == nullptr) {
+        return Status::OK();
+    }
+    context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
+    column->identifier = context->schema_column->identifier;
+    column->name_mapping = context->schema_column->name_mapping;
+    return Status::OK();
 }
 
 Status TableReader::init(TableReadOptions&& options) {
