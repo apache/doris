@@ -592,6 +592,7 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, Block* block
     }};
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
+        // VRowDistribution's _deal_missing_map() relies on these slots being full columns.
         block->get_by_position(i).column =
                 block->get_by_position(i).column->convert_to_full_column_if_const();
         const auto& column = block->get_by_position(i).column;

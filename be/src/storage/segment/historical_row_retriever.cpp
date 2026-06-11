@@ -46,9 +46,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 
-namespace doris {
-
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 using namespace ErrorCode;
 
@@ -56,7 +54,7 @@ namespace {
 
 void insert_value_to_nullable_column(IColumn* dst_column, const IColumn& src_column, size_t pos) {
     auto* nullable_column = assert_cast<ColumnNullable*>(dst_column);
-    if (src_column.is_nullable()) {
+    if (is_column_nullable(src_column)) {
         nullable_column->insert_from(src_column, pos);
         return;
     }
@@ -284,6 +282,4 @@ void PrimaryKeyModelRowRetriever::_maybe_invalid_row_cache(const std::string& ke
         RowCache::instance()->erase({_context.tablet->tablet_id(), key});
     }
 }
-
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

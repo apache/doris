@@ -218,7 +218,7 @@ public:
         const ColumnString* col_from_string = nullptr;
         if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col_from.get())) {
             VectorizedUtils::update_null_map(null_map->get_data(),
-                                             nullable_col->get_null_map_data());
+                                             nullable_col->get_null_map_data(), col_from_is_const);
             col_from_string =
                     assert_cast<const ColumnString*>(nullable_col->get_nested_column_ptr().get());
         } else {

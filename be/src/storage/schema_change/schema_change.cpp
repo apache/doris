@@ -34,6 +34,7 @@
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
@@ -43,6 +44,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "exec/common/util.hpp"
 #include "exec/common/variant_util.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
@@ -90,6 +92,48 @@ namespace doris {
 using namespace ErrorCode;
 
 constexpr int ALTER_TABLE_BATCH_SIZE = 4064;
+
+namespace {
+
+bool nullable_column_contains_null(const ColumnPtr& column) {
+    const auto* null_map = VectorizedUtils::get_null_map(column);
+    DORIS_CHECK(null_map != nullptr);
+    if (is_column_const(*column)) {
+        return (*null_map)[0];
+    }
+    const auto* data = null_map->data();
+    const size_t rows = column->size();
+    for (size_t i = 0; i < rows; ++i) {
+        if (data[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool nullable_columns_have_different_null_maps(const ColumnPtr& lhs_column,
+                                               const ColumnPtr& rhs_column) {
+    const auto* lhs_null_map = VectorizedUtils::get_null_map(lhs_column);
+    const auto* rhs_null_map = VectorizedUtils::get_null_map(rhs_column);
+    DORIS_CHECK(lhs_null_map != nullptr);
+    DORIS_CHECK(rhs_null_map != nullptr);
+
+    const bool lhs_is_single = is_column_const(*lhs_column);
+    const bool rhs_is_single = is_column_const(*rhs_column);
+    const auto* lhs_data = lhs_null_map->data();
+    const auto* rhs_data = rhs_null_map->data();
+    const size_t rows = lhs_column->size();
+    for (size_t i = 0; i < rows; ++i) {
+        const auto lhs_null = lhs_is_single ? lhs_data[0] : lhs_data[i];
+        const auto rhs_null = rhs_is_single ? rhs_data[0] : rhs_data[i];
+        if (lhs_null != rhs_null) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 class MultiBlockMerger {
 public:
@@ -379,7 +423,7 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
             const auto& value = _schema_mapping[idx].default_value;
             auto column = new_block->get_by_position(idx).column->assert_mutable();
             if (value.is_null()) {
-                DCHECK(column->is_nullable());
+                DCHECK(is_column_nullable(*column));
                 column->insert_many_defaults(row_num);
             } else {
                 column = column->convert_to_predicate_column_if_dictionary();
@@ -438,11 +482,7 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
 
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
-            bool is_changed = false;
-            for (size_t i = 0; i < input_column->size(); i++) {
-                is_changed |= input_column->is_null_at(i);
-            }
-            if (is_changed) {
+            if (nullable_column_contains_null(input_column)) {
                 return Status::DataQualityError(
                         "some null data is changed to not null, intput_column={}",
                         input_column->get_name());
@@ -469,11 +509,7 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
                 }
             }
 
-            bool is_changed = false;
-            for (size_t i = 0; i < input_column->size(); i++) {
-                is_changed |= output_column->is_null_at(i);
-            }
-            if (is_changed) {
+            if (nullable_column_contains_null(output_column)) {
                 return Status::DataQualityError(
                         "some not null data is changed to null, intput_column={}",
                         input_column->get_name());
@@ -482,11 +518,7 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
     }
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
-        bool is_changed = false;
-        for (size_t i = 0; i < input_column->size(); i++) {
-            is_changed |= (input_column->is_null_at(i) != output_column->is_null_at(i));
-        }
-        if (is_changed) {
+        if (nullable_columns_have_different_null_maps(input_column, output_column)) {
             return Status::DataQualityError(
                     "null map is changed after calculation, input_column={}",
                     input_column->get_name());

@@ -795,7 +795,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
-        if (LIKELY(column_ptr->is_nullable())) {
+        if (LIKELY(is_column_nullable(*column_ptr))) {
             const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {

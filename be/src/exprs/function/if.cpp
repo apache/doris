@@ -78,8 +78,7 @@ size_t count_true_with_notnull(const ColumnPtr& col) {
     }
 
     auto count = col->size();
-    if (col->is_nullable()) {
-        const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
         const auto* __restrict null_data = nullable->get_null_map_data().data();
         const auto* __restrict bool_data =
                 ((const ColumnUInt8&)(nullable->get_nested_column())).get_data().data();

@@ -67,7 +67,7 @@ public:
         const auto& offsets = array_column->get_offsets();
         ColumnPtr nested_column = nullptr;
         const UInt8* nested_null_map = nullptr;
-        if (array_column->get_data().is_nullable()) {
+        if (is_column_nullable(array_column->get_data())) {
             const auto& nested_null_column =
                     assert_cast<const ColumnNullable&>(array_column->get_data());
             nested_null_map = nested_null_column.get_null_map_column().get_data().data();

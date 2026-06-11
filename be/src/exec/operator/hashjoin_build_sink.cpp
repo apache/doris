@@ -389,8 +389,8 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     // Handle nullable: extract nested column for value access, keep nullable for null checks
     const ColumnNullable* nullable_col = nullptr;
     ColumnPtr build_col_nested = asof_build_col;
-    if (asof_build_col->is_nullable()) {
-        nullable_col = assert_cast<const ColumnNullable*>(asof_build_col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(asof_build_col.get())) {
+        nullable_col = nullable;
         build_col_nested = nullable_col->get_nested_column_ptr();
     }
 
@@ -515,7 +515,9 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(Block& block, VExprContextSPtrs
             RETURN_IF_ERROR(exprs[i]->execute(&block, &result_col_id));
         }
 
-        // TODO: opt the column is const
+        // _extract_join_column() handles physical ColumnNullable only, so build-key const
+        // columns, including Const(Nullable), must be materialized before they are merged.
+        // TODO: if const-key optimization is added, update _extract_join_column() together.
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         res_col_ids[i] = result_col_id;
@@ -549,6 +551,11 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
         const auto* column = column_ptr.get();
         const bool serialize_null_into_key =
                 _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i];
+        // _do_evaluate() must have materialized Const(Nullable) build keys. If this check fails,
+        // is_nullable() no longer implies a physical ColumnNullable for the logic below.
+        const auto* const_column = check_and_get_column<ColumnConst>(*column);
+        DORIS_CHECK(const_column == nullptr ||
+                    !is_column_nullable(const_column->get_data_column()));
         if (!column->is_nullable() && serialize_null_into_key) {
             _key_columns_holder.emplace_back(
                     make_nullable(block.get_by_position(res_col_ids[i]).column));
@@ -561,19 +568,6 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
             DCHECK(null_map);
             VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
             raw_ptrs[i] = &col_nested;
-        } else if (const auto* const_column = check_and_get_column<ColumnConst>(*column);
-                   const_column && const_column->is_nullable()) {
-            if (serialize_null_into_key) {
-                _key_columns_holder.emplace_back(column_ptr->convert_to_full_column_if_const());
-            } else {
-                const auto& const_nullable =
-                        assert_cast<const ColumnNullable&>(const_column->get_data_column());
-                DCHECK(null_map);
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 const_nullable.get_null_map_data(), true);
-                _key_columns_holder.emplace_back(remove_nullable(column_ptr));
-            }
-            raw_ptrs[i] = _key_columns_holder.back().get();
         } else {
             raw_ptrs[i] = column;
         }
