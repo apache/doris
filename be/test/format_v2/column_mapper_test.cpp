@@ -592,9 +592,8 @@ TEST(ColumnMapperCollectNestedStructPathsTest, CollectsNameOrdinalAndBooleanSele
     const auto leaf_type = i32();
     const auto inner_type =
             std::make_shared<DataTypeStruct>(DataTypes {leaf_type, leaf_type}, Strings {"x", "y"});
-    const auto root_type =
-            std::make_shared<DataTypeStruct>(DataTypes {inner_type, leaf_type},
-                                             Strings {"nested", "missing"});
+    const auto root_type = std::make_shared<DataTypeStruct>(DataTypes {inner_type, leaf_type},
+                                                            Strings {"nested", "missing"});
     const auto root = table_slot(0, 3, root_type, "s");
 
     const auto nested_by_ordinal = struct_element_by_selector(
@@ -634,8 +633,7 @@ TEST(ColumnMapperCollectNestedStructPathsTest, CollectsNameOrdinalAndBooleanSele
 
 TEST(ColumnMapperCollectNestedStructPathsTest, IgnoresInvalidSelectorsAndNonPathRoots) {
     const auto leaf_type = i32();
-    const auto root_type =
-            std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"a"});
+    const auto root_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"a"});
     const auto root = table_slot(0, 0, root_type, "s");
 
     const std::vector<VExprSPtr> invalid_selectors = {
@@ -660,41 +658,38 @@ TEST(ColumnMapperCollectNestedStructPathsTest, IgnoresInvalidSelectorsAndNonPath
     EXPECT_TRUE(collect_paths(not_struct_element).empty());
 
     EXPECT_TRUE(collect_paths(struct_element(literal(str(), Field::create_field<TYPE_STRING>("x")),
-                                            leaf_type, "a"))
+                                             leaf_type, "a"))
                         .empty());
     EXPECT_TRUE(collect_paths(nullptr).empty());
 }
 
 TEST(ColumnMapperCollectNestedStructPathsTest, RecursesThroughExpressionsAndKeepsCompletePath) {
     const auto leaf_type = i32();
-    const auto inner_type =
-            std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"b"});
+    const auto inner_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"b"});
     const auto root_type =
-            std::make_shared<DataTypeStruct>(DataTypes {inner_type, leaf_type},
-                                             Strings {"a", "c"});
+            std::make_shared<DataTypeStruct>(DataTypes {inner_type, leaf_type}, Strings {"a", "c"});
     const auto root = table_slot(0, 2, root_type, "s");
-    const auto path_a = struct_element_by_selector(root, inner_type,
-                                                  literal(str(), Field::create_field<TYPE_STRING>("a")));
+    const auto path_a = struct_element_by_selector(
+            root, inner_type, literal(str(), Field::create_field<TYPE_STRING>("a")));
     const auto path_ab = struct_element_by_selector(
             path_a, leaf_type, literal(str(), Field::create_field<TYPE_STRING>("b")));
-    const auto path_c = struct_element_by_selector(root, leaf_type,
-                                                  literal(str(), Field::create_field<TYPE_STRING>("c")));
+    const auto path_c = struct_element_by_selector(
+            root, leaf_type, literal(str(), Field::create_field<TYPE_STRING>("c")));
 
-    auto paths = collect_paths(binary_predicate(TExprOpcode::GT, path_ab,
-                                                literal(leaf_type, Field::create_field<TYPE_INT>(1))));
+    auto paths = collect_paths(binary_predicate(
+            TExprOpcode::GT, path_ab, literal(leaf_type, Field::create_field<TYPE_INT>(1))));
     ASSERT_EQ(paths.size(), 1);
     expect_path_root(paths[0], 2);
     ASSERT_EQ(paths[0].selectors.size(), 2);
     expect_name_selector(paths[0].selectors[0], "a");
     expect_name_selector(paths[0].selectors[1], "b");
 
-    paths = collect_paths(compound_predicate(TExprOpcode::COMPOUND_OR,
-                                             binary_predicate(TExprOpcode::GT, path_ab,
-                                                              literal(leaf_type,
-                                                                      Field::create_field<TYPE_INT>(1))),
-                                             binary_predicate(TExprOpcode::LT, path_c,
-                                                              literal(leaf_type,
-                                                                      Field::create_field<TYPE_INT>(2)))));
+    paths = collect_paths(compound_predicate(
+            TExprOpcode::COMPOUND_OR,
+            binary_predicate(TExprOpcode::GT, path_ab,
+                             literal(leaf_type, Field::create_field<TYPE_INT>(1))),
+            binary_predicate(TExprOpcode::LT, path_c,
+                             literal(leaf_type, Field::create_field<TYPE_INT>(2)))));
     ASSERT_EQ(paths.size(), 2);
     ASSERT_EQ(paths[0].selectors.size(), 2);
     ASSERT_EQ(paths[1].selectors.size(), 1);
@@ -733,9 +728,8 @@ TEST(ColumnMapperCollectNestedStructPathsTest, CastBehaviorSeparatesProjectionAn
     const auto decimal_wide = dec32(9, 2);
     const auto decimal_changed_scale = dec32(9, 3);
 
-    const auto root_type =
-            std::make_shared<DataTypeStruct>(DataTypes {int_type, float_type, decimal_small},
-                                             Strings {"i", "f", "d"});
+    const auto root_type = std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, float_type, decimal_small}, Strings {"i", "f", "d"});
     const auto root = table_slot(0, 0, root_type, "s");
     const auto int_path = struct_element(root, int_type, "i");
     const auto float_path = struct_element(root, float_type, "f");
@@ -753,8 +747,8 @@ TEST(ColumnMapperCollectNestedStructPathsTest, CastBehaviorSeparatesProjectionAn
     ASSERT_EQ(paths.size(), 1);
     expect_name_selector(paths[0].selectors[0], "d");
 
-    paths = collect_paths(cast_expr(struct_element(root, make_nullable(int_type), "i"),
-                                    make_nullable(int_type)));
+    paths = collect_paths(
+            cast_expr(struct_element(root, make_nullable(int_type), "i"), make_nullable(int_type)));
     ASSERT_EQ(paths.size(), 1);
     expect_name_selector(paths[0].selectors[0], "i");
 
@@ -804,8 +798,7 @@ TEST(ColumnMapperCollectNestedStructPathsTest, ProjectionMergeKeepsFilterOnlyPat
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
-    EXPECT_EQ(projection_ids(request.predicate_columns[0].children),
-              std::vector<int32_t>({0, 1}));
+    EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
               std::vector<int32_t>({1}));
@@ -1272,8 +1265,7 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
-    TableFilter filter {.conjunct =
-                                VExprContext::create_shared(table_slot(11, 0, int_type, "id")),
+    TableFilter filter {.conjunct = VExprContext::create_shared(table_slot(11, 0, int_type, "id")),
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
@@ -1305,8 +1297,7 @@ TEST(ColumnMapperLocalizeFiltersTest, ConstantFilterBuildsEntryWithoutFileScanCo
                                       {{"part", Field::create_field<TYPE_INT>(7)}}, {})
                         .ok());
 
-    TableFilter filter {.conjunct =
-                                VExprContext::create_shared(table_slot(3, 0, i32(), "part")),
+    TableFilter filter {.conjunct = VExprContext::create_shared(table_slot(3, 0, i32(), "part")),
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
@@ -1414,8 +1405,7 @@ TEST(ColumnMapperLocalizeFiltersTest, PreservesExistingScanStateWhenAddingPredic
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
-    TableFilter filter {.conjunct =
-                                VExprContext::create_shared(table_slot(2, 0, int_type, "id")),
+    TableFilter filter {.conjunct = VExprContext::create_shared(table_slot(2, 0, int_type, "id")),
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
