@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.hdfs;
+package org.apache.doris.foundation.security;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

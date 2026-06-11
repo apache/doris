@@ -18,7 +18,7 @@
 // https://github.com/trinodb/trino/blob/435/lib/trino-plugin-toolkit/src/main/java/io/trino/plugin/base/authentication/KerberosTicketUtils.java
 // and modified by Doris
 
-package org.apache.doris.filesystem.hdfs;
+package org.apache.doris.foundation.security;
 
 import java.util.Set;
 import javax.security.auth.Subject;

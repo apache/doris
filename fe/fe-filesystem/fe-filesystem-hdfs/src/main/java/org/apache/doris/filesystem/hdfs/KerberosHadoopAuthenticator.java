@@ -23,6 +23,7 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 import org.apache.doris.filesystem.spi.IOCallable;
+import org.apache.doris.foundation.security.KerberosTicketUtils;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.SecurityUtil;

@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.hdfs;
 
+import org.apache.doris.foundation.security.KerberosTicketUtils;
+
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
