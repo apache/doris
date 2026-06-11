@@ -1221,6 +1221,19 @@ static bool check_rowset_has_inverted_index(const RowsetSharedPtr& src_rs, int32
 }
 
 void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
+    // V4 (SPIMI) inverted index segments are NOT byte-compatible with CLucene's
+    // indexCompaction/mergeTerms, which the byte-level index compaction path
+    // (do_inverted_index_compaction) routes through. Feeding a V4 .idx to it
+    // reads past EOF and SIGSEGVs the whole BE. For V4 tablets, skip byte-level
+    // index compaction entirely: leaving these columns out of
+    // columns_to_do_index_compaction makes the output segment_writer rebuild the
+    // SPIMI index from the merged column data (skip_inverted_index stays false),
+    // which is correct and crash-safe. Native SPIMI segment merging during
+    // compaction is tracked as a follow-up.
+    if (_cur_tablet_schema->get_inverted_index_storage_format() ==
+        InvertedIndexStorageFormatPB::V4) {
+        return;
+    }
     for (const auto& index : _cur_tablet_schema->inverted_indexes()) {
         auto col_unique_ids = index->col_unique_ids();
         // check if column unique ids is empty to avoid crash
