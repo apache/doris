@@ -131,7 +131,8 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                io::FileSystemSPtr file_system,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
-                                               bool is_index, std::function<void(Status)> done_cb) {
+                                               bool is_index, std::function<void(Status)> done_cb,
+                                               int64_t tablet_id) {
     VLOG_DEBUG << "submit warm up task for file: " << path << ", file_size: " << file_size
                << ", expiration_time: " << expiration_time
                << ", is_index: " << (is_index ? "true" : "false");
@@ -186,6 +187,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                             }
                             wait->signal();
                         },
+                .tablet_id = tablet_id,
         });
 
         offset += current_chunk_size;
@@ -259,7 +261,8 @@ void CloudWarmUpManager::handle_jobs() {
                         submit_download_tasks(
                                 storage_resource.value()->remote_segment_path(*rs, seg_id),
                                 rs->segment_file_size(cast_set<int>(seg_id)), rs->fs(),
-                                expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
+                                expiration_time, wait, false,
+                                [tablet, rs, seg_id](Status st) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                                << seg_id << " completed";
                                     if (tablet->complete_rowset_segment_warmup(
@@ -269,7 +272,8 @@ void CloudWarmUpManager::handle_jobs() {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " completed";
                                     }
-                                });
+                                },
+                                tablet_id);
                     }
 
                     // 2nd. download inverted index files
@@ -316,7 +320,8 @@ void CloudWarmUpManager::handle_jobs() {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
-                                    });
+                                    },
+                                    tablet_id);
                         }
                     } else {
                         if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
@@ -339,7 +344,8 @@ void CloudWarmUpManager::handle_jobs() {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
-                                    });
+                                    },
+                                    tablet_id);
                         }
                     }
                 }
