@@ -344,11 +344,7 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
             continue;
         }
         std::unique_ptr<ParquetColumnReader> child_reader;
-        if (child_schema->kind == ParquetColumnSchemaKind::PRIMITIVE) {
-            RETURN_IF_ERROR(create_nested_scalar_column_reader(*child_schema, &child_reader));
-        } else {
-            RETURN_IF_ERROR(create(*child_schema, child_projection, &child_reader));
-        }
+        RETURN_IF_ERROR(create(*child_schema, child_projection, true, &child_reader));
         child_output_indices.push_back(static_cast<int>(projected_child_types.size()));
         projected_child_types.push_back(make_nullable(child_reader->type()));
         projected_child_names.push_back(child_reader->name());
@@ -395,16 +391,7 @@ Status ParquetColumnReaderFactory::create_list_column_reader(
         return Status::NotSupported("Parquet LIST projection for column {} contains no element",
                                     column_schema.name);
     }
-    if (element_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
-        if (format::is_partial_projection(element_projection)) {
-            return Status::InvalidArgument(
-                    "Parquet LIST scalar element projection is invalid for column {}",
-                    column_schema.name);
-        }
-        RETURN_IF_ERROR(create_nested_scalar_column_reader(element_schema, &element_reader));
-    } else {
-        RETURN_IF_ERROR(create(element_schema, element_projection, &element_reader));
-    }
+    RETURN_IF_ERROR(create(element_schema, element_projection, true, &element_reader));
     DataTypePtr type = column_schema.type;
     if (format::is_partial_projection(element_projection)) {
         type = std::make_shared<DataTypeArray>(element_reader->type());
@@ -435,23 +422,18 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
                                     column_schema.name);
     }
     std::unique_ptr<ParquetColumnReader> key_reader;
-    RETURN_IF_ERROR(create_nested_scalar_column_reader(*key_value_schema.children[0], &key_reader));
+    const auto& key_schema = *key_value_schema.children[0];
+    const auto* key_projection =
+            format::find_child_projection(key_value_projection, key_schema.local_id);
+    RETURN_IF_ERROR(create(key_schema, key_projection, true, &key_reader));
     std::unique_ptr<ParquetColumnReader> value_reader;
     const auto& value_schema = *key_value_schema.children[1];
     const auto* value_projection =
             format::find_child_projection(key_value_projection, value_schema.local_id);
-    if (value_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
-        if (format::is_partial_projection(value_projection)) {
-            return Status::InvalidArgument(
-                    "Parquet MAP scalar value projection is invalid for column {}",
-                    column_schema.name);
-        }
-        RETURN_IF_ERROR(create_nested_scalar_column_reader(value_schema, &value_reader));
-    } else {
-        RETURN_IF_ERROR(create(value_schema, value_projection, &value_reader));
-    }
+    RETURN_IF_ERROR(create(value_schema, value_projection, true, &value_reader));
     DataTypePtr type = column_schema.type;
-    if (format::is_partial_projection(value_projection)) {
+    if (format::is_partial_projection(key_projection) ||
+        format::is_partial_projection(value_projection)) {
         type = std::make_shared<DataTypeMap>(make_nullable(key_reader->type()),
                                              make_nullable(value_reader->type()));
         if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
@@ -467,11 +449,25 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
 Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_schema,
                                           const format::LocalColumnIndex* projection,
                                           std::unique_ptr<ParquetColumnReader>* reader) const {
+    return create(column_schema, projection, false, reader);
+}
+
+Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_schema,
+                                          const format::LocalColumnIndex* projection,
+                                          bool is_nested,
+                                          std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
     switch (column_schema.kind) {
     case ParquetColumnSchemaKind::PRIMITIVE:
+        if (is_nested) {
+            if (format::is_partial_projection(projection)) {
+                return Status::InvalidArgument("Parquet scalar projection is invalid for column {}",
+                                               column_schema.name);
+            }
+            return create_nested_scalar_column_reader(column_schema, reader);
+        }
         return create_scalar_column_reader(column_schema, reader);
     case ParquetColumnSchemaKind::STRUCT:
         return create_struct_column_reader(column_schema, projection, reader);

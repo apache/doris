@@ -39,6 +39,8 @@ class time_zone;
 namespace doris::parquet {
 
 class ScalarColumnReader final : public ParquetColumnReader {
+    friend class MapColumnReader;
+
 public:
     ScalarColumnReader(const ParquetColumnSchema& column_schema,
                        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
@@ -52,20 +54,19 @@ public:
     Status load_nested_batch(int64_t rows) override;
     Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                int64_t* values_read) override;
-    Status append_nested_value(int64_t level_idx, MutableColumnPtr& column) const;
     const std::vector<int16_t>& nested_definition_levels() const override;
     const std::vector<int16_t>& nested_repetition_levels() const override;
     int64_t nested_levels_written() const override;
     bool is_or_has_repeated_child() const override;
 
+private:
+    Status append_nested_value(int64_t level_idx, MutableColumnPtr& column) const;
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
     ParquetLeafReader leaf_reader() const {
         return ParquetLeafReader(_descriptor, _type_descriptor, _type, _name, _record_reader,
                                  _profile, _timezone, _enable_strict_mode);
     }
     void advance_rows_read(int64_t rows);
-
-private:
     Status skip_records(int64_t rows);
     int64_t page_filtered_rows_to_skip(int64_t rows) const;
 

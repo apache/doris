@@ -175,6 +175,10 @@ private:
                                     const format::LocalColumnIndex* projection,
                                     std::unique_ptr<ParquetColumnReader>* reader) const;
 
+    Status create(const ParquetColumnSchema& column_schema,
+                  const format::LocalColumnIndex* projection, bool is_nested,
+                  std::unique_ptr<ParquetColumnReader>* reader) const;
+
     Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
                              const std::string& name,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
