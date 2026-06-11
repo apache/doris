@@ -1734,7 +1734,7 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
             _set_constant_mapping(&mapping, VExprContext::create_shared(TableLiteral::create_shared(
                                                     mapping.table_type, *partition_value)));
         } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
-                   !table_column.is_partition_key) {
+                   !table_column.is_partition_key && table_column.has_identifier_field_id()) {
             // 2. BY_INDEX mapping, use the file column at the position specified by `ColumnDefinition::identifier` as a direct mapping. This mode is only used by Hive.
             RETURN_IF_ERROR(_create_by_index_mapping(table_column, file_schema, &mapping));
         } else if (const auto* file_field = _find_file_field(table_column, file_schema)) {

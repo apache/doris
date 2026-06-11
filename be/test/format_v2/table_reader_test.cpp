@@ -3801,6 +3801,43 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissin
     EXPECT_EQ(mappings[2].default_expr, nullptr);
 }
 
+TEST(TableColumnMapperByIndexTest, MissingIdentifierFallsBackToDefaultOrMissing) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    auto with_default = make_table_column(-1, "extra_default", int_type);
+    auto literal_expr = VExprContext::create_shared(
+            TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(42)));
+    with_default.default_expr = literal_expr;
+
+    const std::vector<ColumnDefinition> projected_columns = {
+            make_index_table_column(0, "a", int_type),
+            with_default,
+            make_table_column(-1, "extra_missing", int_type),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    options.allow_missing_columns = true;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 3);
+
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 0);
+
+    EXPECT_FALSE(mappings[1].file_local_id.has_value());
+    EXPECT_TRUE(mappings[1].constant_index.has_value());
+    EXPECT_EQ(mappings[1].default_expr, literal_expr);
+
+    EXPECT_FALSE(mappings[2].file_local_id.has_value());
+    EXPECT_FALSE(mappings[2].constant_index.has_value());
+}
+
 TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeRejectedWhenAllowMissingFalse) {
     // When allow_missing_columns=false, an out-of-range file_index without a default must fail.
     const auto int_type = std::make_shared<DataTypeInt32>();
