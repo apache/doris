@@ -102,7 +102,7 @@ IndexRowsetSpec single_array_variant_rowset(int64_t version,
                                             bool array_is_null = false) {
     IndexRowsetSpec rowset;
     rowset.version = version;
-    rowset.batches.push_back(VariantJsonBatch::single_variant_column(
+    rowset.batches.push_back(IndexBatch::single_variant_column(
             single_array_variant_column(elements, array_is_null), static_cast<int32_t>(version)));
     return rowset;
 }
@@ -110,8 +110,8 @@ IndexRowsetSpec single_array_variant_rowset(int64_t version,
 IndexRowsetSpec single_null_variant_rowset(int64_t version) {
     IndexRowsetSpec rowset;
     rowset.version = version;
-    rowset.batches.push_back(VariantJsonBatch::single_variant_column(
-            single_null_variant_column(), static_cast<int32_t>(version)));
+    rowset.batches.push_back(IndexBatch::single_variant_column(single_null_variant_column(),
+                                                               static_cast<int32_t>(version)));
     return rowset;
 }
 
@@ -194,7 +194,7 @@ TEST_F(IndexStorageVariantDebugPointTest, ArrayPathIndexAcceptsMixedTypedElement
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_variant(
+    rowset.batches.push_back(IndexBatch::single_variant(
             {R"({"c_arr": ["text"]})", R"({"c_arr": [1.1]})", R"({"c_arr": [1.0]})",
              R"({"c_arr": [90]})", R"({"c_arr": [90999999999999]})"},
             0));

@@ -194,8 +194,15 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
     ASSERT_TRUE(not_null_read.has_value()) << not_null_read.error();
     EXPECT_EQ(not_null_read->rows_read, 1);
     EXPECT_EQ(not_null_read->stats.rows_inverted_index_filtered, 2);
-    ASSERT_EQ(not_null_read->index_probe_events.size(), 1);
-    EXPECT_TRUE(not_null_read->index_probe_events.front().used_index());
+    expect_index_probe(not_null_read.value(), IndexProbeExpectation {
+                                                      .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                      .state = IndexProbeState::APPLIED,
+                                                      .reason = IndexFallbackReason::NONE,
+                                                      .column_uid = kVariantUid,
+                                                      .variant_path = "int_1",
+                                                      .index_id = kIntPatternIndexId,
+                                                      .filtered_rows = 2,
+                                              });
 
     auto null_read =
             read_rowsets(readable_rowsets.value(),
@@ -203,8 +210,15 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
     ASSERT_TRUE(null_read.has_value()) << null_read.error();
     EXPECT_EQ(null_read->rows_read, 2);
     EXPECT_EQ(null_read->stats.rows_inverted_index_filtered, 1);
-    ASSERT_EQ(null_read->index_probe_events.size(), 1);
-    EXPECT_TRUE(null_read->index_probe_events.front().used_index());
+    expect_index_probe(null_read.value(), IndexProbeExpectation {
+                                                  .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                  .state = IndexProbeState::APPLIED,
+                                                  .reason = IndexFallbackReason::NONE,
+                                                  .column_uid = kVariantUid,
+                                                  .variant_path = "int_1",
+                                                  .index_id = kIntPatternIndexId,
+                                                  .filtered_rows = 1,
+                                          });
 }
 
 TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsUsesVariantArrayFieldPatternIndex) {
@@ -242,8 +256,15 @@ TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsUsesVariantArrayFieldPa
     EXPECT_GT(debug_point.execute_num(), 0);
     EXPECT_EQ(read->rows_read, 1);
     EXPECT_EQ(read->stats.rows_inverted_index_filtered, 6);
-    ASSERT_EQ(read->index_probe_events.size(), 1);
-    EXPECT_TRUE(read->index_probe_events.front().used_index());
+    expect_index_probe(read.value(), IndexProbeExpectation {
+                                             .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                             .state = IndexProbeState::APPLIED,
+                                             .reason = IndexFallbackReason::NONE,
+                                             .column_uid = kVariantUid,
+                                             .variant_path = std::string(kArrayPath),
+                                             .index_id = kArrayPatternIndexId,
+                                             .filtered_rows = 6,
+                                     });
 }
 
 } // namespace doris::index_storage_test

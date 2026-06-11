@@ -97,7 +97,7 @@ void IndexStorageVariantLifecycleTest::run_deep_sparse_variant_lifecycle(bool ex
 
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
-    rowset0.batches.push_back(VariantJsonBatch::single_variant(
+    rowset0.batches.push_back(IndexBatch::single_variant(
             {R"({"hot": "h0", "deep": {"rare_a": "a0"}, "cold0": "c0"})",
              R"({"hot": "h1", "deep": {"rare_b": "b0"}, "cold1": "c1"})"},
             0));
@@ -112,7 +112,7 @@ void IndexStorageVariantLifecycleTest::run_deep_sparse_variant_lifecycle(bool ex
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
-    rowset1.batches.push_back(VariantJsonBatch::single_variant(
+    rowset1.batches.push_back(IndexBatch::single_variant(
             {R"({"hot": "h2", "deep": {"rare_a": "a1"}, "cold2": "c2"})",
              R"({"hot": "h3", "deep": {"rare_c": "c0"}, "cold3": "c3"})"},
             100));
@@ -158,7 +158,7 @@ void IndexStorageVariantLifecycleTest::run_nested_group_variant_lifecycle(
 
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
-    rowset0.batches.push_back(VariantJsonBatch::single_variant(
+    rowset0.batches.push_back(IndexBatch::single_variant(
             {R"({"owner": "alice", "profile": {"region": "us"}, "items": [{"sku": "a", "qty": 1}]})",
              R"({"owner": "bob", "profile": {"region": "eu"}, "items": [{"sku": "b", "qty": 2}]})"},
             0));
@@ -167,7 +167,7 @@ void IndexStorageVariantLifecycleTest::run_nested_group_variant_lifecycle(
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
-    rowset1.batches.push_back(VariantJsonBatch::single_variant(
+    rowset1.batches.push_back(IndexBatch::single_variant(
             {R"({"owner": "carol", "profile": {"region": "apac"}, "items": [{"sku": "c", "qty": 3}]})",
              R"({"owner": "dave", "profile": {"region": "us"}, "items": [{"sku": "d", "qty": 4}]})"},
             100));
@@ -305,7 +305,7 @@ TEST_F(IndexStorageVariantLifecycleTest,
     IndexRowsetSpec rowset;
     rowset.version = 0;
     rowset.batches.push_back(
-            VariantJsonBatch::single_variant({R"({"b": "one"})", R"({"b": "other"})"}, 0));
+            IndexBatch::single_variant({R"({"b": "one"})", R"({"b": "other"})"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -460,7 +460,7 @@ TEST_F(IndexStorageVariantLifecycleTest, PatchedSchemaAddDropVariantColumnCompac
 
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
-    VariantJsonBatch batch0;
+    IndexBatch batch0;
     batch0.keys = {0, 1};
     batch0.variant_jsons_by_column = {
             {R"({"a": "old-one"})", R"({"a": "old-two"})"},
@@ -494,12 +494,12 @@ TEST_F(IndexStorageVariantLifecycleTest, PatchedSchemaAddDropVariantColumnCompac
     ASSERT_TRUE(patched_schema->has_column_unique_id(4));
 
     auto patched_old_rowsets =
-            rowsets_with_schema({rowset0_result.value()}, std::move(patched_schema));
+            inject_reader_schema_for_rowsets({rowset0_result.value()}, std::move(patched_schema));
     ASSERT_TRUE(patched_old_rowsets.has_value()) << patched_old_rowsets.error();
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
-    VariantJsonBatch batch1;
+    IndexBatch batch1;
     batch1.keys = {2, 3};
     batch1.variant_jsons_by_column = {
             {R"({"a": "new-one"})", R"({"a": "new-two"})"},
@@ -537,7 +537,7 @@ TEST_F(IndexStorageVariantLifecycleTest, MissingRequiredVariantColumnFailsExtend
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -552,7 +552,8 @@ TEST_F(IndexStorageVariantLifecycleTest, MissingRequiredVariantColumnFailsExtend
     ASSERT_NE(patched_schema, nullptr);
     ASSERT_TRUE(patched_schema->has_column_unique_id(3));
 
-    auto patched_rowsets = rowsets_with_schema({rowset_result.value()}, std::move(patched_schema));
+    auto patched_rowsets =
+            inject_reader_schema_for_rowsets({rowset_result.value()}, std::move(patched_schema));
     ASSERT_TRUE(patched_rowsets.has_value()) << patched_rowsets.error();
 
     std::unordered_map<int32_t, variant_util::VariantExtendedInfo> variant_extended_info;
@@ -768,15 +769,15 @@ TEST_F(IndexStorageVariantLifecycleTest, WriteReadProbeAndCumulativeCompact) {
 
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
-    rowset0.batches.push_back(VariantJsonBatch::single_variant(
-            {R"({"a": 1, "b": "one"})", R"({"a": 2, "c": 20})"}, 0));
+    rowset0.batches.push_back(
+            IndexBatch::single_variant({R"({"a": 1, "b": "one"})", R"({"a": 2, "c": 20})"}, 0));
     auto rowset0_result = write_rowset(rowset0);
     ASSERT_TRUE(rowset0_result.has_value()) << rowset0_result.error();
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
-    rowset1.batches.push_back(VariantJsonBatch::single_variant(
-            {R"({"a": 3, "b": "three"})", R"({"a": 4, "d": 40})"}, 100));
+    rowset1.batches.push_back(
+            IndexBatch::single_variant({R"({"a": 3, "b": "three"})", R"({"a": 4, "d": 40})"}, 100));
     auto rowset1_result = write_rowset(rowset1);
     ASSERT_TRUE(rowset1_result.has_value()) << rowset1_result.error();
 
@@ -828,17 +829,17 @@ TEST_F(IndexStorageVariantLifecycleTest,
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
     rowset0.batches.push_back(
-            VariantJsonBatch::single_variant({R"({"a": "hot-0", "b": "scalar-0", "d": "dense-0"})",
-                                              R"({"a": "hot-1", "b": "scalar-1", "d": "dense-1"})",
-                                              R"({"a": "hot-2", "b": "scalar-2", "d": "dense-2"})"},
-                                             0));
+            IndexBatch::single_variant({R"({"a": "hot-0", "b": "scalar-0", "d": "dense-0"})",
+                                        R"({"a": "hot-1", "b": "scalar-1", "d": "dense-1"})",
+                                        R"({"a": "hot-2", "b": "scalar-2", "d": "dense-2"})"},
+                                       0));
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
     rowset1.batches.push_back(
-            VariantJsonBatch::single_variant({R"({"a": "hot-3", "b": "scalar-3", "d": "dense-3"})",
-                                              R"({"a": "hot-4", "b": {"c": "child-0"}})"},
-                                             100));
+            IndexBatch::single_variant({R"({"a": "hot-3", "b": "scalar-3", "d": "dense-3"})",
+                                        R"({"a": "hot-4", "b": {"c": "child-0"}})"},
+                                       100));
 
     auto rowsets = write_rowsets({rowset0, rowset1});
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
@@ -854,7 +855,8 @@ TEST_F(IndexStorageVariantLifecycleTest,
     auto read_schema = build_schema_with_variant_path_column(*tablet_schema(), 2, "b",
                                                              FieldType::OLAP_FIELD_TYPE_VARIANT);
     ASSERT_NE(read_schema, nullptr);
-    auto readable_compacted = rowsets_with_schema(reloaded.value(), std::move(read_schema));
+    auto readable_compacted =
+            inject_reader_schema_for_rowsets(reloaded.value(), std::move(read_schema));
     ASSERT_TRUE(readable_compacted.has_value()) << readable_compacted.error();
 
     auto compacted_probe = probe_rowset(readable_compacted->front());
@@ -913,14 +915,14 @@ TEST_F(IndexStorageVariantLifecycleTest, VariantDocModeWritesDocValueColumnsAfte
 
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
-    rowset0.batches.push_back(VariantJsonBatch::single_variant(
-            {R"({"a": "one", "b": 1})", R"({"a": "two", "c": 2})"}, 0));
+    rowset0.batches.push_back(
+            IndexBatch::single_variant({R"({"a": "one", "b": 1})", R"({"a": "two", "c": 2})"}, 0));
     auto rowset0_result = write_rowset(rowset0);
     ASSERT_TRUE(rowset0_result.has_value()) << rowset0_result.error();
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
-    rowset1.batches.push_back(VariantJsonBatch::single_variant(
+    rowset1.batches.push_back(IndexBatch::single_variant(
             {R"({"a": "three", "d": 3})", R"({"a": "four", "e": 4})"}, 100));
     auto rowset1_result = write_rowset(rowset1);
     ASSERT_TRUE(rowset1_result.has_value()) << rowset1_result.error();

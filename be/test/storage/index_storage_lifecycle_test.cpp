@@ -101,13 +101,13 @@ TEST_F(IndexStorageLifecycleTest, TextIndexHitAfterFullCompaction) {
 
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
-    rowset0.batches.push_back(VariantJsonBatch::single_text({"hello", "other"}, 0));
+    rowset0.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
     auto rowset0_result = write_rowset(rowset0);
     ASSERT_TRUE(rowset0_result.has_value()) << rowset0_result.error();
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
-    rowset1.batches.push_back(VariantJsonBatch::single_text({"other", "hello"}, 100));
+    rowset1.batches.push_back(IndexBatch::single_text({"other", "hello"}, 100));
     auto rowset1_result = write_rowset(rowset1);
     ASSERT_TRUE(rowset1_result.has_value()) << rowset1_result.error();
 
@@ -134,7 +134,7 @@ TEST_F(IndexStorageLifecycleTest, CountOnIndexPredicateRecordsAppliedEvent) {
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other", "hello"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other", "hello"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -156,7 +156,7 @@ TEST_F(IndexStorageLifecycleTest, CountOnIndexSkipsReadingKeyDataWhenIndexApplie
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other", "hello"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other", "hello"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -207,7 +207,7 @@ TEST_F(IndexStorageLifecycleTest, V1IndexStorageWritesOneFilePerIndex) {
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -237,7 +237,7 @@ TEST_F(IndexStorageLifecycleTest, V2IndexStorageWritesCompoundIndexFile) {
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -265,7 +265,7 @@ TEST_F(IndexStorageLifecycleTest, TextIndexDisabledRecordsNotAttempted) {
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other", "hello"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other", "hello"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -295,7 +295,7 @@ TEST_F(IndexStorageLifecycleTest, TextPredicateWithoutIndexRecordsNotAttempted) 
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -411,7 +411,7 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaKeepsExistingTextIndexUsable) {
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -422,7 +422,8 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaKeepsExistingTextIndexUsable) {
     ASSERT_NE(patched_schema, nullptr);
     ASSERT_TRUE(patched_schema->has_column_unique_id(3));
 
-    auto patched_rowsets = rowsets_with_schema({rowset_result.value()}, std::move(patched_schema));
+    auto patched_rowsets =
+            inject_reader_schema_for_rowsets({rowset_result.value()}, std::move(patched_schema));
     ASSERT_TRUE(patched_rowsets.has_value()) << patched_rowsets.error();
 
     IndexReadOptions read_options;
@@ -434,7 +435,7 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaKeepsExistingTextIndexUsable) {
     expect_applied_title_index(read_result.value(), 1);
 }
 
-TEST_F(IndexStorageLifecycleTest, RowsetsWithSchemaUpdatesTabletRowsetMapForIndexDrop) {
+TEST_F(IndexStorageLifecycleTest, InjectReaderSchemaUpdatesTabletRowsetMapForIndexDrop) {
     IndexTabletOptions options;
     options.tablet_id = 110019;
     options.text_columns = {TextColumnSpec {.unique_id = 2, .name = "title"}};
@@ -442,7 +443,7 @@ TEST_F(IndexStorageLifecycleTest, RowsetsWithSchemaUpdatesTabletRowsetMapForInde
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(VariantJsonBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -453,7 +454,8 @@ TEST_F(IndexStorageLifecycleTest, RowsetsWithSchemaUpdatesTabletRowsetMapForInde
     ASSERT_NE(patched_schema, nullptr);
     ASSERT_TRUE(patched_schema->has_inverted_index_with_index_id(20008));
 
-    auto patched_rowsets = rowsets_with_schema({rowset_result.value()}, std::move(patched_schema));
+    auto patched_rowsets =
+            inject_reader_schema_for_rowsets({rowset_result.value()}, std::move(patched_schema));
     ASSERT_TRUE(patched_rowsets.has_value()) << patched_rowsets.error();
     ASSERT_EQ(patched_rowsets->size(), 1);
     ASSERT_TRUE(patched_rowsets->front()->tablet_schema()->has_inverted_index_with_index_id(20008));
@@ -478,7 +480,7 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaAddDropTextColumnReadsDefaultsAnd
 
     IndexRowsetSpec rowset0;
     rowset0.version = 0;
-    VariantJsonBatch batch0;
+    IndexBatch batch0;
     batch0.keys = {0, 1};
     batch0.text_values_by_column = {{"hello", "other"}, {"drop-a", "drop-b"}};
     rowset0.batches.push_back(std::move(batch0));
@@ -487,7 +489,7 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaAddDropTextColumnReadsDefaultsAnd
 
     IndexRowsetSpec rowset1;
     rowset1.version = 1;
-    VariantJsonBatch batch1;
+    IndexBatch batch1;
     batch1.keys = {2, 3};
     batch1.text_values_by_column = {{"hello", "later"}, {"drop-c", "drop-d"}};
     rowset1.batches.push_back(std::move(batch1));
@@ -503,8 +505,8 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaAddDropTextColumnReadsDefaultsAnd
     EXPECT_FALSE(patched_schema->has_column_unique_id(3));
     ASSERT_TRUE(patched_schema->has_column_unique_id(4));
 
-    auto patched_rowsets = rowsets_with_schema({rowset0_result.value(), rowset1_result.value()},
-                                               std::move(patched_schema));
+    auto patched_rowsets = inject_reader_schema_for_rowsets(
+            {rowset0_result.value(), rowset1_result.value()}, std::move(patched_schema));
     ASSERT_TRUE(patched_rowsets.has_value()) << patched_rowsets.error();
 
     IndexReadOptions read_options;

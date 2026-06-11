@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -37,6 +38,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
+#include "storage/index/index_query_context.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/segment/column_reader.h"
 
@@ -204,6 +206,29 @@ public:
 
     const segment_v2::IndexQueryContextPtr& get_index_query_context() const {
         return _index_query_context;
+    }
+
+    size_t index_read_probe_count() const {
+        return _index_query_context == nullptr ? 0 : _index_query_context->index_read_probes.size();
+    }
+
+    std::vector<std::pair<ColumnId, int64_t>> index_read_probes_since(size_t first_probe) const {
+        std::vector<std::pair<ColumnId, int64_t>> probes;
+        if (_index_query_context == nullptr ||
+            first_probe >= _index_query_context->index_read_probes.size()) {
+            return probes;
+        }
+        for (size_t probe_idx = first_probe;
+             probe_idx < _index_query_context->index_read_probes.size(); ++probe_idx) {
+            const auto& probe = _index_query_context->index_read_probes[probe_idx];
+            for (ColumnId cid = 0; cid < _index_iterators.size(); ++cid) {
+                if (_index_iterators[cid].get() == probe.iterator) {
+                    probes.emplace_back(cid, probe.index_id);
+                    break;
+                }
+            }
+        }
+        return probes;
     }
 
 private:

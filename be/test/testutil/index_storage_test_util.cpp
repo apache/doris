@@ -303,15 +303,14 @@ std::ifstream open_jsonl_file(const std::string& file_path, std::string* opened_
     return {};
 }
 
-Result<std::vector<VariantJsonBatch>> batches_from_data_source(
-        const IndexDataSourceSpec& data_source) {
+Result<std::vector<IndexBatch>> batches_from_data_source(const IndexDataSourceSpec& data_source) {
     switch (data_source.kind) {
     case IndexDataSourceKind::INLINE_TEXT_ROWS:
-        return std::vector<VariantJsonBatch> {
-                VariantJsonBatch::single_text(data_source.rows, data_source.first_key)};
+        return std::vector<IndexBatch> {
+                IndexBatch::single_text(data_source.rows, data_source.first_key)};
     case IndexDataSourceKind::INLINE_VARIANT_ROWS:
-        return std::vector<VariantJsonBatch> {
-                VariantJsonBatch::single_variant(data_source.rows, data_source.first_key)};
+        return std::vector<IndexBatch> {
+                IndexBatch::single_variant(data_source.rows, data_source.first_key)};
     case IndexDataSourceKind::VARIANT_JSONL_FILE: {
         if (data_source.batch_size == 0) {
             return ResultError(Status::InvalidArgument("jsonl batch size must be positive"));
@@ -324,7 +323,7 @@ Result<std::vector<VariantJsonBatch>> batches_from_data_source(
                     Status::InvalidArgument("failed to open jsonl file {}", data_source.file_path));
         }
 
-        std::vector<VariantJsonBatch> batches;
+        std::vector<IndexBatch> batches;
         std::vector<std::string> rows;
         rows.reserve(data_source.batch_size);
         std::string line;
@@ -335,14 +334,14 @@ Result<std::vector<VariantJsonBatch>> batches_from_data_source(
             }
             rows.push_back(std::move(line));
             if (rows.size() == data_source.batch_size) {
-                batches.push_back(VariantJsonBatch::single_variant(std::move(rows), next_key));
+                batches.push_back(IndexBatch::single_variant(std::move(rows), next_key));
                 next_key += static_cast<int32_t>(batches.back().num_rows());
                 rows.clear();
                 rows.reserve(data_source.batch_size);
             }
         }
         if (!rows.empty()) {
-            batches.push_back(VariantJsonBatch::single_variant(std::move(rows), next_key));
+            batches.push_back(IndexBatch::single_variant(std::move(rows), next_key));
         }
         if (batches.empty()) {
             return ResultError(Status::InvalidArgument("jsonl file {} has no rows", opened_path));
@@ -354,8 +353,8 @@ Result<std::vector<VariantJsonBatch>> batches_from_data_source(
     return ResultError(Status::InvalidArgument("unknown index data source kind"));
 }
 
-Result<std::vector<VariantJsonBatch>> materialize_batches(const IndexRowsetSpec& spec) {
-    std::vector<VariantJsonBatch> batches = spec.batches;
+Result<std::vector<IndexBatch>> materialize_batches(const IndexRowsetSpec& spec) {
+    std::vector<IndexBatch> batches = spec.batches;
     for (const auto& data_source : spec.data_sources) {
         auto materialized = batches_from_data_source(data_source);
         if (!materialized.has_value()) {
@@ -367,7 +366,7 @@ Result<std::vector<VariantJsonBatch>> materialize_batches(const IndexRowsetSpec&
     return batches;
 }
 
-void ensure_variant_json_shape(const VariantJsonBatch& batch, size_t column_pos) {
+void ensure_variant_json_shape(const IndexBatch& batch, size_t column_pos) {
     CHECK(!batch.variant_jsons_by_column.empty());
     CHECK_LT(column_pos, batch.variant_jsons_by_column.size());
     const size_t rows = batch.num_rows();
@@ -376,7 +375,7 @@ void ensure_variant_json_shape(const VariantJsonBatch& batch, size_t column_pos)
     }
 }
 
-Status fill_variant_column(const VariantColumnSpec& column_spec, const VariantJsonBatch& batch,
+Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatch& batch,
                            size_t column_pos, MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
     auto variant_column =
@@ -431,8 +430,7 @@ Status validate_direct_variant_column(const VariantColumnSpec& column_spec, cons
     return Status::OK();
 }
 
-Status fill_text_column(const VariantJsonBatch& batch, size_t column_pos,
-                        MutableColumnPtr* output) {
+Status fill_text_column(const IndexBatch& batch, size_t column_pos, MutableColumnPtr* output) {
     if (column_pos >= batch.text_values_by_column.size()) {
         return Status::InvalidArgument("text batch column count mismatch: column_pos={}",
                                        column_pos);
@@ -447,7 +445,7 @@ Status fill_text_column(const VariantJsonBatch& batch, size_t column_pos,
 }
 
 Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_options,
-                  const VariantJsonBatch& batch, int32_t* next_key, Block* block) {
+                  const IndexBatch& batch, int32_t* next_key, Block* block) {
     auto columns = std::move(*block).mutate_columns();
     size_t column_pos = 0;
     const size_t rows = batch.num_rows();
@@ -668,8 +666,8 @@ IndexSpec IndexSpec::field_pattern_index(int64_t index_id, std::string name, int
     return spec;
 }
 
-VariantJsonBatch VariantJsonBatch::single_text(std::vector<std::string> values, int32_t first_key) {
-    VariantJsonBatch batch;
+IndexBatch IndexBatch::single_text(std::vector<std::string> values, int32_t first_key) {
+    IndexBatch batch;
     batch.keys.reserve(values.size());
     for (size_t i = 0; i < values.size(); ++i) {
         batch.keys.push_back(first_key + static_cast<int32_t>(i));
@@ -678,9 +676,8 @@ VariantJsonBatch VariantJsonBatch::single_text(std::vector<std::string> values, 
     return batch;
 }
 
-VariantJsonBatch VariantJsonBatch::single_variant(std::vector<std::string> jsons,
-                                                  int32_t first_key) {
-    VariantJsonBatch batch;
+IndexBatch IndexBatch::single_variant(std::vector<std::string> jsons, int32_t first_key) {
+    IndexBatch batch;
     batch.keys.reserve(jsons.size());
     for (size_t i = 0; i < jsons.size(); ++i) {
         batch.keys.push_back(first_key + static_cast<int32_t>(i));
@@ -689,8 +686,8 @@ VariantJsonBatch VariantJsonBatch::single_variant(std::vector<std::string> jsons
     return batch;
 }
 
-VariantJsonBatch VariantJsonBatch::single_variant_column(ColumnPtr column, int32_t first_key) {
-    VariantJsonBatch batch;
+IndexBatch IndexBatch::single_variant_column(ColumnPtr column, int32_t first_key) {
+    IndexBatch batch;
     const auto rows = column->size();
     batch.keys.reserve(rows);
     for (size_t i = 0; i < rows; ++i) {
@@ -700,7 +697,7 @@ VariantJsonBatch VariantJsonBatch::single_variant_column(ColumnPtr column, int32
     return batch;
 }
 
-size_t VariantJsonBatch::num_rows() const {
+size_t IndexBatch::num_rows() const {
     if (!keys.empty()) {
         return keys.size();
     }
@@ -1013,6 +1010,47 @@ void expect_inverted_index_not_attempted(const IndexReadResult& result) {
     EXPECT_TRUE(std::any_of(
             result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
             [](const auto& event) { return event.state == IndexProbeState::NOT_ATTEMPTED; }));
+}
+
+bool index_probe_matches(const IndexProbeEvent& event, const IndexProbeExpectation& expectation) {
+    if (expectation.source.has_value() && event.source != expectation.source.value()) {
+        return false;
+    }
+    if (expectation.state.has_value() && event.state != expectation.state.value()) {
+        return false;
+    }
+    if (expectation.reason.has_value() && event.reason != expectation.reason.value()) {
+        return false;
+    }
+    if (expectation.column_uid.has_value() && event.column_uid != expectation.column_uid.value()) {
+        return false;
+    }
+    if (expectation.variant_path.has_value() &&
+        (!event.variant_path.has_value() ||
+         event.variant_path.value() != expectation.variant_path.value())) {
+        return false;
+    }
+    if (expectation.index_id.has_value() && event.index_id != expectation.index_id.value()) {
+        return false;
+    }
+    if (expectation.filtered_rows.has_value() &&
+        event.filtered_rows != expectation.filtered_rows.value()) {
+        return false;
+    }
+    return true;
+}
+
+void expect_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation) {
+    EXPECT_TRUE(std::any_of(
+            result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
+            [&](const auto& event) { return index_probe_matches(event, expectation); }));
+}
+
+void expect_no_index_probe(const IndexReadResult& result,
+                           const IndexProbeExpectation& expectation) {
+    EXPECT_FALSE(std::any_of(
+            result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
+            [&](const auto& event) { return index_probe_matches(event, expectation); }));
 }
 
 void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
@@ -1345,7 +1383,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         }
     }
 
-    result.index_probe_events.push_back(IndexProbeEventSnapshot {
+    result.profile_snapshots.push_back(IndexProfileSnapshot {
             .label = std::move(options.index_probe_label),
             .rows_inverted_index_filtered = result.stats.rows_inverted_index_filtered,
             .inverted_index_filter_timer = result.stats.inverted_index_filter_timer,
@@ -1393,6 +1431,15 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::compact_rowsets(
     return ResultError(Status::InvalidArgument("unknown variant compaction kind"));
 }
 
+Result<RowsetSharedPtr> IndexStorageTestFixture::compact_rowsets_and_reload(
+        IndexCompactionKind kind, const std::vector<RowsetSharedPtr>& rowsets) {
+    auto compacted = compact_rowsets(kind, rowsets);
+    if (!compacted.has_value()) {
+        return ResultError(compacted.error());
+    }
+    return reload_rowset(compacted.value());
+}
+
 Result<RowsetSharedPtr> IndexStorageTestFixture::reload_rowset(const RowsetSharedPtr& rowset) {
     if (rowset == nullptr) {
         return ResultError(Status::InvalidArgument("rowset is null"));
@@ -1421,7 +1468,7 @@ Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::reload_rowsets(
     return reloaded_rowsets;
 }
 
-Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::rowsets_with_schema(
+Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::inject_reader_schema_for_rowsets(
         const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr schema) {
     if (rowsets.empty()) {
         return ResultError(Status::InvalidArgument("rowsets are empty"));
@@ -1501,6 +1548,15 @@ Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::build_inverted_ind
     return rowsets;
 }
 
+Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::build_inverted_indexes_and_reload(
+        const std::vector<IndexSpec>& indexes) {
+    auto rowsets = build_inverted_indexes(indexes);
+    if (!rowsets.has_value()) {
+        return ResultError(rowsets.error());
+    }
+    return reload_rowsets(rowsets.value());
+}
+
 Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::drop_inverted_indexes(
         const std::vector<IndexSpec>& indexes) {
     if (_tablet == nullptr || _tablet_schema == nullptr) {
@@ -1538,6 +1594,15 @@ Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::drop_inverted_inde
         _tablet_schema = rowsets->front()->tablet_schema();
     }
     return rowsets;
+}
+
+Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::drop_inverted_indexes_and_reload(
+        const std::vector<IndexSpec>& indexes) {
+    auto rowsets = drop_inverted_indexes(indexes);
+    if (!rowsets.has_value()) {
+        return ResultError(rowsets.error());
+    }
+    return reload_rowsets(rowsets.value());
 }
 
 Result<IndexRowsetProbe> IndexStorageTestFixture::probe_rowset(const RowsetSharedPtr& rowset) {
@@ -1580,7 +1645,7 @@ Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::rowsets_with_varia
     if (schema == nullptr) {
         return ResultError(Status::InternalError("failed to calculate variant extended schema"));
     }
-    return rowsets_with_schema(rowsets, std::move(schema));
+    return inject_reader_schema_for_rowsets(rowsets, std::move(schema));
 }
 
 int32_t IndexStorageTestFixture::column_id_by_path(const std::string& path) const {

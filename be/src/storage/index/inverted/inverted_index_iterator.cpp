@@ -30,6 +30,19 @@ namespace doris::segment_v2 {
 
 InvertedIndexIterator::InvertedIndexIterator() = default;
 
+void InvertedIndexIterator::record_read_probe(const InvertedIndexReaderPtr& reader,
+                                              bool is_null_bitmap) {
+    if (_context == nullptr || _context->stats == nullptr ||
+        !_context->stats->collect_index_probe_events || reader == nullptr) {
+        return;
+    }
+    _context->index_read_probes.push_back(IndexReadProbe {
+            .iterator = this,
+            .index_id = static_cast<int64_t>(reader->get_index_id()),
+            .is_null_bitmap = is_null_bitmap,
+    });
+}
+
 std::string InvertedIndexIterator::ensure_normalized_key(const std::string& analyzer_key) {
     // Simple normalization: lowercase, empty stays empty.
     // Empty means "user did not specify" (auto-select mode).
@@ -55,7 +68,6 @@ void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
 }
 
 Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
-    _last_read_index_id = -1;
     const auto* i_param_ptr = std::get_if<InvertedIndexParam*>(&param);
     if (i_param_ptr == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
@@ -80,7 +92,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");
     }
-    _last_read_index_id = reader->get_index_id();
+    record_read_probe(reader, false);
     auto* runtime_state = _context->runtime_state;
     if (!i_param->skip_try && reader->type() == InvertedIndexReaderType::BKD) {
         if (runtime_state != nullptr &&
@@ -126,6 +138,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
     // For null bitmap, use any available reader (empty = auto-select)
     auto reader = DORIS_TRY(select_best_reader(""));
+    record_read_probe(reader, true);
     return reader->read_null_bitmap(_context, cache_handle, nullptr);
 }
 

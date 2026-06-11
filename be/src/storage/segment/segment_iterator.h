@@ -197,6 +197,13 @@ private:
     void _record_index_probe_event(const std::shared_ptr<ColumnPredicate>& pred,
                                    IndexProbeState state, IndexFallbackReason reason,
                                    int64_t input_rows, int64_t output_rows, int64_t index_id = -1);
+    void _record_index_probe_event(ColumnId column_id, IndexProbeSource source,
+                                   IndexProbeState state, IndexFallbackReason reason,
+                                   int64_t input_rows, int64_t output_rows, int64_t index_id = -1);
+    void _record_index_probe_events_for_expr(const VExprContextSPtr& expr_ctx,
+                                             size_t first_read_probe, IndexProbeSource source,
+                                             IndexProbeState state, IndexFallbackReason reason,
+                                             int64_t input_rows, int64_t output_rows);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
 

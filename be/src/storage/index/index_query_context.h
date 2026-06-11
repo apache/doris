@@ -17,10 +17,23 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <vector>
+
 #include "storage/compaction/collection_similarity.h"
 #include "storage/compaction/collection_statistics.h"
 
 namespace doris::segment_v2 {
+
+class IndexIterator;
+
+struct IndexReadProbe {
+    const IndexIterator* iterator = nullptr;
+    int64_t index_id = -1;
+    bool is_null_bitmap = false;
+};
 
 struct IndexQueryContext {
     io::IOContext* io_ctx = nullptr;
@@ -32,6 +45,7 @@ struct IndexQueryContext {
 
     size_t query_limit = 0;
     bool is_asc = false;
+    std::vector<IndexReadProbe> index_read_probes;
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 

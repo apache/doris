@@ -108,7 +108,7 @@ struct IndexTabletOptions {
     std::vector<IndexSpec> inverted_indexes;
 };
 
-struct VariantJsonBatch {
+struct IndexBatch {
     std::vector<int32_t> keys;
     std::vector<std::vector<std::string>> text_values_by_column;
     std::vector<std::vector<std::string>> variant_jsons_by_column;
@@ -117,9 +117,9 @@ struct VariantJsonBatch {
     bool check_duplicate_json_path = false;
     ParseConfig::ParseTo parse_to = ParseConfig::ParseTo::OnlySubcolumns;
 
-    static VariantJsonBatch single_text(std::vector<std::string> values, int32_t first_key = 0);
-    static VariantJsonBatch single_variant(std::vector<std::string> jsons, int32_t first_key = 0);
-    static VariantJsonBatch single_variant_column(ColumnPtr column, int32_t first_key = 0);
+    static IndexBatch single_text(std::vector<std::string> values, int32_t first_key = 0);
+    static IndexBatch single_variant(std::vector<std::string> jsons, int32_t first_key = 0);
+    static IndexBatch single_variant_column(ColumnPtr column, int32_t first_key = 0);
     size_t num_rows() const;
 };
 
@@ -149,7 +149,7 @@ struct IndexRowsetSpec {
     DataWriteType write_type = DataWriteType::TYPE_DIRECT;
     bool add_to_tablet = true;
     std::vector<IndexDataSourceSpec> data_sources;
-    std::vector<VariantJsonBatch> batches;
+    std::vector<IndexBatch> batches;
 };
 
 struct IndexReadOptions {
@@ -172,7 +172,7 @@ struct IndexReadOptions {
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 };
 
-struct IndexProbeEventSnapshot {
+struct IndexProfileSnapshot {
     std::string label;
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
@@ -186,28 +186,22 @@ struct IndexProbeEventSnapshot {
     int64_t inverted_index_downgrade_count = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
+};
 
-    bool attempted_index() const {
-        return rows_inverted_index_filtered > 0 || inverted_index_query_timer > 0 ||
-               inverted_index_filter_timer > 0 || inverted_index_query_null_bitmap_timer > 0 ||
-               inverted_index_query_bitmap_copy_timer > 0 ||
-               inverted_index_searcher_open_timer > 0 || inverted_index_searcher_search_timer > 0 ||
-               inverted_index_searcher_search_init_timer > 0 ||
-               inverted_index_searcher_search_exec_timer > 0 || inverted_index_analyzer_timer > 0 ||
-               inverted_index_lookup_timer > 0;
-    }
-
-    bool downgraded_fallback() const { return inverted_index_downgrade_count > 0; }
-    bool used_index() const { return attempted_index() && !downgraded_fallback(); }
-    bool effective_filter() const {
-        return rows_inverted_index_filtered > 0 && !downgraded_fallback();
-    }
+struct IndexProbeExpectation {
+    std::optional<IndexProbeSource> source;
+    std::optional<IndexProbeState> state;
+    std::optional<IndexFallbackReason> reason;
+    std::optional<int32_t> column_uid;
+    std::optional<std::string> variant_path;
+    std::optional<int64_t> index_id;
+    std::optional<int64_t> filtered_rows;
 };
 
 struct IndexReadResult {
     int64_t rows_read = 0;
     OlapReaderStatistics stats;
-    std::vector<IndexProbeEventSnapshot> index_probe_events;
+    std::vector<IndexProfileSnapshot> profile_snapshots;
     std::map<int32_t, std::vector<std::optional<std::string>>> string_values_by_uid;
     std::map<int32_t, std::vector<std::optional<std::string>>> variant_values_by_uid;
 
@@ -304,6 +298,8 @@ void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_f
 void expect_inverted_index_used(const IndexReadResult& result);
 void expect_inverted_index_fallback(const IndexReadResult& result);
 void expect_inverted_index_not_attempted(const IndexReadResult& result);
+void expect_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation);
+void expect_no_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation);
 void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
                                        int64_t index_id, int64_t expected_filtered_rows,
                                        int32_t column_uid = 2);
@@ -340,14 +336,22 @@ protected:
                                          IndexReadOptions options = {});
     Result<RowsetSharedPtr> compact_rowsets(IndexCompactionKind kind,
                                             const std::vector<RowsetSharedPtr>& rowsets);
+    Result<RowsetSharedPtr> compact_rowsets_and_reload(IndexCompactionKind kind,
+                                                       const std::vector<RowsetSharedPtr>& rowsets);
     Result<RowsetSharedPtr> reload_rowset(const RowsetSharedPtr& rowset);
     Result<std::vector<RowsetSharedPtr>> reload_rowsets(
             const std::vector<RowsetSharedPtr>& rowsets);
-    Result<std::vector<RowsetSharedPtr>> rowsets_with_schema(
+    // Synthetic reader-schema injection for storage UTs. This mutates fixture tablet metadata and
+    // reloads rowsets with the supplied schema; it does not model a real schema-change job.
+    Result<std::vector<RowsetSharedPtr>> inject_reader_schema_for_rowsets(
             const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr schema);
     Result<std::vector<RowsetSharedPtr>> build_inverted_indexes(
             const std::vector<IndexSpec>& indexes);
+    Result<std::vector<RowsetSharedPtr>> build_inverted_indexes_and_reload(
+            const std::vector<IndexSpec>& indexes);
     Result<std::vector<RowsetSharedPtr>> drop_inverted_indexes(
+            const std::vector<IndexSpec>& indexes);
+    Result<std::vector<RowsetSharedPtr>> drop_inverted_indexes_and_reload(
             const std::vector<IndexSpec>& indexes);
     Result<IndexRowsetProbe> probe_rowset(const RowsetSharedPtr& rowset);
     void use_rowset_schema(const RowsetSharedPtr& rowset);

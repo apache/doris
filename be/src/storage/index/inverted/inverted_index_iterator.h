@@ -70,10 +70,10 @@ public:
     [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
             const std::string& analyzer_key);
 
-    [[nodiscard]] int64_t last_read_index_id() const { return _last_read_index_id; }
-
 private:
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
+
+    void record_read_probe(const InvertedIndexReaderPtr& reader, bool is_null_bitmap);
 
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                         const std::string& column_name, const Field& query_value,
@@ -100,7 +100,6 @@ private:
     // These two phases are guaranteed not to overlap, so no synchronization is needed.
     // Do NOT call add_reader() after any read_from_index() call on the same iterator.
     std::vector<ReaderEntry> _reader_entries;
-    int64_t _last_read_index_id = -1;
 
     // Index for O(1) lookup by analyzer_key. Maps normalized key to indices in _reader_entries.
     // Built incrementally in add_reader().
