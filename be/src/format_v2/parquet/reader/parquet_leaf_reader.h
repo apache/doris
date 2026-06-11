@@ -109,10 +109,10 @@ public:
     Status append_values(const ParquetLeafBatch& batch, int64_t row_count, const NullMap* null_map,
                          MutableColumnPtr& column) const;
 
-    Status read_nested_batch(int64_t batch_rows, int16_t value_slot_definition_level,
-                             ParquetNestedScalarBatch* batch,
-                             int16_t value_slot_repetition_level =
-                                     std::numeric_limits<int16_t>::max()) const;
+    Status read_nested_batch(
+            int64_t batch_rows, int16_t value_slot_definition_level,
+            ParquetNestedScalarBatch* batch,
+            int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max()) const;
 
 private:
     Status collect_batch(::parquet::internal::RecordReader& record_reader,
