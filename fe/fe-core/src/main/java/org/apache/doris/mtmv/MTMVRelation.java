@@ -73,7 +73,8 @@ public class MTMVRelation {
     }
 
     public Set<BaseTableInfo> getBaseViewsOneLevel() {
-        return baseViewsOneLevel;
+        // For compatibility, previously created MTMV may not have baseViewsOneLevel
+        return baseViewsOneLevel == null ? baseViews : baseViewsOneLevel;
     }
 
     public Set<BaseTableInfo> getBaseViews() {
