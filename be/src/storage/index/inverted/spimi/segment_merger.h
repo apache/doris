@@ -27,16 +27,21 @@
 namespace doris::segment_v2::inverted_index::spimi {
 
 // K-way merge of multiple Lucene 2.x segments produced by the spill
-// path.  Each input segment has its own local doc_id space (0-based);
-// the merger applies a per-segment offset so the merged output has
-// globally monotonic doc_ids.
+// path.  All input segments are successive slices of the SAME
+// monotonically increasing _rid (doc_id) stream: the write path appends
+// every token with the absolute row id and spills the buffer at row
+// boundaries, so each segment already carries GLOBAL, absolute doc_ids
+// whose ranges never overlap across inputs.  The merge therefore
+// concatenates the already-ordered posting runs verbatim and must NOT
+// apply any per-segment doc_id offset — doing so double-shifts every doc
+// after the first spill and pushes doc_ids past total_doc_count (see
+// SegmentMergerTest.MultiSpillAbsoluteDocIdsArePreserved).
 //
 // Inputs:
 //   - N spill segments from SpillManager (each flushed when the
 //     posting buffer exceeded the memory budget)
 //   - Optionally, one "final" segment produced from the remaining
-//     buffer at finish() time (its doc_ids are already global, so
-//     the caller adjusts its doc_count accordingly)
+//     buffer at finish() time (its doc_ids are likewise global)
 //
 // Output: a single merged segment written to the caller-provided
 // SpimiSegmentSink.
@@ -45,8 +50,11 @@ public:
     // One input segment.  All byte vectors must contain a complete
     // .tis/.tii/.frq/.prx as produced by SpimiFulltextWriter::
     // EmitSegment (or equivalently, SegmentWriter + TermDictWriter).
-    // `doc_count` is the number of documents this segment covers
-    // (max doc_id + 1 in local space).
+    // `doc_count` is the cumulative doc_count recorded when this segment was
+    // spilled (max absolute doc_id + 1). It is retained as metadata only:
+    // because inputs carry global absolute doc_ids, the merge does NOT use it to
+    // offset doc_ids. The merged segment's doc_count is passed separately as
+    // `total_doc_count`.
     struct Input {
         std::vector<uint8_t> tis_bytes;
         std::vector<uint8_t> tii_bytes;

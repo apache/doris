@@ -102,19 +102,11 @@ int64_t MergeSingleInput(const SegmentMerger::Input& input, const SpimiSegmentSi
     return tenum.TotalEntries();
 }
 
-// One cursor walking a single input segment's TermEnum.
-struct MergeCursor {
-    int32_t input_index = 0;
-    int32_t doc_offset = 0; // added to each decoded doc_id
-    TermEnum* tenum = nullptr;
-};
-
 // Heap entry: the current term from one input segment.
 struct HeapEntry {
     int32_t field_number;
     std::string term_utf8;
     int32_t input_index;
-    int32_t doc_offset;
 
     // Min-heap: smallest (field, term) wins; input_index breaks ties
     // so inputs are processed in spill order.
@@ -166,15 +158,13 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
                                 index_version, omit_term_freq_and_positions, omit_norms);
     }
 
-    // Compute per-input doc_id offsets.
-    std::vector<int32_t> doc_offsets(inputs.size(), 0);
-    {
-        int32_t running = 0;
-        for (size_t i = 0; i < inputs.size(); ++i) {
-            doc_offsets[i] = running;
-            running += inputs[i].doc_count;
-        }
-    }
+    // Spill segments are successive slices of the SAME monotonically increasing
+    // _rid stream, so every input already carries GLOBAL absolute doc_ids that
+    // never overlap across inputs (FreqProxEncoder::StartTerm resets _last_doc
+    // to 0, so a segment's first doc delta IS its absolute id). The k-way merge
+    // therefore concatenates the already-ordered runs verbatim; applying a
+    // per-segment offset here would double-shift every doc after the first spill
+    // and push doc_ids past total_doc_count.
 
     // Create TermEnums for each input.
     std::vector<std::unique_ptr<TermEnum>> enums;
@@ -189,7 +179,7 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
     for (size_t i = 0; i < inputs.size(); ++i) {
         if (enums[i]->Next()) {
             const auto& e = enums[i]->Current();
-            heap.push({e.field_number, e.term_utf8, static_cast<int32_t>(i), doc_offsets[i]});
+            heap.push({e.field_number, e.term_utf8, static_cast<int32_t>(i)});
         }
     }
 
@@ -222,7 +212,7 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         std::vector<DecodedDoc> merged_docs;
 
         // Process the first (smallest) input for this term.
-        auto process_input = [&](int32_t idx, int32_t offset) {
+        auto process_input = [&](int32_t idx) {
             const auto& input = inputs[idx];
             const auto& entry = enums[idx]->Current();
 
@@ -264,20 +254,18 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
                     PostingDecoder::Decode(frq_ptr, frq_len, prx_ptr, prx_len, entry.info.doc_freq,
                                            !omit_term_freq_and_positions, entry.info.is_slim);
 
-            // Apply doc_id offset and append.
-            for (auto& d : docs) {
-                d.doc_id += offset;
-            }
+            // Spill segments already carry global absolute doc_ids, so append
+            // the decoded run verbatim (no per-segment offset).
             merged_docs.insert(merged_docs.end(), std::make_move_iterator(docs.begin()),
                                std::make_move_iterator(docs.end()));
         };
 
-        process_input(top.input_index, top.doc_offset);
+        process_input(top.input_index);
 
         // Advance this input's enum; push back if more terms remain.
         if (enums[top.input_index]->Next()) {
             const auto& ne = enums[top.input_index]->Current();
-            heap.push({ne.field_number, ne.term_utf8, top.input_index, top.doc_offset});
+            heap.push({ne.field_number, ne.term_utf8, top.input_index});
         }
 
         // Drain any other inputs with the same (field, term).
@@ -285,27 +273,23 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
                heap.top().term_utf8 == cur_term) {
             const auto dup = heap.top();
             heap.pop();
-            process_input(dup.input_index, dup.doc_offset);
+            process_input(dup.input_index);
             if (enums[dup.input_index]->Next()) {
                 const auto& ne = enums[dup.input_index]->Current();
-                heap.push({ne.field_number, ne.term_utf8, dup.input_index, dup.doc_offset});
+                heap.push({ne.field_number, ne.term_utf8, dup.input_index});
             }
         }
 
-        // Sort merged docs by doc_id (should already be sorted
-        // within each input, and inputs are in order, but a stable
-        // sort ensures correctness even with overlapping ranges).
-        // In practice the offsets guarantee strict ordering so
-        // this is a no-op merge of already-sorted runs — but we
-        // sort defensively.
+        // Sort merged docs by doc_id. Each input's run is already sorted and the
+        // inputs' absolute-id ranges don't overlap, so this is a no-op merge of
+        // already-ordered runs — but we sort defensively.
         std::stable_sort(
                 merged_docs.begin(), merged_docs.end(),
                 [](const DecodedDoc& a, const DecodedDoc& b) { return a.doc_id < b.doc_id; });
 
-        // Deduplicate: if two inputs happen contain the same doc_id
-        // (shouldn't happen with correct offsets, but guard anyway),
-        // merge their positions.
-        // In the normal case every doc_id is unique.
+        // In the normal case every doc_id is unique across inputs (the _rid
+        // stream is strictly increasing and spills never overlap), so there is
+        // nothing to deduplicate.
 
         // Re-encode through FreqProxEncoder.
         const auto df = static_cast<int32_t>(merged_docs.size());

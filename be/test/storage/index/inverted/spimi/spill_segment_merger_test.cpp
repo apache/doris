@@ -266,14 +266,15 @@ TEST(SegmentMergerTest, TwoInputsDistinctTerms) {
 
 TEST(SegmentMergerTest, TwoInputsSharedTermsMergePostingLists) {
     SpimiPostingBuffer buf1, buf2;
-    // "hello" appears in both segments.
+    // "hello" appears in both segments. Inputs carry absolute, non-overlapping
+    // doc_ids (the second spill continues the same _rid stream).
     buf1.Append("hello", 0, 0);
     buf1.Append("hello", 2, 3);
-    buf2.Append("hello", 0, 1);
+    buf2.Append("hello", 5, 1);
     auto in1 = MakeInput(buf1, 5);
-    auto in2 = MakeInput(buf2, 5);
+    auto in2 = MakeInput(buf2, 6);
 
-    auto result = DoMerge({in1, in2}, 10);
+    auto result = DoMerge({in1, in2}, 6);
     EXPECT_EQ(result.term_count, 1);
 
     auto terms = ReadAllTerms(result.tis_bytes);
@@ -283,25 +284,24 @@ TEST(SegmentMergerTest, TwoInputsSharedTermsMergePostingLists) {
     EXPECT_EQ(terms[0].info.doc_freq, 3);
 }
 
-TEST(SegmentMergerTest, DocIdOffsetsAreCorrect) {
+TEST(SegmentMergerTest, AbsoluteDocIdsPreservedAcrossInputs) {
     SpimiPostingBuffer buf1, buf2;
     buf1.Append("word", 0, 0);
     buf1.Append("word", 3, 0);
-    buf2.Append("word", 0, 0); // maps to global doc_id = 5 + 0 = 5
-    buf2.Append("word", 2, 0); // maps to global doc_id = 5 + 2 = 7
+    buf2.Append("word", 5, 0); // absolute global doc_id 5
+    buf2.Append("word", 7, 0); // absolute global doc_id 7
     auto in1 = MakeInput(buf1, 5);
-    auto in2 = MakeInput(buf2, 5);
+    auto in2 = MakeInput(buf2, 8);
 
-    auto result = DoMerge({in1, in2}, 10);
+    auto result = DoMerge({in1, in2}, 8);
     auto terms = ReadAllTerms(result.tis_bytes);
     ASSERT_EQ(terms.size(), 1U);
 
     auto docs = DecodeTerm(terms[0], result.frq_bytes, result.prx_bytes, nullptr);
     ASSERT_EQ(docs.size(), 4U);
-    // Segment 1: doc_ids 0, 3 (offset=0).
+    // Absolute doc_ids survive the merge verbatim (no per-segment offset).
     EXPECT_EQ(docs[0].doc_id, 0);
     EXPECT_EQ(docs[1].doc_id, 3);
-    // Segment 2: doc_ids 0+5=5, 2+5=7 (offset=5).
     EXPECT_EQ(docs[2].doc_id, 5);
     EXPECT_EQ(docs[3].doc_id, 7);
 }
@@ -330,12 +330,12 @@ TEST(SegmentMergerTest, PositionSurvivesMerge) {
     buf1.Append("token", 0, 0);
     buf1.Append("token", 0, 5);
     buf1.Append("token", 0, 10);
-    buf2.Append("token", 0, 2);
-    buf2.Append("token", 0, 8);
+    buf2.Append("token", 4, 2);
+    buf2.Append("token", 4, 8);
     auto in1 = MakeInput(buf1, 4);
-    auto in2 = MakeInput(buf2, 4);
+    auto in2 = MakeInput(buf2, 5);
 
-    auto result = DoMerge({in1, in2}, 8);
+    auto result = DoMerge({in1, in2}, 5);
     auto terms = ReadAllTerms(result.tis_bytes);
     ASSERT_EQ(terms.size(), 1U);
 
@@ -350,7 +350,7 @@ TEST(SegmentMergerTest, PositionSurvivesMerge) {
     EXPECT_EQ(docs[0].positions[1], 5);
     EXPECT_EQ(docs[0].positions[2], 10);
 
-    // Segment 2 doc 0 → offset 4 → global doc 4.
+    // Segment 2: absolute doc 4.
     EXPECT_EQ(docs[1].doc_id, 4);
     EXPECT_EQ(docs[1].freq, 2);
     ASSERT_EQ(docs[1].positions.size(), 2U);
@@ -363,13 +363,13 @@ TEST(SegmentMergerTest, MixedUniqueAndSharedTerms) {
     // buf1 has: "common", "only_in_1"
     buf1.Append("common", 0, 0);
     buf1.Append("only_in_1", 1, 0);
-    // buf2 has: "common", "only_in_2"
-    buf2.Append("common", 0, 0);
-    buf2.Append("only_in_2", 1, 0);
+    // buf2 has: "common", "only_in_2" (absolute doc_ids continuing the stream)
+    buf2.Append("common", 5, 0);
+    buf2.Append("only_in_2", 6, 0);
 
     auto in1 = MakeInput(buf1, 5);
-    auto in2 = MakeInput(buf2, 5);
-    auto result = DoMerge({in1, in2}, 10);
+    auto in2 = MakeInput(buf2, 7);
+    auto result = DoMerge({in1, in2}, 7);
 
     // 3 distinct terms: common, only_in_1, only_in_2.
     EXPECT_EQ(result.term_count, 3);
@@ -386,18 +386,20 @@ TEST(SegmentMergerTest, MixedUniqueAndSharedTerms) {
 TEST(SegmentMergerTest, DocIdMonotonicallyIncreasing) {
     // Many docs across 3 segments; verify global monotonicity.
     SpimiPostingBuffer buf1, buf2, buf3;
+    // Three spills carve the same _rid stream into absolute ranges
+    // [0,10), [10,20), [20,30).
     for (int d = 0; d < 10; ++d) {
         buf1.Append("x", static_cast<uint32_t>(d), 0);
     }
-    for (int d = 0; d < 10; ++d) {
+    for (int d = 10; d < 20; ++d) {
         buf2.Append("x", static_cast<uint32_t>(d), 0);
     }
-    for (int d = 0; d < 10; ++d) {
+    for (int d = 20; d < 30; ++d) {
         buf3.Append("x", static_cast<uint32_t>(d), 0);
     }
     auto in1 = MakeInput(buf1, 10);
-    auto in2 = MakeInput(buf2, 10);
-    auto in3 = MakeInput(buf3, 10);
+    auto in2 = MakeInput(buf2, 20);
+    auto in3 = MakeInput(buf3, 30);
 
     auto result = DoMerge({in1, in2, in3}, 30);
     auto terms = ReadAllTerms(result.tis_bytes);
@@ -418,16 +420,16 @@ TEST(SegmentMergerTest, DocIdMonotonicallyIncreasing) {
 TEST(SegmentMergerTest, SpillManagerEndToEnd) {
     // End-to-end test: create 2 spill-like inputs via SpillManager's
     // EmitSegment path, merge them, verify output.
-    auto make_spill_input = [](const std::string& term, int32_t doc_count) {
+    auto make_spill_input = [](const std::string& term, int32_t abs_doc, int32_t doc_count) {
         SpimiPostingBuffer buf;
-        buf.Append(term, 0, 0);
+        buf.Append(term, static_cast<uint32_t>(abs_doc), 0);
         return MakeInput(buf, doc_count);
     };
 
-    auto in1 = make_spill_input("spill_term", 3);
-    auto in2 = make_spill_input("spill_term", 4);
+    auto in1 = make_spill_input("spill_term", 0, 3);
+    auto in2 = make_spill_input("spill_term", 3, 4);
 
-    auto result = DoMerge({in1, in2}, 7);
+    auto result = DoMerge({in1, in2}, 4);
     EXPECT_EQ(result.term_count, 1);
 
     auto terms = ReadAllTerms(result.tis_bytes);
@@ -437,18 +439,20 @@ TEST(SegmentMergerTest, SpillManagerEndToEnd) {
 
     auto docs = DecodeTerm(terms[0], result.frq_bytes, result.prx_bytes, nullptr);
     ASSERT_EQ(docs.size(), 2U);
-    EXPECT_EQ(docs[0].doc_id, 0); // segment 1, doc 0 + offset 0
-    EXPECT_EQ(docs[1].doc_id, 3); // segment 2, doc 0 + offset 3
+    EXPECT_EQ(docs[0].doc_id, 0); // segment 1, absolute doc 0
+    EXPECT_EQ(docs[1].doc_id, 3); // segment 2, absolute doc 3
 }
 
 // Helper: fill buffer with enough records to activate compact mode.
 // Uses sequential doc_ids (matching Doris's monotonic guarantee)
 // so _compact_streams_sorted stays true and the fast path is used.
 void FillBufferForCompact(SpimiPostingBuffer& buffer, const std::vector<std::string>& vocab,
-                          int64_t num_records) {
+                          int64_t num_records, uint32_t base_doc = 0) {
     // vocab_size must be small enough that avg_occ > kCompactAvgOcc (8)
     // so compact mode activates at the kCompactCheckEvery (512) boundary.
-    uint32_t doc_id = 0;
+    // `base_doc` lets callers place each spill in an absolute, non-overlapping
+    // doc_id range (the real writer appends the absolute _rid).
+    uint32_t doc_id = base_doc;
     uint32_t pos = 0;
     for (int64_t i = 0; i < num_records; ++i) {
         const auto& term = vocab[i % vocab.size()];
@@ -528,12 +532,14 @@ TEST(SegmentMergerTest, CompactModeMultiSpillMerge) {
     // FillBufferForCompact generates 600/10 = 60 doc_ids (0..59).
     for (int s = 0; s < 3; ++s) {
         SpimiPostingBuffer buffer;
-        FillBufferForCompact(buffer, vocab, 600);
+        // Each spill occupies an absolute, non-overlapping doc_id range:
+        // [0,60), [60,120), [120,180). FlushBuffer gets the CUMULATIVE doc_count.
+        FillBufferForCompact(buffer, vocab, 600, /*base_doc=*/static_cast<uint32_t>(s * 60));
         // Verify compact mode actually activated for each buffer.
         EXPECT_TRUE(buffer.records().empty())
                 << "segment " << s << ": compact mode should have cleared _records";
         EXPECT_EQ(buffer.RecordCount(), 600U);
-        mgr.FlushBuffer(buffer, 60);
+        mgr.FlushBuffer(buffer, (s + 1) * 60);
         inputs.push_back(ToInput(mgr, mgr.SpillCount() - 1));
     }
 
@@ -796,10 +802,13 @@ TEST(SegmentMergerTest, SlowPathReEncodesHighFreqTermAsPfor) {
     auto input_a = MakeInput(buf_a, kDocsPerInput);
 
     SpimiPostingBuffer buf_b;
-    for (uint32_t d = 0; d < static_cast<uint32_t>(kDocsPerInput); ++d) {
+    // Second spill continues the SAME _rid stream: absolute docs
+    // [kDocsPerInput, 2*kDocsPerInput), non-overlapping with input_a.
+    for (uint32_t d = static_cast<uint32_t>(kDocsPerInput);
+         d < static_cast<uint32_t>(2 * kDocsPerInput); ++d) {
         buf_b.Append("hot", d, 0);
     }
-    auto input_b = MakeInput(buf_b, kDocsPerInput);
+    auto input_b = MakeInput(buf_b, 2 * kDocsPerInput);
 
     // Two inputs => slow path (k-way merge with re-encode).
     auto result = DoMerge({input_a, input_b}, 2 * kDocsPerInput);
@@ -809,7 +818,7 @@ TEST(SegmentMergerTest, SlowPathReEncodesHighFreqTermAsPfor) {
     ASSERT_EQ(terms.size(), 1U);
     EXPECT_EQ(terms[0].term_utf8, "hot");
     EXPECT_EQ(terms[0].info.doc_freq, 2 * kDocsPerInput)
-            << "input_b doc_ids must be offset past input_a's, doubling doc_freq";
+            << "both spills' absolute doc_ids survive, giving combined doc_freq";
 
     // The .frq block for this term must be PFOR-encoded. jk's freq/prox encoder
     // may additionally wrap the whole term in a ZSTD envelope (outer byte
@@ -1374,7 +1383,8 @@ TEST(SegmentMergerTest, FuzzMixedSlimAndCodedForcedSpillMultiInputMerge) {
             std::vector<int32_t> positions;
             int32_t p = static_cast<int32_t>(rng() % 4);
             for (int32_t j = 0; j < freq; ++j) {
-                buf_b.Append(pl.term, static_cast<uint32_t>(doc), static_cast<uint32_t>(p));
+                buf_b.Append(pl.term, static_cast<uint32_t>(doc_count_a + doc),
+                             static_cast<uint32_t>(p));
                 positions.push_back(p);
                 p += 1 + static_cast<int32_t>(rng() % 6);
             }
@@ -1388,7 +1398,7 @@ TEST(SegmentMergerTest, FuzzMixedSlimAndCodedForcedSpillMultiInputMerge) {
     // Force two distinct spill segments through SpillManager, then k-way merge.
     SpillManager mgr("content");
     ASSERT_EQ(mgr.FlushBuffer(buf_a, doc_count_a), static_cast<int64_t>(truth.size()));
-    ASSERT_EQ(mgr.FlushBuffer(buf_b, doc_count_b),
+    ASSERT_EQ(mgr.FlushBuffer(buf_b, doc_count_a + doc_count_b),
               // spill B only has the terms with df_b > 0.
               [&]() {
                   int64_t n = 0;
@@ -1407,6 +1417,63 @@ TEST(SegmentMergerTest, FuzzMixedSlimAndCodedForcedSpillMultiInputMerge) {
 
     VerifySegmentAgainstTruth(result.tis_bytes, result.frq_bytes, result.prx_bytes, truth,
                               /*has_prox=*/true);
+}
+
+// Regression for the multi-spill doc_id offset bug. In production the write
+// path appends tokens with the ABSOLUTE row id (_rid) and flushes each spill
+// with the CUMULATIVE doc_count (max _rid + 1). Because FreqProxEncoder::
+// StartTerm resets _last_doc to 0, every spill segment already encodes ABSOLUTE
+// doc_ids (the first doc's delta IS its absolute id). Successive spills carve
+// the SAME monotonically increasing _rid stream into non-overlapping, globally
+// ordered runs, so the k-way merge must concatenate them verbatim — it must NOT
+// add a per-segment offset. The old offset logic double-shifted every doc after
+// the first spill, silently pointing the index at the wrong rows and pushing
+// doc_ids past total_doc_count.
+//
+// The other multi-input tests in this file deliberately fed LOCAL-0-based
+// segments with LOCAL doc_counts — a self-consistent combination that made the
+// (now-removed) offset logic look correct, which is exactly why they never
+// caught this bug. This test reproduces the REAL writer contract.
+TEST(SegmentMergerTest, MultiSpillAbsoluteDocIdsArePreserved) {
+    SpillManager mgr("content");
+    SpimiPostingBuffer buffer;
+
+    // Spill 1: rows 0..2 (absolute). "alpha" in docs 0 and 2, "beta" in doc 1.
+    buffer.Append("alpha", 0, 0);
+    buffer.Append("beta", 1, 0);
+    buffer.Append("alpha", 2, 0);
+    mgr.FlushBuffer(buffer, /*cumulative doc_count=*/3); // Reset()s the buffer
+
+    // Spill 2: the SAME _rid stream continues at absolute rows 3..5.
+    buffer.Append("alpha", 3, 0);
+    buffer.Append("beta", 4, 0);
+    buffer.Append("gamma", 5, 0);
+    mgr.FlushBuffer(buffer, /*cumulative doc_count=*/6);
+
+    ASSERT_EQ(mgr.SpillCount(), 2U);
+    std::vector<SegmentMerger::Input> inputs {ToInput(mgr, 0), ToInput(mgr, 1)};
+
+    auto result = DoMerge(inputs, /*total_doc_count=*/6, FieldInfosWriter::kIndexVersionV4);
+
+    auto terms = ReadAllTerms(result.tis_bytes);
+    std::map<std::string, std::vector<int32_t>> got;
+    for (size_t i = 0; i < terms.size(); ++i) {
+        const TermEntry* next = (i + 1 < terms.size()) ? &terms[i + 1] : nullptr;
+        for (const auto& d : DecodeTerm(terms[i], result.frq_bytes, result.prx_bytes, next)) {
+            got[terms[i].term_utf8].push_back(d.doc_id);
+        }
+    }
+
+    // Absolute doc_ids must survive the merge unchanged and stay < total_doc_count.
+    EXPECT_EQ(got["alpha"], (std::vector<int32_t> {0, 2, 3}));
+    EXPECT_EQ(got["beta"], (std::vector<int32_t> {1, 4}));
+    EXPECT_EQ(got["gamma"], (std::vector<int32_t> {5}));
+    for (const auto& kv : got) {
+        for (int32_t id : kv.second) {
+            EXPECT_LT(id, 6) << "term " << kv.first << " doc_id " << id
+                             << " exceeds total_doc_count (offset double-shift)";
+        }
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi
