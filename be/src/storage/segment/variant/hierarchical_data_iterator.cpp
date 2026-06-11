@@ -377,7 +377,7 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
         // Doc mode hierarchical read: extract sub-paths matching prefix from source
         // doc_value and write them (with prefix stripped) into container's doc_value.
         // No subcolumn materialization — preserves doc-mode invariant.
-        const auto& src_map = assert_cast<const ColumnMap&>(*_binary_column_reader->column);
+        const auto& src_map = assert_cast<const ColumnMapNotNull&>(*_binary_column_reader->column);
         const auto& src_offsets = src_map.get_offsets();
         const auto& src_paths = assert_cast<const ColumnString&>(src_map.get_keys());
         const auto& src_values = assert_cast<const ColumnString&>(src_map.get_values());
@@ -427,7 +427,7 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
         container_variant.get_sparse_column_mutable().resize(nrows);
     } else {
         const auto& offsets =
-                assert_cast<const ColumnMap&>(*_binary_column_reader->column).get_offsets();
+                assert_cast<const ColumnMapNotNull&>(*_binary_column_reader->column).get_offsets();
         /// Check if there is no data in shared data in current range.
         if (offsets.back() == offsets[-1]) {
             container_variant.get_sparse_column_mutable().resize(nrows);
@@ -441,7 +441,7 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
             // c : int|123
             // d : string|"456"
             const auto& sparse_data_map =
-                    assert_cast<const ColumnMap&>(*_binary_column_reader->column);
+                    assert_cast<const ColumnMapNotNull&>(*_binary_column_reader->column);
             const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
             const auto& src_sparse_data_paths =
                     assert_cast<const ColumnString&>(sparse_data_map.get_keys());
@@ -449,7 +449,7 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
                     assert_cast<const ColumnString&>(sparse_data_map.get_values());
 
             auto& sparse_data_offsets =
-                    assert_cast<ColumnMap&>(container_variant.get_sparse_column_mutable())
+                    assert_cast<ColumnMapNotNull&>(container_variant.get_sparse_column_mutable())
                             .get_offsets();
             auto [sparse_data_paths, sparse_data_values] =
                     container_variant.get_sparse_data_paths_and_values();

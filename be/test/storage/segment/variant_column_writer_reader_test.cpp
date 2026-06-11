@@ -1396,8 +1396,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         std::cout << "_iter.root  " << iter->_src_subcolumns_for_sparse.empty() << std::endl;
         // fill with dst SparseMap
         MutableColumnPtr sparse_dst =
-                ColumnMap::create(ColumnString::create(), ColumnString::create(),
-                                  ColumnArray::ColumnOffsets::create());
+                ColumnMapNotNull::create(ColumnString::create(), ColumnString::create(),
+                                         ColumnArray::ColumnOffsets::create());
         iter->_process_data_without_sparse_column(sparse_dst, 1);
         EXPECT_TRUE(sparse_dst->size() == 1);
     }
@@ -1469,8 +1469,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         // test _process_data_without_sparse_column
         // fill with dst SparseMap
         MutableColumnPtr sparse_dst =
-                ColumnMap::create(ColumnString::create(), ColumnString::create(),
-                                  ColumnArray::ColumnOffsets::create());
+                ColumnMapNotNull::create(ColumnString::create(), ColumnString::create(),
+                                         ColumnArray::ColumnOffsets::create());
         iter->_process_data_without_sparse_column(sparse_dst, 1);
         EXPECT_TRUE(sparse_dst->size() == 1);
     }

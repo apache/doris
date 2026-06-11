@@ -275,10 +275,10 @@ private:
 
     // It's filled when the number of subcolumns reaches the limit.
     // It has type Map(String, String) and stores a map (path, binary serialized subcolumn value) for each row.
-    IColumn::WrappedPtr serialized_sparse_column = ColumnMap::create(
+    IColumn::WrappedPtr serialized_sparse_column = ColumnMapNotNull::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
-    IColumn::WrappedPtr serialized_doc_value_column = ColumnMap::create(
+    IColumn::WrappedPtr serialized_doc_value_column = ColumnMapNotNull::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
@@ -419,8 +419,8 @@ public:
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {
-        return ColumnMap::create(ColumnString::create(), ColumnString::create(),
-                                 ColumnArray::ColumnOffsets::create());
+        return ColumnMapNotNull::create(ColumnString::create(), ColumnString::create(),
+                                        ColumnArray::ColumnOffsets::create());
     }
 
     static const DataTypePtr& get_binary_column_type() {
@@ -558,14 +558,14 @@ public:
     }
 
     std::pair<ColumnString*, ColumnString*> get_sparse_data_paths_and_values() {
-        auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
+        auto& column_map = assert_cast<ColumnMapNotNull&>(*serialized_sparse_column);
         auto& key = assert_cast<ColumnString&>(column_map.get_keys());
         auto& value = assert_cast<ColumnString&>(column_map.get_values());
         return {&key, &value};
     }
 
     std::pair<const ColumnString*, const ColumnString*> get_sparse_data_paths_and_values() const {
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+        const auto& column_map = assert_cast<const ColumnMapNotNull&>(*serialized_sparse_column);
         const auto& key = assert_cast<const ColumnString&>(column_map.get_keys());
         const auto& value = assert_cast<const ColumnString&>(column_map.get_values());
         return {&key, &value};
@@ -573,36 +573,36 @@ public:
 
     std::pair<const ColumnString*, const ColumnString*> get_doc_value_data_paths_and_values()
             const {
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
+        const auto& column_map = assert_cast<const ColumnMapNotNull&>(*serialized_doc_value_column);
         const auto& key = assert_cast<const ColumnString&>(column_map.get_keys());
         const auto& value = assert_cast<const ColumnString&>(column_map.get_values());
         return {&key, &value};
     }
 
     std::pair<ColumnString*, ColumnString*> get_doc_value_data_paths_and_values() {
-        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_value_column);
+        auto& column_map = assert_cast<ColumnMapNotNull&>(*serialized_doc_value_column);
         auto& key = assert_cast<ColumnString&>(column_map.get_keys());
         auto& value = assert_cast<ColumnString&>(column_map.get_values());
         return {&key, &value};
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() {
-        auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
+        auto& column_map = assert_cast<ColumnMapNotNull&>(*serialized_sparse_column);
         return column_map.get_offsets();
     }
 
     const ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() const {
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+        const auto& column_map = assert_cast<const ColumnMapNotNull&>(*serialized_sparse_column);
         return column_map.get_offsets();
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_value_column_offsets() {
-        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_value_column);
+        auto& column_map = assert_cast<ColumnMapNotNull&>(*serialized_doc_value_column);
         return column_map.get_offsets();
     }
 
     const ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_value_column_offsets() const {
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
+        const auto& column_map = assert_cast<const ColumnMapNotNull&>(*serialized_doc_value_column);
         return column_map.get_offsets();
     }
 

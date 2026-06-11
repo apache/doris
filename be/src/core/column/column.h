@@ -850,6 +850,8 @@ ColumnType::MutablePtr cast_to_column(MutableColumnPtr column) {
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.
 bool is_column_const(const IColumn& column);
 
+void check_column_not_const(const IColumn& column);
+
 /// True if column's an ColumnNullable instance. It's just a syntax sugar for type check.
 bool is_column_nullable(const IColumn& column);
 } // namespace doris

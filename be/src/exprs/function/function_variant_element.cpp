@@ -141,14 +141,16 @@ private:
                                                    ColumnVariant::MutablePtr& target_ptr) {
         ColumnVariant::Subcolumn root {0, true, true};
         // no root, no sparse column
-        const auto& sparse_data_map = assert_cast<const ColumnMap&>(*src_ptr->get_sparse_column());
+        const auto& sparse_data_map =
+                assert_cast<const ColumnMapNotNull&>(*src_ptr->get_sparse_column());
         const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
         const auto& src_sparse_data_paths =
                 assert_cast<const ColumnString&>(sparse_data_map.get_keys());
         const auto& src_sparse_data_values =
                 assert_cast<const ColumnString&>(sparse_data_map.get_values());
         auto& sparse_data_offsets =
-                assert_cast<ColumnMap&>(target_ptr->get_sparse_column_mutable()).get_offsets();
+                assert_cast<ColumnMapNotNull&>(target_ptr->get_sparse_column_mutable())
+                        .get_offsets();
         auto [sparse_data_paths, sparse_data_values] =
                 target_ptr->get_sparse_data_paths_and_values();
         StringRef prefix_ref(path.get_path());
@@ -200,7 +202,7 @@ private:
                                                       ColumnVariant::MutablePtr& target_ptr) {
         ColumnVariant::Subcolumn root {0, true, true};
         const auto& doc_value_data_map =
-                assert_cast<const ColumnMap&>(*src_ptr->get_doc_value_column());
+                assert_cast<const ColumnMapNotNull&>(*src_ptr->get_doc_value_column());
         const auto& src_doc_value_data_offsets = doc_value_data_map.get_offsets();
         const auto& src_doc_value_data_paths =
                 assert_cast<const ColumnString&>(doc_value_data_map.get_keys());
@@ -210,9 +212,9 @@ private:
         // Ordinary Variant extraction keeps the selected prefix in sparse data, matching the
         // source branch behavior. Only doc-mode columns keep extracted data in doc_value.
         auto& extracted_offsets =
-                assert_cast<ColumnMap&>(write_to_doc_value
-                                                ? target_ptr->get_doc_value_column_mutable()
-                                                : target_ptr->get_sparse_column_mutable())
+                assert_cast<ColumnMapNotNull&>(write_to_doc_value
+                                                       ? target_ptr->get_doc_value_column_mutable()
+                                                       : target_ptr->get_sparse_column_mutable())
                         .get_offsets();
         auto [extracted_paths, extracted_values] =
                 write_to_doc_value ? target_ptr->get_doc_value_data_paths_and_values()

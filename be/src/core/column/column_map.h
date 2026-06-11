@@ -52,13 +52,18 @@ namespace doris {
 class Arena;
 /** A column of map values.
   */
-class ColumnMap final : public COWHelper<IColumn, ColumnMap> {
+template <SubcolumnNullability nullability>
+class ColumnMapImpl final : public COWHelper<IColumn, ColumnMapImpl<nullability>> {
 public:
     /** Create a column from immutable/shared subcolumns without cloning them.
       * Call IColumn::mutate before modifying the returned column tree.
       */
-    using Base = COWHelper<IColumn, ColumnMap>;
+    using Base = COWHelper<IColumn, ColumnMapImpl<nullability>>;
+    using ColumnCallback = IColumn::ColumnCallback;
     using COffsets = ColumnArray::ColumnOffsets;
+    using Filter = IColumn::Filter;
+    using MutablePtr = typename Base::MutablePtr;
+    using Permutation = IColumn::Permutation;
     struct SharedTag {};
 
     static MutablePtr create(const ColumnPtr& keys, const ColumnPtr& values,
@@ -184,12 +189,12 @@ public:
     IColumn& get_keys() { return *keys_column; }
 
     const ColumnPtr get_keys_array_ptr() const {
-        return ColumnArray::create(keys_column,
-                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
+        return ColumnArrayImpl<nullability>::create(
+                keys_column, static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
     }
     ColumnPtr get_keys_array_ptr() {
-        return ColumnArray::create(keys_column,
-                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
+        return ColumnArrayImpl<nullability>::create(
+                keys_column, static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
     }
 
     const ColumnPtr& get_values_ptr() const { return values_column; }
@@ -199,12 +204,12 @@ public:
     IColumn& get_values() { return *values_column; }
 
     const ColumnPtr get_values_array_ptr() const {
-        return ColumnArray::create(values_column,
-                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
+        return ColumnArrayImpl<nullability>::create(
+                values_column, static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
     }
     ColumnPtr get_values_array_ptr() {
-        return ColumnArray::create(values_column,
-                                   static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
+        return ColumnArrayImpl<nullability>::create(
+                values_column, static_cast<const IColumn::Ptr&>(get_offsets_ptr()));
     }
 
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
@@ -250,16 +255,19 @@ public:
     struct less;
 
 private:
-    friend class COWHelper<IColumn, ColumnMap>;
+    friend class COWHelper<IColumn, ColumnMapImpl<nullability>>;
 
     IColumn::WrappedPtr keys_column;     // nullable
     IColumn::WrappedPtr values_column;   // nullable
     COffsets::WrappedPtr offsets_column; // offset
 
-    ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
-    ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets);
+    ColumnMapImpl(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
+    ColumnMapImpl(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets);
 
-    ColumnMap(const ColumnMap&) = default;
+    ColumnMapImpl(const ColumnMapImpl&) = default;
 };
+
+using ColumnMap = ColumnMapImpl<SubcolumnNullability::Nullable>;
+using ColumnMapNotNull = ColumnMapImpl<SubcolumnNullability::NotNullable>;
 
 } // namespace doris

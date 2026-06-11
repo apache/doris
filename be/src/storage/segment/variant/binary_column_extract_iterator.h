@@ -94,7 +94,8 @@ public:
 
         SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
         const auto& offsets =
-                assert_cast<const ColumnMap&>(*_sparse_column_cache->binary_column).get_offsets();
+                assert_cast<const ColumnMapNotNull&>(*_sparse_column_cache->binary_column)
+                        .get_offsets();
         if (offsets.back() == offsets[-1]) {
             // no sparse column in this batch
             _process_data_without_sparse_column(dst, nrows);

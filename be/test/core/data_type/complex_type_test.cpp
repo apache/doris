@@ -100,7 +100,7 @@ TEST(ComplexTypeTest, CreateColumnConstWithDefaultValue) {
 }
 
 TEST(ComplexTypeTest, DeserializeArrayWritesBackSharedNestedColumn) {
-    DataTypePtr nested_type = std::make_shared<DataTypeInt32>();
+    DataTypePtr nested_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     DataTypePtr array_type = std::make_shared<DataTypeArray>(nested_type);
 
     auto src_column = array_type->create_column();
@@ -136,8 +136,8 @@ TEST(ComplexTypeTest, DeserializeArrayWritesBackSharedNestedColumn) {
 }
 
 TEST(ComplexTypeTest, DeserializeMapWritesBackSharedKeyAndValueColumns) {
-    DataTypePtr key_type = std::make_shared<DataTypeInt32>();
-    DataTypePtr value_type = std::make_shared<DataTypeString>();
+    DataTypePtr key_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr value_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
     DataTypePtr map_type = std::make_shared<DataTypeMap>(key_type, value_type);
 
     auto src_column = map_type->create_column();
@@ -149,8 +149,14 @@ TEST(ComplexTypeTest, DeserializeMapWritesBackSharedKeyAndValueColumns) {
     src_column->insert(Field::create_field<TYPE_MAP>(map));
     auto buf = serialize_column(map_type, src_column->get_ptr());
 
-    ColumnPtr shared_keys_column = ColumnInt32::create();
-    ColumnPtr shared_values_column = ColumnString::create();
+    ColumnPtr shared_keys_data_column = ColumnInt32::create();
+    ColumnPtr shared_keys_null_map_column = ColumnUInt8::create();
+    ColumnPtr shared_keys_column =
+            ColumnNullable::create(shared_keys_data_column, shared_keys_null_map_column);
+    ColumnPtr shared_values_data_column = ColumnString::create();
+    ColumnPtr shared_values_null_map_column = ColumnUInt8::create();
+    ColumnPtr shared_values_column =
+            ColumnNullable::create(shared_values_data_column, shared_values_null_map_column);
     ColumnPtr offsets_column = ColumnArray::ColumnOffsets::create();
     MutableColumnPtr dst_column =
             ColumnMap::create(shared_keys_column, shared_values_column, offsets_column);
@@ -158,17 +164,41 @@ TEST(ComplexTypeTest, DeserializeMapWritesBackSharedKeyAndValueColumns) {
 
     const auto& map_column = assert_cast<const ColumnMap&>(*dst_column);
     EXPECT_EQ(1, map_column.size());
-    EXPECT_EQ(0, shared_keys_column->size());
-    EXPECT_EQ(0, shared_values_column->size());
+    EXPECT_EQ(0, shared_keys_data_column->size());
+    EXPECT_EQ(0, shared_keys_null_map_column->size());
+    EXPECT_EQ(0, shared_values_data_column->size());
+    EXPECT_EQ(0, shared_values_null_map_column->size());
     EXPECT_EQ(0, offsets_column->size());
     EXPECT_EQ(2, map_column.get_keys().size());
     EXPECT_EQ(2, map_column.get_values().size());
 
-    const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys()).get_data();
+    const auto& nullable_keys = assert_cast<const ColumnNullable&>(map_column.get_keys());
+    const auto& keys =
+            assert_cast<const ColumnInt32&>(nullable_keys.get_nested_column()).get_data();
     EXPECT_EQ(10, keys[0]);
     EXPECT_EQ(20, keys[1]);
-    EXPECT_EQ("a", map_column.get_values().get_data_at(0).to_string());
-    EXPECT_EQ("b", map_column.get_values().get_data_at(1).to_string());
+    EXPECT_FALSE(nullable_keys.has_null());
+    const auto& nullable_values = assert_cast<const ColumnNullable&>(map_column.get_values());
+    EXPECT_EQ("a", nullable_values.get_nested_column().get_data_at(0).to_string());
+    EXPECT_EQ("b", nullable_values.get_nested_column().get_data_at(1).to_string());
+    EXPECT_FALSE(nullable_values.has_null());
+}
+
+TEST(ComplexTypeTest, DataTypeMapCreateColumnSelectsPhysicalMapBySubcolumnNullability) {
+    DataTypePtr string_type = std::make_shared<DataTypeString>();
+    DataTypePtr nullable_string_type =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+
+    DataTypeMap nullable_map_type(nullable_string_type, nullable_string_type);
+    auto nullable_map_column = nullable_map_type.create_column();
+    EXPECT_TRUE(check_and_get_column<ColumnMap>(nullable_map_column.get()));
+
+    DataTypeMap not_null_map_type(string_type, string_type);
+    auto not_null_map_column = not_null_map_type.create_column();
+    EXPECT_TRUE(check_and_get_column<ColumnMapNotNull>(not_null_map_column.get()));
+
+    DataTypeMap mixed_map_type(nullable_string_type, string_type);
+    EXPECT_ANY_THROW({ auto mixed_column = mixed_map_type.create_column(); });
 }
 
 TEST(ComplexTypeTest, DeserializeStructWritesBackSharedChildren) {

@@ -32,6 +32,7 @@ using doris::segment_v2::ColumnIterator;
 using doris::segment_v2::ColumnIteratorOptions;
 using doris::segment_v2::HierarchicalDataIterator;
 using doris::ColumnMap;
+using doris::ColumnMapNotNull;
 using doris::ColumnString;
 using doris::ColumnVariant;
 using doris::MutableColumnPtr;
@@ -65,7 +66,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     ASSERT_TRUE(iter->seek_to_ordinal(0).ok());
 
     auto* hiter = static_cast<HierarchicalDataIterator*>(iter.get());
-    auto& map = assert_cast<ColumnMap&>(*hiter->_binary_column_reader->column);
+    auto& map = assert_cast<ColumnMapNotNull&>(*hiter->_binary_column_reader->column);
     auto& keys = assert_cast<ColumnString&>(map.get_keys());
     auto& vals = assert_cast<ColumnString&>(map.get_values());
     auto& offs = map.get_offsets();
@@ -121,7 +122,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     EXPECT_EQ(abc_subcolumn_data.get_nested_column_ptr()->get_data_at(1).to_string(), "abcvalues");
     EXPECT_EQ(abd_subcolumn_data.get_nested_column_ptr()->get_data_at(0).to_string(), "abdvalues");
 
-    const auto& read_map = assert_cast<const ColumnMap&>(*variant.get_sparse_column());
+    const auto& read_map = assert_cast<const ColumnMapNotNull&>(*variant.get_sparse_column());
     const auto& read_keys = assert_cast<const ColumnString&>(read_map.get_keys());
     const auto& read_vals = assert_cast<const ColumnString&>(read_map.get_values());
     const auto& read_offs = read_map.get_offsets();

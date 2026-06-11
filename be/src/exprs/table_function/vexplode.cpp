@@ -27,6 +27,7 @@
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nothing.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -63,8 +64,9 @@ Status VExplodeTableFunction::_process_init_variant(Block* block, int value_colu
         _detail.nested_type = array_type->get_nested_type();
     } else {
         // null root, use nothing type
-        auto array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
-                                                   ColumnUInt8::create(0));
+        auto array_column =
+                ColumnNullable::create(ColumnArray::create(make_nullable(ColumnNothing::create(0))),
+                                       ColumnUInt8::create(0));
         array_column->insert_many_defaults(variant_column.size());
         _array_column = std::move(array_column);
         _detail.nested_type = std::make_shared<DataTypeNothing>();

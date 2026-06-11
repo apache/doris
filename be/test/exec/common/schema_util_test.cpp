@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include "core/column/column_nothing.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
@@ -596,8 +597,8 @@ TEST_F(SchemaUtilTest, TestArrayDimensions) {
     EXPECT_EQ(variant_util::get_number_of_dimensions(*std::make_shared<DataTypeInt32>()), 0);
 
     // Test get_number_of_dimensions for Column
-    auto array_column =
-            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    auto array_column = ColumnArray::create(make_nullable(ColumnInt32::create()),
+                                            ColumnArray::ColumnOffsets::create());
     auto nested_array_column =
             ColumnArray::create(array_column->get_ptr(), ColumnArray::ColumnOffsets::create());
 

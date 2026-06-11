@@ -438,10 +438,6 @@ TEST_F(DataTypeArrayTest, CreateColumnUsesNullableNestedColumn) {
     EXPECT_EQ(2, nested_column.size());
     EXPECT_FALSE(nested_column.has_null());
     EXPECT_TRUE(array_type->check_column(*column).ok());
-
-    auto old_shape_column =
-            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
-    EXPECT_FALSE(array_type->check_column(*old_shape_column).ok());
 }
 
 TEST_F(DataTypeArrayTest, GetFieldTest) {

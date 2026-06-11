@@ -937,21 +937,24 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
-    const ColumnMap* column_map = nullptr;
+    const IColumn* column = nullptr;
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_map = assert_cast<const ColumnMap*>(nullable_column->get_nested_column_ptr().get());
+        column = nullable_column->get_nested_column_ptr().get();
     } else {
-        column_map = assert_cast<const ColumnMap*>(_typed_column.column.get());
+        column = _typed_column.column.get();
     }
-    assert(column_map);
 
-    return convert_to_olap(column_map);
+    if (const auto* column_map = check_and_get_column<ColumnMap>(column)) {
+        return convert_to_olap(column_map);
+    }
+    return convert_to_olap(assert_cast<const ColumnMapNotNull*>(column));
 }
 
+template <SubcolumnNullability nullability>
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
-        const ColumnMap* column_map) {
+        const ColumnMapImpl<nullability>* column_map) {
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
 

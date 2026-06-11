@@ -230,14 +230,18 @@ bool is_column_const(const IColumn& column) {
     return is_column<ColumnConst>(column);
 }
 
+void check_column_not_const(const IColumn& column) {
+    if (is_column_const(column)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "const column is not allowed to be nested, but got {}",
+                               column.get_name());
+    }
+}
+
 void IColumn::check_const_only_in_top_level() const {
     ColumnCallback throw_if_const = [&](WrappedPtr& column) {
         const ColumnPtr& col = const_cast<const WrappedPtr&>(column);
-        if (is_column_const(*col)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "const column is not allowed to be nested, but got {}",
-                                   col->get_name());
-        }
+        check_column_not_const(*col);
     };
     const_cast<IColumn*>(this)->for_each_subcolumn(throw_if_const);
 }

@@ -233,7 +233,7 @@ ordinal_t CombineMultipleBinaryColumnIterator::get_current_ordinal() const {
 void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
         IColumn& binary_data_column) {
     // Get path, value, offset from all buckets.
-    auto& column_map = assert_cast<ColumnMap&>(binary_data_column);
+    auto& column_map = assert_cast<ColumnMapNotNull&>(binary_data_column);
     auto& dst_paths = assert_cast<ColumnString&>(column_map.get_keys());
     auto& dst_values = assert_cast<ColumnString&>(column_map.get_values());
     auto& dst_offsets = column_map.get_offsets();
@@ -242,7 +242,7 @@ void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
     std::vector<const ColumnString*> src_values(_binary_column_data.size());
     std::vector<const ColumnArray::Offsets64*> src_offsets(_binary_column_data.size());
     for (size_t i = 0; i != _binary_column_data.size(); ++i) {
-        const auto& src_map = assert_cast<const ColumnMap&>(*_binary_column_data[i]);
+        const auto& src_map = assert_cast<const ColumnMapNotNull&>(*_binary_column_data[i]);
         src_paths[i] = assert_cast<const ColumnString*>(&src_map.get_keys());
         src_values[i] = assert_cast<const ColumnString*>(&src_map.get_values());
         src_offsets[i] = &src_map.get_offsets();

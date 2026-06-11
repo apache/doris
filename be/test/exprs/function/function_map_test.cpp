@@ -22,7 +22,9 @@
 
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
@@ -31,8 +33,9 @@ namespace doris {
 TEST(FunctionMapTest, deduplicate_map) {
     const std::string func_name = "deduplicate_map";
 
-    auto type_map = std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
-                                                  std::make_shared<DataTypeInt32>());
+    auto type_map = std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
     auto argument_template = ColumnsWithTypeAndName {{nullptr, type_map, "map"}};
 
     auto function = SimpleFunctionFactory::instance().get_function(
@@ -44,7 +47,9 @@ TEST(FunctionMapTest, deduplicate_map) {
     Block block;
 
     auto key_column = ColumnString::create();
+    auto key_null_map = ColumnUInt8::create();
     auto value_column = ColumnInt32::create();
+    auto value_null_map = ColumnUInt8::create();
     auto offset_column = ColumnArray::ColumnOffsets::create();
 
     const size_t count = 1024;
@@ -54,7 +59,9 @@ TEST(FunctionMapTest, deduplicate_map) {
         auto key = fmt::format("key_{}", value);
 
         key_column->insert_data(key.data(), key.size());
+        key_null_map->insert_value(0);
         value_column->insert_data(reinterpret_cast<const char*>(&value), 4);
+        value_null_map->insert_value(0);
     }
 
     const size_t rows = 32;
@@ -64,8 +71,10 @@ TEST(FunctionMapTest, deduplicate_map) {
         offset_column->insert_data(reinterpret_cast<const char*>(&offset), sizeof(offset));
     }
 
-    auto column_map = ColumnMap::create(std::move(key_column), std::move(value_column),
-                                        std::move(offset_column));
+    auto column_map = ColumnMap::create(
+            ColumnNullable::create(std::move(key_column), std::move(key_null_map)),
+            ColumnNullable::create(std::move(value_column), std::move(value_null_map)),
+            std::move(offset_column));
     block.insert({std::move(column_map), type_map, "map"});
     block.insert({nullptr, type_map, "result"});
     uint32_t result = 1;

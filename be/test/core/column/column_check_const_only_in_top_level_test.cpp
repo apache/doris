@@ -88,7 +88,7 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnArrayWithConstData) {
 
 // Test ColumnArray: normal case should not throw
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnArrayWithNonConstData) {
-    auto int_col = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+    auto int_col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->insert_value(3);
 
@@ -135,7 +135,7 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithConstKeys) {
     auto const_keys = ColumnConst::create(keys_col, 3, false, false);
 
     // Create normal values column
-    auto values_col = ColumnHelper::create_column<DataTypeInt32>({10, 20, 30});
+    auto values_col = ColumnHelper::create_nullable_column<DataTypeInt32>({10, 20, 30}, {0, 0, 0});
 
     // Create offsets
     auto offsets = ColumnArray::ColumnOffsets::create();
@@ -152,7 +152,7 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithConstKeys) {
 // Test ColumnMap: values column should not be const
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithConstValues) {
     // Create normal keys column
-    auto keys_col = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+    auto keys_col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
 
     // Create a const values column (nested column size must be 1 when create_with_empty=false)
     auto values_col = ColumnHelper::create_column<DataTypeInt32>({10});
@@ -173,8 +173,8 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithConstValues) {
 // Test ColumnMap: offsets column should not be const
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithConstOffsets) {
     // Create normal keys and values columns
-    auto keys_col = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
-    auto values_col = ColumnHelper::create_column<DataTypeInt32>({10, 20, 30});
+    auto keys_col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
+    auto values_col = ColumnHelper::create_nullable_column<DataTypeInt32>({10, 20, 30}, {0, 0, 0});
 
     // Create a const offsets column (nested column size must be 1 when create_with_empty=false)
     auto offsets = ColumnArray::ColumnOffsets::create();
@@ -192,8 +192,8 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithConstOffsets) {
 
 // Test ColumnMap: normal case should not throw
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithNonConstColumns) {
-    auto keys_col = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
-    auto values_col = ColumnHelper::create_column<DataTypeInt32>({10, 20, 30});
+    auto keys_col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
+    auto values_col = ColumnHelper::create_nullable_column<DataTypeInt32>({10, 20, 30}, {0, 0, 0});
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->insert_value(3);
 
@@ -208,7 +208,7 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnMapWithNonConstColumns) {
 // Test deeply nested const column - Array<Array<Int32>> with inner array being const
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, NestedArrayWithConstInnerArray) {
     // Create an inner array column (size 1 for const creation)
-    auto inner_data = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+    auto inner_data = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
     auto inner_offsets = ColumnArray::ColumnOffsets::create();
     inner_offsets->insert_value(3);
     auto inner_array = ColumnArray::create(std::move(inner_data), std::move(inner_offsets));
@@ -227,7 +227,7 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, NestedArrayWithConstInnerArray) {
 // Test Nullable<Array<Int32>> with const array nested
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, NullableWithConstArray) {
     // Create an array column (size 1 for const creation)
-    auto data = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+    auto data = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->insert_value(3);
     auto array_col = ColumnArray::create(std::move(data), std::move(offsets));
@@ -249,7 +249,7 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, NullableWithConstArray) {
 // Test Struct<Array<Int32>> with const array element
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, StructWithConstArrayElement) {
     // Create an array column (size 1 for const creation)
-    auto data = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+    auto data = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->insert_value(3);
     auto array_col = ColumnArray::create(std::move(data), std::move(offsets));
@@ -281,7 +281,7 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, DirectCheckConstOnlyInTopLevel) {
 
     // Normal array column should not throw
     {
-        auto data = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+        auto data = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
         auto offsets = ColumnArray::ColumnOffsets::create();
         offsets->insert_value(3);
         auto array_col = ColumnArray::create(std::move(data), std::move(offsets));
@@ -293,15 +293,15 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, DirectCheckConstOnlyInTopLevel) {
 TEST_F(ColumnCheckConstOnlyInTopLevelTest, EmptyColumnsNoThrow) {
     // Empty array should not throw
     {
-        auto data = ColumnHelper::create_column<DataTypeInt32>({});
+        auto data = ColumnHelper::create_nullable_column<DataTypeInt32>({}, {});
         auto array_col = ColumnArray::create(std::move(data));
         EXPECT_NO_THROW({ array_col->check_const_only_in_top_level(); });
     }
 
     // Empty map should not throw
     {
-        auto keys = ColumnHelper::create_column<DataTypeInt32>({});
-        auto values = ColumnHelper::create_column<DataTypeInt32>({});
+        auto keys = ColumnHelper::create_nullable_column<DataTypeInt32>({}, {});
+        auto values = ColumnHelper::create_nullable_column<DataTypeInt32>({}, {});
         auto offsets = ColumnArray::ColumnOffsets::create();
         auto map_col = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
         EXPECT_NO_THROW({ map_col->check_const_only_in_top_level(); });
