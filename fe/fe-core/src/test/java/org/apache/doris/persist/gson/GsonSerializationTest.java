@@ -31,6 +31,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
+import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import org.junit.After;
@@ -435,8 +436,9 @@ public class GsonSerializationTest {
     }
 
     /*
-     * The json format of Guava Table must be byte-compatible with the legacy tree mode
-     * GuavaTableAdapter, so that old journals can be replayed and rolling upgrade is safe.
+     * Pin the json format of the tree mode GuavaTableAdapter (registered globally).
+     * The streaming GuavaTableTypeAdapterFactory must produce byte-identical json,
+     * so that old journals can be replayed and rolling upgrade is safe.
      */
     @Test
     public void testGuavaTableJsonFormat() {
@@ -479,8 +481,7 @@ public class GsonSerializationTest {
     }
 
     /*
-     * The json format of Guava Multimap must be byte-compatible with the legacy tree mode
-     * GuavaMultimapAdapter.
+     * Pin the json format of the tree mode GuavaMultimapAdapter (registered globally).
      */
     @Test
     public void testGuavaMultimapJsonFormat() {
@@ -575,5 +576,58 @@ public class GsonSerializationTest {
 
         Multimap<Key, Long> readMultimap = GsonUtils.GSON.fromJson(json, multimapType);
         Assert.assertEquals(multimap, readMultimap);
+    }
+
+    public static class StreamingTableHolder {
+        @SerializedName("tbl")
+        @JsonAdapter(GsonUtils.GuavaTableTypeAdapterFactory.class)
+        public Table<Long, String, Long> tbl = HashBasedTable.create();
+    }
+
+    public static class StreamingComplexTableHolder {
+        @SerializedName("tbl")
+        @JsonAdapter(GsonUtils.GuavaTableTypeAdapterFactory.class)
+        public Table<Long, Long, Map<Long, Long>> tbl = HashBasedTable.create();
+    }
+
+    /*
+     * Same as RestoreJob.snapshotInfos/restoredVersionInfo, the streaming adapter is applied
+     * per-field via @JsonAdapter. Its output must be byte-identical to the global tree mode
+     * GuavaTableAdapter, so that journals written by old code can be replayed by new code
+     * and vice versa.
+     */
+    @Test
+    public void testStreamingTableAdapterMatchesLegacy() {
+        StreamingTableHolder holder = new StreamingTableHolder();
+        holder.tbl.put(1L, "col1", 10L);
+        holder.tbl.put(1L, "col2", 20L);
+        holder.tbl.put(2L, "col1", 30L);
+
+        String streamingJson = GsonUtils.GSON.toJson(holder);
+        // serializing the bare Table goes through the global tree mode GuavaTableAdapter
+        String legacyTableJson = GsonUtils.GSON.toJson(holder.tbl,
+                new TypeToken<Table<Long, String, Long>>() {
+                }.getType());
+        Assert.assertEquals("{\"tbl\":" + legacyTableJson + "}", streamingJson);
+
+        StreamingTableHolder read = GsonUtils.GSON.fromJson(streamingJson, StreamingTableHolder.class);
+        Assert.assertEquals(holder.tbl, read.tbl);
+    }
+
+    @Test
+    public void testStreamingTableAdapterWithComplexValue() {
+        StreamingComplexTableHolder holder = new StreamingComplexTableHolder();
+        Map<Long, Long> value = Maps.newHashMap();
+        value.put(100L, 200L);
+        holder.tbl.put(1L, 2L, value);
+
+        String streamingJson = GsonUtils.GSON.toJson(holder);
+        String legacyTableJson = GsonUtils.GSON.toJson(holder.tbl,
+                new TypeToken<Table<Long, Long, Map<Long, Long>>>() {
+                }.getType());
+        Assert.assertEquals("{\"tbl\":" + legacyTableJson + "}", streamingJson);
+
+        StreamingComplexTableHolder read = GsonUtils.GSON.fromJson(streamingJson, StreamingComplexTableHolder.class);
+        Assert.assertEquals(holder.tbl, read.tbl);
     }
 }

@@ -99,6 +99,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
+import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -187,10 +188,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     // save all restored partitions' version info which are already exist in catalog
     // table id -> partition id -> (version, version hash)
+    // use the streaming adapter to avoid materializing the huge JsonElement DOM tree
+    // when persisting a job with a large number of tablets
     @SerializedName("rvi")
+    @JsonAdapter(GsonUtils.GuavaTableTypeAdapterFactory.class)
     private com.google.common.collect.Table<Long, Long, Long> restoredVersionInfo = HashBasedTable.create();
     // tablet id->(be id -> snapshot info)
     @SerializedName("si")
+    @JsonAdapter(GsonUtils.GuavaTableTypeAdapterFactory.class)
     protected com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos = HashBasedTable.create();
 
     // the meta version is used when reading backup meta from file.

@@ -232,6 +232,7 @@ import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
@@ -615,9 +616,9 @@ public class GsonUtils {
                     new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues()
             .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
-            .registerTypeAdapterFactory(new GuavaTableTypeAdapterFactory())
+            .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
-            .registerTypeAdapterFactory(new GuavaMultimapTypeAdapterFactory())
+            .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
@@ -693,40 +694,132 @@ public class GsonUtils {
 
     /*
      *
-     * The streaming json adapter factory for Guava Table.
+     * The json adapter for Guava Table.
      * Current support:
      * 1. HashBasedTable
      *
      * The RowKey, ColumnKey and Value classes in Table should also be serializable.
      *
-     * serialize Table<R, C, V> as:
-     * {
-     * "clazz": "HashBasedTable",
-     * "rowKeys": [ "rowKey1", "rowKey2", ...],
-     * "columnKeys": [ "colKey1", "colKey2", ...],
-     * "cells" : [0, 0, value1, 0, 1, value2, ...]
-     * }
+     * What is Adapter and Why we should implement it?
      *
-     * the [0, 0] .. in cells are the indexes of rowKeys array and columnKeys array.
-     * This serialization method can reduce the size of json string because it
-     * replace the same row key
-     * and column key to integer.
-     *
-     * Why TypeAdapterFactory instead of JsonSerializer/JsonDeserializer?
-     *
-     * JsonSerializer/JsonDeserializer works in tree mode, which materializes the whole
-     * JsonElement DOM tree in memory before writing (or after parsing). For large tables
-     * (e.g. RestoreJob.snapshotInfos with tens of thousands of tablets), the transient DOM
-     * costs tens of times more memory than the serialized bytes and easily causes FE heap
-     * spikes. The streaming TypeAdapter writes to JsonWriter and reads from JsonReader
-     * directly, without building the DOM.
-     *
-     * The field order (clazz, rowKeys, columnKeys, cells / clazz, map) is part of the
-     * format contract: the streaming reader expects this exact order and fails fast on
-     * mismatch. This is safe because all Doris-generated journals/images (both the legacy
-     * tree mode adapter and this adapter) always emit fields in this order.
+     * Adapter is mainly used to provide serialization and deserialization methods for some complex classes.
+     * Complex classes here usually refer to classes that are complex and cannot be modified.
+     * These classes mainly include third-party library classes or some inherited classes.
      */
-    private static class GuavaTableTypeAdapterFactory implements TypeAdapterFactory {
+    private static class GuavaTableAdapter<R, C, V>
+            implements JsonSerializer<Table<R, C, V>>, JsonDeserializer<Table<R, C, V>> {
+        /*
+         * serialize Table<R, C, V> as:
+         * {
+         * "rowKeys": [ "rowKey1", "rowKey2", ...],
+         * "columnKeys": [ "colKey1", "colKey2", ...],
+         * "cells" : [[0, 0, value1], [0, 1, value2], ...]
+         * }
+         *
+         * the [0, 0] .. in cells are the indexes of rowKeys array and columnKeys array.
+         * This serialization method can reduce the size of json string because it
+         * replace the same row key
+         * and column key to integer.
+         */
+        @Override
+        public JsonElement serialize(Table<R, C, V> src, Type typeOfSrc, JsonSerializationContext context) {
+            JsonArray rowKeysJsonArray = new JsonArray();
+            Map<R, Integer> rowKeyToIndex = new HashMap<>();
+            for (R rowKey : src.rowKeySet()) {
+                rowKeyToIndex.put(rowKey, rowKeyToIndex.size());
+                rowKeysJsonArray.add(context.serialize(rowKey));
+            }
+            JsonArray columnKeysJsonArray = new JsonArray();
+            Map<C, Integer> columnKeyToIndex = new HashMap<>();
+            for (C columnKey : src.columnKeySet()) {
+                columnKeyToIndex.put(columnKey, columnKeyToIndex.size());
+                columnKeysJsonArray.add(context.serialize(columnKey));
+            }
+            JsonArray cellsJsonArray = new JsonArray();
+            for (Table.Cell<R, C, V> cell : src.cellSet()) {
+                int rowIndex = rowKeyToIndex.get(cell.getRowKey());
+                int columnIndex = columnKeyToIndex.get(cell.getColumnKey());
+                cellsJsonArray.add(rowIndex);
+                cellsJsonArray.add(columnIndex);
+                cellsJsonArray.add(context.serialize(cell.getValue()));
+            }
+            JsonObject tableJsonObject = new JsonObject();
+            tableJsonObject.addProperty("clazz", src.getClass().getSimpleName());
+            tableJsonObject.add("rowKeys", rowKeysJsonArray);
+            tableJsonObject.add("columnKeys", columnKeysJsonArray);
+            tableJsonObject.add("cells", cellsJsonArray);
+            return tableJsonObject;
+        }
+
+        @Override
+        public Table<R, C, V> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) {
+            Type typeOfR;
+            Type typeOfC;
+            Type typeOfV;
+            { // CHECKSTYLE IGNORE THIS LINE
+                ParameterizedType parameterizedType = (ParameterizedType) typeOfT;
+                Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
+                typeOfR = actualTypeArguments[0];
+                typeOfC = actualTypeArguments[1];
+                typeOfV = actualTypeArguments[2];
+            } // CHECKSTYLE IGNORE THIS LINE
+            JsonObject tableJsonObject = json.getAsJsonObject();
+            String tableClazz = tableJsonObject.get("clazz").getAsString();
+            JsonArray rowKeysJsonArray = tableJsonObject.getAsJsonArray("rowKeys");
+            Map<Integer, R> rowIndexToKey = new HashMap<>();
+            for (JsonElement jsonElement : rowKeysJsonArray) {
+                R rowKey = context.deserialize(jsonElement, typeOfR);
+                rowIndexToKey.put(rowIndexToKey.size(), rowKey);
+            }
+            JsonArray columnKeysJsonArray = tableJsonObject.getAsJsonArray("columnKeys");
+            Map<Integer, C> columnIndexToKey = new HashMap<>();
+            for (JsonElement jsonElement : columnKeysJsonArray) {
+                C columnKey = context.deserialize(jsonElement, typeOfC);
+                columnIndexToKey.put(columnIndexToKey.size(), columnKey);
+            }
+            JsonArray cellsJsonArray = tableJsonObject.getAsJsonArray("cells");
+            Table<R, C, V> table = null;
+            switch (tableClazz) {
+                case "HashBasedTable":
+                    table = HashBasedTable.create();
+                    break;
+                default:
+                    Preconditions.checkState(false, "unknown guava table class: " + tableClazz);
+                    break;
+            }
+            for (int i = 0; i < cellsJsonArray.size(); i = i + 3) {
+                // format is [rowIndex, columnIndex, value]
+                int rowIndex = cellsJsonArray.get(i).getAsInt();
+                int columnIndex = cellsJsonArray.get(i + 1).getAsInt();
+                R rowKey = rowIndexToKey.get(rowIndex);
+                C columnKey = columnIndexToKey.get(columnIndex);
+                V value = context.deserialize(cellsJsonArray.get(i + 2), typeOfV);
+                table.put(rowKey, columnKey, value);
+            }
+            return table;
+        }
+    }
+
+    /*
+     * The streaming counterpart of GuavaTableAdapter, producing byte-identical json.
+     *
+     * GuavaTableAdapter works in tree mode, which materializes the whole JsonElement DOM
+     * tree in memory before writing (or after parsing). For large tables (e.g.
+     * RestoreJob.snapshotInfos with tens of thousands of tablets), the transient DOM costs
+     * tens of times more memory than the serialized bytes and easily causes FE heap spikes.
+     * The streaming TypeAdapter writes to JsonWriter and reads from JsonReader directly,
+     * without building the DOM.
+     *
+     * It is applied per-field via the @JsonAdapter annotation (currently only on the large
+     * Table fields of RestoreJob) instead of being registered globally, to keep the blast
+     * radius of the behavior change minimal.
+     *
+     * The field order (clazz, rowKeys, columnKeys, cells) is part of the format contract:
+     * the streaming reader expects this exact order and fails fast on mismatch. This is
+     * safe because all Doris-generated journals/images (both GuavaTableAdapter and this
+     * adapter) always emit fields in this order.
+     */
+    public static class GuavaTableTypeAdapterFactory implements TypeAdapterFactory {
         @Override
         public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> typeToken) {
             if (!Table.class.isAssignableFrom(typeToken.getRawType())) {
@@ -885,7 +978,7 @@ public class GsonUtils {
     }
 
     /*
-     * The streaming json adapter factory for Guava Multimap.
+     * The json adapter for Guava Multimap.
      * Current support:
      * 1. ArrayListMultimap
      * 2. HashMultimap
@@ -893,17 +986,9 @@ public class GsonUtils {
      * 4. LinkedHashMultimap
      *
      * The key and value classes of multi map should also be json serializable.
-     *
-     * serialize Multimap<K, V> as:
-     * {
-     * "clazz": "HashMultimap",
-     * "map": { ... the asMap() view of the multimap ... }
-     * }
-     *
-     * Same as GuavaTableTypeAdapterFactory, it works in streaming mode to avoid
-     * materializing the JsonElement DOM tree of the whole map.
      */
-    private static class GuavaMultimapTypeAdapterFactory implements TypeAdapterFactory {
+    private static class GuavaMultimapAdapter<K, V>
+            implements JsonSerializer<Multimap<K, V>>, JsonDeserializer<Multimap<K, V>> {
 
         private static final Type asMapReturnType = getAsMapMethod().getGenericReturnType();
 
@@ -920,64 +1005,48 @@ public class GsonUtils {
         }
 
         @Override
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> typeToken) {
-            if (!Multimap.class.isAssignableFrom(typeToken.getRawType())) {
-                return null;
-            }
-            TypeAdapter<?> asMapAdapter = gson.getAdapter(TypeToken.get(asMapType(typeToken.getType())));
-            @SuppressWarnings("unchecked")
-            TypeAdapter<T> adapter = (TypeAdapter<T>) new MultimapTypeAdapter<>(asMapAdapter).nullSafe();
-            return adapter;
+        public JsonElement serialize(Multimap<K, V> map, Type typeOfSrc, JsonSerializationContext context) {
+            JsonObject jsonObject = new JsonObject();
+            jsonObject.addProperty("clazz", map.getClass().getSimpleName());
+            Map<K, Collection<V>> asMap = map.asMap();
+            Type type = asMapType(typeOfSrc);
+            JsonElement jsonElement = context.serialize(asMap, type);
+            jsonObject.add("map", jsonElement);
+            return jsonObject;
         }
 
-        private static class MultimapTypeAdapter<K, V> extends TypeAdapter<Multimap<K, V>> {
-            private final TypeAdapter<Map<K, Collection<V>>> asMapAdapter;
+        @Override
+        public Multimap<K, V> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
+                throws JsonParseException {
+            JsonObject jsonObject = json.getAsJsonObject();
+            String clazz = jsonObject.get("clazz").getAsString();
 
-            @SuppressWarnings("unchecked")
-            MultimapTypeAdapter(TypeAdapter<?> asMapAdapter) {
-                this.asMapAdapter = (TypeAdapter<Map<K, Collection<V>>>) asMapAdapter;
+            JsonElement mapElement = jsonObject.get("map");
+            Map<K, Collection<V>> asMap = context.deserialize(mapElement, asMapType(typeOfT));
+
+            Multimap<K, V> map = null;
+            switch (clazz) {
+                case "ArrayListMultimap":
+                    map = ArrayListMultimap.create();
+                    break;
+                case "HashMultimap":
+                    map = HashMultimap.create();
+                    break;
+                case "LinkedListMultimap":
+                    map = LinkedListMultimap.create();
+                    break;
+                case "LinkedHashMultimap":
+                    map = LinkedHashMultimap.create();
+                    break;
+                default:
+                    Preconditions.checkState(false, "unknown guava multi map class: " + clazz);
+                    break;
             }
 
-            @Override
-            public void write(JsonWriter out, Multimap<K, V> src) throws IOException {
-                out.beginObject();
-                out.name("clazz").value(src.getClass().getSimpleName());
-                out.name("map");
-                asMapAdapter.write(out, src.asMap());
-                out.endObject();
+            for (Map.Entry<K, Collection<V>> entry : asMap.entrySet()) {
+                map.putAll(entry.getKey(), entry.getValue());
             }
-
-            @Override
-            public Multimap<K, V> read(JsonReader in) throws IOException {
-                in.beginObject();
-                expectName(in, "clazz");
-                String clazz = in.nextString();
-                Multimap<K, V> map = null;
-                switch (clazz) {
-                    case "ArrayListMultimap":
-                        map = ArrayListMultimap.create();
-                        break;
-                    case "HashMultimap":
-                        map = HashMultimap.create();
-                        break;
-                    case "LinkedListMultimap":
-                        map = LinkedListMultimap.create();
-                        break;
-                    case "LinkedHashMultimap":
-                        map = LinkedHashMultimap.create();
-                        break;
-                    default:
-                        Preconditions.checkState(false, "unknown guava multi map class: " + clazz);
-                        break;
-                }
-                expectName(in, "map");
-                Map<K, Collection<V>> asMap = asMapAdapter.read(in);
-                in.endObject();
-                for (Map.Entry<K, Collection<V>> entry : asMap.entrySet()) {
-                    map.putAll(entry.getKey(), entry.getValue());
-                }
-                return map;
-            }
+            return map;
         }
     }
 
