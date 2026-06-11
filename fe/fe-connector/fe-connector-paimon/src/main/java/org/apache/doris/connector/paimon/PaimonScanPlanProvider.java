@@ -369,14 +369,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             props.put("paimon.options_json", sb.toString());
         }
 
-        // Location / storage properties (static catalog-level keys)
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            String key = entry.getKey();
-            if (key.startsWith("hadoop.") || key.startsWith("fs.")
-                    || key.startsWith("dfs.") || key.startsWith("hive.")
-                    || key.startsWith("s3.") || key.startsWith("cos.")
-                    || key.startsWith("oss.") || key.startsWith("obs.")) {
-                props.put("location." + key, entry.getValue());
+        // FIX-STATIC-CREDS-BE (B-9): static catalog-level storage credentials/config, normalized to
+        // BE-canonical keys (AWS_* for object stores, hadoop/dfs for HDFS). Ports legacy
+        // PaimonScanNode.getLocationProperties() = getBackendPropertiesFromStorageMap(storagePropertiesMap):
+        // BE's native (FILE_S3) reader understands ONLY the canonical keys, so the raw catalog aliases
+        // (s3.access_key, oss.access_key, …) must be translated before they leave FE — copying them
+        // verbatim gives the native reader no usable creds (403 on a private bucket). The connector
+        // cannot import fe-core StorageProperties -> it delegates to the ConnectorContext seam. Empty
+        // when no context (offline unit tests) -> no storage props emitted (never the broken raw aliases).
+        if (context != null) {
+            for (Map.Entry<String, String> e : context.getBackendStorageProperties().entrySet()) {
+                props.put("location." + e.getKey(), e.getValue());
             }
         }
 

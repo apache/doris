@@ -162,4 +162,27 @@ public interface ConnectorContext {
     default String normalizeStorageUri(String rawUri) {
         return rawUri;
     }
+
+    /**
+     * Returns the catalog's static storage credentials/config normalized to BE-canonical scan
+     * properties: object-store creds as {@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} /
+     * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION}, and HDFS config as the resolved
+     * {@code hadoop.*} / {@code dfs.*} keys (user overrides plus the legacy-derived defaults). The
+     * engine runs the same {@code CredentialUtils.getBackendPropertiesFromStorageMap} that legacy /
+     * iceberg / hive use over the catalog's parsed {@code StorageProperties} map — the single source of
+     * truth — so there is no re-ported normalization that could drift.
+     *
+     * <p>BE's native (FILE_S3) reader understands ONLY these canonical keys. A connector that copies
+     * the raw catalog aliases ({@code s3.access_key}, {@code oss.access_key}, …) to BE hands the native
+     * reader no usable credentials → 403 on a private bucket. A connector that emits static storage
+     * props to BE MUST source them from this hook.
+     *
+     * <p>The default returns empty (no normalization machinery / no storage map), so every other
+     * connector — and any credential-less (e.g. local-filesystem) warehouse — is unaffected.
+     *
+     * @return the BE-facing normalized storage-property map, or empty when none
+     */
+    default Map<String, String> getBackendStorageProperties() {
+        return Collections.emptyMap();
+    }
 }

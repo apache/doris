@@ -1289,3 +1289,23 @@ fi
 **作用域/偏差**：归一化用 catalog **静态** `getStoragePropertiesMap()`，非 legacy 的 vended-overlay 版（`VendedCredentialsFactory`）——scheme 归一化与 vended 凭据正交（vended 改 `AWS_*` 键非 scheme），仅 *纯-vended-无静态存储配* REST catalog 的边角会缺 entry→fail-loud；该边角归凭据缝（#2 `FIX-STATIC-CREDS-BE` / `FIX-REST-VENDED`），见 [DV-025](./deviations-log.md)。
 
 **测**：fe-core `DefaultConnectorContextNormalizeUriTest`（真 OSS map，oss://→s3://、s3:// 恒等、null/blank、空 map fail-loud）；连接器 `PaimonScanPlanProviderTest` 3 测（`buildNativeRange` 数据文件+DV 双归一化、无-DV 仅数据、无-context 裸路）。live-e2e（OSS warehouse + DV）CI-gated。
+
+## 22. 扩展 E14：静态存储凭据归一化（`ConnectorContext.getBackendStorageProperties`）
+
+> 后补节（2026-06-11，P5-fix-FIX-STATIC-CREDS-BE）。finding B-9（BLOCKER，3/3 confirmed）—— 见 [task-list #2](./task-list-P5-rereview2-fixes.md) / [设计](./tasks/designs/P5-fix-STATIC-CREDS-BE-design.md) / [D-048](./decisions-log.md)。凭据三道缝之第三道（static→BE-scan），review §9.3 两轮均漏。
+
+**问题**：paimon 连接器把**静态 catalog 级存储凭据/配置裸传 BE**。`PaimonScanPlanProvider.getScanNodeProperties:372-381` 遍历裸 catalog `properties`，对 `s3.`/`cos.`/`oss.`/`obs.`/`hadoop.`/`fs.`/`dfs.`/`hive.` 前缀的键发 `location.<rawkey>=<value>`；fe-core bridge `PluginDrivenScanNode.getLocationProperties:307-317` 只**剥** `location.` 前缀、从不归一化。BE native ORC/Parquet（FILE_S3）reader 只解析 canonical `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`/`AWS_ENDPOINT`/`AWS_REGION`/`AWS_TOKEN`（`s3_util.cpp:146-150`）→ 私有 object-store 桶 native 读拿不到凭据 → **403/AccessDenied**。公有桶 + JNI 路不受影响（序列化 paimon `Table` 自带 `FileIO`）。裸 `AWS_*`/`access_key`（无 `s3.` 前缀）被前缀过滤整个丢弃。区别于已修两缝：FIX-STORAGE-CREDS 修 *catalog FileIO* 缝、FIX-REST-VENDED 修 *vended(REST) scan→BE* 缝。
+
+**根因**：legacy `PaimonScanNode.getLocationProperties:650-652` **仅**返回 `backendStorageProperties`（`:176` = `CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap)`，catalog 已解析的 `StorageProperties` map）。`getBackendPropertiesFromStorageMap` 逐 `StorageProperties` 调 `getBackendConfigProperties()` → canonical 键（`AbstractS3CompatibleProperties:106-120` 发 `AWS_*`；`HdfsProperties:163-200` 发已解析 `hadoop.`/`dfs.` + legacy 默认）。翻闸把这一归一化调用换成裸前缀拷贝循环。连接器禁 import fe-core `StorageProperties`/`CredentialUtils`（`tools/check-connector-imports.sh`）→ 须经 SPI 缝。
+
+**SPI 面（default 空，零它连接器影响）**：
+- `ConnectorContext.getBackendStorageProperties() → Map<String,String>`（`fe-connector-spi`）：default 返回 `Collections.emptyMap()`，故 es/jdbc/maxcompute/trino 及无凭据（local-FS）warehouse 不受影响。
+- fe-core `DefaultConnectorContext` override：`CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesSupplier.get())`——复用 #1（FIX-URI-NORMALIZE）已接线的 `storagePropertiesSupplier`（= `catalogProperty.getStoragePropertiesMap()`）+ 已 import 的 `CredentialUtils`。**无 ctor 改**。map 在 catalog 创建时已校验故不抛；空 map（非-plugin ctor / local-FS）→ 空结果（无 overlay），parity——异于 `normalizeStorageUri` 须对坏路径 fail-loud。
+
+**连接器侧**：`PaimonScanPlanProvider.getScanNodeProperties` **整段**替换裸前缀拷贝循环为 `context.getBackendStorageProperties()` overlay（`context != null` 闸，同 vended overlay；offline 单测无 context → 不发存储键，绝不发坏的裸别名）。vended overlay（`vendStorageCredentials`）仍紧随其后 → vended overlay static、collision 胜（legacy 优先序）。无连接器新 import（`Map`/`LinkedHashMap` 已 import）→ import-gate 净。
+
+**作用域（D-048 用户签字 = full legacy-parity，非窄 object-store-only）**：`getBackendPropertiesFromStorageMap` 即 legacy `getLocationProperties()` 精确值。HDFS catalog 下 full 替换**严格 ≥** 旧裸拷（保留用户 `hadoop.`/`dfs.`/`fs.`/`juicefs.` override + 补 legacy 默认 → 顺修 review §211 MINOR）；丢的 `hive.*` 键 legacy 本不发 scan location → 丢之即**恢复** parity。
+
+**ANONYMOUS-leak 边角（调查→非问题）**：连接器分两步归一化（static 经本缝、vended 经 `vendStorageCredentials`），异于 legacy 的 merge-then-normalize-once。故带静态 object-store endpoint 但**无静态 keys** 的 REST catalog，static overlay 可能发 `AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS`（`AbstractS3CompatibleProperties:124-128` blank-key 支）而 vended overlay（有 keys→无 provider-type）不清它。**BE 证伪无回归**：`s3_util.cpp` 两 provider（`_v1:383-389`/`_v2:448-455`）均**先**查显式 ak/sk 返回 `SimpleAWSCredentialsProvider`，keys 在则永不达 `Anonymous` 支 → vended keys 恒胜。primary B-9 路（静态 catalog **有** keys）provider-type 为 null 不发。
+
+**测**：fe-core `DefaultConnectorContextBackendStoragePropsTest`（真 OSS map → `AWS_*` 存在 + 裸 `oss.access_key` 不存在；无 supplier ctor → 空）；连接器 `PaimonScanPlanProviderTest` 3 测（静态裸别名→canonical AWS_*、裸别名不达 BE；vended overlay static collision 胜；无-context 不发存储键）。red-check 反转产线码 2/3 向红。模块 217/0/0（1 CI-gated skip）。live-e2e（私有 S3/OSS 静态凭据 native 读）CI-gated。

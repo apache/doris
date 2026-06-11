@@ -521,9 +521,11 @@ public class PaimonScanPlanProviderTest {
                 "a non-RESTTokenFileIO table must yield no vended token");
     }
 
-    /** A ConnectorContext whose vendStorageCredentials returns a fixed normalized map (the engine's
-     * StorageProperties normalization is exercised by the fe-core DefaultConnectorContextVendTest). */
-    private static ConnectorContext vendingContext(Map<String, String> fixed) {
+    /** A ConnectorContext whose getBackendStorageProperties / vendStorageCredentials return fixed
+     * normalized maps. The engine's real StorageProperties normalization is exercised by the fe-core
+     * DefaultConnectorContextBackendStoragePropsTest / DefaultConnectorContextVendTest; here we pin the
+     * connector wiring (overlay order + that the raw catalog aliases are NOT shipped). */
+    private static ConnectorContext scanContext(Map<String, String> backendStatic, Map<String, String> vended) {
         return new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -536,10 +538,53 @@ public class PaimonScanPlanProviderTest {
             }
 
             @Override
+            public Map<String, String> getBackendStorageProperties() {
+                return backendStatic;
+            }
+
+            @Override
             public Map<String, String> vendStorageCredentials(Map<String, String> raw) {
-                return fixed;
+                return vended;
             }
         };
+    }
+
+    @Test
+    public void getScanNodePropertiesNormalizesStaticCreds() {
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+
+        // The connector holds the RAW catalog aliases; the engine seam returns the BE-canonical map.
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.access_key", "raw-ak");
+        props.put("s3.secret_key", "raw-sk");
+
+        Map<String, String> backendStatic = new HashMap<>();
+        backendStatic.put("AWS_ACCESS_KEY", "ak");
+        backendStatic.put("AWS_SECRET_KEY", "sk");
+        backendStatic.put("AWS_ENDPOINT", "ep");
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(),
+                scanContext(backendStatic, Collections.emptyMap()));
+
+        Map<String, String> scanProps = provider.getScanNodeProperties(
+                null, handle, Collections.emptyList(), Optional.empty());
+
+        // WHY (BLOCKER B-9): BE's native (FILE_S3) reader understands ONLY AWS_* keys. The connector
+        // must ship the engine-normalized canonical creds under location.*, NOT the raw catalog aliases
+        // (s3.access_key/…) which BE cannot read (403 on a private bucket). MUTATION: re-introducing the
+        // raw passthrough -> location.s3.access_key present / location.AWS_ACCESS_KEY absent -> red.
+        Assertions.assertEquals("ak", scanProps.get("location.AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk", scanProps.get("location.AWS_SECRET_KEY"));
+        Assertions.assertEquals("ep", scanProps.get("location.AWS_ENDPOINT"));
+        Assertions.assertFalse(scanProps.containsKey("location.s3.access_key"),
+                "the raw catalog alias must NOT reach BE (that is the B-9 bug)");
+        Assertions.assertFalse(scanProps.containsKey("location.s3.secret_key"),
+                "the raw catalog alias must NOT reach BE (that is the B-9 bug)");
     }
 
     @Test
@@ -550,16 +595,20 @@ public class PaimonScanPlanProviderTest {
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         handle.setPaimonTable(table);
 
+        // Static (engine-normalized) creds; vended (REST per-table) creds collide on AWS_ACCESS_KEY /
+        // AWS_ENDPOINT and must WIN (legacy precedence: vended overlays static).
+        Map<String, String> backendStatic = new HashMap<>();
+        backendStatic.put("AWS_ACCESS_KEY", "static-ak");
+        backendStatic.put("AWS_ENDPOINT", "static-ep");
+
         Map<String, String> vended = new HashMap<>();
         vended.put("AWS_ACCESS_KEY", "vended-ak");
         vended.put("AWS_SECRET_KEY", "vended-sk");
         vended.put("AWS_TOKEN", "vended-tok");
-        vended.put("s3.endpoint", "vended-ep");   // collides with the static s3.endpoint below
+        vended.put("AWS_ENDPOINT", "vended-ep");
 
-        Map<String, String> props = new HashMap<>();
-        props.put("s3.endpoint", "static-ep");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(), vendingContext(vended));
+                new HashMap<>(), new RecordingPaimonCatalogOps(), scanContext(backendStatic, vended));
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
                 null, handle, Collections.emptyList(), Optional.empty());
@@ -567,17 +616,17 @@ public class PaimonScanPlanProviderTest {
         // WHY (BLOCKER): native-reader REST tables must receive normalized vended AWS_* creds under
         // location.*; without them BE hits the object store with no credentials (403). Vended overlays
         // static (legacy precedence). MUTATION: no overlay loop / context not threaded -> AWS_* absent
-        // -> red; overlaying BEFORE the static loop -> the colliding location.s3.endpoint keeps the
-        // static value -> red.
+        // -> red; overlaying static AFTER vended -> the colliding location.AWS_ACCESS_KEY/ENDPOINT keep
+        // the static value -> red.
         Assertions.assertEquals("vended-ak", scanProps.get("location.AWS_ACCESS_KEY"));
         Assertions.assertEquals("vended-sk", scanProps.get("location.AWS_SECRET_KEY"));
         Assertions.assertEquals("vended-tok", scanProps.get("location.AWS_TOKEN"));
-        Assertions.assertEquals("vended-ep", scanProps.get("location.s3.endpoint"),
+        Assertions.assertEquals("vended-ep", scanProps.get("location.AWS_ENDPOINT"),
                 "vended creds must overlay (win over) the static location key on collision");
     }
 
     @Test
-    public void getScanNodePropertiesNoContextUnchanged() {
+    public void getScanNodePropertiesNoContextNoStorageProps() {
         FakePaimonTable table = new FakePaimonTable(
                 "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
         PaimonTableHandle handle = new PaimonTableHandle(
@@ -585,17 +634,20 @@ public class PaimonScanPlanProviderTest {
         handle.setPaimonTable(table);
 
         Map<String, String> props = new HashMap<>();
-        props.put("s3.endpoint", "static-ep");
+        props.put("s3.access_key", "raw-ak");
         // 2-arg ctor -> context == null (the offline harness path).
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(props, new RecordingPaimonCatalogOps());
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
                 null, handle, Collections.emptyList(), Optional.empty());
 
-        // WHY: with no context (offline / no vended support) the static-only behavior is preserved —
-        // no overlay, no NPE. MUTATION: NPE on null context, or adding vended keys -> red.
-        Assertions.assertEquals("static-ep", scanProps.get("location.s3.endpoint"));
+        // WHY: the connector cannot normalize static creds without the engine seam, so with no context
+        // (offline only — production always wires one) it emits NO storage props — never the broken raw
+        // aliases that BE cannot read. MUTATION: NPE on null context, or re-adding the raw passthrough
+        // -> location.s3.access_key present -> red.
+        Assertions.assertFalse(scanProps.containsKey("location.s3.access_key"),
+                "no context -> the raw alias must not be shipped to BE");
         Assertions.assertFalse(scanProps.containsKey("location.AWS_ACCESS_KEY"),
-                "no context -> no vended overlay");
+                "no context -> no normalized overlay");
     }
 }

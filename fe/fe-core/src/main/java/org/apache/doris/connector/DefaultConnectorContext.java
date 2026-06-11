@@ -179,6 +179,17 @@ public class DefaultConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public Map<String, String> getBackendStorageProperties() {
+        // Mirror legacy PaimonScanNode.getLocationProperties(): translate the catalog's parsed
+        // StorageProperties map into BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for
+        // HDFS) via the SAME CredentialUtils.getBackendPropertiesFromStorageMap legacy/iceberg/hive use
+        // — single source of truth, no drift. The map is already validated at catalog creation, so this
+        // does not throw; an empty map (non-plugin ctor / local-FS warehouse) yields an empty result
+        // (no overlay) — correct parity, unlike normalizeStorageUri which must fail-loud on a bad path.
+        return CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesSupplier.get());
+    }
+
+    @Override
     public String normalizeStorageUri(String rawUri) {
         if (Strings.isNullOrEmpty(rawUri)) {
             return rawUri;
