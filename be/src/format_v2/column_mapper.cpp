@@ -2025,7 +2025,15 @@ static const ColumnDefinition* find_file_child_for_complex_wrapper(
     if (file_field.children.empty()) {
         return nullptr;
     }
-    return find_file_child_by_table_column(table_child, file_field.children, mode);
+    const auto* file_child = find_file_child_by_table_column(table_child, file_field.children, mode);
+    if (file_child != nullptr) {
+        return file_child;
+    }
+    if (remove_nullable(file_field.type)->get_primitive_type() == TYPE_MAP &&
+        file_field.children.size() == 1 && column_has_name(table_child, "entries")) {
+        return &file_field.children[0];
+    }
+    return nullptr;
 }
 
 Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& projected_columns,

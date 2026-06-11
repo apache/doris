@@ -1412,7 +1412,7 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     value_field.children = {a_field, b_field};
     format::ColumnDefinition entry_field;
     entry_field.identifier = Field::create_field<TYPE_INT>(0);
-    entry_field.name = "entries";
+    entry_field.name = "key_value";
     entry_field.type = std::make_shared<DataTypeStruct>(DataTypes {key_type, value_type},
                                                         Strings {"key", "value"});
     entry_field.children = {key_field, value_field};
