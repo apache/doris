@@ -750,6 +750,12 @@ SplitReadOptions build_split_options(const std::string& file_path) {
     return options;
 }
 
+void set_table_level_row_count(SplitReadOptions* split_options, int64_t row_count) {
+    split_options->current_range.__isset.table_format_params = true;
+    split_options->current_range.table_format_params.__isset.table_level_row_count = true;
+    split_options->current_range.table_format_params.table_level_row_count = row_count;
+}
+
 void set_iceberg_row_lineage_params(SplitReadOptions* split_options, int64_t first_row_id,
                                     int64_t last_updated_sequence_number) {
     TTableFormatFileDesc table_format_params;
@@ -1028,6 +1034,65 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 5);
     EXPECT_FALSE(is_column_const(*block.get_by_position(0).column));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, TableLevelCountUsesAssignedRowCount) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_table_count_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    TQueryOptions query_options;
+    query_options.__set_batch_size(2);
+    RuntimeState state {query_options, TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+    auto split_options = build_split_options(file_path);
+    set_table_level_row_count(&split_options, 5);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(block.rows(), 2);
+
+    block = build_table_block(projected_columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(block.rows(), 2);
+
+    block = build_table_block(projected_columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(block.rows(), 1);
+
+    block = build_table_block(projected_columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 0);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -2934,6 +2999,59 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDele
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, IcebergTableLevelCountUsesAssignedRowCountWithPositionDelete) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_table_level_count_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    TQueryOptions query_options;
+    query_options.__set_batch_size(10);
+    RuntimeState state {query_options, TQueryGlobals()};
+    doris::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    set_table_level_row_count(&split_options, 5);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(block.rows(), 5);
+
+    block = build_table_block(projected_columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 0);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_position_delete_path_test";
@@ -3681,6 +3799,43 @@ TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeFallsBackToDefaultOrMissin
     EXPECT_FALSE(mappings[2].file_local_id.has_value());
     EXPECT_FALSE(mappings[2].constant_index.has_value());
     EXPECT_EQ(mappings[2].default_expr, nullptr);
+}
+
+TEST(TableColumnMapperByIndexTest, MissingIdentifierFallsBackToDefaultOrMissing) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    auto with_default = make_table_column(-1, "extra_default", int_type);
+    auto literal_expr = VExprContext::create_shared(
+            TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(42)));
+    with_default.default_expr = literal_expr;
+
+    const std::vector<ColumnDefinition> projected_columns = {
+            make_index_table_column(0, "a", int_type),
+            with_default,
+            make_table_column(-1, "extra_missing", int_type),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "_col0", int_type),
+    };
+
+    TableColumnMapperOptions options;
+    options.mode = TableColumnMappingMode::BY_INDEX;
+    options.allow_missing_columns = true;
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 3);
+
+    ASSERT_TRUE(mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*mappings[0].file_local_id, 0);
+
+    EXPECT_FALSE(mappings[1].file_local_id.has_value());
+    EXPECT_TRUE(mappings[1].constant_index.has_value());
+    EXPECT_EQ(mappings[1].default_expr, literal_expr);
+
+    EXPECT_FALSE(mappings[2].file_local_id.has_value());
+    EXPECT_FALSE(mappings[2].constant_index.has_value());
 }
 
 TEST(TableColumnMapperByIndexTest, FileIndexOutOfRangeRejectedWhenAllowMissingFalse) {
