@@ -1882,6 +1882,10 @@ static Status merge_filter_projection(const FilterProjectionMap* filter_projecti
     if (filter_projection_it == filter_projections->end()) {
         return Status::OK();
     }
+    // Merge predicate-only nested paths into the root projection that is about to be scanned.
+    // Example: `SELECT s.a WHERE s.b > 1` first builds the output projection `s -> a` from
+    // ColumnMapping, while build_filter_projection_map() records `s -> b`. This merge produces
+    // one file scan projection `s -> a,b`.
     RETURN_IF_ERROR(merge_local_column_index(projection, filter_projection_it->second));
     return Status::OK();
 }
@@ -1924,7 +1928,10 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
     }
     if (is_predicate_column) {
         DCHECK(filter_projections != nullptr);
-        // TODO: merge non-predicate projections for the same column as well, to avoid duplicated projections when the same column is used in multiple predicates.
+        // If a projected complex root is also used by a predicate, rebuild the predicate scan
+        // projection from the output mapping before merging predicate-only children. For
+        // `SELECT s.a WHERE s.b > 1`, build_complex_projection() produces `s -> a` and
+        // merge_filter_projection() adds `s -> b`, so the predicate column reads both children.
         RETURN_IF_ERROR(merge_filter_projection(filter_projections, &projection));
     }
     auto existing_projection_it = std::ranges::find_if(
@@ -1939,7 +1946,9 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         scan_columns->push_back(std::move(projection));
     }
     if (is_predicate_column) {
-        // TODO: if the same column is used in both predicate and non-predicate projections, we can merge the two projections and only keep it in predicate_columns.
+        // The predicate projection now contains both the output children and filter-only children
+        // for this root, so the duplicate non-predicate root can be removed without losing output
+        // data.
         auto it = std::ranges::find_if(
                 file_request->non_predicate_columns,
                 [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
