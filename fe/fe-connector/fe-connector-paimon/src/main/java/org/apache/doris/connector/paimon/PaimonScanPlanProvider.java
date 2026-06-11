@@ -24,7 +24,16 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.schema.external.TArrayField;
+import org.apache.doris.thrift.schema.external.TField;
+import org.apache.doris.thrift.schema.external.TFieldPtr;
+import org.apache.doris.thrift.schema.external.TMapField;
+import org.apache.doris.thrift.schema.external.TNestedField;
+import org.apache.doris.thrift.schema.external.TSchema;
+import org.apache.doris.thrift.schema.external.TStructField;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +48,7 @@ import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -47,10 +57,16 @@ import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -116,6 +132,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // JNI-format paimon split to PaimonCppReader, which deserializes the NATIVE paimon binary format
     // (paimon::Split::Deserialize), so FE must serialize a DataSplit with that format, not Java serde.
     private static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
+
+    // FIX-SCHEMA-EVOLUTION (B-1a): scan-level prop carrying the base64 TBinaryProtocol-serialized
+    // schema dictionary (a throwaway TFileScanRangeParams holding current_schema_id +
+    // history_schema_info). getScanNodeProperties builds it from the live table; populateScanLevelParams
+    // applies it to the real params. Transport via the props map because getScanPlanProvider() returns a
+    // fresh provider per call (no shared instance state between the two SPI methods).
+    private static final String SCHEMA_EVOLUTION_PROP = "paimon.schema_evolution";
+    // Legacy parity: current_schema_id is the -1 sentinel ("latest"); the current/target schema is
+    // also pushed into history_schema_info under this key (PaimonScanNode.doInitialize -> -1L).
+    private static final long CURRENT_SCHEMA_ID = -1L;
 
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
@@ -395,6 +421,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        // FIX-SCHEMA-EVOLUTION (B-1a): emit the native-reader schema dictionary so BE matches file<->table
+        // columns BY FIELD ID across schema evolution (rename/reorder) instead of falling back to NAME
+        // matching (which silently reads NULL/garbage for renamed columns). Only meaningful when the table
+        // can take the native path (a DataTable read without force_jni_scanner); JNI splits never consult it.
+        if (!paimonHandle.isForceJni()) {
+            buildSchemaEvolutionParam(table).ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
+        }
+
         return props;
     }
 
@@ -623,6 +657,175 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 LOG.warn("Failed to parse paimon.options_json", e);
             }
         }
+
+        // FIX-SCHEMA-EVOLUTION (B-1a): apply the schema dictionary built in getScanNodeProperties. Fail
+        // loud on a decode error — this prop is produced by us, so a failure is a real bug, and silently
+        // dropping it would re-introduce the silent wrong-rows BLOCKER on schema-evolved native reads.
+        String schemaEvolution = properties.get(SCHEMA_EVOLUTION_PROP);
+        if (schemaEvolution != null && !schemaEvolution.isEmpty()) {
+            applySchemaEvolutionParam(params, schemaEvolution);
+        }
+    }
+
+    /**
+     * FIX-SCHEMA-EVOLUTION (B-1a): builds the native-reader schema dictionary
+     * ({@code current_schema_id} + {@code history_schema_info}) for {@code table} and serializes it for
+     * transport via the scan-node props (see {@link #SCHEMA_EVOLUTION_PROP}).
+     *
+     * <p>Returns empty for non-{@link FileStoreTable}s (paimon system tables such as {@code audit_log} /
+     * {@code binlog} read via JNI and never consult {@code history_schema_info}). The carrier is a
+     * throwaway {@link TFileScanRangeParams} (the exact thrift target), so
+     * {@link #applySchemaEvolutionParam} only has to copy the two fields back.</p>
+     *
+     * <p>Parity with legacy {@code PaimonScanNode}: {@code current_schema_id = -1} and the current/target
+     * schema is pushed under that sentinel. Crucially it is built from {@code table.schema()} — the
+     * resolved (snapshot-PINNED) schema, the SAME schema the query's tuple slots use — so a time-travel
+     * read keys BE's table-side {@code StructNode} by the pinned column names (legacy built the -1 entry
+     * from {@code getTargetTable().getColumns()}, also snapshot-aware; {@code schemaManager().latest()}
+     * would wrongly use the absolute latest schema). Per-schema historical entries are added for every
+     * committed schema id ({@link SchemaManager#listAllIds()}) so any native file's {@code schema_id} is
+     * covered (BE fails loud — {@code "miss table/file schema info"} — if a referenced id is absent).
+     * Schema reads that throw are allowed to propagate (fail loud, mirroring legacy
+     * {@code putHistorySchemaInfo}).</p>
+     */
+    private Optional<String> buildSchemaEvolutionParam(Table table) {
+        if (!(table instanceof FileStoreTable)) {
+            return Optional.empty();
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) table;
+        SchemaManager schemaManager = fileStoreTable.schemaManager();
+
+        List<TSchema> history = new ArrayList<>();
+        // Current/target schema under the -1 sentinel, from the resolved (snapshot-pinned) schema. Its
+        // top-level names are lowercased: BE keys the table-side StructNode by these names VERBATIM and the
+        // native reader looks them up by the lowercase Doris slot name (legacy ExternalUtil/parseSchema
+        // parity). Nested + historical names stay paimon-cased (legacy PaimonUtil.getSchemaInfo).
+        history.add(buildSchemaInfo(CURRENT_SCHEMA_ID, fileStoreTable.schema().fields(), true));
+        // One entry per committed schema id so every native file's schema_id resolves.
+        for (Long schemaId : schemaManager.listAllIds()) {
+            history.add(buildSchemaInfo(schemaId, schemaManager.schema(schemaId).fields(), false));
+        }
+        return Optional.of(encodeSchemaEvolution(CURRENT_SCHEMA_ID, history));
+    }
+
+    /**
+     * Serializes the schema dictionary into a base64 TBinaryProtocol blob, carried by a throwaway
+     * {@link TFileScanRangeParams} (the exact thrift target so {@link #applySchemaEvolutionParam} only
+     * copies the two fields back). Package-private static for round-trip unit testing.
+     */
+    static String encodeSchemaEvolution(long currentSchemaId, List<TSchema> history) {
+        TFileScanRangeParams carrier = new TFileScanRangeParams();
+        carrier.setCurrentSchemaId(currentSchemaId);
+        carrier.setHistorySchemaInfo(history);
+        try {
+            byte[] bytes = new TSerializer(new TBinaryProtocol.Factory()).serialize(carrier);
+            return BASE64_ENCODER.encodeToString(bytes);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize paimon schema-evolution info", e);
+        }
+    }
+
+    static void applySchemaEvolutionParam(TFileScanRangeParams params, String encoded) {
+        try {
+            byte[] bytes = Base64.getDecoder().decode(encoded);
+            TFileScanRangeParams carrier = new TFileScanRangeParams();
+            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(carrier, bytes);
+            if (carrier.isSetCurrentSchemaId()) {
+                params.setCurrentSchemaId(carrier.getCurrentSchemaId());
+            }
+            if (carrier.isSetHistorySchemaInfo()) {
+                params.setHistorySchemaInfo(carrier.getHistorySchemaInfo());
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to apply paimon schema-evolution info to scan params", e);
+        }
+    }
+
+    /**
+     * Builds one {@link TSchema} (schema id + root struct) from a paimon schema's top-level fields.
+     * Port of legacy {@code PaimonUtil.getSchemaInfo(TableSchema)} that emits only what BE's field-id
+     * matcher consumes ({@code TField.id} / {@code name} / a nested-vs-scalar {@code type.type} tag) —
+     * no Doris {@code Type} / {@code toColumnTypeThrift} needed (verified against
+     * {@code be/src/format/table/table_schema_change_helper.cpp}).
+     *
+     * <p>{@code lowercaseTopLevelNames} lowercases ONLY the top-level field names (not nested struct
+     * fields) — the legacy-asymmetric casing: the current/target (-1) entry needs lowercase top-level
+     * names to match the lowercase Doris slot names BE keys by ({@code parseSchema} lowercases top-level),
+     * while nested struct field names stay paimon-cased ({@code PaimonUtil.paimonTypeToDorisType} keeps
+     * them) and historical entries are fully paimon-cased.</p>
+     */
+    static TSchema buildSchemaInfo(long schemaId, List<DataField> fields, boolean lowercaseTopLevelNames) {
+        TSchema tSchema = new TSchema();
+        tSchema.setSchemaId(schemaId);
+        tSchema.setRootField(buildStructField(fields, lowercaseTopLevelNames));
+        return tSchema;
+    }
+
+    private static TStructField buildStructField(List<DataField> fields, boolean lowercaseNames) {
+        TStructField structField = new TStructField();
+        for (DataField field : fields) {
+            // Field id + name are the join keys BE uses to match file<->table columns (rename-safe).
+            // Nested structs are always built paimon-cased (legacy parity) — only this level's names are
+            // optionally lowercased.
+            TField tField = buildField(field.type());
+            // Default-locale toLowerCase to byte-match the Doris slot names BE looks up — produced the
+            // same way by PaimonConnectorMetadata column mapping and legacy PaimonUtil.parseSchema (NOT
+            // Locale.ROOT — that would diverge from the slot names under a non-ROOT JVM default locale).
+            tField.setName(lowercaseNames ? field.name().toLowerCase() : field.name());
+            tField.setId(field.id());
+            TFieldPtr fieldPtr = new TFieldPtr();
+            fieldPtr.setFieldPtr(tField);
+            structField.addToFields(fieldPtr);
+        }
+        return structField;
+    }
+
+    private static TField buildField(DataType dataType) {
+        TField field = new TField();
+        field.setIsOptional(dataType.isNullable());
+        TColumnType columnType = new TColumnType();
+        TNestedField nestedField = new TNestedField();
+        switch (dataType.getTypeRoot()) {
+            case ARRAY: {
+                columnType.setType(TPrimitiveType.ARRAY);
+                TArrayField arrayField = new TArrayField();
+                TFieldPtr itemPtr = new TFieldPtr();
+                itemPtr.setFieldPtr(buildField(((ArrayType) dataType).getElementType()));
+                arrayField.setItemField(itemPtr);
+                nestedField.setArrayField(arrayField);
+                field.setNestedField(nestedField);
+                break;
+            }
+            case MAP: {
+                columnType.setType(TPrimitiveType.MAP);
+                MapType mapType = (MapType) dataType;
+                TMapField mapField = new TMapField();
+                TFieldPtr keyPtr = new TFieldPtr();
+                keyPtr.setFieldPtr(buildField(mapType.getKeyType()));
+                mapField.setKeyField(keyPtr);
+                TFieldPtr valuePtr = new TFieldPtr();
+                valuePtr.setFieldPtr(buildField(mapType.getValueType()));
+                mapField.setValueField(valuePtr);
+                nestedField.setMapField(mapField);
+                field.setNestedField(nestedField);
+                break;
+            }
+            case ROW: {
+                columnType.setType(TPrimitiveType.STRUCT);
+                // Nested struct field names stay paimon-cased (legacy PaimonUtil.paimonTypeToDorisType).
+                nestedField.setStructField(buildStructField(((RowType) dataType).getFields(), false));
+                field.setNestedField(nestedField);
+                break;
+            }
+            default:
+                // Scalar: BE reads type.type only as a nested-vs-scalar discriminator (it never inspects
+                // the specific scalar tag in the field-id path), so a single placeholder is sufficient and
+                // avoids replicating the full paimon->Doris primitive mapping.
+                columnType.setType(TPrimitiveType.STRING);
+                break;
+        }
+        field.setType(columnType);
+        return field;
     }
 
     @Override

@@ -25,7 +25,7 @@
 |---|----|-----|---------|----------------|------|--------|------|----------|--------|
 | 1 | FIX-URI-NORMALIZE | BLOCKER | B-7DV + B-7DF | native data-file + DV path scheme norm (oss/cos/obs/s3a→s3) | **yes** | ✅ | ✅ | ✅ | ✅ `20b19d19dd8` |
 | 2 | FIX-STATIC-CREDS-BE | BLOCKER | B-9 | static s3/oss/cos/obs creds → BE as canonical `AWS_*` | **yes** | ✅ | ✅ | ✅ | ✅ `d23d5df9914` |
-| 3 | FIX-SCHEMA-EVOLUTION | BLOCKER | B-1a (+M-10) | emit `current_schema_id`/`history_schema_info` + field-id thru SPI | **yes** | ⬜ | ⬜ | ⬜ | ⬜ |
+| 3 | FIX-SCHEMA-EVOLUTION | BLOCKER | B-1a (M-10 deferred) | connector builds `current_schema_id`/`history_schema_info` thrift dict (Design C) | no¹ | ✅ | ✅ | ✅ 222/0/0 | ⬜ pending |
 | 4 | FIX-JDBC-DRIVER-URL | BLOCKER | B-8a + B-8b | resolve+alias `jdbc.driver_url` for BE; enforce security allow-list | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 | 5 | FIX-MAPPING-FLAG-KEYS | MAJOR | M-crit | dotted-vs-underscore type-mapping flag keys (wrong type) | no | ⬜ | ⬜ | ⬜ | ⬜ |
 | 6 | FIX-KERBEROS-DOAS | MAJOR | M-8 + M-11 | UGI `doAs` on fs/jdbc ops + partition-listing read path | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -34,6 +34,7 @@
 | 9 | FIX-NATIVE-SUBSPLIT | MAJOR* | M-3 | native ORC/Parquet sub-file splitting (parallelism) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `sev*` = round-2 rated MAJOR but round-1 rated **MINOR** (perf-only, correct results) — **user decides severity** (see §P2).
+¹ #3 SPI corrected `yes`→**`no`**: user signed **Design C** ([D-049](./decisions-log.md)) — the connector builds the thrift `TSchema` dict directly from paimon (BE only needs field `id`/`name`/nesting-tag, no Doris `Type`), reusing the existing `populateScanLevelParams` hook → **zero new SPI surface**. M-10 deferred ([DV-026](./deviations-log.md)); eager all-schemas read accepted ([DV-027](./deviations-log.md)).
 Legend: ⬜ todo / 🔄 in progress / ✅ done
 
 > **Ordering rationale**: P0 (#1–4) all gate commit. #1+#2 first = broadest blast radius (they break *all* native reads on OSS/COS/OBS/private-S3 — basic cloud usage) and share the same BE-bound scan-property-normalization seam (reuse the `FIX-REST-VENDED` `ConnectorContext` pattern). #3 (B2) is the most *dangerous* failure mode (silent wrong rows) but has a narrower trigger (schema-evolved + native + rename) and a larger SPI surface; **if you weight silent-corruption highest, do #3 first — it is independent of #1/#2.** #4 (JDBC) is isolated to one flavor.

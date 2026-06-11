@@ -19,6 +19,11 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.schema.external.TField;
+import org.apache.doris.thrift.schema.external.TFieldPtr;
+import org.apache.doris.thrift.schema.external.TSchema;
 
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
@@ -36,6 +41,8 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -46,6 +53,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -649,5 +657,150 @@ public class PaimonScanPlanProviderTest {
                 "no context -> the raw alias must not be shipped to BE");
         Assertions.assertFalse(scanProps.containsKey("location.AWS_ACCESS_KEY"),
                 "no context -> no normalized overlay");
+    }
+
+    // ---- FIX-SCHEMA-EVOLUTION (B-1a): native-reader schema dictionary ----
+
+    @Test
+    public void buildSchemaInfoCarriesFieldIdsNamesAndScalarTag() {
+        // WHY (B-1a): BE matches file<->table columns BY paimon field id; the id+name on each top-level
+        // field are the join keys. Scalars carry a single placeholder tag because BE reads type.type only
+        // as a nested-vs-scalar discriminator. MUTATION: dropping setId/setName -> ids/names absent -> BE
+        // can't field-id-match -> falls back to by-name (the silent wrong-rows bug).
+        List<DataField> fields = Arrays.asList(
+                new DataField(7, "id", DataTypes.INT()),
+                new DataField(9, "name", DataTypes.STRING()));
+
+        TSchema schema = PaimonScanPlanProvider.buildSchemaInfo(3L, fields, false);
+
+        Assertions.assertEquals(3L, schema.getSchemaId());
+        List<TFieldPtr> top = schema.getRootField().getFields();
+        Assertions.assertEquals(2, top.size());
+        Assertions.assertEquals(7, top.get(0).getFieldPtr().getId());
+        Assertions.assertEquals("id", top.get(0).getFieldPtr().getName());
+        Assertions.assertEquals(TPrimitiveType.STRING, top.get(0).getFieldPtr().getType().getType());
+        Assertions.assertEquals(9, top.get(1).getFieldPtr().getId());
+        Assertions.assertEquals("name", top.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void buildSchemaInfoNestedShapesAndStructChildIds() {
+        // WHY (B-1a): the e2e case is a struct-field rename, so STRUCT children MUST carry their own
+        // paimon ids/names; ARRAY/MAP/STRUCT tags must be exact (BE checks them); array element / map kv
+        // are matched structurally (no id). MUTATION: wrong nesting tag or missing struct-child id -> BE
+        // SCHEMA_ERROR or by-name fallback inside nested types.
+        DataType struct = DataTypes.ROW(
+                DataTypes.FIELD(10, "f1", DataTypes.INT()),
+                DataTypes.FIELD(11, "f2", DataTypes.STRING()));
+        List<DataField> fields = Arrays.asList(
+                new DataField(1, "arr", DataTypes.ARRAY(DataTypes.INT())),
+                new DataField(2, "m", DataTypes.MAP(DataTypes.STRING(), DataTypes.INT())),
+                new DataField(3, "s", struct));
+
+        List<TFieldPtr> top = PaimonScanPlanProvider.buildSchemaInfo(0L, fields, false)
+                .getRootField().getFields();
+
+        TField arr = top.get(0).getFieldPtr();
+        Assertions.assertEquals(TPrimitiveType.ARRAY, arr.getType().getType());
+        Assertions.assertEquals(1, arr.getId());
+        TField elem = arr.getNestedField().getArrayField().getItemField().getFieldPtr();
+        Assertions.assertEquals(TPrimitiveType.STRING, elem.getType().getType());
+        Assertions.assertFalse(elem.isSetId(), "array element is matched structurally, not by id");
+
+        TField map = top.get(1).getFieldPtr();
+        Assertions.assertEquals(TPrimitiveType.MAP, map.getType().getType());
+        Assertions.assertNotNull(map.getNestedField().getMapField().getKeyField().getFieldPtr());
+        Assertions.assertNotNull(map.getNestedField().getMapField().getValueField().getFieldPtr());
+
+        TField st = top.get(2).getFieldPtr();
+        Assertions.assertEquals(TPrimitiveType.STRUCT, st.getType().getType());
+        List<TFieldPtr> sub = st.getNestedField().getStructField().getFields();
+        Assertions.assertEquals(10, sub.get(0).getFieldPtr().getId());
+        Assertions.assertEquals("f1", sub.get(0).getFieldPtr().getName());
+        Assertions.assertEquals(11, sub.get(1).getFieldPtr().getId());
+        Assertions.assertEquals("f2", sub.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void schemaEvolutionRoundTripAppliesCurrentAndHistory() {
+        // WHY (B-1a): end-to-end transport — getScanNodeProperties serializes the dictionary, the bridge
+        // hands it to populateScanLevelParams which sets current_schema_id + history_schema_info on the
+        // real params. The rename a->new_a keeps field id 0 stable across schema versions, so BE reads the
+        // renamed column instead of NULL. MUTATION: applySchemaEvolutionParam not copying the fields ->
+        // params unset -> BE !__isset.history_schema_info -> by-name fallback -> silent wrong rows.
+        TSchema current = PaimonScanPlanProvider.buildSchemaInfo(
+                -1L, Arrays.asList(new DataField(0, "new_a", DataTypes.INT())), true);
+        TSchema schema0 = PaimonScanPlanProvider.buildSchemaInfo(
+                0L, Arrays.asList(new DataField(0, "a", DataTypes.INT())), false);
+        TSchema schema1 = PaimonScanPlanProvider.buildSchemaInfo(
+                1L, Arrays.asList(new DataField(0, "new_a", DataTypes.INT())), false);
+        List<TSchema> history = new ArrayList<>(Arrays.asList(current, schema0, schema1));
+
+        String encoded = PaimonScanPlanProvider.encodeSchemaEvolution(-1L, history);
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        PaimonScanPlanProvider.applySchemaEvolutionParam(params, encoded);
+
+        Assertions.assertTrue(params.isSetCurrentSchemaId());
+        Assertions.assertEquals(-1L, params.getCurrentSchemaId());
+        Assertions.assertEquals(3, params.getHistorySchemaInfo().size());
+        // id 0 is stable across the rename -> by-id match (rename-safe), not by-name (NULL).
+        Assertions.assertEquals(0, params.getHistorySchemaInfo().get(1)
+                .getRootField().getFields().get(0).getFieldPtr().getId());
+        Assertions.assertEquals("a", params.getHistorySchemaInfo().get(1)
+                .getRootField().getFields().get(0).getFieldPtr().getName());
+        Assertions.assertEquals(0, params.getHistorySchemaInfo().get(2)
+                .getRootField().getFields().get(0).getFieldPtr().getId());
+        Assertions.assertEquals("new_a", params.getHistorySchemaInfo().get(2)
+                .getRootField().getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    public void buildSchemaInfoLowercasesTopLevelButPreservesNestedNames() {
+        // WHY (BLOCKER): the -1/current entry is the BE table-side StructNode key; BE keys it VERBATIM and
+        // the native reader looks up the LOWERCASE Doris slot name, so a mixed-case column ("MyCol") must
+        // be lowercased ("mycol") or BE throws std::out_of_range — regressing even never-evolved reads.
+        // But nested struct field names must stay paimon-cased (legacy is asymmetric: parseSchema lowers
+        // top-level, paimonTypeToDorisType keeps nested). MUTATION: no toLowerCase -> "MyCol" key -> crash;
+        // lowercasing nested too -> "innerfield" diverges from legacy.
+        DataType struct = DataTypes.ROW(DataTypes.FIELD(5, "InnerField", DataTypes.INT()));
+        List<DataField> fields = Arrays.asList(
+                new DataField(0, "MyCol", DataTypes.INT()),
+                new DataField(1, "S", struct));
+
+        List<TFieldPtr> top = PaimonScanPlanProvider.buildSchemaInfo(-1L, fields, true)
+                .getRootField().getFields();
+
+        Assertions.assertEquals("mycol", top.get(0).getFieldPtr().getName(), "top-level name lowercased");
+        Assertions.assertEquals("s", top.get(1).getFieldPtr().getName(), "top-level name lowercased");
+        // nested struct child keeps its paimon casing (legacy parity; matched downstream via to_lower).
+        Assertions.assertEquals("InnerField", top.get(1).getFieldPtr()
+                .getNestedField().getStructField().getFields().get(0).getFieldPtr().getName(),
+                "nested struct field name must stay paimon-cased");
+
+        // historical entries are fully paimon-cased (the file-side value, BE looks up by id then to_lowers).
+        List<TFieldPtr> hist = PaimonScanPlanProvider.buildSchemaInfo(0L, fields, false)
+                .getRootField().getFields();
+        Assertions.assertEquals("MyCol", hist.get(0).getFieldPtr().getName(),
+                "historical entry keeps paimon casing");
+    }
+
+    @Test
+    public void getScanNodePropertiesSkipsSchemaEvolutionForNonFileStoreTable() {
+        // WHY: only paimon FileStoreTables take the native path; sys-tables / fakes read via JNI and never
+        // consult history_schema_info. The FileStoreTable guard must skip them (and not NPE / CCE).
+        // MUTATION: dropping the guard -> ClassCastException / a wrong dictionary emitted for a JNI scan.
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps());
+
+        Map<String, String> scanProps = provider.getScanNodeProperties(
+                null, handle, Collections.emptyList(), Optional.empty());
+
+        Assertions.assertFalse(scanProps.containsKey("paimon.schema_evolution"),
+                "non-DataTable (JNI path) must not emit the native schema dictionary");
     }
 }

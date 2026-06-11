@@ -1309,3 +1309,17 @@ fi
 **ANONYMOUS-leak 边角（调查→非问题）**：连接器分两步归一化（static 经本缝、vended 经 `vendStorageCredentials`），异于 legacy 的 merge-then-normalize-once。故带静态 object-store endpoint 但**无静态 keys** 的 REST catalog，static overlay 可能发 `AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS`（`AbstractS3CompatibleProperties:124-128` blank-key 支）而 vended overlay（有 keys→无 provider-type）不清它。**BE 证伪无回归**：`s3_util.cpp` 两 provider（`_v1:383-389`/`_v2:448-455`）均**先**查显式 ak/sk 返回 `SimpleAWSCredentialsProvider`，keys 在则永不达 `Anonymous` 支 → vended keys 恒胜。primary B-9 路（静态 catalog **有** keys）provider-type 为 null 不发。
 
 **测**：fe-core `DefaultConnectorContextBackendStoragePropsTest`（真 OSS map → `AWS_*` 存在 + 裸 `oss.access_key` 不存在；无 supplier ctor → 空）；连接器 `PaimonScanPlanProviderTest` 3 测（静态裸别名→canonical AWS_*、裸别名不达 BE；vended overlay static collision 胜；无-context 不发存储键）。red-check 反转产线码 2/3 向红。模块 217/0/0（1 CI-gated skip）。live-e2e（私有 S3/OSS 静态凭据 native 读）CI-gated。
+
+---
+
+## 23. FIX-SCHEMA-EVOLUTION（B-1a）：**无新 SPI**（Design C，记录在案）
+
+> task-list #3 原标「SPI?=yes」（预期穿 `ConnectorColumn`/`ConnectorType` field-id channel + 新 history-schema SPI）；**用户签 Design C（[D-049](./decisions-log.md)）后修正为 `no`** —— 本 fix **零新 SPI surface**，纯连接器侧。记录于此以闭合 RFC「SPI 改动登记」约定（结论：无改动）。
+
+**为何无需新 SPI**：BE native field-id 匹配（`be/src/format/table/table_schema_change_helper.cpp:312-430`）每个 `TField` **只**消费 `id` / `name` / `type.type`（且 `type.type` 仅作 nested-vs-scalar 判别——`==MAP/ARRAY/STRUCT` 否则 scalar），**从不读 Doris `Type`/precision/scale，也不读 tuple/slot descriptor**。故连接器可只用 paimon `DataField.{id,name}` + 一个 primitive tag **直建** `TSchema`——`org.apache.doris.thrift.*`（含 `…thrift.schema.external.*`）对连接器 **import-legal**（import-gate 仅禁 `catalog|common|datasource|qe|analysis|nereids|planner`）。
+
+**复用既有缝**：`current_schema_id`+`history_schema_info` 经**既有** `ConnectorScanPlanProvider.populateScanLevelParams(TFileScanRangeParams, props)` hook 落 params（连接器在 `getScanNodeProperties` 从 live 表建好、base64 thrift carrier prop 传递、`populateScanLevelParams` 解码套用）。这正是 [DV-006](./deviations-log.md) 为 hudi 同类 schema_id/history 缺口预判的缝（「经现有 SPI hook `populateScanLevelParams`…**无需 fe-core 改动**」）—— paimon 是该模式首个落地者。per-split `TPaimonFileDesc.schema_id` 早已由 `PaimonScanRange` 发出（不改）。
+
+**M-10 deferred**：`Column.uniqueId=-1` 不影响 B-1a（history 直接从 paimon field-id 建，不经 Doris 列）→ 不穿 `ConnectorColumn.fieldId`/`ConnectorType` 嵌套 id。详 [DV-026](./deviations-log.md)。
+
+**测**：连接器 `PaimonScanPlanProviderTest` +5 测（field-id/name carriage、嵌套 ARRAY/MAP/STRUCT 形 + struct child id、scalar tag、rename round-trip、**-1 entry 顶层 lowercase 而嵌套保 paimon-case**、非-FileStoreTable 跳过）。模块 222/0/0。真值闸=`test_paimon_full_schema_change.groovy`（CI-gated）。
