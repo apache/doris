@@ -35,7 +35,6 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -274,11 +273,12 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         newOutputExpressions.add(replaceAliasExpr);
                     }
                 }
-                LogicalAggregate<Plan> eagerAgg =
-                        agg.withAggOutputChild(newOutputExpressions, child);
-                NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
-                return normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
-                        context.getCascadesContext());
+                return agg.withAggOutputChild(newOutputExpressions, child);
+                // LogicalAggregate<Plan> eagerAgg =
+                //         agg.withAggOutputChild(newOutputExpressions, child);
+                // NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
+                // return normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
+                //         context.getCascadesContext());
             }
         } catch (RuntimeException e) {
             String msg = "PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString();
