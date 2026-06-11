@@ -867,10 +867,10 @@ static bool needs_projected_file_type_rebuild(const ColumnMapping& mapping) {
         return true;
     }
     for (const auto& child_mapping : mapping.child_mappings) {
-        // `child_mapping.table_column_name != child_mapping.file_column_name` means this column is renamed
-        // `!child_mapping.file_local_id.has_value()` means this column is miss in file
-        if (child_mapping.table_column_name != child_mapping.file_column_name ||
-            !child_mapping.file_local_id.has_value() ||
+        // Rename-only child mappings do not change the file-side projected shape. If field-id
+        // matching maps table child `renamed_b` to file child `b`, the file reader can still expose
+        // the original file type as long as child count/order/types are unchanged.
+        if (!child_mapping.file_local_id.has_value() ||
             needs_projected_file_type_rebuild(child_mapping)) {
             return true;
         }

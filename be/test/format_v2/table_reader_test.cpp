@@ -1386,7 +1386,11 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     ASSERT_EQ(block.rows(), 2);
     const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
     ASSERT_EQ(struct_result.get_columns().size(), 1);
-    const auto& ids = assert_cast<const ColumnInt32&>(struct_result.get_column(0));
+    const auto& nullable_ids = assert_cast<const ColumnNullable&>(struct_result.get_column(0));
+    for (const auto is_null : nullable_ids.get_null_map_data()) {
+        EXPECT_EQ(is_null, 0);
+    }
+    const auto& ids = assert_cast<const ColumnInt32&>(nullable_ids.get_nested_column());
     EXPECT_EQ(ids.get_element(0), 1);
     EXPECT_EQ(ids.get_element(1), 5);
 
@@ -4108,6 +4112,49 @@ TEST(TableColumnMapperTest, MatchingProjectedStructDoesNotNeedComplexRemateriali
     EXPECT_TRUE(mapper.mappings()[0].is_trivial);
 }
 
+TEST(TableColumnMapperTest, RenameOnlyProjectedStructDoesNotRebuildFileProjection) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                               Strings {"a", "renamed_b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "renamed_b", int_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+    EXPECT_EQ(mapper.mappings()[0].projected_file_children.size(),
+              mapper.mappings()[0].original_file_children.size());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].child_mappings[1].table_column_name, "renamed_b");
+    EXPECT_EQ(mapper.mappings()[0].child_mappings[1].file_column_name, "b");
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(file_request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(file_request.non_predicate_columns[0].children.empty());
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+}
+
 TEST(TableColumnMapperTest, PredicateProjectionRebuildsProjectedStructFileType) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto string_type = std::make_shared<DataTypeString>();
@@ -4259,9 +4306,8 @@ TEST(TableColumnMapperTest, NestedPredicateProjectionUsesMappedRenamedChild) {
     EXPECT_EQ(file_request.column_predicate_filters[0].effective_file_child_id_path(),
               std::vector<int32_t>({2}));
     ASSERT_EQ(file_request.predicate_columns.size(), 1);
-    ASSERT_EQ(file_request.predicate_columns[0].children.size(), 2);
-    EXPECT_EQ(file_request.predicate_columns[0].children[0].local_id(), 1);
-    EXPECT_EQ(file_request.predicate_columns[0].children[1].local_id(), 2);
+    EXPECT_TRUE(file_request.predicate_columns[0].project_all_children);
+    EXPECT_TRUE(file_request.predicate_columns[0].children.empty());
 }
 
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {
