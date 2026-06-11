@@ -350,7 +350,7 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
             RETURN_IF_ERROR(create(*child_schema, child_projection, &child_reader));
         }
         child_output_indices.push_back(static_cast<int>(projected_child_types.size()));
-        projected_child_types.push_back(child_reader->type());
+        projected_child_types.push_back(make_nullable(child_reader->type()));
         projected_child_names.push_back(child_reader->name());
         child_readers.push_back(std::move(child_reader));
     }
@@ -452,7 +452,8 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
     }
     DataTypePtr type = column_schema.type;
     if (format::is_partial_projection(value_projection)) {
-        type = std::make_shared<DataTypeMap>(key_reader->type(), value_reader->type());
+        type = std::make_shared<DataTypeMap>(make_nullable(key_reader->type()),
+                                             make_nullable(value_reader->type()));
         if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
             type = make_nullable(type);
         }

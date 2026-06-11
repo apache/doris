@@ -211,7 +211,7 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
                     schema, *key_value_group.field(child_idx),
                     child_context(key_value_context, *key_value_group.field(child_idx), child_idx),
                     &child));
-            child_types.push_back(child->type);
+            child_types.push_back(make_nullable(child->type));
             child_names.push_back(child->name);
             key_value->children.push_back(std::move(child));
         }
@@ -225,8 +225,8 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
             return Status::NotSupported("Unsupported nullable parquet MAP key for column {}",
                                         node.name());
         }
-        auto key_type = key_value->children[0]->type;
-        auto value_type = key_value->children[1]->type;
+        auto key_type = make_nullable(key_value->children[0]->type);
+        auto value_type = make_nullable(key_value->children[1]->type);
         column_schema->type =
                 nullable_if_needed(std::make_shared<DataTypeMap>(key_type, value_type), node);
         column_schema->children.push_back(std::move(key_value));
@@ -245,7 +245,7 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
         RETURN_IF_ERROR(build_node_schema(
                 schema, *group.field(child_idx),
                 child_context(context, *group.field(child_idx), child_idx), &child));
-        child_types.push_back(child->type);
+        child_types.push_back(make_nullable(child->type));
         child_names.push_back(child->name);
         column_schema->children.push_back(std::move(child));
     }

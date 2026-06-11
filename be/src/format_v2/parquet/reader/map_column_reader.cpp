@@ -26,7 +26,10 @@
 #include <utility>
 #include <vector>
 
+#include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
 #include "format_v2/parquet/reader/list_column_reader.h"
 #include "format_v2/parquet/reader/nested_column_materializer.h"
 #include "format_v2/parquet/reader/scalar_column_reader.h"
@@ -35,10 +38,10 @@
 namespace doris::parquet {
 namespace {
 
-void remove_nullable_wrapper_if_required(const ParquetColumnReader& reader,
-                                         MutableColumnPtr* column) {
+void remove_nullable_wrapper_if_not_expected(const DataTypePtr& output_type,
+                                             MutableColumnPtr* column) {
     DORIS_CHECK(column != nullptr);
-    if (reader.type()->is_nullable()) {
+    if (output_type->is_nullable()) {
         return;
     }
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(**column)) {
@@ -90,8 +93,9 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     auto* parent_null_map = null_map_from_nullable_output(column);
     auto key_column = map_column->get_keys_ptr()->assert_mutable();
     auto value_column = map_column->get_values_ptr()->assert_mutable();
-    remove_nullable_wrapper_if_required(*_key_reader, &key_column);
-    remove_nullable_wrapper_if_required(*_value_reader, &value_column);
+    const auto& map_output_type = assert_cast<const DataTypeMap&>(*remove_nullable(_type));
+    remove_nullable_wrapper_if_not_expected(map_output_type.get_key_type(), &key_column);
+    remove_nullable_wrapper_if_not_expected(map_output_type.get_value_type(), &value_column);
 
     const auto& def_levels = _key_reader->nested_definition_levels();
     const auto& rep_levels = _key_reader->nested_repetition_levels();
