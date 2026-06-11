@@ -612,7 +612,8 @@ public class Profile {
             return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
         }
 
-        for (ExecutionProfile executionProfile : executionProfiles) {
+        for (int i = 0; i < executionProfiles.size(); i++) {
+            ExecutionProfile executionProfile = executionProfiles.get(i);
             if (!executionProfile.isCompleted()) {
                 return SummaryProfile.PROFILE_COMPLETION_STATE_COLLECTING;
             }
@@ -625,13 +626,13 @@ public class Profile {
             return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
         }
 
-        for (ExecutionProfile executionProfile : executionProfiles) {
+        for (int i = 0; i < executionProfiles.size(); i++) {
+            ExecutionProfile executionProfile = executionProfiles.get(i);
             if (!executionProfile.isCompleted()) {
                 return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
             }
         }
         return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
-    }
 
     private void updateProfileCompletionStateForStorage() {
         summaryProfile.setProfileCompletionState(getProfileCompletionStateForStorage());
