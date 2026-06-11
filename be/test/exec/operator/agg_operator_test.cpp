@@ -102,7 +102,8 @@ struct MockAggSourceOperator : public AggSourceOperatorX {
 
 class MockDistributionOperator final : public OperatorX<MockLocalState> {
 public:
-    MockDistributionOperator(ExchangeType exchange_type) : _exchange_type(exchange_type) {}
+    MockDistributionOperator(TLocalPartitionType::type exchange_type)
+            : _exchange_type(exchange_type) {}
 
     Status get_block_impl(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
         *eos = true;
@@ -114,7 +115,7 @@ public:
     }
 
 private:
-    ExchangeType _exchange_type;
+    TLocalPartitionType::type _exchange_type;
 };
 
 std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool is_merge,
