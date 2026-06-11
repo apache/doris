@@ -77,6 +77,8 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
                                              const VExprContextSPtrs& common_exprs,
                                              std::map<ColumnId, VExprContextSPtr>& virtual_exprs);
 
+bool storage_expr_slots_match_reader_schema(const StorageReadOptions& read_options);
+
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
 

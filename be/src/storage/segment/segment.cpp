@@ -146,14 +146,14 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
     return Status::OK();
 }
 
+} // namespace
+
 bool storage_expr_slots_match_reader_schema(const StorageReadOptions& read_options) {
     DORIS_CHECK(read_options.tablet_schema != nullptr);
     const auto keys_type = read_options.tablet_schema->keys_type();
     return keys_type == KeysType::DUP_KEYS ||
            (keys_type == KeysType::UNIQUE_KEYS && read_options.enable_unique_key_merge_on_write);
 }
-
-} // namespace
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,

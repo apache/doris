@@ -3447,6 +3447,13 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         row_ranges->is_empty()) {
         return Status::OK();
     }
+    // Page zone maps are addressed by reader-schema column ordinals. When storage expr slots need
+    // rebinding to the reader schema, VExprContext::clone() does not deep-copy the expression tree
+    // yet, so rebinding may mutate shared slot refs. Keep page-level expr-zonemap on layouts whose
+    // scan tuple slot ordinals already match the reader schema.
+    if (!storage_expr_slots_match_reader_schema(_opts)) {
+        return Status::OK();
+    }
 
     std::unordered_map<int, VExprContextSPtrs> ctxs_by_slot;
     for (const auto& conjunct : conjuncts) {

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <mutex>
 #include <vector>
 
 #include "common/logging.h"
