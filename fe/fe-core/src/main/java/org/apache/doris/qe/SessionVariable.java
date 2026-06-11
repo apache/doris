@@ -37,6 +37,8 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VarAttrDef.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
@@ -2336,7 +2338,7 @@ public class SessionVariable implements Serializable, Writable {
     )
     private int eagerAggregationMode = 0;
 
-    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", needForward = true,
+    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", setter = "setForceEagerAggHint",
             description = {
                     "用于测试/调试 eager aggregation 下推的匹配 hint。"
                             + "格式：`<func>:<qualifier.column | *>=<push|nopush>`，"
@@ -2357,6 +2359,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "matched entry is `push`, push-down may be forced for that branch, and "
                             + "the other aggregates in the same branch follow that branch-level decision."})
     public String forceEagerAggHint = "";
+    private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
 
     public static int getEagerAggregationMode() {
         if (ConnectContext.get() != null) {
@@ -2368,6 +2371,19 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEagerAggregationMode(int mode) {
         this.eagerAggregationMode = mode;
+    }
+
+    public void setForceEagerAggHint(String forceEagerAggHint) throws DdlException {
+        try {
+            this.forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
+            this.forceEagerAggHint = forceEagerAggHint;
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public Map<String, Action> getForceEagerAggHintMap() {
+        return forceEagerAggHintMap;
     }
 
     @VarAttrDef.VarAttr(name = "eager_aggregation_on_join", needForward = true)
@@ -5729,6 +5745,7 @@ public class SessionVariable implements Serializable, Writable {
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
             }
+            refreshDerivedSessionVariables();
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
         }
@@ -5783,6 +5800,7 @@ public class SessionVariable implements Serializable, Writable {
                 }
 
             }
+            refreshDerivedSessionVariables();
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
@@ -5845,6 +5863,10 @@ public class SessionVariable implements Serializable, Writable {
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }
+    }
+
+    private void refreshDerivedSessionVariables() {
+        forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
     }
 
     /**

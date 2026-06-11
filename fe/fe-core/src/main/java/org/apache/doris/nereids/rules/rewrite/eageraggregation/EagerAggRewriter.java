@@ -720,7 +720,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     //            -> scan(t2)
     //   After:
     //     agg(sum(s1), sum(s2), gby t2.k)
-    //       -> project(s1, t2.a * cnt1 as s2, t2.k, cnt1 as cnt)
+    //       -> project(s1, t2.a * cnt1 as s2, t2.k, cnt1)
     //            -> inner join(k = k)
     //                 -> agg(sum(t1.a) as s1, count(*) as cnt1, gby k)
     //                      -> scan(t1)

@@ -24,9 +24,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -110,20 +110,15 @@ public final class EagerAggHints {
         if (ctx == null) {
             return ImmutableMap.of();
         }
-        SessionVariable sv = ctx.getSessionVariable();
-        String raw = sv.forceEagerAggHint;
-        if (raw == null || raw.isEmpty()) {
-            return ImmutableMap.of();
-        }
-        return parse(raw);
+        return ctx.getSessionVariable().getForceEagerAggHintMap();
     }
 
-    /** Parse a raw hint string into a map; malformed entries are silently ignored. */
+    /** Parse a raw hint string into a map. */
     public static Map<String, Action> parse(String raw) {
-        if (raw == null || raw.isEmpty()) {
+        if (Strings.isNullOrEmpty(raw)) {
             return ImmutableMap.of();
         }
-        Map<String, Action> map = new HashMap<>();
+        ImmutableMap.Builder<String, Action> map = ImmutableMap.builder();
         for (String entry : raw.split(";")) {
             String trimmed = entry.trim();
             if (trimmed.isEmpty()) {
@@ -131,7 +126,7 @@ public final class EagerAggHints {
             }
             int eq = trimmed.lastIndexOf('=');
             if (eq <= 0 || eq == trimmed.length() - 1) {
-                continue;
+                throw invalidHint(raw);
             }
             String key = trimmed.substring(0, eq).trim().toLowerCase();
             String val = trimmed.substring(eq + 1).trim().toLowerCase();
@@ -146,12 +141,20 @@ public final class EagerAggHints {
                     action = Action.NOPUSH;
                     break;
                 default:
-                    continue;
+                    throw invalidHint(raw);
             }
-            if (!key.isEmpty()) {
-                map.put(key, action);
+            int keySeparator = key.indexOf(':');
+            if (keySeparator <= 0 || keySeparator == key.length() - 1) {
+                throw invalidHint(raw);
             }
+            map.put(key, action);
         }
-        return map;
+        return map.buildKeepingLast();
+    }
+
+    private static IllegalArgumentException invalidHint(String raw) {
+        return new IllegalArgumentException("Invalid force_eager_agg_hint: " + raw
+                + ". Expected format: '<func>:<qualifier.column | *>=<push|nopush>'"
+                + " separated by ';'.");
     }
 }
