@@ -148,6 +148,42 @@ public class PaimonScanPlanProviderTest {
                 "the sys Identifier branch must be hardcoded 'main' (legacy parity)");
     }
 
+    @Test
+    public void resolveTableRunsInsideAuthenticatorWhenContextPresent() {
+        // M-11 (D-052): with a real ConnectorContext the scan-path reload must run inside
+        // executeAuthenticated, so the FE-injected Kerberos UGI applies. Under failAuth the wrapped
+        // reload aborts BEFORE the getTable seam runs. MUTATION: an un-wrapped resolveTable would call
+        // catalogOps.getTable directly -> "getTable:db1.t1" logged despite the auth failure -> red.
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+
+        Assertions.assertThrows(RuntimeException.class, () -> provider.resolveTable(handle));
+        Assertions.assertTrue(ops.log.isEmpty(),
+                "auth failure must abort BEFORE the scan resolveTable getTable seam runs");
+        Assertions.assertEquals(1, ctx.authCount);
+    }
+
+    @Test
+    public void resolveTableEntersAuthenticatorOnHappyPath() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+
+        provider.resolveTable(handle); // null transient -> reload via the wrapped seam
+        Assertions.assertEquals(Collections.singletonList("getTable:db1.t1"), ops.log);
+        Assertions.assertEquals(1, ctx.authCount);
+    }
+
     /** Builds a native-eligible RawFile (parquet suffix). The numeric fields are irrelevant to the
      * native-vs-JNI routing decision under test, only the path suffix matters. */
     private static RawFile parquetRawFile(String path) {

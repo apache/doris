@@ -183,8 +183,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * net (it is not snapshot-consistent with the handle's originating catalog).
      */
     Table resolveTable(PaimonTableHandle paimonHandle) {
+        // M-11: wrap the (possibly remote) reload in executeAuthenticated (D-052) so the scan path's
+        // table resolution runs under the FE-injected Kerberos UGI, matching the metadata twin. The
+        // transient-table fast path issues no RPC; the FileIO split planning below is intentionally
+        // NOT wrapped (legacy did not wrap it either). When there is no context (offline unit tests
+        // via the 2-arg ctor), resolve directly — same convention as getScanNodeProperties above.
         try {
-            return PaimonTableResolver.resolve(catalogOps, paimonHandle);
+            if (context == null) {
+                return PaimonTableResolver.resolve(catalogOps, paimonHandle);
+            }
+            return context.executeAuthenticated(() -> PaimonTableResolver.resolve(catalogOps, paimonHandle));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Paimon table: " + paimonHandle, e);
         }

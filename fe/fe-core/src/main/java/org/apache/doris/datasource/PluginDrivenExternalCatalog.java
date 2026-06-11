@@ -127,6 +127,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         try {
             MetastoreProperties msp = catalogProperty.getMetastoreProperties();
             if (msp != null) {
+                // Wire any storage-derived authenticator first (rereview2 M-8): the paimon
+                // filesystem/jdbc flavors build their HDFS Kerberos authenticator from the catalog's
+                // storage properties here, because their legacy initializeCatalog() — which did this —
+                // is dead on the plugin/cutover path. Default no-op for every other metastore type.
+                msp.initExecutionAuthenticator(catalogProperty.getOrderedStoragePropertiesList());
                 executionAuthenticator = msp.getExecutionAuthenticator();
                 return;
             }

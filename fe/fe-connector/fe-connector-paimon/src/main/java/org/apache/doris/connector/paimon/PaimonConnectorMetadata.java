@@ -92,8 +92,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
+        // M-11: wrap the remote read in executeAuthenticated so the FE-injected Kerberos UGI applies
+        // (legacy PaimonMetadataOps.listDatabaseNames wrapped it too). Full read-vs-DDL parity (D-052).
         try {
-            return catalogOps.listDatabases();
+            return context.executeAuthenticated(() -> catalogOps.listDatabases());
         } catch (Exception e) {
             LOG.warn("Failed to list Paimon databases", e);
             return Collections.emptyList();
@@ -102,21 +104,38 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public boolean databaseExists(ConnectorSession session, String dbName) {
+        // M-11: wrap the remote read in executeAuthenticated (D-052). DatabaseNotExistException is
+        // caught INSIDE the lambda: under Kerberos UGI.doAs would otherwise wrap the checked
+        // exception in UndeclaredThrowableException, so an outer catch would not match.
         try {
-            catalogOps.getDatabase(dbName);
-            return true;
-        } catch (Catalog.DatabaseNotExistException e) {
-            return false;
+            return context.executeAuthenticated(() -> {
+                try {
+                    catalogOps.getDatabase(dbName);
+                    return true;
+                } catch (Catalog.DatabaseNotExistException e) {
+                    return false;
+                }
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to check Paimon database existence " + dbName + ": " + e.getMessage(), e);
         }
     }
 
     @Override
     public List<String> listTableNames(ConnectorSession session, String dbName) {
+        // M-11: wrap the remote read in executeAuthenticated (D-052). DatabaseNotExistException is
+        // caught INSIDE the lambda (Kerberos UGI.doAs would wrap it otherwise); other failures fall
+        // to the outer catch, preserving the original empty-list-on-error behavior.
         try {
-            return catalogOps.listTables(dbName);
-        } catch (Catalog.DatabaseNotExistException e) {
-            LOG.warn("Database does not exist: {}", dbName);
-            return Collections.emptyList();
+            return context.executeAuthenticated(() -> {
+                try {
+                    return catalogOps.listTables(dbName);
+                } catch (Catalog.DatabaseNotExistException e) {
+                    LOG.warn("Database does not exist: {}", dbName);
+                    return Collections.<String>emptyList();
+                }
+            });
         } catch (Exception e) {
             LOG.warn("Failed to list tables in database: {}", dbName, e);
             return Collections.emptyList();
@@ -127,18 +146,26 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
         Identifier identifier = Identifier.create(dbName, tableName);
+        // M-11: wrap the remote getTable in executeAuthenticated (D-052). TableNotExistException is
+        // caught INSIDE the lambda (Kerberos UGI.doAs would wrap it otherwise) and yields an empty
+        // handle, exactly as before; the trailing handle build is pure (no remote call).
         try {
-            Table table = catalogOps.getTable(identifier);
-            List<String> partitionKeys = table.partitionKeys();
-            List<String> primaryKeys = table.primaryKeys();
-            PaimonTableHandle handle = new PaimonTableHandle(
-                    dbName, tableName,
-                    partitionKeys != null ? partitionKeys : Collections.emptyList(),
-                    primaryKeys != null ? primaryKeys : Collections.emptyList());
-            handle.setPaimonTable(table);
-            return Optional.of(handle);
-        } catch (Catalog.TableNotExistException e) {
-            return Optional.empty();
+            return context.executeAuthenticated(() -> {
+                Table table;
+                try {
+                    table = catalogOps.getTable(identifier);
+                } catch (Catalog.TableNotExistException e) {
+                    return Optional.<ConnectorTableHandle>empty();
+                }
+                List<String> partitionKeys = table.partitionKeys();
+                List<String> primaryKeys = table.primaryKeys();
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        dbName, tableName,
+                        partitionKeys != null ? partitionKeys : Collections.emptyList(),
+                        primaryKeys != null ? primaryKeys : Collections.emptyList());
+                handle.setPaimonTable(table);
+                return Optional.<ConnectorTableHandle>of(handle);
+            });
         } catch (Exception e) {
             LOG.warn("Failed to get Paimon table handle: {}.{}", dbName, tableName, e);
             return Optional.empty();
@@ -287,10 +314,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         String sys = sysName.toLowerCase(java.util.Locale.ROOT);
         Identifier sysId = new Identifier(
                 base.getDatabaseName(), base.getTableName(), "main", sys);
+        // M-11: wrap the remote getTable in executeAuthenticated (D-052). TableNotExistException is
+        // caught INSIDE the lambda (Kerberos UGI.doAs would wrap it otherwise) and signalled out as a
+        // null Table so this method can still short-circuit to Optional.empty().
         Table sysTable;
         try {
-            sysTable = catalogOps.getTable(sysId);
-        } catch (Catalog.TableNotExistException e) {
+            sysTable = context.executeAuthenticated(() -> {
+                try {
+                    return catalogOps.getTable(sysId);
+                } catch (Catalog.TableNotExistException e) {
+                    return null;
+                }
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Paimon system table: " + sysId, e);
+        }
+        if (sysTable == null) {
             return Optional.empty();
         }
         boolean forceJni = "binlog".equals(sys) || "audit_log".equals(sys);
@@ -889,13 +928,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Table table = resolveTable(paimonHandle);
         Identifier identifier = Identifier.create(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName());
+        // M-11: wrap the remote listPartitions in executeAuthenticated (D-052), mirroring legacy
+        // PaimonExternalCatalog.getPaimonPartitions which ran it inside executionAuthenticator.execute
+        // and swallowed TableNotExistException INSIDE the wrap (Kerberos UGI.doAs would otherwise wrap
+        // the checked exception, so it must be caught inside).
         List<Partition> paimonPartitions;
         try {
-            paimonPartitions = catalogOps.listPartitions(identifier);
-        } catch (Catalog.TableNotExistException e) {
-            // Legacy getPaimonPartitions swallows TableNotExistException and returns empty.
-            LOG.warn("Paimon table not found while listing partitions: {}", identifier, e);
-            return Collections.emptyList();
+            paimonPartitions = context.executeAuthenticated(() -> {
+                try {
+                    return catalogOps.listPartitions(identifier);
+                } catch (Catalog.TableNotExistException e) {
+                    LOG.warn("Paimon table not found while listing partitions: {}", identifier, e);
+                    return Collections.<Partition>emptyList();
+                }
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list Paimon partitions: " + identifier, e);
         }
 
         boolean legacyName = Boolean.parseBoolean(
@@ -983,8 +1031,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * <p>Preserves this site's original wrapping of a reload failure as a {@link RuntimeException}.
      */
     private Table resolveTable(PaimonTableHandle paimonHandle) {
+        // M-11: wrap the (possibly remote) reload in executeAuthenticated (D-052) so every metadata
+        // read path that resolves a table runs under the FE-injected Kerberos UGI. The transient-table
+        // fast path inside resolve issues no RPC, so the wrap is a no-op there. The existing catch-all
+        // absorbs the (under Kerberos, UGI.doAs-wrapped) reload failure exactly as before.
         try {
-            return PaimonTableResolver.resolve(catalogOps, paimonHandle);
+            return context.executeAuthenticated(() -> PaimonTableResolver.resolve(catalogOps, paimonHandle));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Paimon table: " + paimonHandle, e);
         }
