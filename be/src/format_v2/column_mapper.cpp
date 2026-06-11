@@ -2366,7 +2366,9 @@ Status TableColumnMapper::create_scan_request(
     RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
     RETURN_IF_ERROR(
             localize_filters(table_filters, table_column_predicates, file_request, runtime_state));
-    // 3. Re-build projections for all referenced file columns to point to the correct file-local block positions.
+    // 3. Rebuild output projection expressions for projected columns. localize_filters() has
+    // already applied the final scan projection to mapping.file_type/projected_file_children before
+    // rewriting filter expressions.
     for (auto& mapping : _mappings) {
         if (!mapping.file_local_id.has_value()) {
             continue;
@@ -2376,7 +2378,6 @@ Status TableColumnMapper::create_scan_request(
         DORIS_CHECK(position_it != file_request->local_positions.end())
                 << file_request->local_positions.size() << " " << *mapping.file_local_id << " "
                 << mapping.file_column_name;
-        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
         rebuild_projection(&mapping, position_it->second);
     }
     return Status::OK();
