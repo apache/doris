@@ -30,6 +30,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -42,6 +43,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -428,5 +430,69 @@ public class GsonSerializationTest {
         MultiMapClassA readClassA = MultiMapClassA.read(in);
         Assert.assertEquals(Sets.newHashSet(new Key(MyEnum.TYPE_A, "key1"), new Key(MyEnum.TYPE_B, "key2")),
                 readClassA.map.keySet());
+    }
+
+    /*
+     * The json format of Guava Table must be byte-compatible with the legacy tree mode
+     * GuavaTableAdapter, so that old journals can be replayed and rolling upgrade is safe.
+     */
+    @Test
+    public void testGuavaTableJsonFormat() {
+        Type tableType = new TypeToken<Table<Long, String, Long>>() {
+        }.getType();
+
+        Table<Long, String, Long> table = HashBasedTable.create();
+        table.put(1L, "col1", 10L);
+        String json = GsonUtils.GSON.toJson(table, tableType);
+        Assert.assertEquals(
+                "{\"clazz\":\"HashBasedTable\",\"rowKeys\":[1],\"columnKeys\":[\"col1\"],\"cells\":[0,0,10]}",
+                json);
+
+        String legacyJson = "{\"clazz\":\"HashBasedTable\",\"rowKeys\":[1,2],\"columnKeys\":[\"col1\",\"col2\"],"
+                + "\"cells\":[0,0,10,1,1,20]}";
+        Table<Long, String, Long> readTable = GsonUtils.GSON.fromJson(legacyJson, tableType);
+        Assert.assertEquals("HashBasedTable", readTable.getClass().getSimpleName());
+        Assert.assertEquals(2, readTable.size());
+        Assert.assertEquals(Long.valueOf(10L), readTable.get(1L, "col1"));
+        Assert.assertEquals(Long.valueOf(20L), readTable.get(2L, "col2"));
+    }
+
+    /*
+     * Same as SchemaChangeJobV2.partitionIndexTabletMap, the value of Table is a Map.
+     */
+    @Test
+    public void testGuavaTableWithComplexValue() {
+        Type tableType = new TypeToken<Table<Long, Long, Map<Long, Long>>>() {
+        }.getType();
+
+        Table<Long, Long, Map<Long, Long>> table = HashBasedTable.create();
+        Map<Long, Long> value = Maps.newHashMap();
+        value.put(100L, 200L);
+        table.put(1L, 2L, value);
+
+        String json = GsonUtils.GSON.toJson(table, tableType);
+        Table<Long, Long, Map<Long, Long>> readTable = GsonUtils.GSON.fromJson(json, tableType);
+        Assert.assertEquals(1, readTable.size());
+        Assert.assertEquals(value, readTable.get(1L, 2L));
+    }
+
+    /*
+     * The json format of Guava Multimap must be byte-compatible with the legacy tree mode
+     * GuavaMultimapAdapter.
+     */
+    @Test
+    public void testGuavaMultimapJsonFormat() {
+        Type multimapType = new TypeToken<Multimap<Long, String>>() {
+        }.getType();
+
+        Multimap<Long, String> multimap = ArrayListMultimap.create();
+        multimap.put(1L, "value1");
+        multimap.put(1L, "value2");
+        String json = GsonUtils.GSON.toJson(multimap, multimapType);
+        Assert.assertEquals("{\"clazz\":\"ArrayListMultimap\",\"map\":{\"1\":[\"value1\",\"value2\"]}}", json);
+
+        Multimap<Long, String> readMultimap = GsonUtils.GSON.fromJson(json, multimapType);
+        Assert.assertEquals("ArrayListMultimap", readMultimap.getClass().getSimpleName());
+        Assert.assertEquals(Lists.newArrayList("value1", "value2"), readMultimap.get(1L));
     }
 }
