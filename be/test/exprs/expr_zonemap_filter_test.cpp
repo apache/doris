@@ -389,7 +389,7 @@ TEST(ExprZonemapFilterTest, NullZonemapUsesNullFlagsOnly) {
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch, expr_zonemap::eval_null_zonemap(ctx, {slot}, false));
 }
 
-TEST(ExprZonemapFilterTest, StartsWithZonemapUsesPrefixRange) {
+TEST(ExprZonemapFilterTest, FunctionStringStartsWithZonemapUsesPrefixRange) {
     auto type = std::make_shared<DataTypeString>();
     auto slot = make_slot(0, type);
     auto starts_with = SimpleFunctionFactory::instance().get_function(
@@ -397,19 +397,41 @@ TEST(ExprZonemapFilterTest, StartsWithZonemapUsesPrefixRange) {
             ColumnsWithTypeAndName {{nullptr, type, "slot"}, {nullptr, type, "prefix"}},
             std::make_shared<DataTypeUInt8>());
     ASSERT_NE(starts_with, nullptr);
+    EXPECT_EQ("starts_with", starts_with->get_name());
 
     EXPECT_TRUE(starts_with->can_evaluate_zonemap_filter({slot, make_string_literal("ab")}));
     EXPECT_FALSE(starts_with->can_evaluate_zonemap_filter({slot, make_null_string_literal()}));
     EXPECT_FALSE(starts_with->can_evaluate_zonemap_filter({slot, make_string_literal("")}));
     EXPECT_FALSE(starts_with->can_evaluate_zonemap_filter({make_string_literal("ab"), slot}));
 
-    auto outside_ctx = make_context(make_string_zonemap("ac", "ad"), type);
+    auto below_prefix_ctx = make_context(make_string_zonemap("aa", "aa"), type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              starts_with->evaluate_zonemap_filter(outside_ctx, {slot, make_string_literal("ab")}));
+              starts_with->evaluate_zonemap_filter(below_prefix_ctx,
+                                                   {slot, make_string_literal("ab")}));
+
+    auto above_prefix_ctx = make_context(make_string_zonemap("ac", "ad"), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              starts_with->evaluate_zonemap_filter(above_prefix_ctx,
+                                                   {slot, make_string_literal("ab")}));
 
     auto overlap_ctx = make_context(make_string_zonemap("aa", "abz"), type);
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               starts_with->evaluate_zonemap_filter(overlap_ctx, {slot, make_string_literal("ab")}));
+
+    segment_v2::ZoneMap only_null;
+    only_null.has_null = true;
+    auto null_ctx = make_context(only_null, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              starts_with->evaluate_zonemap_filter(null_ctx, {slot, make_string_literal("ab")}));
+
+    std::string max_byte_prefix(1, static_cast<char>(0xff));
+    EXPECT_TRUE(
+            starts_with->can_evaluate_zonemap_filter({slot, make_string_literal(max_byte_prefix)}));
+    auto max_prefix_ctx =
+            make_context(make_string_zonemap(max_byte_prefix, max_byte_prefix + "z"), type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              starts_with->evaluate_zonemap_filter(max_prefix_ctx,
+                                                   {slot, make_string_literal(max_byte_prefix)}));
 }
 
 TEST(ExprZonemapFilterTest, CharZonemapUsesTrimmedLogicalBounds) {
