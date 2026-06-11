@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/sink/tablet_sink_hash_partitioner.h"
 
@@ -49,12 +50,25 @@ Status ExchangeWriterBase::_add_rows_impl(RuntimeState* state,
                                           size_t channel_count, Block* block, bool eos) {
     Status status = Status::OK();
     uint32_t offset = 0;
+    Block full_column_block;
+    Block* block_to_send = block;
+    for (size_t i = 0; i < block->columns(); ++i) {
+        if (is_column_const(*block->get_by_position(i).column)) {
+            full_column_block = *block;
+            for (size_t j = i; j < full_column_block.columns(); ++j) {
+                full_column_block.replace_by_position_if_const(j);
+            }
+            block_to_send = &full_column_block;
+            break;
+        }
+    }
     for (size_t i = 0; i < channel_count; ++i) {
         uint32_t size = _channel_rows_histogram[i];
         if (!channels[i]->is_receiver_eof() && size > 0) {
             VLOG_DEBUG << fmt::format("partition {} of {}, block:\n{}, start: {}, size: {}", i,
-                                      channel_count, block->dump_data(), offset, size);
-            status = channels[i]->add_rows(block, _origin_row_idx.data(), offset, size, false);
+                                      channel_count, block_to_send->dump_data(), offset, size);
+            status = channels[i]->add_rows(block_to_send, _origin_row_idx.data(), offset, size,
+                                           false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
         offset += size;
@@ -63,8 +77,8 @@ Status ExchangeWriterBase::_add_rows_impl(RuntimeState* state,
         for (int i = 0; i < channel_count; ++i) {
             if (!channels[i]->is_receiver_eof()) {
                 VLOG_DEBUG << fmt::format("EOS partition {} of {}, block:\n{}", i, channel_count,
-                                          block->dump_data());
-                status = channels[i]->add_rows(block, _origin_row_idx.data(), 0, 0, true);
+                                          block_to_send->dump_data());
+                status = channels[i]->add_rows(block_to_send, _origin_row_idx.data(), 0, 0, true);
                 HANDLE_CHANNEL_STATUS(state, channels[i], status);
             }
         }
