@@ -28,7 +28,7 @@
 | 3 | FIX-SCHEMA-EVOLUTION | BLOCKER | B-1a (M-10 deferred) | connector builds `current_schema_id`/`history_schema_info` thrift dict (Design C) | no¹ | ✅ | ✅ | ✅ 222/0/0 | ✅ `667f779af04` |
 | 4 | FIX-JDBC-DRIVER-URL | BLOCKER | B-8a + B-8b | resolve+alias `jdbc.driver_url` for BE; enforce security allow-list | no² | ✅ | ✅ | ✅ 232/0/0 | ✅ `2d15b1b7ed7` |
 | 5 | FIX-MAPPING-FLAG-KEYS | MAJOR | M-crit | dotted-vs-underscore type-mapping flag keys (wrong type) | no | ✅ | ✅ | ✅ 234/0/0 | ✅ `9dcf6d1a9e5` |
-| 6 | FIX-KERBEROS-DOAS | MAJOR | M-8 + M-11 | M-8: wire HDFS authenticator for fs/jdbc (fe-core); M-11: wrap ALL read RPCs in `executeAuthenticated` (connector, full legacy parity) | no³ | ✅ | ✅ | ✅ 248/0/0 + 14/0/0 | ⬜ |
+| 6 | FIX-KERBEROS-DOAS | MAJOR | M-8 + M-11 | M-8: wire HDFS authenticator for fs/jdbc (fe-core); M-11: wrap ALL read RPCs in `executeAuthenticated` (connector, full legacy parity) | no³ | ✅ | ✅ | ✅ 248/0/0 + 21/0/0 | ✅ `2b1442fa57a` |
 | 7 | FIX-FORCE-JNI-SCANNER | MAJOR | M-1 | honor `force_jni_scanner` session var on connector scan | no | ⬜ | ⬜ | ⬜ | ⬜ |
 | 8 | FIX-COUNT-PUSHDOWN | MAJOR* | M-2 | FE-computed `mergedRowCount` / `paimon.row_count` (perf) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 | 9 | FIX-NATIVE-SUBSPLIT | MAJOR* | M-3 | native ORC/Parquet sub-file splitting (parallelism) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
