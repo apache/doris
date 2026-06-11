@@ -260,6 +260,25 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+VExprSPtr table_struct_child_int32_greater_than_expr(int slot_id, int column_id,
+                                                     const DataTypePtr& struct_type,
+                                                     const std::string& column_name,
+                                                     const std::string& child_name, int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto child_expr = table_function_expr("struct_element", int_type, {struct_type, string_type});
+    child_expr->add_child(
+            TableSlotRef::create_shared(slot_id, column_id, slot_id, struct_type, column_name));
+    child_expr->add_child(
+            TableLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(child_name)));
+
+    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
+                                    TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    expr->add_child(child_expr);
+    expr->add_child(table_int32_literal(value));
+    return expr;
+}
+
 class NullableArrayBigintDefaultExpr final : public VExpr {
 public:
     explicit NullableArrayBigintDefaultExpr(DataTypePtr data_type)
@@ -4087,6 +4106,63 @@ TEST(TableColumnMapperTest, MatchingProjectedStructDoesNotNeedComplexRemateriali
     EXPECT_EQ(projection.children[0].local_id(), 1);
     EXPECT_EQ(projection.children[1].local_id(), 2);
     EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+}
+
+TEST(TableColumnMapperTest, PredicateProjectionRebuildsProjectedStructFileType) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    auto table_struct =
+            make_table_column(10, "s",
+                              std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+                                                               Strings {"a", "b"}));
+    table_struct.children = {
+            make_table_column(1, "a", int_type),
+            make_table_column(2, "b", string_type),
+    };
+
+    auto file_struct = make_file_column(
+            10, "s",
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type, int_type},
+                                             Strings {"a", "b", "c"}));
+    file_struct.children = {
+            make_file_column(1, "a", int_type),
+            make_file_column(2, "b", string_type),
+            make_file_column(3, "c", int_type),
+    };
+
+    const std::vector<ColumnDefinition> projected_columns = {table_struct};
+    const std::vector<ColumnDefinition> file_schema = {file_struct};
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(table_struct_child_int32_greater_than_expr(
+                    0, 0, table_struct.type, "s", "c", 0)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+
+    ASSERT_EQ(file_request.predicate_columns.size(), 1);
+    EXPECT_TRUE(file_request.non_predicate_columns.empty());
+    const auto& projection = file_request.predicate_columns[0];
+    EXPECT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 3);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
+    EXPECT_EQ(projection.children[1].local_id(), 2);
+    EXPECT_EQ(projection.children[2].local_id(), 3);
+
+    const auto* mapped_type = assert_cast<const DataTypeStruct*>(
+            remove_nullable(mapper.mappings()[0].file_type).get());
+    ASSERT_EQ(mapped_type->get_elements().size(), 3);
+    EXPECT_EQ(mapped_type->get_element_name(0), "a");
+    EXPECT_EQ(mapped_type->get_element_name(1), "b");
+    EXPECT_EQ(mapped_type->get_element_name(2), "c");
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
 }
 
 TEST(TableColumnMapperByIndexTest, SparseProjectionMapsByExplicitFileIndex) {

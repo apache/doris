@@ -1867,6 +1867,9 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
 
 using FilterProjectionMap = std::map<LocalColumnId, LocalColumnIndex>;
 
+// Update the mapping's file type according to the projection, and determine whether the projection
+// is trivial (i.e. the projected file type is the same as the table type, so no need to
+// rematerialize the complex value back to table layout after reading from file).
 static Status apply_projection_to_mapping_file_type(const LocalColumnIndex& projection,
                                                     ColumnMapping* mapping) {
     DORIS_CHECK(mapping != nullptr);
@@ -1955,9 +1958,6 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
     } else {
         scan_columns->push_back(std::move(projection));
     }
-    // FIXME: only `apply_projection_to_mapping_file_type` if exists == true ?
-    RETURN_IF_ERROR(apply_projection_to_mapping_file_type(
-            exists ? *existing_projection_it : scan_columns->back(), mapping));
     if (is_predicate_column) {
         // TODO: if the same column is used in both predicate and non-predicate projections, we can merge the two projections and only keep it in predicate_columns.
         auto it = std::ranges::find_if(
@@ -1968,6 +1968,30 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         }
     }
     return Status::OK();
+}
+
+static const LocalColumnIndex* find_scan_projection(
+        const std::vector<LocalColumnIndex>& scan_columns, LocalColumnId file_column_id) {
+    const auto projection_it =
+            std::ranges::find_if(scan_columns, [&](const LocalColumnIndex& projection) {
+                return projection.column_id() == file_column_id;
+            });
+    return projection_it == scan_columns.end() ? nullptr : &*projection_it;
+}
+
+static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& file_request,
+                                                         ColumnMapping* mapping) {
+    DORIS_CHECK(mapping != nullptr);
+    DORIS_CHECK(mapping->file_local_id.has_value());
+    const auto file_column_id = LocalColumnId(*mapping->file_local_id);
+    // Predicate columns are the actual scan projection when a column is used by row-level filters:
+    // add_scan_column() removes the duplicate non-predicate projection in that case.
+    const auto* projection = find_scan_projection(file_request.predicate_columns, file_column_id);
+    if (projection == nullptr) {
+        projection = find_scan_projection(file_request.non_predicate_columns, file_column_id);
+    }
+    DORIS_CHECK(projection != nullptr);
+    return apply_projection_to_mapping_file_type(*projection, mapping);
 }
 
 static Status build_filter_projection_map(const std::vector<TableFilter>& table_filters,
@@ -2259,6 +2283,7 @@ Status TableColumnMapper::create_scan_request(
         DORIS_CHECK(position_it != file_request->local_positions.end())
                 << file_request->local_positions.size() << " " << *mapping.file_local_id << " "
                 << mapping.file_column_name;
+        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
         rebuild_projection(&mapping, position_it->second);
     }
     return Status::OK();
