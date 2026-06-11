@@ -112,14 +112,6 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
     return std::nullopt;
 }
 
-const segment_v2::ZoneMap* fetch_zone_map(const ZoneMapEvalContext& ctx, int slot_index) {
-    const auto* zone_map = ctx.zone_map(slot_index);
-    if (zone_map == nullptr) {
-        ++ctx.stats.unusable_zonemap_eval_count;
-    }
-    return zone_map;
-}
-
 bool range_stats_usable_for_zonemap(const segment_v2::ZoneMap& zone_map,
                                     const DataTypePtr& data_type) {
     if (zone_map.pass_all || zone_map.has_nan || zone_map.has_positive_inf ||
@@ -138,9 +130,9 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
     DORIS_CHECK(arguments.size() == 1);
     auto slot = slot_from_expr(arguments[0]);
     DORIS_CHECK(slot.has_value());
-    const auto* zone_map_ref = fetch_zone_map(ctx, slot->index);
+    const auto* zone_map_ref = ctx.zone_map(slot->index);
     if (zone_map_ref == nullptr) {
-        return ZoneMapFilterResult::kUnsupported;
+        return unsupported_zonemap_filter(ctx);
     }
     const auto& zone_map = *zone_map_ref;
     if (is_null) {
@@ -176,9 +168,9 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     if (slot_type == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
     }
-    const auto* zone_map_ref = fetch_zone_map(ctx, slot->index);
+    const auto* zone_map_ref = ctx.zone_map(slot->index);
     if (zone_map_ref == nullptr) {
-        return ZoneMapFilterResult::kUnsupported;
+        return unsupported_zonemap_filter(ctx);
     }
     const auto& zone_map = *zone_map_ref;
     if (!zone_map.has_not_null) {

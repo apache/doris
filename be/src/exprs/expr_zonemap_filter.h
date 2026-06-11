@@ -93,8 +93,6 @@ inline bool field_greater_equal(const Field& lhs, const Field& rhs) {
     return cmp == std::strong_ordering::greater || cmp == std::strong_ordering::equal;
 }
 
-const segment_v2::ZoneMap* fetch_zone_map(const ZoneMapEvalContext& ctx, int slot_index);
-
 bool range_stats_usable_for_zonemap(const segment_v2::ZoneMap& zone_map,
                                     const DataTypePtr& data_type);
 

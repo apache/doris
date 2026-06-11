@@ -88,9 +88,9 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
     if (slot_type == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
     }
-    const auto* zone_map_ref = expr_zonemap::fetch_zone_map(ctx, slot_literal->slot_index);
+    const auto* zone_map_ref = ctx.zone_map(slot_literal->slot_index);
     if (zone_map_ref == nullptr) {
-        return ZoneMapFilterResult::kUnsupported;
+        return unsupported_zonemap_filter(ctx);
     }
     const auto& zone_map = *zone_map_ref;
     if (!zone_map.has_not_null) {
