@@ -3179,8 +3179,8 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
         MutableColumnPtr flattend_column = col_arr->get_data_ptr()->assert_mutable();
-        DataTypePtr flattend_type = DataTypeFactory::instance().create_data_type(
-                FieldType::OLAP_FIELD_TYPE_BIGINT, 0, 0);
+        DataTypePtr flattend_type = make_nullable(DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_BIGINT, 0, 0));
         // add sub path without parent prefix
         PathInData sub_path("k");
         nested_object_ptr->add_sub_column(sub_path, std::move(flattend_column),
