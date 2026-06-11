@@ -211,5 +211,112 @@ suite("test_hot_value") {
     assertEquals(1, result.size())
     assertEquals("' : ;a':1.0", result[0][17])
 
-    sql """drop database if exists test_hot_value"""
+    sql """set enable_dphyp_optimizer=true"""
+    sql """
+        WITH cte1 AS (
+        SELECT
+            MAX(t0.`col_value`) as `col_value`,
+            COUNT(1) as `count`,
+            SUM(`len`) as `column_length`
+        FROM
+            (
+                SELECT
+                    xxhash_64(SUBSTRING(CAST(`value1` AS STRING), 1, 1024)) AS `hash_value`,
+                    `value1` AS `col_value`,
+                    LENGTH(`value1`) as `len`,
+                    assert_true(
+                        `value1` IS NULL
+                        OR LENGTH(`value1`) <= 1024,
+                        'ANALYZE_SKIP_LONG_STRING_COLUMN'
+                    ) AS `__lc`
+                FROM
+                    `internal`.`test_hot_value`.`test1` TABLET(1781162157680)
+                limit
+                    400
+            ) as `t0`
+        GROUP BY
+            `t0`.`hash_value`
+    ),
+    cte2 AS (
+        SELECT
+            CONCAT('1781162157676', '-', '-1', '-', 'value1') AS `id`,
+            0 AS `catalog_id`,
+            1781162157674 AS `db_id`,
+            1781162157676 AS `tbl_id`,
+            -1 AS `idx_id`,
+            'value1' AS `col_id`,
+            NULL AS `part_id`,
+            10000 AS `row_count`,
+            SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (
+                SUM(`t1`.`count`) - SUM(
+                    IF(
+                        `t1`.`count` = 1
+                        and `t1`.`col_value` is not null,
+                        1,
+                        0
+                    )
+                ) + SUM(
+                    IF(
+                        `t1`.`count` = 1
+                        and `t1`.`col_value` is not null,
+                        1,
+                        0
+                    )
+                ) * SUM(`t1`.`count`) / 10000
+            ) as `ndv`,
+            IFNULL(
+                SUM(IF(`t1`.`col_value` IS NULL, `t1`.`count`, 0)),
+                0
+            ) * 25.0 as `null_count`,
+            SUBSTRING(CAST('0' AS STRING), 1, 1024) AS `min`,
+            SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `max`,
+            SUM(`column_length`) * 25.0 AS `data_size`,
+            NOW()
+        FROM
+            cte1 t1
+    ),
+    cte3 AS (
+        SELECT
+            IFNULL(
+                GROUP_CONCAT(
+                    CONCAT(
+                        REPLACE(REPLACE(t2.`col_value`, ":", "\\:"), ";", "\\;"),
+                        " :",
+                        ROUND(
+                            t2.`count` / (
+                                SELECT
+                                    SUM(`count`)
+                                FROM
+                                    cte1
+                                WHERE
+                                    `col_value` IS NOT NULL
+                            ),
+                            2
+                        )
+                    ),
+                    " ;"
+                ),
+                ''
+            ) as `hot_value`
+        FROM
+            (
+                SELECT
+                    `col_value`,
+                    `count`
+                FROM
+                    cte1
+                WHERE
+                    `col_value` IS NOT NULL
+                ORDER BY
+                    `count` DESC
+                LIMIT
+                    10
+            ) t2
+    )
+    SELECT
+        *
+    FROM
+        cte2
+        CROSS JOIN cte3;
+    """
 }
