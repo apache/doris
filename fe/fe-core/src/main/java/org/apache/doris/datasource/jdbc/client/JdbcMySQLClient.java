@@ -74,6 +74,26 @@ public class JdbcMySQLClient extends JdbcClient {
         this.dbType = dbType;
     }
 
+    // -------------------------------------------------------------------------
+    // --- NEW CODE START: 插入这个方法来解决 Issue #60163 ---
+    // -------------------------------------------------------------------------
+    @Override
+    protected String getCatalogUri() {
+        String baseUri = super.getCatalogUri();
+        // 检查并追加 remarks=true，这是 MySQL 获取 table comment 的关键
+        if (!baseUri.contains("remarks")) {
+            baseUri = baseUri + (baseUri.contains("?") ? "&" : "?") + "remarks=true";
+        }
+        // 追加 useInformationSchema=true 以确保元数据读取行为符合预期
+        if (!baseUri.contains("useInformationSchema")) {
+            baseUri = baseUri + "&useInformationSchema=true";
+        }
+        return baseUri;
+    }
+    // -------------------------------------------------------------------------
+    // --- NEW CODE END ---
+    // -------------------------------------------------------------------------
+    
     @Override
     public String getTableComment(String remoteDbName, String remoteTableName) {
         ImmutableList.Builder<String> tableCommentBuilder = ImmutableList.builder();
