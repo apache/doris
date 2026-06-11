@@ -1968,6 +1968,14 @@ static const LocalColumnIndex* find_scan_projection(
     return projection_it == scan_columns.end() ? nullptr : &*projection_it;
 }
 
+// Apply the final scan projection of one root file column back to its ColumnMapping. This updates
+// mapping.file_type/projected_file_children from the original file schema to the exact shape that
+// FileReader will return.
+//
+// Example: for `SELECT s.a WHERE s.b > 1`, add_scan_column() keeps only one predicate scan
+// projection `s -> a,b`. Applying that projection changes the mapping's file type from the full
+// file struct `s<a,b,c>` to the projected file struct `s<a,b>`, so later filter rewrite and
+// TableReader final materialization use the same column shape as the file-local block.
 static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& file_request,
                                                          ColumnMapping* mapping) {
     DORIS_CHECK(mapping != nullptr);
