@@ -70,7 +70,7 @@
 #include "storage/segment/page_pointer.h" // for PagePointer
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_file_access_range_builder.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h" // for TypeInfo
@@ -279,7 +279,13 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
+          _file_reader_factory(opts.file_reader_factory),
           _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
+    // The factory is stored separately from _opts because _opts is copied into
+    // page-read options and metadata helpers. Keeping the factory out of _opts
+    // avoids retaining a ColumnReaderCache-capturing lambda in code paths that
+    // only need immutable column metadata.
+    _opts.file_reader_factory = nullptr;
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -289,6 +295,19 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
+}
+
+Result<io::FileReaderSPtr> ColumnReader::_new_data_file_reader() const {
+    // This is intentionally called by FileColumnIterator::init() instead of by
+    // ColumnReader::create(). A cached ColumnReader can be shared by many scan
+    // iterators, while every FileColumnIterator needs its own data reader when
+    // cache-block prefetch is enabled. Returning the shared reader in the
+    // fallback path keeps the old behavior for local files and for scans that do
+    // not request cache-aware prefetch.
+    if (_file_reader_factory) {
+        return _file_reader_factory();
+    }
+    return _file_reader;
 }
 
 ColumnReader::~ColumnReader() = default;
@@ -940,27 +959,30 @@ Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     return Status::OK();
 }
 
-Status MapFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
-    RETURN_IF_ERROR(_offsets_iterator->init_prefetcher(params));
+Status MapFileColumnIterator::init_cache_block_prefetch(
+        const SegmentCacheBlockPrefetchParams& params) {
+    RETURN_IF_ERROR(_offsets_iterator->init_cache_block_prefetch(params));
     if (_map_reader->is_nullable()) {
-        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_null_iterator->init_cache_block_prefetch(params));
     }
-    RETURN_IF_ERROR(_key_iterator->init_prefetcher(params));
-    RETURN_IF_ERROR(_val_iterator->init_prefetcher(params));
+    RETURN_IF_ERROR(_key_iterator->init_cache_block_prefetch(params));
+    RETURN_IF_ERROR(_val_iterator->init_cache_block_prefetch(params));
     return Status::OK();
 }
 
-void MapFileColumnIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
-    _offsets_iterator->collect_prefetchers(prefetchers, init_method);
+void MapFileColumnIterator::collect_cache_block_prefetch_iterators(
+        std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+        FileAccessRangeBuildMethod init_method) {
+    _offsets_iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
     if (_map_reader->is_nullable()) {
-        _null_iterator->collect_prefetchers(prefetchers, init_method);
+        _null_iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
     }
     // the actual data pages to read of key/value column depends on the read result of offset column,
     // so we can't init prefetch blocks according to rowids, just prefetch all data blocks here.
-    _key_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
-    _val_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
+    _key_iterator->collect_cache_block_prefetch_iterators(
+            iterators, FileAccessRangeBuildMethod::ALL_DATA_PAGES);
+    _val_iterator->collect_cache_block_prefetch_iterators(
+            iterators, FileAccessRangeBuildMethod::ALL_DATA_PAGES);
 }
 
 Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
@@ -1480,24 +1502,25 @@ Status StructFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     return Status::OK();
 }
 
-Status StructFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+Status StructFileColumnIterator::init_cache_block_prefetch(
+        const SegmentCacheBlockPrefetchParams& params) {
     for (auto& column_iterator : _sub_column_iterators) {
-        RETURN_IF_ERROR(column_iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(column_iterator->init_cache_block_prefetch(params));
     }
     if (_struct_reader->is_nullable()) {
-        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_null_iterator->init_cache_block_prefetch(params));
     }
     return Status::OK();
 }
 
-void StructFileColumnIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
+void StructFileColumnIterator::collect_cache_block_prefetch_iterators(
+        std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+        FileAccessRangeBuildMethod init_method) {
     for (auto& column_iterator : _sub_column_iterators) {
-        column_iterator->collect_prefetchers(prefetchers, init_method);
+        column_iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
     }
     if (_struct_reader->is_nullable()) {
-        _null_iterator->collect_prefetchers(prefetchers, init_method);
+        _null_iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
     }
 }
 
@@ -1656,14 +1679,15 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     return Status::OK();
 }
 
-Status OffsetFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
-    return _offset_iterator->init_prefetcher(params);
+Status OffsetFileColumnIterator::init_cache_block_prefetch(
+        const SegmentCacheBlockPrefetchParams& params) {
+    return _offset_iterator->init_cache_block_prefetch(params);
 }
 
-void OffsetFileColumnIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
-    _offset_iterator->collect_prefetchers(prefetchers, init_method);
+void OffsetFileColumnIterator::collect_cache_block_prefetch_iterators(
+        std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+        FileAccessRangeBuildMethod init_method) {
+    _offset_iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
 }
 
 /**
@@ -1845,24 +1869,26 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
     return Status::OK();
 }
 
-Status ArrayFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
-    RETURN_IF_ERROR(_offset_iterator->init_prefetcher(params));
-    RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
+Status ArrayFileColumnIterator::init_cache_block_prefetch(
+        const SegmentCacheBlockPrefetchParams& params) {
+    RETURN_IF_ERROR(_offset_iterator->init_cache_block_prefetch(params));
+    RETURN_IF_ERROR(_item_iterator->init_cache_block_prefetch(params));
     if (_array_reader->is_nullable()) {
-        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_null_iterator->init_cache_block_prefetch(params));
     }
     return Status::OK();
 }
 
-void ArrayFileColumnIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
-    _offset_iterator->collect_prefetchers(prefetchers, init_method);
+void ArrayFileColumnIterator::collect_cache_block_prefetch_iterators(
+        std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+        FileAccessRangeBuildMethod init_method) {
+    _offset_iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
     // the actual data pages to read of item column depends on the read result of offset column,
     // so we can't init prefetch blocks according to rowids, just prefetch all data blocks here.
-    _item_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
+    _item_iterator->collect_cache_block_prefetch_iterators(
+            iterators, FileAccessRangeBuildMethod::ALL_DATA_PAGES);
     if (_array_reader->is_nullable()) {
-        _null_iterator->collect_prefetchers(prefetchers, init_method);
+        _null_iterator->collect_cache_block_prefetch_iterators(iterators, init_method);
     }
 }
 
@@ -2040,6 +2066,15 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     }
 
     _opts = opts;
+    // Install the physical data reader for this iterator before any page read.
+    // When cache-block prefetch is enabled, this call opens a dedicated
+    // CacheBlockAwarePrefetchRemoteReader for this iterator. All subsequent
+    // PageIO reads use _opts.file_reader, so data-page and dict-page read_at()
+    // calls advance only this iterator's single prefetch pattern. Other columns
+    // or another scan over the same column have their own FileColumnIterator and
+    // therefore their own reader/pattern state.
+    _data_file_reader = DORIS_TRY(_reader->_new_data_file_reader());
+    _opts.file_reader = _data_file_reader.get();
     if (!_opts.use_page_cache) {
         _reader->disable_index_meta_cache();
     }
@@ -2069,26 +2104,10 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 
 FileColumnIterator::~FileColumnIterator() = default;
 
-void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
-    std::vector<BlockRange> ranges;
-    if (_prefetcher->need_prefetch(cast_set<uint32_t>(ord), &ranges)) {
-        for (const auto& range : ranges) {
-            _cached_remote_file_reader->prefetch_range(range.offset, range.size, &_opts.io_ctx);
-        }
-    }
-}
-
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         return Status::OK();
-    }
-
-    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
-            "[verbose] FileColumnIterator::seek_to_ordinal seek to ordinal {}, enable_prefetch={}",
-            ord, _enable_prefetch);
-    if (_enable_prefetch) {
-        _trigger_prefetch_if_eligible(ord);
     }
 
     // if current page contains this row, we don't need to seek
@@ -2410,6 +2429,12 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] FileColumnIterator::_read_data_page page_offset={}, has_prefetch_pattern={}",
+            iter.page().offset,
+            _cache_block_prefetch_reader != nullptr &&
+                    _cache_block_prefetch_reader->has_read_pattern());
+
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
@@ -2509,24 +2534,57 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
     return Status::OK();
 }
 
-Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
-    if (_cached_remote_file_reader =
-                std::dynamic_pointer_cast<io::CachedRemoteFileReader>(_reader->_file_reader);
-        !_cached_remote_file_reader) {
+Status FileColumnIterator::init_cache_block_prefetch(
+        const SegmentCacheBlockPrefetchParams& params) {
+    // _data_file_reader is iterator-local. If it is cache-block aware, the
+    // pattern installed below belongs only to this iterator. That is why
+    // FileColumnIterator no longer has to keep a pattern handle or call prefetch
+    // before every page read: CacheBlockAwarePrefetchRemoteReader::read_at()
+    // observes the actual file offset used by PageIO and advances the single
+    // pattern itself.
+    _cache_block_prefetch_reader =
+            std::dynamic_pointer_cast<io::CacheBlockAwarePrefetchRemoteReader>(_data_file_reader);
+    if (!_cache_block_prefetch_reader) {
         return Status::OK();
     }
-    _enable_prefetch = true;
-    _prefetcher = std::make_unique<SegmentPrefetcher>(params.config);
-    RETURN_IF_ERROR(_prefetcher->init(_reader, params.read_options));
+
+    OrdinalIndexReader* ordinal_index = nullptr;
+    RETURN_IF_ERROR(_reader->get_ordinal_index_reader(ordinal_index, params.read_options.stats));
+    _cache_block_prefetch_policy = params.policy;
+    _cache_block_read_direction = params.read_options.read_orderby_key_reverse
+                                          ? io::CacheBlockReadDirection::BACKWARD
+                                          : io::CacheBlockReadDirection::FORWARD;
+    _access_range_builder = std::make_unique<SegmentFileAccessRangeBuilder>(
+            ordinal_index, _cache_block_read_direction);
     return Status::OK();
 }
 
-void FileColumnIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
-    if (_prefetcher) {
-        prefetchers[init_method].emplace_back(_prefetcher.get());
+void FileColumnIterator::collect_cache_block_prefetch_iterators(
+        std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+        FileAccessRangeBuildMethod init_method) {
+    if (_access_range_builder) {
+        iterators[init_method].emplace_back(this);
     }
+}
+
+Status FileColumnIterator::install_cache_block_prefetch_pattern(
+        std::vector<io::FileAccessRange> ranges) {
+    DCHECK(_cache_block_prefetch_reader != nullptr);
+    // SegmentIterator builds these ranges once after index pruning. The ranges
+    // describe the file offsets this physical iterator will read later. Because
+    // the cache-aware reader is not shared, replacing its one pattern here cannot
+    // disturb any sibling column iterator or another scan iterator.
+    io::CacheBlockReadPattern pattern {
+            .direction = _cache_block_read_direction,
+            .ranges = std::move(ranges),
+    };
+    return _cache_block_prefetch_reader->set_read_pattern(std::move(pattern),
+                                                          _cache_block_prefetch_policy);
+}
+
+void FileColumnIterator::async_touch_cache_block_prefetch_initial_window() {
+    DCHECK(_cache_block_prefetch_reader != nullptr);
+    _cache_block_prefetch_reader->async_touch_initial_window(&_opts.io_ctx);
 }
 
 Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {

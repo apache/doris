@@ -30,6 +30,7 @@
 #include <numeric>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -66,7 +67,6 @@
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
@@ -101,7 +101,7 @@
 #include "storage/segment/condition_cache.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_file_access_range_builder.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 #include "storage/tablet/tablet_schema.h"
@@ -700,13 +700,13 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     _lazy_inited = true;
 
-    _init_segment_prefetchers();
+    _init_cache_block_prefetch();
 
     return Status::OK();
 }
 
-void SegmentIterator::_init_segment_prefetchers() {
-    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_segment_prefetchers_timer_ns);
+void SegmentIterator::_init_cache_block_prefetch() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_cache_block_prefetch_timer_ns);
     if (!config::is_cloud_mode()) {
         return;
     }
@@ -717,12 +717,12 @@ void SegmentIterator::_init_segment_prefetchers() {
                              [&](ReaderType t) { return _opts.io_ctx.reader_type == t; })) {
         return;
     }
-    // Initialize segment prefetcher for predicate and non-predicate columns
     bool is_query = (_opts.io_ctx.reader_type == ReaderType::READER_QUERY);
     bool enable_prefetch = is_query ? config::enable_query_segment_file_cache_prefetch
                                     : config::enable_compaction_segment_file_cache_prefetch;
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
-            "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, enable_prefetch={}, "
+            "[verbose] SegmentIterator _init_cache_block_prefetch, is_query={}, "
+            "enable_prefetch={}, "
             "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, tablet={}, rowset={}, "
             "segment={}, predicate_column_ids={}, common_expr_column_ids={}",
             is_query, enable_prefetch, _row_bitmap.isEmpty(), _row_bitmap.cardinality(),
@@ -736,27 +736,36 @@ void SegmentIterator::_init_segment_prefetchers() {
                 "[verbose] SegmentIterator prefetch config: window_size={}", window_size);
         if (window_size > 0 &&
             !_column_iterators.empty()) { // ensure init_iterators has been called
-            SegmentPrefetcherConfig prefetch_config(window_size,
-                                                    config::file_cache_each_block_size);
+            // This runs after segment open, index pruning, and iterator initialization. At this
+            // point _row_bitmap describes the candidate rows left by segment-level indexes. For
+            // predicate columns, those candidates are definitely read to evaluate predicates; for
+            // non-predicate/common-expression columns under lazy materialization, the final rowids
+            // are produced batch by batch after predicate filtering. Each physical column iterator
+            // owns an independent CacheBlockAwarePrefetchRemoteReader, so the installed pattern is
+            // consumed automatically by read_at() using the current file offset.
+            io::CacheBlockPrefetchPolicy prefetch_policy {
+                    .max_prefetch_blocks = cast_set<size_t>(window_size),
+                    .cache_block_size = cast_set<size_t>(config::file_cache_each_block_size),
+            };
             for (auto cid : _schema->column_ids()) {
                 auto& column_iter = _column_iterators[cid];
                 if (column_iter == nullptr) {
                     continue;
                 }
                 const auto* tablet_column = _schema->column(cid);
-                SegmentPrefetchParams params {
-                        .config = prefetch_config,
+                SegmentCacheBlockPrefetchParams params {
+                        .policy = prefetch_policy,
                         .read_options = _opts,
                 };
                 LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
-                        "[verbose] SegmentIterator init_segment_prefetchers, "
+                        "[verbose] SegmentIterator init_cache_block_prefetch, "
                         "tablet={}, rowset={}, segment={}, column_id={}, col_name={}, type={}",
                         _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(), cid,
                         tablet_column->name(), tablet_column->type());
-                Status st = column_iter->init_prefetcher(params);
+                Status st = column_iter->init_cache_block_prefetch(params);
                 if (!st.ok()) {
                     LOG_IF(WARNING, config::enable_segment_prefetch_verbose_log) << fmt::format(
-                            "[verbose] failed to init prefetcher for column_id={}, "
+                            "[verbose] failed to init cache block prefetch for column_id={}, "
                             "tablet={}, rowset={}, segment={}, error={}",
                             cid, _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
                             st.to_string());
@@ -764,22 +773,84 @@ void SegmentIterator::_init_segment_prefetchers() {
             }
 
             // for compaction, it's guaranteed that all rows are read, so we can prefetch all data blocks
-            PrefetcherInitMethod init_method = (is_query && _row_bitmap.cardinality() < num_rows())
-                                                       ? PrefetcherInitMethod::FROM_ROWIDS
-                                                       : PrefetcherInitMethod::ALL_DATA_BLOCKS;
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
-            for (const auto& column_iter : _column_iterators) {
-                if (column_iter != nullptr) {
-                    column_iter->collect_prefetchers(prefetchers, init_method);
+            FileAccessRangeBuildMethod init_method =
+                    (is_query && _row_bitmap.cardinality() < num_rows())
+                            ? FileAccessRangeBuildMethod::FROM_ROWIDS
+                            : FileAccessRangeBuildMethod::ALL_DATA_PAGES;
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>> prefetch_iterators;
+            // Different columns in the same segment have independently predictable and monotonic
+            // data-page sequences. With prefetch enabled they no longer share the same
+            // CacheBlockAwarePrefetchRemoteReader; installing one pattern per physical iterator
+            // is enough, and the IO layer advances that pattern from subsequent read_at() calls.
+            //
+            // Predicate columns are special: the row ranges installed here are exactly the
+            // candidates that must be read to evaluate predicates for this segment. After their
+            // patterns are installed, we can immediately touch the first prefetch window before
+            // PageIO issues the first foreground read. Non-predicate/common-expression columns
+            // are different under lazy materialization: their exact rowids are produced batch by
+            // batch after predicate evaluation, so they keep the normal read_at()-triggered path.
+            auto is_predicate_column = [&](ColumnId cid) {
+                return std::ranges::find(_predicate_column_ids, cid) != _predicate_column_ids.end();
+            };
+            std::unordered_set<ColumnIterator*> initial_touch_iterators;
+            for (auto cid : _schema->column_ids()) {
+                auto& column_iter = _column_iterators[cid];
+                if (column_iter == nullptr) {
+                    continue;
+                }
+                std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>
+                        column_prefetch_iterators;
+                column_iter->collect_cache_block_prefetch_iterators(column_prefetch_iterators,
+                                                                    init_method);
+                for (auto& [method, iterators] : column_prefetch_iterators) {
+                    if (is_predicate_column(cid)) {
+                        initial_touch_iterators.insert(iterators.begin(), iterators.end());
+                    }
+                    prefetch_iterators[method].insert(prefetch_iterators[method].end(),
+                                                      iterators.begin(), iterators.end());
                 }
             }
-            for (auto& [method, prefetcher_vec] : prefetchers) {
-                if (method == PrefetcherInitMethod::ALL_DATA_BLOCKS) {
-                    for (auto* prefetcher : prefetcher_vec) {
-                        prefetcher->build_all_data_blocks();
+
+            for (auto& [method, iterators] : prefetch_iterators) {
+                if (method == FileAccessRangeBuildMethod::ALL_DATA_PAGES) {
+                    for (auto* iterator : iterators) {
+                        auto* builder = iterator->cache_block_prefetch_range_builder();
+                        DCHECK(builder != nullptr);
+                        Status st = iterator->install_cache_block_prefetch_pattern(
+                                builder->build_all_data_page_ranges());
+                        LOG_IF(WARNING, !st.ok()) << fmt::format(
+                                "failed to install cache block prefetch pattern, tablet={}, "
+                                "rowset={}, segment={}, error={}",
+                                _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
+                                st.to_string());
+                        if (st.ok() && initial_touch_iterators.contains(iterator)) {
+                            iterator->async_touch_cache_block_prefetch_initial_window();
+                        }
                     }
-                } else if (method == PrefetcherInitMethod::FROM_ROWIDS && !prefetcher_vec.empty()) {
-                    SegmentPrefetcher::build_blocks_by_rowids(_row_bitmap, prefetcher_vec);
+                } else if (method == FileAccessRangeBuildMethod::FROM_ROWIDS &&
+                           !iterators.empty()) {
+                    std::vector<SegmentFileAccessRangeBuilder*> builders;
+                    builders.reserve(iterators.size());
+                    for (auto* iterator : iterators) {
+                        auto* builder = iterator->cache_block_prefetch_range_builder();
+                        DCHECK(builder != nullptr);
+                        builders.emplace_back(builder);
+                    }
+                    SegmentFileAccessRangeBuilder::add_rowids_from_bitmap(_row_bitmap, builders);
+                    for (auto* iterator : iterators) {
+                        auto* builder = iterator->cache_block_prefetch_range_builder();
+                        DCHECK(builder != nullptr);
+                        Status st = iterator->install_cache_block_prefetch_pattern(
+                                builder->finish_by_rowids());
+                        LOG_IF(WARNING, !st.ok()) << fmt::format(
+                                "failed to install cache block prefetch pattern, tablet={}, "
+                                "rowset={}, segment={}, error={}",
+                                _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
+                                st.to_string());
+                        if (st.ok() && initial_touch_iterators.contains(iterator)) {
+                            iterator->async_touch_cache_block_prefetch_initial_window();
+                        }
+                    }
                 }
             }
         }

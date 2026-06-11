@@ -17,6 +17,8 @@
 
 #include "storage/segment/column_reader_cache.h"
 
+#include <utility>
+
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -30,14 +32,58 @@ namespace doris::segment_v2 {
 
 ColumnReaderCache::ColumnReaderCache(
         ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
-        io::FileReaderSPtr file_reader, uint64_t num_rows,
+        io::FileReaderSPtr file_reader, io::FileSystemSPtr fs, io::Path path,
+        io::FileReaderOptions reader_options, uint64_t num_rows,
         std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)>
                 get_footer_cb)
         : _accessor(accessor),
           _tablet_schema(std::move(tablet_schema)),
-          _file_reader(std::move(file_reader)),
+          _file_reader(file_reader),
+          _file_reader_factory(
+                  [shared_reader = std::move(file_reader), fs = std::move(fs),
+                   path = std::move(path),
+                   reader_options = std::move(reader_options)]() -> Result<io::FileReaderSPtr> {
+                      // This lambda is copied into each cached ColumnReader and is invoked from
+                      // FileColumnIterator::init(), not from ColumnReader construction. That
+                      // placement is deliberate:
+                      //
+                      // * ColumnReader is shared metadata. It is cached by (column uid, path) and
+                      //   can outlive or be reused across many scan iterators.
+                      // * FileColumnIterator is the physical scan stream that has a locally
+                      //   monotonic page-read sequence. It is the right owner for a
+                      //   CacheBlockAwarePrefetchRemoteReader's single mutable read pattern.
+                      // * Keeping this as a factory preserves the old shared-reader behavior when
+                      //   prefetch is disabled, while letting every iterator get a fresh
+                      //   cache-aware reader when prefetch is enabled.
+                      if (!reader_options.enable_cache_block_prefetch) {
+                          return shared_reader;
+                      }
+
+                      // Segment::_open records the fs/path/options used to open the segment data
+                      // file. Reopening with the same options here lets FileSystem::open_file()
+                      // build the same reader stack, except it is no longer shared by sibling
+                      // column iterators. In cloud mode this means each iterator has an independent
+                      // CacheBlockAwarePrefetchRemoteReader around the remote reader and can
+                      // spend extra object-storage IOPS to warm file-cache blocks concurrently.
+                      DORIS_CHECK(fs != nullptr);
+                      io::FileReaderSPtr file_reader;
+                      Status st = fs->open_file(path, &file_reader, &reader_options);
+                      if (!st.ok()) {
+                          return ResultError(st);
+                      }
+                      return file_reader;
+                  }),
           _num_rows(num_rows),
           _get_footer_cb(std::move(get_footer_cb)) {}
+
+ColumnReaderCache::ColumnReaderCache(
+        ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
+        io::FileReaderSPtr file_reader, uint64_t num_rows,
+        std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)>
+                get_footer_cb)
+        : ColumnReaderCache(accessor, std::move(tablet_schema), std::move(file_reader), nullptr,
+                            io::Path(), io::FileReaderOptions(), num_rows,
+                            std::move(get_footer_cb)) {}
 
 ColumnReaderCache::~ColumnReaderCache() {
     g_segment_column_reader_cache_count << -_cache_map.size();
@@ -118,7 +164,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
 
     ColumnReaderOptions opts {.kept_in_memory = _tablet_schema->is_in_memory(),
                               .be_exec_version = _be_exec_version,
-                              .tablet_schema = _tablet_schema};
+                              .tablet_schema = _tablet_schema,
+                              .file_reader_factory = _file_reader_factory};
 
     std::shared_ptr<ColumnReader> reader;
     if ((FieldType)meta.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
@@ -166,7 +213,8 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
     // Ensure variant root reader is available in cache.
     ColumnReaderOptions opts {.kept_in_memory = _tablet_schema->is_in_memory(),
                               .be_exec_version = _be_exec_version,
-                              .tablet_schema = _tablet_schema};
+                              .tablet_schema = _tablet_schema,
+                              .file_reader_factory = _file_reader_factory};
     std::shared_ptr<ColumnReader> variant_column_reader;
     RETURN_IF_ERROR(get_column_reader(col_uid, &variant_column_reader, stats));
 

@@ -16,8 +16,11 @@
 // under the License.
 #pragma once
 
+#include <functional>
+
 #include "agent/be_exec_version_manager.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/json/path_in_data.h"
@@ -45,6 +48,12 @@ public:
     // Main constructor used in production: cache is bound to a specific segment's
     // ColumnMetaAccessor, TabletSchema, file reader and row count, plus a footer
     // getter callback (Segment::_get_segment_footer).
+    ColumnReaderCache(
+            ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
+            io::FileReaderSPtr file_reader, io::FileSystemSPtr fs, io::Path path,
+            io::FileReaderOptions reader_options, uint64_t num_rows,
+            std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)>
+                    get_footer_cb);
     ColumnReaderCache(
             ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
             io::FileReaderSPtr file_reader, uint64_t num_rows,
@@ -76,6 +85,7 @@ private:
     // Insert an already-created reader directly into cache
     void _insert_direct(const ColumnReaderCacheKey& key,
                         const std::shared_ptr<ColumnReader>& column_reader);
+
     // keep _lru_list and _cache_map thread safe
     std::mutex _cache_mutex;
     // Doubly-linked list to maintain LRU order
@@ -89,6 +99,7 @@ private:
     // Segment-level context needed to construct ColumnReader.
     TabletSchemaSPtr _tablet_schema;
     io::FileReaderSPtr _file_reader;
+    std::function<Result<io::FileReaderSPtr>()> _file_reader_factory;
     uint64_t _num_rows = 0;
     // Callback to get footer, usually bound to Segment::_get_segment_footer.
     std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)> _get_footer_cb;

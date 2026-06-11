@@ -322,8 +322,8 @@ Status OlapScanLocalState::_init_profile() {
                             "SegmentIteratorInitTimer");
     _segment_iterator_init_index_iterators_timer = ADD_CHILD_TIMER(
             _scanner_profile, "SegmentIteratorInitIndexIteratorsTimer", "SegmentIteratorInitTimer");
-    _segment_iterator_init_segment_prefetchers_timer =
-            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer",
+    _segment_iterator_init_cache_block_prefetch_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitCacheBlockPrefetchTimer",
                             "SegmentIteratorInitTimer");
 
     // These two timers span both iterator init and later lazy segment init paths,
