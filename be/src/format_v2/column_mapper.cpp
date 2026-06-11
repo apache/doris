@@ -1979,8 +1979,9 @@ static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& 
 // Example: for `SELECT s.a FROM t WHERE s.b.c > 1`, the output projection may only contain `s.a`,
 // but the file reader must also read `s.b.c` to evaluate the predicate. This function collects the
 // filter path `s -> b -> c`, resolves it against the root mapping's original file schema, and
-// records a root projection like `s -> b -> c` in filter_projections. add_scan_column() later merges
-// this predicate projection with any non-predicate projection for the same root column.
+// records a root projection like `s -> b -> c` in filter_projections. When add_scan_column() adds
+// the same root as a predicate column, it rebuilds that root from the projection mapping, merges
+// this filter-only projection into it, and removes the duplicate non-predicate root entry.
 static Status build_filter_projection_map(const std::vector<TableFilter>& table_filters,
                                           const std::vector<ColumnMapping>& mappings,
                                           FilterProjectionMap* filter_projections) {
