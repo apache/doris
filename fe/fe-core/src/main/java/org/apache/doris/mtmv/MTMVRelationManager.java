@@ -29,7 +29,6 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
-import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
@@ -105,21 +104,9 @@ public class MTMVRelationManager implements MTMVHookService {
             if (!mtmv.isIvm()) {
                 continue;
             }
-            IvmInfo currentInfo = mtmv.getIvmInfo();
-            if (currentInfo.isBinlogBroken()) {
-                continue;
-            }
-            // Persist a copied metadata object so callers do not mutate the current MTMV state in place.
-            IvmInfo newInfo = new IvmInfo(currentInfo);
-            newInfo.setBinlogBroken(true);
-            try {
-                TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
-                Env.getCurrentEnv().alterMTMVIvmInfo(tableNameInfo, newInfo);
+            if (mtmv.markIvmBinlogBroken()) {
                 LOG.info("Marked IVM binlog broken, baseTable={}, mtmv={}, reason={}",
                         baseTableInfo, mtmvInfo, reason);
-            } catch (Exception e) {
-                LOG.error("Failed to mark IVM binlog broken, baseTable={}, mtmv={}, reason={}",
-                        baseTableInfo, mtmvInfo, reason, e);
             }
         }
     }
