@@ -114,20 +114,26 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
         int64_t active_file = metrics_map.contains("active_file") ? metrics_map["active_file"] : 0;
         int64_t slab_reclaimable =
                 metrics_map.contains("slab_reclaimable") ? metrics_map["slab_reclaimable"] : 0;
-        if (inactive_file < 1 || active_file < 1 || slab_reclaimable < 1) {
+        if (inactive_file < 0 || active_file < 0 || slab_reclaimable < 0) {
             // In this scenario, not return error, ignore it and print log.
             LOG(WARNING) << "CgroupsV2Reader read_memory_usage missing expected metrics in "
                             "memory.stat, inactive_file: "
                          << inactive_file << ", active_file: " << active_file
                          << ", slab_reclaimable: " << slab_reclaimable;
+            return Status::OK();
         }
 
         const int64_t reclaimable_usage = inactive_file + active_file + slab_reclaimable;
         if (*value < reclaimable_usage) {
-            return Status::CgroupError(
-                    "CgroupsV2Reader read_memory_usage negative memory usage, memory.current: {}, "
-                    "active_file: {}, inactive_file: {}, slab_reclaimable: {}",
-                    *value, active_file, inactive_file, slab_reclaimable);
+            LOG(WARNING)
+                    << "CgroupsV2Reader read_memory_usage negative memory usage, not - reclaimable "
+                       "usage any more, just return memory.current: "
+                    << *value << ", inactive_file: " << inactive_file
+                    << ", active_file: " << active_file
+                    << ", slab_reclaimable: " << slab_reclaimable;
+            // In this case, do not return an error, just ignore the negative usage and continue.
+            // If return error, the upper system will use os available memory instead of cgroup available memory, which may cause OOM more easily.
+            return Status::OK();
         }
         // The reclaimable file cache described here should not be counted as used memory:
         // https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
