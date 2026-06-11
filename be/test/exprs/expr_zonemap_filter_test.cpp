@@ -331,6 +331,38 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesNullAndUnsupportedInputs) {
     EXPECT_EQ(1, pass_all_ctx.stats.unusable_zonemap_eval_count);
 }
 
+TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    ZoneMapEvalContext comparison_ctx;
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              equals.evaluate_zonemap_filter(comparison_ctx, {slot, make_int_literal(10)}));
+    EXPECT_EQ(1, comparison_ctx.stats.unusable_zonemap_eval_count);
+
+    auto string_type = std::make_shared<DataTypeString>();
+    auto string_slot = make_slot(0, string_type);
+    auto starts_with = SimpleFunctionFactory::instance().get_function(
+            "starts_with",
+            ColumnsWithTypeAndName {{nullptr, string_type, "slot"},
+                                    {nullptr, string_type, "prefix"}},
+            std::make_shared<DataTypeUInt8>());
+    ASSERT_NE(starts_with, nullptr);
+    ZoneMapEvalContext starts_with_ctx;
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              starts_with->evaluate_zonemap_filter(starts_with_ctx,
+                                                   {string_slot, make_string_literal("ab")}));
+    EXPECT_EQ(1, starts_with_ctx.stats.unusable_zonemap_eval_count);
+
+    std::vector<Field> values {int_field(10)};
+    ZoneMapEvalContext in_ctx;
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, int_field(10),
+                                            int_field(10)));
+    EXPECT_EQ(1, in_ctx.stats.unusable_zonemap_eval_count);
+}
+
 TEST(ExprZonemapFilterTest, NullZonemapUsesNullFlagsOnly) {
     auto type = int_type();
     auto slot = make_slot(0, type);
