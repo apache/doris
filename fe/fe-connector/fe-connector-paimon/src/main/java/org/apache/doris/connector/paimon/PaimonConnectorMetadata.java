@@ -1017,7 +1017,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     private static PaimonTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
         boolean binaryAsVarbinary = Boolean.parseBoolean(
                 props.getOrDefault(
-                        PaimonConnectorProperties.ENABLE_MAPPING_BINARY_AS_VARBINARY,
+                        PaimonConnectorProperties.ENABLE_MAPPING_VARBINARY,
                         "false"));
         boolean timestampTz = Boolean.parseBoolean(
                 props.getOrDefault(

@@ -35,11 +35,24 @@ public final class PaimonConnectorProperties {
     /** Warehouse location for the Paimon catalog. */
     public static final String WAREHOUSE = "warehouse";
 
-    /** Whether to map Paimon BINARY/VARBINARY to Doris VARBINARY instead of STRING. */
-    public static final String ENABLE_MAPPING_BINARY_AS_VARBINARY = "enable_mapping_binary_as_varbinary";
+    /**
+     * Whether to map Paimon BINARY/VARBINARY to Doris VARBINARY instead of STRING.
+     *
+     * <p>Canonical (dotted) CREATE-CATALOG key, mirroring fe-core
+     * {@code CatalogProperty.ENABLE_MAPPING_VARBINARY} and the legacy paimon path. The connector
+     * receives the raw catalog property map ({@code catalogProperty.getProperties()}), which only
+     * ever carries this dotted key (fe-core {@code setDefaultPropsIfMissing} writes only it), so the
+     * read MUST use the dotted spelling — an underscore variant is never present and would read false.
+     */
+    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
 
-    /** Whether to map Paimon TIMESTAMP_WITH_LOCAL_TIME_ZONE to TIMESTAMPTZ. */
-    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
+    /**
+     * Whether to map Paimon TIMESTAMP_WITH_LOCAL_TIME_ZONE to TIMESTAMPTZ.
+     *
+     * <p>Canonical (dotted) CREATE-CATALOG key, mirroring fe-core
+     * {@code CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ} and the legacy paimon path.
+     */
+    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
 
     /** Default catalog type when not specified. */
     public static final String DEFAULT_CATALOG_TYPE = "filesystem";

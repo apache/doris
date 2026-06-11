@@ -287,4 +287,71 @@ public class PaimonConnectorMetadataTest {
         Assertions.assertTrue(schema.getColumns().get(0).isNullable(),
                 "the at-snapshot read path must also force columns nullable (legacy parity)");
     }
+
+    // ---------------------------------------------------------------------
+    // FIX-MAPPING-FLAG-KEYS — type-mapping toggles read the canonical dotted
+    // CREATE-CATALOG keys (enable.mapping.varbinary / enable.mapping.timestamp_tz)
+    // ---------------------------------------------------------------------
+
+    private static RowType binaryAndLtzRowType() {
+        return RowType.builder()
+                .field("b", DataTypes.BINARY(16))
+                .field("ts_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3))
+                .build();
+    }
+
+    @Test
+    public void getTableSchemaHonorsDottedMappingKeys() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", binaryAndLtzRowType(), Collections.emptyList(), Collections.emptyList());
+
+        // The user enables both mappings via the canonical DOTTED CREATE-CATALOG keys — the only
+        // spelling fe-core ever writes into the catalog property map (CatalogProperty.java:50,52;
+        // ExternalCatalog.setDefaultPropsIfMissing). The connector receives that raw map verbatim.
+        Map<String, String> props = new java.util.HashMap<>();
+        props.put("enable.mapping.varbinary", "true");
+        props.put("enable.mapping.timestamp_tz", "true");
+        PaimonConnectorMetadata metadata =
+                new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+
+        ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "t1").get();
+        ConnectorTableSchema schema = metadata.getTableSchema(null, handle);
+
+        // WHY: when the user enables the mapping at CREATE CATALOG, a Paimon BINARY column must
+        // surface as VARBINARY and a TIMESTAMP_WITH_LOCAL_TIME_ZONE column as TIMESTAMPTZ — legacy
+        // parity (PaimonExternalTable.java:350 reads the same dotted key and honors it). MUTATION:
+        // reverting the connector constants to the underscore spelling (the cutover bug:
+        // enable_mapping_binary_as_varbinary / enable_mapping_timestamp_tz) makes getOrDefault miss
+        // the dotted keys the map actually carries -> both flags read false -> the column types fall
+        // back to STRING / DATETIMEV2 -> red. This closes critic coverage-gap #2.
+        Assertions.assertEquals("VARBINARY", schema.getColumns().get(0).getType().getTypeName(),
+                "enable.mapping.varbinary=true must map Paimon BINARY to Doris VARBINARY");
+        Assertions.assertEquals("TIMESTAMPTZ", schema.getColumns().get(1).getType().getTypeName(),
+                "enable.mapping.timestamp_tz=true must map Paimon LTZ to Doris TIMESTAMPTZ");
+    }
+
+    @Test
+    public void getTableSchemaDefaultsMappingFlagsOff() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", binaryAndLtzRowType(), Collections.emptyList(), Collections.emptyList());
+
+        // No mapping keys set — the default (legacy-compatible) behavior.
+        PaimonConnectorMetadata metadata =
+                new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+
+        ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "t1").get();
+        ConnectorTableSchema schema = metadata.getTableSchema(null, handle);
+
+        // WHY: with the toggles absent, BINARY must map to STRING and LTZ to DATETIMEV2 (default
+        // false), matching legacy. This guards against a fix that accidentally flips the defaults on
+        // (e.g. reading the wrong default or inverting the boolean). MUTATION: defaulting either flag
+        // to true -> VARBINARY / TIMESTAMPTZ -> red. Green in both the buggy and fixed states (it
+        // pins the default, not the key spelling), so it is a regression guard, not the bug-catcher.
+        Assertions.assertEquals("STRING", schema.getColumns().get(0).getType().getTypeName(),
+                "absent enable.mapping.varbinary must leave Paimon BINARY as STRING (default off)");
+        Assertions.assertEquals("DATETIMEV2", schema.getColumns().get(1).getType().getTypeName(),
+                "absent enable.mapping.timestamp_tz must leave Paimon LTZ as DATETIMEV2 (default off)");
+    }
 }
