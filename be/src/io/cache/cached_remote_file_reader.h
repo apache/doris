@@ -20,11 +20,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
-#include <shared_mutex>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -58,6 +58,13 @@ public:
 
     int64_t mtime() const override { return _remote_file_reader->mtime(); }
 
+#ifdef BE_TEST
+    size_t cache_file_reader_count_for_test() {
+        SharedLockGuard lock(_mtx);
+        return _cache_file_readers.size();
+    }
+#endif
+
     // Asynchronously prefetch a range of file cache blocks.
     // This method triggers read file cache in dryrun mode to warm up the cache
     // without actually reading the data into user buffers.
@@ -90,8 +97,8 @@ private:
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache;
-    std::shared_mutex _mtx;
-    std::map<size_t, FileBlockSPtr> _cache_file_readers;
+    AnnotatedSharedMutex _mtx;
+    std::map<size_t, FileBlockSPtr> _cache_file_readers GUARDED_BY(_mtx);
 };
 
 } // namespace doris::io

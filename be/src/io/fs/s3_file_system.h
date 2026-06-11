@@ -19,12 +19,12 @@
 
 #include <filesystem>
 #include <memory>
-#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
@@ -53,7 +53,7 @@ public:
     Status reset(const S3ClientConf& conf);
 
     std::shared_ptr<ObjStorageClient> get() const {
-        std::shared_lock lock(_mtx);
+        SharedLockGuard lock(_mtx);
         return _client;
     }
 
@@ -64,9 +64,16 @@ public:
 
     const S3ClientConf& s3_client_conf() { return _conf; }
 
+#ifdef BE_TEST
+    void set_client_for_test(std::shared_ptr<ObjStorageClient> client) {
+        LockGuard lock(_mtx);
+        _client = std::move(client);
+    }
+#endif
+
 private:
-    mutable std::shared_mutex _mtx;
-    std::shared_ptr<ObjStorageClient> _client;
+    mutable AnnotatedSharedMutex _mtx;
+    std::shared_ptr<ObjStorageClient> _client GUARDED_BY(_mtx);
     S3ClientConf _conf;
 };
 

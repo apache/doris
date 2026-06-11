@@ -38,6 +38,7 @@
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/thread_safety_annotations.h"
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "io/cache/block_file_cache.h"
@@ -61,7 +62,6 @@
 #include "util/debug_points.h"
 
 namespace doris::io {
-
 bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
 bvar::Adder<uint64_t> peer_read_counter("cached_remote_reader_peer_read");
 bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
@@ -122,7 +122,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
 
 void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
     if (_is_doris_table && config::enable_read_cache_file_directly) {
-        std::lock_guard lock(_mtx);
+        UniqueLock lock(_mtx);
         DCHECK(file_block->state() == FileBlock::State::DOWNLOADED);
         file_block->_owned_by_cached_reader = true;
         _cache_file_readers.emplace(file_block->offset(), std::move(file_block));
@@ -335,7 +335,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         // read directly
         SCOPED_RAW_TIMER(&stats.read_cache_file_directly_timer);
         size_t need_read_size = bytes_req;
-        std::shared_lock lock(_mtx);
+        SharedLockGuard lock(_mtx);
         if (!_cache_file_readers.empty()) {
             // find the last offset > offset.
             auto iter = _cache_file_readers.upper_bound(offset);

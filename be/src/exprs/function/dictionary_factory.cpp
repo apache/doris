@@ -34,27 +34,28 @@ DictionaryFactory::~DictionaryFactory() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _dict_id_to_dict_map.clear();
     _dict_id_to_version_id_map.clear();
+    _refreshing_dict_map.clear();
 }
 
 void DictionaryFactory::get_dictionary_status(std::vector<TDictionaryStatus>& result,
                                               std::vector<int64_t> dict_ids) {
-    std::shared_lock lc(_mutex);
+    SharedLockGuard lock(_mutex);
     if (dict_ids.empty()) { // empty means ALL
         for (const auto& [dict_id, dict] : _dict_id_to_dict_map) {
             TDictionaryStatus status;
             status.__set_dictionary_id(dict_id);
-            status.__set_version_id(_dict_id_to_version_id_map[dict_id]);
+            status.__set_version_id(_dict_id_to_version_id_map.at(dict_id));
             status.__set_dictionary_memory_size(dict->allocated_bytes());
             result.emplace_back(std::move(status));
         }
     } else {
         for (auto dict_id : dict_ids) {
-            if (_dict_id_to_dict_map.contains(dict_id)) {
+            auto dict_iter = _dict_id_to_dict_map.find(dict_id);
+            if (dict_iter != _dict_id_to_dict_map.end()) {
                 TDictionaryStatus status;
                 status.__set_dictionary_id(dict_id);
-                status.__set_version_id(_dict_id_to_version_id_map[dict_id]);
-                status.__set_dictionary_memory_size(
-                        _dict_id_to_dict_map[dict_id]->allocated_bytes());
+                status.__set_version_id(_dict_id_to_version_id_map.at(dict_id));
+                status.__set_dictionary_memory_size(dict_iter->second->allocated_bytes());
                 result.emplace_back(std::move(status));
             }
         }

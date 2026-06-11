@@ -4996,20 +4996,20 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
         FileReaderSPtr local_reader;
         ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader).ok());
         auto reader = CachedRemoteFileReader(local_reader, opts);
-        EXPECT_EQ(reader._cache_file_readers.size(), 0);
+        EXPECT_EQ(reader.cache_file_reader_count_for_test(), 0);
         std::string buffer;
         buffer.resize(6_mb);
         IOContext io_ctx;
         size_t bytes_read {0};
         ASSERT_TRUE(reader.read_at(1_mb, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
                             .ok());
-        EXPECT_EQ(reader._cache_file_readers.size(), 6);
+        EXPECT_EQ(reader.cache_file_reader_count_for_test(), 6);
     }
     {
         FileReaderSPtr local_reader;
         ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader).ok());
         auto reader = CachedRemoteFileReader(local_reader, opts);
-        EXPECT_EQ(reader._cache_file_readers.size(), 6);
+        EXPECT_EQ(reader.cache_file_reader_count_for_test(), 6);
         std::random_device rd;  // a seed source for the random number engine
         std::mt19937 gen(rd()); // mersenne_twister_engine seeded with rd()
         std::uniform_int_distribution<> distrib(1_mb, 7_mb);
@@ -5050,7 +5050,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
         ASSERT_TRUE(reader.read_at(9_mb, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
                             .ok());
         EXPECT_EQ(buffer, std::string(10086, '9'));
-        EXPECT_EQ(reader._cache_file_readers.size(), 7);
+        EXPECT_EQ(reader.cache_file_reader_count_for_test(), 7);
     }
     {
         FileReaderSPtr local_reader;
@@ -5063,7 +5063,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
         ASSERT_TRUE(
                 reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
         EXPECT_EQ(buffer, std::string(10086, '0'));
-        EXPECT_EQ(reader._cache_file_readers.size(), 8);
+        EXPECT_EQ(reader.cache_file_reader_count_for_test(), 8);
     }
     std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
