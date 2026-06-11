@@ -1376,14 +1376,14 @@ public:
         }
 
         const auto prefix = slot_literal->literal.as_string_view();
-        auto lower = _string_field_for_starts_with_zonemap(prefix);
+        auto lower = Field::create_field<TYPE_STRING>(std::string(prefix));
         if (expr_zonemap::field_less(zone_map.max_value, lower)) {
             return ZoneMapFilterResult::kNoMatch;
         }
         auto upper_prefix = _next_prefix_for_starts_with_zonemap(prefix);
         if (upper_prefix.has_value() &&
             !expr_zonemap::field_less(zone_map.min_value,
-                                      _string_field_for_starts_with_zonemap(*upper_prefix))) {
+                                      Field::create_field<TYPE_STRING>(*upper_prefix))) {
             return ZoneMapFilterResult::kNoMatch;
         }
         return ZoneMapFilterResult::kMayMatch;
@@ -1413,10 +1413,6 @@ public:
     }
 
 private:
-    static Field _string_field_for_starts_with_zonemap(std::string_view value) {
-        return Field::create_field<TYPE_STRING>(std::string(value));
-    }
-
     static std::optional<std::string> _next_prefix_for_starts_with_zonemap(
             std::string_view prefix) {
         // ZoneMap string bounds are compared by bytewise Field ordering. For starts_with(s, p),
