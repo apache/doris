@@ -262,6 +262,54 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testReadCommittedZeroRowsWithLagDelaysNextTask() throws UserException {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+            Map<String, String> customProperties = Maps.newHashMap();
+            customProperties.put("isolation.level", "read_committed");
+            Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+            Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newHashMap();
+            cachedPartitionWithLatestOffsets.put(1, 20L);
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                    cachedPartitionWithLatestOffsets);
+
+            Map<Integer, Long> taskProgress = Maps.newHashMap();
+            taskProgress.put(1, 10L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(taskProgress));
+
+            KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+            routineLoadTaskInfoList.add(kafkaTaskInfo);
+            Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+
+            RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+            Deencapsulation.setField(attachment, "progress", new KafkaProgress(taskProgress));
+            Deencapsulation.setField(attachment, "taskExecutionTimeMs",
+                    routineLoadJob.getMaxBatchIntervalS() * 1000);
+
+            kafkaTaskInfo.handleTaskByTxnCommitAttachment(attachment);
+
+            Assert.assertFalse(kafkaTaskInfo.getIsEof());
+            Assert.assertTrue(kafkaTaskInfo.needDedalySchedule());
+
+            RoutineLoadTaskInfo newTask = Deencapsulation.invoke(routineLoadJob,
+                    "unprotectRenewTask", kafkaTaskInfo, false);
+            Assert.assertTrue(newTask.needDedalySchedule());
+        }
+    }
+
+    @Test
     public void testProcessTimeOutTasks() throws Exception {
         RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
         Env env = Mockito.mock(Env.class);

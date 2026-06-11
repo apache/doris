@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
@@ -28,6 +29,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
@@ -129,6 +131,124 @@ public class OlapTableTest {
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+    }
+
+    @Test
+    public void testResetPropertiesForRestoreInCloudMode() {
+        // simulate a restoring table with properties that are unsupported in cloud mode
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "DAY");
+        properties.put(DynamicPartitionProperty.TIME_ZONE, "Asia/Shanghai");
+        properties.put(DynamicPartitionProperty.START, "-3");
+        properties.put(DynamicPartitionProperty.END, "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "p");
+        properties.put(DynamicPartitionProperty.BUCKETS, "10");
+        properties.put(DynamicPartitionProperty.REPLICATION_NUM, "3");
+        properties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, "tag.location.default:3");
+        properties.put(DynamicPartitionProperty.STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "s3_policy");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, "2025-01-01 00:00:00");
+        properties.put(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, "2");
+        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3");
+        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default:3");
+        properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3");
+        properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default:3");
+
+        TableProperty tableProperty = new TableProperty(properties);
+        OlapTable olapTable = new OlapTable();
+        olapTable.setTableProperty(tableProperty);
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                    MockedStatic<PropertyAnalyzer> mockedPA =
+                            Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
+            mockedPA.when(PropertyAnalyzer::getInstance).thenReturn(new CloudPropertyAnalyzer());
+
+            ReplicaAllocation cloudReplicaAlloc = new ReplicaAllocation((short) 1);
+            // reserveDynamicPartitionEnable=true, reserveReplica=false (forced in cloud mode)
+            olapTable.resetPropertiesForRestore(true, false, cloudReplicaAlloc, false);
+
+            Map<String, String> resultProps = olapTable.getTableProperty().getProperties();
+            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
+            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM));
+            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
+            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME));
+            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM));
+            Assert.assertEquals((short) 1, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+            Assert.assertFalse(olapTable.getTableProperty().isInMemory());
+            Assert.assertNull(olapTable.getTableProperty().getStorageMedium());
+            Assert.assertEquals("", olapTable.getTableProperty().getStoragePolicy());
+            Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+            Assert.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_NUM));
+            Assert.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION));
+            Assert.assertFalse(resultProps.containsKey(DynamicPartitionProperty.STORAGE_MEDIUM));
+        }
+    }
+
+    @Test
+    public void testResetPartitionIdForRestore() {
+        PartitionInfo partitionInfo = new PartitionInfo(PartitionType.RANGE);
+        long origPartId = 1000L;
+        DataProperty origDataProperty = new DataProperty(TStorageMedium.SSD, 1735689600000L, "s3_policy");
+        ReplicaAllocation origReplicaAlloc = new ReplicaAllocation((short) 3);
+        partitionInfo.addPartition(origPartId, origDataProperty, origReplicaAlloc, true, true);
+
+        Map<Long, Long> partitionIdMap = Maps.newHashMap();
+        long newPartId = 2000L;
+        partitionIdMap.put(newPartId, origPartId);
+
+        ReplicaAllocation restoreReplicaAlloc = new ReplicaAllocation((short) 2);
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(false);
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(true);
+
+            partitionInfo.resetPartitionIdForRestore(partitionIdMap, restoreReplicaAlloc, false);
+            Assert.assertEquals((short) 2,
+                    partitionInfo.getReplicaAllocation(newPartId).getTotalReplicaNum());
+            DataProperty newDataProperty = partitionInfo.getDataProperty(newPartId);
+            Assert.assertEquals(TStorageMedium.SSD, newDataProperty.getStorageMedium());
+            Assert.assertEquals(1735689600000L, newDataProperty.getCooldownTimeMs());
+            Assert.assertEquals("s3_policy", newDataProperty.getStoragePolicy());
+            Assert.assertTrue(partitionInfo.getIsInMemory(newPartId));
+        }
+    }
+
+    @Test
+    public void testResetPartitionIdForRestoreInCloudMode() {
+        PartitionInfo partitionInfo = new PartitionInfo(PartitionType.RANGE);
+        long origPartId = 1000L;
+        DataProperty origDataProperty = new DataProperty(TStorageMedium.SSD, 1735689600000L, "s3_policy");
+        ReplicaAllocation origReplicaAlloc = new ReplicaAllocation((short) 3);
+        partitionInfo.addPartition(origPartId, origDataProperty, origReplicaAlloc, true, true);
+
+        Map<Long, Long> partitionIdMap = Maps.newHashMap();
+        long newPartId = 2000L;
+        partitionIdMap.put(newPartId, origPartId);
+
+        ReplicaAllocation cloudReplicaAlloc = new ReplicaAllocation((short) 1);
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                    MockedStatic<PropertyAnalyzer> mockedPA =
+                            Mockito.mockStatic(PropertyAnalyzer.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
+            mockedPA.when(PropertyAnalyzer::getInstance).thenReturn(new CloudPropertyAnalyzer());
+
+            partitionInfo.resetPartitionIdForRestore(partitionIdMap, cloudReplicaAlloc, false);
+            Assert.assertEquals((short) 1,
+                    partitionInfo.getReplicaAllocation(newPartId).getTotalReplicaNum());
+            DataProperty newDataProperty = partitionInfo.getDataProperty(newPartId);
+            Assert.assertEquals(DataProperty.DEFAULT_STORAGE_MEDIUM, newDataProperty.getStorageMedium());
+            Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, newDataProperty.getCooldownTimeMs());
+            Assert.assertEquals("", newDataProperty.getStoragePolicy());
+            Assert.assertTrue(newDataProperty.isMutable());
+            Assert.assertFalse(partitionInfo.getIsInMemory(newPartId));
+        }
     }
 
     @Test

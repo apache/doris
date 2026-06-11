@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.deserialize;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.time.ZoneId;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -69,6 +70,55 @@ class DebeziumJsonDeserializerTest {
                             "convertTimestamp", String.class, Object.class);
             m.setAccessible(true);
             return m.invoke(deserializer, typeName, dbzObj);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // ─── convertZoneTime ──────────────────────────────────────────────────────
+    // timetz arrives as a UTC-normalized ISO string (Debezium ZonedTime). cdc keeps it
+    // verbatim with the offset preserved, independent of serverTimeZone, since a
+    // date-less time cannot resolve a named zone's DST. Mirrors Debezium/PostgreSQL.
+
+    @Test
+    void zoneTime_utc_preservesOffset() {
+        deserializer.setServerTimeZone(ZoneId.of("UTC"));
+        assertEquals("12:00:00.123456Z", invokeConvertZoneTime("12:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_plus08_serverTimeZoneIgnored() {
+        deserializer.setServerTimeZone(ZoneId.of("+08:00"));
+        // serverTimeZone must not shift timetz; the offset-bearing string is kept as-is
+        assertEquals("12:00:00.123456Z", invokeConvertZoneTime("12:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_minus05_serverTimeZoneIgnored() {
+        deserializer.setServerTimeZone(ZoneId.of("-05:00"));
+        assertEquals("01:00:00.123456Z", invokeConvertZoneTime("01:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_dstZone_notShifted() {
+        // a DST zone's offset is date-dependent; timetz has no date, so it must not be
+        // shifted -- the input is returned unchanged regardless of New York DST.
+        deserializer.setServerTimeZone(ZoneId.of("America/New_York"));
+        assertEquals("12:00:00.123456Z", invokeConvertZoneTime("12:00:00.123456Z"));
+    }
+
+    @Test
+    void zoneTime_wholeSecond_keepsSeconds() {
+        deserializer.setServerTimeZone(ZoneId.of("UTC"));
+        assertEquals("00:00:00Z", invokeConvertZoneTime("00:00:00Z"));
+    }
+
+    private Object invokeConvertZoneTime(Object dbzObj) {
+        try {
+            Method m =
+                    DebeziumJsonDeserializer.class.getDeclaredMethod("convertZoneTime", Object.class);
+            m.setAccessible(true);
+            return m.invoke(deserializer, dbzObj);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }

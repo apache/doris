@@ -97,7 +97,7 @@ private:
         Status prepare(RuntimeState* state) override { return Status::OK(); }
         Status open(RuntimeState* state) { return Status::OK(); }
         Status close(RuntimeState* state) override { return Status::OK(); }
-        Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+        Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
             return Status::OK();
         }
     };
@@ -113,7 +113,7 @@ private:
 
         Status prepare(RuntimeState* state) override { return Status::OK(); }
         Status close(RuntimeState* state) override { return Status::OK(); }
-        Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+        Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
             *eos = true;
             block->swap(_block);
             return Status::OK();

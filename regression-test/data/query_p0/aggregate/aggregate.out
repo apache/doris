@@ -78,9 +78,6 @@ TESTING	AGAIN
 9882691.114285713	1808.1659023775
 
 -- !aggregate --
-NaN	NaN	NaN	NaN
-
--- !aggregate --
 9223845.040000001	1239.763326955734
 
 -- !aggregate --
@@ -726,3 +723,4 @@ NaN	NaN	NaN	NaN
 -- !four_phase_full_distribute --
 hello	1	1
 world	1	1
+

@@ -29,6 +29,7 @@ public class SummaryProfileTest {
         profile.setQueryBeginTime(1);
         profile.setParseSqlStartTime(3);
         profile.setParseSqlFinishTime(6);
+        profile.setNereidsLockTableStartTime(8);
         profile.setNereidsLockTableFinishTime(10);
         profile.setNereidsAnalysisTime(15);
         profile.setNereidsRewriteTime(21);
@@ -41,6 +42,8 @@ public class SummaryProfileTest {
         profile.setQueryScheduleFinishTime(78);
         profile.setQueryFetchResultFinishTime(91);
 
+        // Record the standalone preload stage before the planner takes internal table locks.
+        profile.addNereidsPreloadExternalMetadataTime(2);
         profile.addCollectTablePartitionTime(7);
         // update summary time
         profile.update(ImmutableMap.of());
@@ -48,7 +51,9 @@ public class SummaryProfileTest {
         RuntimeProfile executionSummary = profile.getExecutionSummary();
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.PARSE_SQL_TIME), "3ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.PLAN_TIME), "60ms");
-        Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_LOCK_TABLE_TIME), "4ms");
+        Assertions.assertEquals(executionSummary.getInfoString(
+                SummaryProfile.NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME), "2ms");
+        Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_LOCK_TABLE_TIME), "2ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_ANALYSIS_TIME), "5ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_REWRITE_TIME), "6ms");
 
@@ -59,6 +64,18 @@ public class SummaryProfileTest {
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_DISTRIBUTE_TIME), "10ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.SCHEDULE_TIME), "12ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.WAIT_FETCH_RESULT_TIME), "13ms");
+    }
+
+    @Test
+    public void testPreloadExternalMetadataTimeCounter() {
+        SummaryProfile profile = new SummaryProfile();
+
+        // Verify the dedicated preload counter is accumulated independently from other planner stages.
+        profile.addNereidsPreloadExternalMetadataTime(12);
+        profile.addNereidsPreloadExternalMetadataTime(8);
+
+        Assertions.assertEquals(20, profile.getNereidsPreloadExternalMetadataTimeMs());
+        Assertions.assertEquals("20ms", profile.getPrettyNereidsPreloadExternalMetadataTime());
     }
 
     @Test

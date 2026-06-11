@@ -1273,7 +1273,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 // Only the offset array is accessed (e.g. length(str_col)).
                 return Optional.of(type);
             } else if (isNullCheckOnly && !accessPartialChild) {
-                // Only the null flag is accessed (e.g. col IS NULL / struct_element(s,'f') IS NULL).
+                // Only the null flag is accessed (e.g. col IS NULL / element_at(s,'f') IS NULL).
                 // Return the node's type so that parent nodes include this child in their pruned type,
                 // while the access path (ending in NULL) tells BE to skip actual data reading.
                 return Optional.of(type);

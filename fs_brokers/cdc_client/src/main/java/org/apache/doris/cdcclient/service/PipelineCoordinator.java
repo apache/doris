@@ -64,6 +64,7 @@ import com.google.common.base.Preconditions;
 import io.debezium.data.Envelope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
@@ -80,16 +81,16 @@ public class PipelineCoordinator {
     // taskId -> writeFailReason
     private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
-    private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private final byte[] LINE_DELIMITER = "\n".getBytes(StandardCharsets.UTF_8);
 
-    public PipelineCoordinator() {
+    public PipelineCoordinator(
+            @Value("${pipeline.max-concurrent-tasks:10}") int maxConcurrentTasks) {
         this.executor =
                 new ThreadPoolExecutor(
-                        MAX_CONCURRENT_TASKS,
-                        MAX_CONCURRENT_TASKS,
+                        maxConcurrentTasks,
+                        maxConcurrentTasks,
                         60L,
                         TimeUnit.SECONDS,
                         new LinkedBlockingQueue<>(QUEUE_CAPACITY),

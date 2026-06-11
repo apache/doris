@@ -131,7 +131,9 @@ _get_pr_changed_files_count() {
     while [[ ${try_times} -gt 0 ]]; do
         set -x
         if ret=$(
-            curl -s -H "Accept: application/vnd.github+json" \
+            curl -s \
+                -H "Accept: application/vnd.github+json" \
+                ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} \
                 https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}" | jq -e '.changed_files'
         ); then
             set +x
@@ -169,6 +171,7 @@ _get_pr_changed_files() {
             set -x
             if curl -s \
                 -H "Accept: application/vnd.github+json" \
+                ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} \
                 https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}"/files?page="${page}"\&per_page="${per_page}" \
                 >>"${file_name}"; then
                 set +x

@@ -4535,6 +4535,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
+        final boolean hasBeEndpoint = request.isSetBeEndpoint();
+        // Lazy: resolved on the first CloudTablet that needs it (skipped on cache-hit).
+        String cachedClusterId = null;
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
             // For thread safety, we preserve the tablet distribution information of each partition
@@ -4578,9 +4581,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // BE id -> path hash
                     Multimap<Long, Long> bePathsMap;
                     try {
-                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
-                            bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
+                        if (tablet instanceof CloudTablet) {
+                            CloudTablet cloudTablet = (CloudTablet) tablet;
+                            if (hasBeEndpoint) {
+                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            } else {
+                                if (cachedClusterId == null) {
+                                    cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                            .getCurrentClusterId();
+                                }
+                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                            }
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -4852,6 +4863,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        final boolean replaceHasBeEndpoint = request.isSetBeEndpoint();
+        // Lazy: resolved on the first CloudTablet that needs it.
+        String replaceCachedClusterId = null;
         for (long partitionId : resultPartitionIds) {
             Partition partition = olapTable.getPartition(partitionId);
             // For thread safety, we preserve the tablet distribution information of each partition
@@ -4897,9 +4911,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // BE id -> path hash
                     Multimap<Long, Long> bePathsMap;
                     try {
-                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
-                            bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
+                        if (tablet instanceof CloudTablet) {
+                            CloudTablet cloudTablet = (CloudTablet) tablet;
+                            if (replaceHasBeEndpoint) {
+                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            } else {
+                                if (replaceCachedClusterId == null) {
+                                    replaceCachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                            .getCurrentClusterId();
+                                }
+                                bePathsMap = cloudTablet
+                                        .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
+                            }
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }

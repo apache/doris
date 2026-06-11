@@ -417,7 +417,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
     _blocks_produced_counter = ADD_COUNTER(_profile, "BlocksProduced", TUnit::UNIT);
     _max_wait_worker_time = ADD_COUNTER(_profile, "MaxWaitForWorkerTime", TUnit::UNIT);
     _max_wait_to_process_time = ADD_COUNTER(_profile, "MaxWaitToProcessTime", TUnit::UNIT);
-    _max_find_recvr_time = ADD_COUNTER(_profile, "MaxFindRecvrTime(NS)", TUnit::UNIT);
+    _max_find_recvr_time = ADD_COUNTER(_profile, "MaxFindRecvrCpuTime(NS)", TUnit::UNIT);
 }
 
 VDataStreamRecvr::~VDataStreamRecvr() {

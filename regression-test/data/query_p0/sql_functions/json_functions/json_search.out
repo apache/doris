@@ -167,3 +167,6 @@
 -- !search3 --
 "fool"
 
+-- !search_control_escape --
+"$.\\"a\\\\nb\\""	"$.\\"a\\\\tb\\""	"$.\\"a\\\\rb\\""	"$.a\\\\u0001b"	"needle"
+

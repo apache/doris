@@ -142,7 +142,7 @@ std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) con
     return fmt::to_string(debug_string_buffer);
 }
 
-Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status LocalExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

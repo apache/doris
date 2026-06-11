@@ -53,7 +53,10 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
+    if (!state->is_cancelled()) {
+        RETURN_IF_ERROR(
+                _runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
+    }
     _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));
     return Status::OK();
@@ -93,7 +96,8 @@ Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_filter_src_expr_ctxs, state);
 }
 
-Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, Block* block, bool eos) {
+Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* block,
+                                                   bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());

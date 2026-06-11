@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -191,6 +192,17 @@ public class TableProperty implements GsonPostProcessable {
      */
     public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
                                                    ReplicaAllocation replicaAlloc) {
+        if (Config.isCloudMode()) {
+            // In cloud mode, rewrite all unsupported or forced properties from the source cluster.
+            // These properties (e.g., replication_num, replication_allocation, storage_policy,
+            // storage_medium, in_memory, etc.) are not applicable in cloud mode. If kept, they would
+            // cause some critical problems.
+            PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
+            buildInMemory();
+            buildStorageMedium();
+            buildStoragePolicy();
+            buildMinLoadReplicaNum();
+        }
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             if (!reserveDynamicPartitionEnable) {
