@@ -1524,6 +1524,14 @@ static void merge_column_predicate_filter(FileColumnPredicateFilter column_filte
                                           column_filter.predicates.end());
 }
 
+// Extract file-column pruning predicates from localized row-level conjuncts that reference nested
+// struct leaves. This is separate from file_request->conjuncts: conjuncts do row filtering, while
+// FileColumnPredicateFilter carries primitive leaf predicates for file/page/statistics pruning.
+//
+// Example: for `WHERE s.b.c > 10 AND element_at(s, 'd') IS NOT NULL`, this function emits pruning
+// filters for the nested targets `s -> b -> c` and `s -> d`. The caller only invokes it after
+// table_filter_has_only_local_entries() succeeds, so each root slot already has a file-local scan
+// source in _filter_entries.
 static void collect_nested_column_predicate_filters(
         const VExprSPtr& expr, const std::vector<ColumnMapping>& mappings,
         std::vector<FileColumnPredicateFilter>* filters) {
