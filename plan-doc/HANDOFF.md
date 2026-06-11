@@ -5,19 +5,24 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **逐一修复 paimon connector 第二轮 review 的问题（#1 已完成 → 从 #2 起）**
+# 🎯 下一个 session 的任务 — **逐一修复 paimon connector 第二轮 review 的问题（#1+#2 已完成 → 从 #3 起）**
 
 第二轮 clean-room 对抗 review 已完成（report：[`plan-doc/reviews/P5-paimon-rereview2-2026-06-11.md`](./reviews/P5-paimon-rereview2-2026-06-11.md)，含 §9 与第一轮的交叉核对）。结论：**NOT commit-ready** —— 4 个 confirmed BLOCKER 族 + 6 个 confirmed MAJOR。问题**按优先级排成任务列表**：
 
 👉 **任务清单（按优先级）：[`plan-doc/task-list-P5-rereview2-fixes.md`](./task-list-P5-rereview2-fixes.md)** —— 逐条含 finding 引用、连接器 `file:line`、legacy parity 锚、fix sketch、SPI 影响、测法。
 
-## ✅ 本 session 已完成：#1 `FIX-URI-NORMALIZE`（BLOCKER B-7DF+B-7DV）—— commit `20b19d19dd8`
-- native 数据文件路径 + DV 路径裸传 BE（oss/cos/obs/s3a 未归一化 s3://）→ S3-兼容 warehouse native 读挂 / DV 静默丢错行。**两路径机制不同**：数据文件经 `PluginDrivenSplit` 单-arg `LocationPath.of`→`FileQueryScanNode:568`；DV 由连接器 `populateRangeParams` 烤进 thrift（fe-core 不经手）→ bridge-only 修不到 DV。
-- **修法**：新 SPI `ConnectorContext.normalizeStorageUri`（恒等 default，仿 `vendStorageCredentials`）；`DefaultConnectorContext` 经引擎 2-arg `LocationPath.of` + catalog 静态 storage map（新 lazy supplier + 4-arg ctor，`PluginDrivenExternalCatalog` 接线）；连接器在抽出的可测 `buildNativeRange` 对**数据文件 + DV 双路**调 `normalizeUri`。fail-loud。
-- **验证**：paimon 216/0/0（+3 wiring 测）、fe-core 目标测绿（normalize 4/0/0 + vend 2/0/0 未坏）、checkstyle 0、import-gate 净。live OSS+DV e2e CI-gated（未跑）。设计 [`P5-fix-URI-NORMALIZE-design.md`](./tasks/designs/P5-fix-URI-NORMALIZE-design.md)、SPI RFC §21、[DV-025](./deviations-log.md)（静态-vs-vended map scope）。
+## ✅ 已完成：#1 `FIX-URI-NORMALIZE`（B-7DF+B-7DV）`20b19d19dd8` · #2 `FIX-STATIC-CREDS-BE`（B-9）`d23d5df9914`
+**#1**（native 数据文件 + DV 路径未归一化 oss/cos/obs/s3a→s3）：新 SPI `ConnectorContext.normalizeStorageUri`（恒等 default）；`DefaultConnectorContext` 经引擎 2-arg `LocationPath.of` + catalog 静态 storage map（lazy supplier + 4-arg ctor，`PluginDrivenExternalCatalog` 接线）；连接器在 `buildNativeRange` 对数据文件+DV 双路调 `normalizeUri`。设计 [`P5-fix-URI-NORMALIZE-design.md`]、RFC §21、[DV-025]。
 
-## 🔜 下一个 session：从 **#2 `FIX-STATIC-CREDS-BE`** 起，按 task-list 顺序续修
-> ⚠️ 见下「给下一个 agent 的 meta」：#1 已建好「BE-bound scan-prop 经 `ConnectorContext` 归一化」缝（`normalizeStorageUri`），#2（静态 s3/oss/cos/obs 凭据→BE `AWS_*`）可复用同模式（在 `DefaultConnectorContext` 加凭据归一化或扩 `vendStorageCredentials` tail）。#2 与 #1 共「BE scan-prop 归一化」主题。
+**#2（本 session）**`FIX-STATIC-CREDS-BE`（BLOCKER B-9）—— commit `d23d5df9914`
+- 静态 catalog 凭据（`s3.`/`oss.`/`cos.`/`obs.`…）裸拷进 `location.<rawkey>`、bridge 只剥前缀 → BE native(FILE_S3) reader 只认 `AWS_*` → 私有桶 native 读 403。凭据**第三道缝**（static→BE-scan，review §9.3，两轮均漏；FileIO 缝=FIX-STORAGE-CREDS、vended 缝=FIX-REST-VENDED 已修）。
+- **修法（D-048 用户签字 full legacy-parity）**：新 SPI `ConnectorContext.getBackendStorageProperties()`（空 default）= 引擎复用 **#1 已接线的** `storagePropertiesSupplier` 跑 `CredentialUtils.getBackendPropertiesFromStorageMap`（无 ctor 改、`CredentialUtils` 已 import）；连接器**整段**替换裸前缀拷贝循环为该 overlay（vended overlay 仍后置、collision 胜）。object-store→`AWS_*`；HDFS→canonical（顺修 §211 MINOR）；丢非-parity `hive.*`。
+- **ANONYMOUS-leak 边角经 BE 证伪无回归**（`s3_util.cpp` v1:383/v2:448 显式 ak/sk 优先于 `cred_provider_type`）。
+- **验证**：fe-core `DefaultConnectorContextBackendStoragePropsTest` 2/0/0（+normalize 4/0/0、vend 2/0/0 未坏）、paimon 模块 **217/0/0**、checkstyle 0、import-gate 净、red-check 反转 2/3 向红。live 私有桶 native e2e CI-gated（未跑）。设计 [`P5-fix-STATIC-CREDS-BE-design.md`](./tasks/designs/P5-fix-STATIC-CREDS-BE-design.md)、RFC §22(E14)、[D-048](./decisions-log.md)。
+
+## 🔜 下一个 session：从 **#3 `FIX-SCHEMA-EVOLUTION`** 起，按 task-list 顺序续修
+> ⚠️ #3（B-1a+M-10，BLOCKER）= **P0 中 SPI surface 最大 + 失败模式最危险（静默错行）**，但触发更窄（schema-evolved + native + rename）。需 thread paimon `DataField.id()` 过 SPI `ConnectorColumn`（含 nested ARRAY/MAP/ROW）→ `Column.setUniqueId`，并经 bridge 发 `current_schema_id` + per-split `history_schema_info`（`ExternalUtil.initSchemaInfo`）。BE 契约冻结于 `table_schema_change_helper.h:219-267`。**独立于 #1/#2**（不复用 BE-scan-prop 归一化缝）→ 值得**新 session 起、fresh context**。
+> ⚠️ 「BE-bound scan-prop 经 `ConnectorContext` 归一化」缝已由 #1/#2 建好两法（`normalizeStorageUri` URI / `getBackendStorageProperties` 凭据）—— 后续若有同类 BE-prop gap 可复用此模式。
 > ⚠️ P2 两条（#8 count-pushdown / #9 sub-split）严重度有争议（R1=MINOR/R2=MAJOR，均结果正确仅性能）—— **动手前先找用户定 scope**（accept-or-defer），别默认全做。
 
 每条遵循项目既定 per-fix 流程（与 `step-by-step-fix` skill 一致）：
@@ -43,11 +48,11 @@
 ---
 
 # 📦 仓库状态
-- **HEAD = `20b19d19dd8`**（`fix: FIX-URI-NORMALIZE`，本 session #1 修复；其父 `98a73bf7692` = `[P5-B7+fixes]`）。该 commit 含 #1 代码+测试+设计 doc+SPI RFC §21+DV-025+task-list 进度，并一并纳入上一 session 未 commit 的 review report + task-list。本 session 改动（**未 commit**）：`plan-doc/HANDOFF.md`（本文件）、`plan-doc/task-list-P5-rereview2-fixes.md`（#1 commit-cell 标 ✅ 的后续微调）；scratch 仍未 commit（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。
+- **HEAD = `d23d5df9914`**（`fix: FIX-STATIC-CREDS-BE`，本 session #2 修复；其父 `20b19d19dd8` = #1 `FIX-URI-NORMALIZE`）。该 commit 含 #2 代码+测试+设计 doc+SPI RFC §22(E14)+D-048+task-list 进度（9 文件，无 regression-conf/scratch）。本 session 剩余改动（**未 commit**）：`plan-doc/HANDOFF.md`（本文件）、`plan-doc/task-list-P5-rereview2-fixes.md`（#2 commit-cell 填 hash 的后续微调）；scratch 仍未 commit（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。
 - ⚠️ **`regression-test/conf/regression-conf.groovy` 仍 modified-未 commit 且含明文 Aliyun key** —— 任何 commit 前继续 path-whitelist，严禁 `git add -A`。
 - 当前分支 `catalog-spi-07-paimon`（非 `master`）→ 在此 commit 修复 OK。
 - **legacy `datasource/paimon/*` 仍在树内**（B8 删除未做）→ 每个 fix 都能 side-by-side diff 做 parity。
-- 迁移链：`512a67ee3ac`(B0)→`807308993fb`(B1)→`a2b765677d1`(B2/B3)→`ae5ad30b938`(B4)→`d2a2c8d761a`(B5/B6)→`98a73bf7692`(B7+fixes)→`20b19d19dd8`(rereview2 #1 FIX-URI-NORMALIZE, HEAD)。
+- 迁移链：`512a67ee3ac`(B0)→`807308993fb`(B1)→`a2b765677d1`(B2/B3)→`ae5ad30b938`(B4)→`d2a2c8d761a`(B5/B6)→`98a73bf7692`(B7+fixes)→`20b19d19dd8`(rereview2 #1 URI-NORMALIZE)→`d23d5df9914`(rereview2 #2 STATIC-CREDS-BE, HEAD)。
 
 ## ⚠️ Commit 须知（任何 `git add` 前必读）
 - **硬前置**：scrub `regression-test/conf/regression-conf.groovy`（明文 Aliyun key）+ 清 scratch（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。**path-whitelist `git add`，严禁 `git add -A`。**
