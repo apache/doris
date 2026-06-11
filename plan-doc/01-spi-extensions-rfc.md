@@ -1268,3 +1268,24 @@ fi
 **三处 seam**：B1 commit 载荷 opaque bytes（`TBinaryProtocol` 序列化，单点 `CommitDataSerializer`，连接器反序列化）；C1 maxcompute block-id 窄 callback；E 写-plan-provider 产 opaque `TDataSink`。
 
 **W-phase 落地**（behind gate、零行为变更、golden 等价）：W1+W2（SPI 面 + `Transaction` 泛化）`be945476ba7`；W3+W6（解耦 3 热路径 + golden 测）`9ad2bbe40ec`；W4（`PluginDrivenTransaction` 委派）`759cc0874c8`；W5（`planWrite` layer 进 `visitPhysicalConnectorTableSink`，见 [DV-009]）`9ebe5e27fa4`；W7（本节 + [D-021]/[D-022]）。逐连接器 adopter（搬类 + impl 写 SPI + 翻闸）= P4 / P6 / P7。
+
+---
+
+## 21. 扩展 E13：存储 URI 归一化（`ConnectorContext.normalizeStorageUri`）
+
+> 后补节（2026-06-11，P5-fix-FIX-URI-NORMALIZE）。findings B-7DF（native 数据文件）+ B-7DV（deletion vector）—— 见 [task-list #1](./task-list-P5-rereview2-fixes.md) / [设计](./tasks/designs/P5-fix-URI-NORMALIZE-design.md)。
+
+**问题**：paimon 连接器把 native ORC/Parquet **数据文件路径**和 **deletion-vector 路径**裸传 BE，未做 scheme 归一化。paimon SDK 发的是 warehouse 原生 scheme（`oss://`/`cos://`/`obs://`/`s3a://`，或 OSS `bucket.endpoint` authority 形）；BE 文件工厂按 scheme 分派、S3 reader 只认 `s3://`。后果：S3-兼容（非 AWS）warehouse 上 native 数据文件读直接挂（B-7DF），或 DV 静默丢→被删行重现（B-7DV，merge-on-read 错行，更危险）。纯 `s3://`/`hdfs://` 不受影响；JNI 路不受影响（序列化 paimon `Table` 自带 `FileIO`）。
+
+**根因**：legacy `PaimonScanNode` 两路径都经 **2-arg 归一化** `LocationPath.of(path, storagePropertiesMap)` → `StorageProperties.validateAndNormalizeUri()`（`PaimonScanNode.java:443` 数据文件 / `:296-297` DV）；翻闸丢了。连接器禁 import fe-core `LocationPath`/`StorageProperties`，故须经 SPI 缝。两路径机制不同：数据文件经 `PluginDrivenSplit.buildPath` 的**单-arg 非归一化** `LocationPath.of(pathStr)` → `FileQueryScanNode:568` 写 thrift；DV 由连接器在 `PaimonScanRange.populateRangeParams` **直接烤进 thrift**，fe-core 永不经手 → bridge-only 修不到 DV。故唯一统一缝 = 连接器侧 SPI 调用。
+
+**SPI 面（default no-op，零它连接器影响）**：
+- `ConnectorContext.normalizeStorageUri(String rawUri) → String`（`fe-connector-spi`）：default 返回原值（恒等），故 es/jdbc/maxcompute/trino 及任何已规范 URI 不受影响。
+- fe-core `DefaultConnectorContext` override：`LocationPath.of(rawUri, storagePropertiesSupplier.get()).toStorageLocation().toString()`——复用引擎/legacy/iceberg 同一 `LocationPath` 归一化，单一真相源、无漂移。**fail-loud**（`StoragePropertiesException` 传播）：路径归一化不了宁可显式炸，不可静默送裸路（DV 错行）。null/blank 短路返回原值。
+- `DefaultConnectorContext` 加 `Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier`（4-arg ctor；既有 2/3-arg ctor 委派空 map supplier——它们不被 paimon 用、该法仅 paimon 调）。`PluginDrivenExternalCatalog:150` 接线 `() -> catalogProperty.getStoragePropertiesMap()`（lazy，scan 时调，catalog 已初始化）。
+
+**连接器侧**：`PaimonScanPlanProvider.buildNativeRange`（B7 抽出的可测 seam）对**数据文件路径 + DV 路径**各调 `normalizeUri()`（= `context != null ? context.normalizeStorageUri(raw) : raw`，null-guard 同 `vendStorageCredentials`，offline 单测保留裸路）。JNI 路 + `getScanNodeProperties` 不动。
+
+**作用域/偏差**：归一化用 catalog **静态** `getStoragePropertiesMap()`，非 legacy 的 vended-overlay 版（`VendedCredentialsFactory`）——scheme 归一化与 vended 凭据正交（vended 改 `AWS_*` 键非 scheme），仅 *纯-vended-无静态存储配* REST catalog 的边角会缺 entry→fail-loud；该边角归凭据缝（#2 `FIX-STATIC-CREDS-BE` / `FIX-REST-VENDED`），见 [DV-025](./deviations-log.md)。
+
+**测**：fe-core `DefaultConnectorContextNormalizeUriTest`（真 OSS map，oss://→s3://、s3:// 恒等、null/blank、空 map fail-loud）；连接器 `PaimonScanPlanProviderTest` 3 测（`buildNativeRange` 数据文件+DV 双归一化、无-DV 仅数据、无-context 裸路）。live-e2e（OSS warehouse + DV）CI-gated。

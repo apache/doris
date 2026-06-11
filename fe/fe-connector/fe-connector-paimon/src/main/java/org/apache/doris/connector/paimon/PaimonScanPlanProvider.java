@@ -262,27 +262,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // Native reader path
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
-                    RawFile file = rawFiles.get(i);
-                    String fileFormat = getFileFormatBySuffix(file.path())
-                            .orElse(defaultFileFormat);
-
-                    PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
-                            .path(file.path())
-                            .start(0)
-                            .length(file.length())
-                            .fileSize(file.length())
-                            .fileFormat(fileFormat)
-                            .partitionValues(partitionValues)
-                            .schemaId(file.schemaId());
-
-                    if (optDeletionFiles.isPresent()
-                            && i < optDeletionFiles.get().size()
-                            && optDeletionFiles.get().get(i) != null) {
-                        DeletionFile df = optDeletionFiles.get().get(i);
-                        builder.deletionFile(df.path(), df.offset(), df.length());
-                    }
-
-                    ranges.add(builder.build());
+                    DeletionFile deletionFile =
+                            (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
+                                    ? optDeletionFiles.get().get(i) : null;
+                    ranges.add(buildNativeRange(
+                            rawFiles.get(i), deletionFile, defaultFileFormat, partitionValues));
                 }
             } else {
                 // JNI reader path
@@ -293,6 +277,47 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return ranges;
+    }
+
+    /**
+     * Builds the native-reader {@link PaimonScanRange} for one raw ORC/Parquet file plus its optional
+     * deletion vector. BOTH the data-file path and the deletion-vector path are routed through
+     * {@link #normalizeUri} so BE's scheme-dispatched S3 factory receives canonical {@code s3://}
+     * URIs on OSS/COS/OBS/s3a warehouses (FIX-URI-NORMALIZE; legacy {@code PaimonScanNode} normalizes
+     * both via the 2-arg {@code LocationPath.of}). Package-private so both normalization sites are
+     * unit-testable without a live deletion-vector-bearing split.
+     */
+    PaimonScanRange buildNativeRange(RawFile file, DeletionFile deletionFile,
+            String defaultFileFormat, Map<String, String> partitionValues) {
+        String fileFormat = getFileFormatBySuffix(file.path()).orElse(defaultFileFormat);
+        PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
+                .path(normalizeUri(file.path()))
+                .start(0)
+                .length(file.length())
+                .fileSize(file.length())
+                .fileFormat(fileFormat)
+                .partitionValues(partitionValues)
+                .schemaId(file.schemaId());
+        if (deletionFile != null) {
+            builder.deletionFile(
+                    normalizeUri(deletionFile.path()), deletionFile.offset(), deletionFile.length());
+        }
+        return builder.build();
+    }
+
+    /**
+     * Normalizes a raw paimon-SDK storage URI (native data-file or deletion-vector path) into BE's
+     * canonical scheme via the engine ({@code oss://}/{@code cos://}/{@code obs://}/{@code s3a://}
+     * &rarr; {@code s3://}; OSS {@code bucket.endpoint} &rarr; {@code bucket}). Ports legacy
+     * {@code PaimonScanNode}'s 2-arg {@code LocationPath.of(path, storagePropertiesMap)} — BE's S3
+     * file factory only recognizes {@code s3://}, so an un-normalized OSS/COS/OBS path fails the
+     * native read (data file) or silently drops the deletion vector (merge-on-read wrong rows). The
+     * connector cannot import fe-core's {@code LocationPath}, so it delegates to the
+     * {@link ConnectorContext#normalizeStorageUri} seam. With no context (offline unit tests) the raw
+     * path is preserved — same null-guard as the {@code vendStorageCredentials} overlay below.
+     */
+    private String normalizeUri(String rawUri) {
+        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
     }
 
     @Override

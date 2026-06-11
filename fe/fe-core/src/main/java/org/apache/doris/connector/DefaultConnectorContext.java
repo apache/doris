@@ -22,6 +22,7 @@ import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
@@ -59,6 +60,10 @@ public class DefaultConnectorContext implements ConnectorContext {
     private final long catalogId;
     private final Map<String, String> environment;
     private final Supplier<ExecutionAuthenticator> authSupplier;
+    // Lazily supplies the catalog's static storage-properties map for storage-URI normalization
+    // (FIX-URI-NORMALIZE). Invoked at scan time only (catalog fully initialized). Empty for ctors
+    // that do not wire it — those callers (non-plugin catalogs) never invoke normalizeStorageUri.
+    private final Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier;
 
     private final ConnectorHttpSecurityHook httpSecurityHook = new ConnectorHttpSecurityHook() {
         @Override
@@ -78,9 +83,17 @@ public class DefaultConnectorContext implements ConnectorContext {
 
     public DefaultConnectorContext(String catalogName, long catalogId,
             Supplier<ExecutionAuthenticator> authSupplier) {
+        this(catalogName, catalogId, authSupplier, Collections::emptyMap);
+    }
+
+    public DefaultConnectorContext(String catalogName, long catalogId,
+            Supplier<ExecutionAuthenticator> authSupplier,
+            Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier) {
         this.catalogName = Objects.requireNonNull(catalogName, "catalogName");
         this.catalogId = catalogId;
         this.authSupplier = Objects.requireNonNull(authSupplier, "authSupplier");
+        this.storagePropertiesSupplier =
+                Objects.requireNonNull(storagePropertiesSupplier, "storagePropertiesSupplier");
         this.environment = buildEnvironment();
     }
 
@@ -163,6 +176,20 @@ public class DefaultConnectorContext implements ConnectorContext {
             LOG.warn("Failed to normalize vended credentials", e);
             return Collections.emptyMap();
         }
+    }
+
+    @Override
+    public String normalizeStorageUri(String rawUri) {
+        if (Strings.isNullOrEmpty(rawUri)) {
+            return rawUri;
+        }
+        // Mirror legacy PaimonScanNode's 2-arg LocationPath.of(path, storagePropertiesMap):
+        // scheme-normalize (oss/cos/obs/s3a -> s3, OSS bucket.endpoint -> bucket) via the catalog's
+        // static storage properties so BE's scheme-dispatched S3 factory can open the file. Fail-loud
+        // (StoragePropertiesException propagates) — a path that cannot be normalized would otherwise
+        // silently corrupt reads (esp. a deletion-vector path on merge-on-read). Single source of
+        // truth: the SAME LocationPath normalization legacy/iceberg/hive use, so no drift.
+        return LocationPath.of(rawUri, storagePropertiesSupplier.get()).toStorageLocation().toString();
     }
 
     private static Map<String, String> buildEnvironment() {

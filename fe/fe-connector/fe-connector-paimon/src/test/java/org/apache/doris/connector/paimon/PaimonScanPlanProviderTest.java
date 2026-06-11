@@ -33,6 +33,7 @@ import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataTypes;
@@ -185,6 +186,67 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertFalse(
                 PaimonScanPlanProvider.shouldUseNativeReader(/*forceJni*/ false, Optional.empty()),
                 "a split without convertible raw files must route to JNI regardless of forceJni");
+    }
+
+    // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----
+
+    @Test
+    public void nativeRangeNormalizesBothDataAndDeletionVectorPaths() {
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+        RawFile file = parquetRawFile("oss://bkt/warehouse/db/t/part-0.parquet");
+        DeletionFile dv = new DeletionFile(
+                "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
+
+        PaimonScanRange range = provider.buildNativeRange(
+                file, dv, "parquet", Collections.emptyMap());
+
+        // WHY: BE's scheme-dispatched S3 file factory only opens canonical s3://. An un-normalized
+        // oss:// DATA-file path fails the native ORC/Parquet read outright; an un-normalized oss:// DV
+        // path silently drops the deletion vector so DELETEd rows reappear (merge-on-read corruption).
+        // BOTH must route through ConnectorContext.normalizeStorageUri (legacy PaimonScanNode normalizes
+        // both via the 2-arg LocationPath.of). MUTATION: dropping normalizeUri on either site -> that
+        // path stays oss:// -> red.
+        Assertions.assertEquals("s3://bkt/warehouse/db/t/part-0.parquet",
+                range.getPath().orElse(null), "data-file path must be normalized to s3://");
+        Assertions.assertEquals("s3://bkt/warehouse/db/t/index/dv-0.index",
+                range.getProperties().get("paimon.deletion_file.path"),
+                "deletion-vector path must be normalized to s3://");
+        Assertions.assertEquals(2, ctx.normalizeCount,
+                "both the data-file and the DV path must be routed through normalizeStorageUri");
+    }
+
+    @Test
+    public void nativeRangeWithoutDeletionVectorNormalizesOnlyDataPath() {
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+
+        PaimonScanRange range = provider.buildNativeRange(
+                parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet", Collections.emptyMap());
+
+        // WHY: a DV-less native split must still normalize its data-file path and must NOT emit a DV
+        // descriptor. MUTATION: emitting a deletion_file for a null DV, or skipping data normalization -> red.
+        Assertions.assertEquals("s3://bkt/a/part-0.parquet", range.getPath().orElse(null));
+        Assertions.assertFalse(range.getProperties().containsKey("paimon.deletion_file.path"),
+                "no deletion vector -> no deletion_file descriptor");
+        Assertions.assertEquals(1, ctx.normalizeCount);
+    }
+
+    @Test
+    public void nativeRangeWithoutContextPreservesRawPath() {
+        // 3-arg ctor leaves context == null (the offline harness path): no normalization machinery is
+        // available, so the raw path is preserved without NPE. The real oss://->s3:// rewrite is
+        // covered by DefaultConnectorContextNormalizeUriTest (fe-core).
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps());
+
+        PaimonScanRange range = provider.buildNativeRange(
+                parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet", Collections.emptyMap());
+
+        // MUTATION: NPE on null context, or fabricating a normalized path from nothing -> red.
+        Assertions.assertEquals("oss://bkt/a/part-0.parquet", range.getPath().orElse(null));
     }
 
     @Test

@@ -1,0 +1,99 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector;
+
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+/**
+ * FIX-URI-NORMALIZE fe-core bridge test: pins that
+ * {@link DefaultConnectorContext#normalizeStorageUri} rewrites a connector-supplied storage URI to
+ * BE's canonical {@code s3://} scheme using the catalog's storage properties (the same
+ * {@code LocationPath} normalization legacy {@code PaimonScanNode} applies via the 2-arg
+ * {@code LocationPath.of(path, storagePropertiesMap)}). The paimon connector cannot import that
+ * machinery, so this hook is its only access; without it a native ORC/Parquet read on an
+ * OSS/COS/OBS warehouse reaches BE with an un-openable {@code oss://} path (data file fails, or a
+ * deletion vector is silently dropped). FAILS before the fix (the method is a no-op default
+ * returning the raw URI).
+ */
+public class DefaultConnectorContextNormalizeUriTest {
+
+    private static final Supplier<ExecutionAuthenticator> NOOP_AUTH =
+            () -> new ExecutionAuthenticator() {};
+
+    /** A context whose storage-props supplier yields a real OSS storage-properties map, built with
+     *  the same {@code StorageProperties.createAll} machinery a real OSS catalog uses. */
+    private static DefaultConnectorContext ossContext() throws Exception {
+        Map<String, String> oss = new HashMap<>();
+        oss.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        oss.put("oss.access_key", "ak");
+        oss.put("oss.secret_key", "sk");
+        List<StorageProperties> all = StorageProperties.createAll(oss);
+        Map<StorageProperties.Type, StorageProperties> map = all.stream()
+                .collect(Collectors.toMap(StorageProperties::getType, Function.identity(), (a, b) -> a));
+        return new DefaultConnectorContext("c", 1L, NOOP_AUTH, () -> map);
+    }
+
+    @Test
+    public void normalizesOssSchemeToS3() throws Exception {
+        // WHY: BE's scheme-dispatched S3 file factory only recognizes s3://; legacy LocationPath.of
+        // rewrites oss:// (and cos/obs/s3a) -> s3://. This hook is the connector's ONLY access to that
+        // normalization (it must not import LocationPath). MUTATION: returning the raw oss:// path
+        // (the no-op SPI default) -> red.
+        Assertions.assertEquals("s3://bkt/warehouse/db/t/part-0.parquet",
+                ossContext().normalizeStorageUri("oss://bkt/warehouse/db/t/part-0.parquet"));
+    }
+
+    @Test
+    public void s3SchemeIsUnchanged() throws Exception {
+        // WHY: an already-canonical s3:// path must pass through unchanged (idempotent fast path).
+        // MUTATION: mangling the s3:// path -> red.
+        Assertions.assertEquals("s3://bkt/warehouse/f.parquet",
+                ossContext().normalizeStorageUri("s3://bkt/warehouse/f.parquet"));
+    }
+
+    @Test
+    public void nullOrBlankIsReturnedUnchanged() throws Exception {
+        // WHY: defensive short-circuit before touching the storage-props supplier -> no NPE on a
+        // null/blank path. MUTATION: NPE, or fabricating output from nothing -> red.
+        Assertions.assertNull(ossContext().normalizeStorageUri(null));
+        Assertions.assertEquals("", ossContext().normalizeStorageUri(""));
+    }
+
+    @Test
+    public void failsLoudWhenNoStoragePropertiesForScheme() {
+        // WHY: a context with no storage-properties map must FAIL LOUD on a real path rather than
+        // silently shipping the raw oss:// to BE (which would corrupt reads). Mirrors legacy
+        // LocationPath.of(path, {}) throwing StoragePropertiesException. The ctors that do not wire a
+        // storage map are never used by paimon, but the fail-loud contract is pinned here.
+        // MUTATION: swallowing the error and returning the raw path -> red.
+        DefaultConnectorContext noStorage = new DefaultConnectorContext("c", 1L);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> noStorage.normalizeStorageUri("oss://bkt/a/part-0.parquet"));
+    }
+}

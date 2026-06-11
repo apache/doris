@@ -46,9 +46,25 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
     String lastHiveConfResourcesArg;
 
+    // ---- FIX-URI-NORMALIZE: normalizeStorageUri hook ----
+    /** Number of times the connector invoked {@link #normalizeStorageUri}. */
+    int normalizeCount;
+
     @Override
     public String getCatalogName() {
         return "test";
+    }
+
+    @Override
+    public String normalizeStorageUri(String rawUri) {
+        normalizeCount++;
+        // Deterministic stand-in for the engine's oss://->s3:// scheme rewrite, so a connector wiring
+        // test can prove BOTH the data-file and DV paths were routed through this hook (the real
+        // normalization is covered by DefaultConnectorContextNormalizeUriTest in fe-core).
+        if (rawUri != null && rawUri.startsWith("oss://")) {
+            return "s3://" + rawUri.substring("oss://".length());
+        }
+        return rawUri;
     }
 
     @Override

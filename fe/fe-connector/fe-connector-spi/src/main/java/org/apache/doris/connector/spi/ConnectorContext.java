@@ -139,4 +139,27 @@ public interface ConnectorContext {
     default Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
         return Collections.emptyMap();
     }
+
+    /**
+     * Normalizes a raw storage URI a connector emits (e.g. a paimon native data-file or
+     * deletion-vector path such as {@code oss://…}, {@code cos://…}, {@code obs://…}, {@code s3a://…},
+     * or the OSS {@code bucket.endpoint} authority form) into BE's canonical, scheme-dispatched form
+     * ({@code s3://…}) using the catalog's storage properties. BE's file factory only recognizes the
+     * canonical scheme, so a connector that hands native file paths to BE MUST route them through this
+     * hook; otherwise the native read fails (data file) or silently returns wrong rows (deletion
+     * vector / merge-on-read). The connector cannot perform this itself (it must not import fe-core's
+     * {@code LocationPath} / {@code StorageProperties}); the engine applies the same normalization it
+     * uses for static catalog paths.
+     *
+     * <p>The default returns the input unchanged (no normalization machinery), so every other
+     * connector — and any URI already in canonical form — is unaffected.
+     *
+     * @param rawUri the raw storage URI (null/blank is returned unchanged)
+     * @return the normalized BE-facing URI
+     * @throws RuntimeException if normalization fails (fail-loud, legacy parity — a wrong path would
+     *         otherwise silently corrupt reads rather than surface the misconfiguration)
+     */
+    default String normalizeStorageUri(String rawUri) {
+        return rawUri;
+    }
 }
