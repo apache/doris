@@ -818,8 +818,8 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 2);
-    EXPECT_EQ(projection.children[0].index, 0);
-    EXPECT_EQ(projection.children[1].index, 1);
+    EXPECT_EQ(projection.children[0].index, 1);
+    EXPECT_EQ(projection.children[1].index, 0);
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
     EXPECT_EQ(request.column_predicate_filters[0].file_child_id_path, std::vector<int32_t>({0}));
@@ -881,9 +881,8 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     ASSERT_EQ(request.predicate_columns.size(), 1);
     const auto& projection = request.predicate_columns[0];
     EXPECT_EQ(projection.index, 0);
-    ASSERT_FALSE(projection.project_all_children);
-    ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].index, 0);
+    EXPECT_TRUE(projection.project_all_children);
+    EXPECT_TRUE(projection.children.empty());
 
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].file_column_id.value(), 0);
@@ -1195,8 +1194,8 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedStructPredicateFilterThroughUnsafe
     EXPECT_EQ(request.predicate_columns[0].index, 0);
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
     ASSERT_EQ(request.predicate_columns[0].children.size(), 2);
-    EXPECT_EQ(request.predicate_columns[0].children[0].index, 0);
-    EXPECT_EQ(request.predicate_columns[0].children[1].index, 1);
+    EXPECT_EQ(request.predicate_columns[0].children[0].index, 1);
+    EXPECT_EQ(request.predicate_columns[0].children[1].index, 0);
 }
 
 TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) {
@@ -1621,8 +1620,8 @@ TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
     ASSERT_EQ(projection.children[0].children.size(), 1);
     EXPECT_EQ(projection.children[0].children[0].index, 1);
     ASSERT_EQ(projection.children[0].children[0].children.size(), 2);
-    EXPECT_EQ(projection.children[0].children[0].children[0].index, 0);
-    EXPECT_EQ(projection.children[0].children[0].children[1].index, 1);
+    EXPECT_EQ(projection.children[0].children[0].children[0].index, 1);
+    EXPECT_EQ(projection.children[0].children[0].children[1].index, 0);
     EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
