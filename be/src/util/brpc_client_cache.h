@@ -228,15 +228,15 @@ public:
 
     // Explicit-override entry point. Pass `enable_handshake=true` to force the
     // handshake-and-retry path (paid only on cache miss / rebuild — warm cache
-    // hits stay free). Pass `false` to disable. Max attempts is 3.
+    // hits stay free). Pass `false` to disable. Max attempts is 5.
     std::shared_ptr<T> get_client(const std::string& host, int port, bool enable_handshake) {
-        const int max_attempts = enable_handshake ? 3 : 1;
+        const int max_attempts = enable_handshake ? 5 : 1;
         std::string host_port;
         for (int attempt = 1; attempt <= max_attempts; ++attempt) {
-            // Brief backoff before retries so the new Pod has time to start
-            // listening. Only paid during graceful restart (enable_handshake).
+            // Progressive backoff before retries so Kubernetes DNS/endpoints
+            // have more time to converge during graceful restart.
             if (enable_handshake && attempt > 1) {
-                bthread_usleep(500000);
+                bthread_usleep(1000000 * (attempt - 1));
             }
             std::string realhost = host;
             auto dns_cache = ExecEnv::GetInstance()->dns_cache();

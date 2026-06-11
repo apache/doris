@@ -161,7 +161,7 @@ public class Backend implements Writable {
     // No need to persist, because only master FE handle heartbeat.
     private int heartbeatFailureCounter = 0;
 
-    private static final int GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT = 3;
+    private static final int GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT = 5;
     private int gracefulAliveHeartbeatOkCount = 0;
     private long gracefulAliveHeartbeatStartTime = -1;
 
