@@ -23,7 +23,7 @@
 
 | # | ID | sev | finding | area / file(s) | SPI? | design | impl | build+UT | commit |
 |---|----|-----|---------|----------------|------|--------|------|----------|--------|
-| 1 | FIX-URI-NORMALIZE | BLOCKER | B-7DV + B-7DF | native data-file + DV path scheme norm (oss/cos/obs/s3a→s3) | **yes** | ✅ | ✅ | ✅ | 🔄 |
+| 1 | FIX-URI-NORMALIZE | BLOCKER | B-7DV + B-7DF | native data-file + DV path scheme norm (oss/cos/obs/s3a→s3) | **yes** | ✅ | ✅ | ✅ | ✅ `20b19d19dd8` |
 | 2 | FIX-STATIC-CREDS-BE | BLOCKER | B-9 | static s3/oss/cos/obs creds → BE as canonical `AWS_*` | **yes** | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | FIX-SCHEMA-EVOLUTION | BLOCKER | B-1a (+M-10) | emit `current_schema_id`/`history_schema_info` + field-id thru SPI | **yes** | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | FIX-JDBC-DRIVER-URL | BLOCKER | B-8a + B-8b | resolve+alias `jdbc.driver_url` for BE; enforce security allow-list | maybe | ⬜ | ⬜ | ⬜ | ⬜ |

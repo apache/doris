@@ -5,60 +5,62 @@
 
 ---
 
-# ✅ 已完成（本 session，2026-06-11）— P5 paimon fullpath-review 修复执行（全 8 fix IMPL）
+# 🎯 下一个 session 的任务 — **逐一修复 paimon connector 第二轮 review 的问题（#1 已完成 → 从 #2 起）**
 
-**用户选定 scope = "BLOCKERs + key MAJORs" = 8 fix。本 session 完成全部 8 个 fix 的 IMPL + UT + 文档。**
-进度表：[`plan-doc/task-list-P5-paimon-fixes.md`](./task-list-P5-paimon-fixes.md)（8/8 全勾）。每 fix 的 IMPL SUMMARY 写回 `plan-doc/tasks/designs/P5-fix-<id>-design.md` 尾部。
+第二轮 clean-room 对抗 review 已完成（report：[`plan-doc/reviews/P5-paimon-rereview2-2026-06-11.md`](./reviews/P5-paimon-rereview2-2026-06-11.md)，含 §9 与第一轮的交叉核对）。结论：**NOT commit-ready** —— 4 个 confirmed BLOCKER 族 + 6 个 confirmed MAJOR。问题**按优先级排成任务列表**：
 
-## 8 fix 全绿（build+连接器 UT，maven 绝对 -f，读 surefire XML）
-| # | id | sev | 改动 | UT |
-|---|----|-----|------|-----|
-| 1 | FIX-STORAGE-CREDS | BLOCKER×2 | `applyStorageConfig` 加 canonical s3.*/oss.*/AWS_* → fs.s3a./fs.oss.（+DLF region 派生 OSS endpoint） | PaimonCatalogFactoryTest 38/0 |
-| 2 | FIX-NATIVE-PARTVAL | BLOCKER+MAJOR | `serializePartitionValue` 全类型 port + session-TZ（仅 LTZ 用） | PaimonPartitionValueRenderTest 7/0 |
-| 3 | FIX-TZ-ALIAS | MAJOR | 完整 legacy 别名图（`ZoneId.SHORT_IDS`+4 override，TreeMap CI） | PaimonConnectorMetadataMvccTest 37/0 |
-| 4 | FIX-TABLE-STATS | MAJOR | `getTableStatistics` override + `PaimonCatalogOps.rowCount` seam | PaimonConnectorMetadataStatisticsTest 4/0 |
-| 5 | FIX-CPP-READER | BLOCKER | `enable_paimon_cpp_reader` → `encodeSplit` 原生 DataSplit.serialize | PaimonScanPlanProviderTest（含真 DataSplit 往返） |
-| 6 | FIX-READ-NOTNULL | MAJOR | `mapFields` 一行 `nullable=true`（legacy parity restore） | PaimonConnectorMetadataTest 12/0 |
-| 7 | FIX-HMS-CONFRES | MAJOR | **扩 SPI** `loadHiveConfResources` + `buildHmsHiveConf(props,fileMap)` base 合并 | conn 42/0 + PaimonHmsConfResWiringTest |
-| 8 | FIX-REST-VENDED | BLOCKER | **扩 SPI** `vendStorageCredentials` + scan-props `location.*` overlay | conn 15/0 + fe-core DefaultConnectorContextVendTest 2/0 |
+👉 **任务清单（按优先级）：[`plan-doc/task-list-P5-rereview2-fixes.md`](./task-list-P5-rereview2-fixes.md)** —— 逐条含 finding 引用、连接器 `file:line`、legacy parity 锚、fix sketch、SPI 影响、测法。
 
-- **最终整模块 checkpoint**：`fe-connector-paimon` 19 测试类 / **213 tests / 0 fail / 0 err / 1 skip**（skip=live-gated `PaimonLiveConnectivityTest`）。
-- **fe-core 编译干净** + fe-core 新测 `DefaultConnectorContextVendTest` 2/0（验真 `StorageProperties` 归一化产出 AWS_*）。
-- 连接器禁 import fe-core：`bash tools/check-connector-imports.sh` 全程 clean。
+## ✅ 本 session 已完成：#1 `FIX-URI-NORMALIZE`（BLOCKER B-7DF+B-7DV）—— commit `20b19d19dd8`
+- native 数据文件路径 + DV 路径裸传 BE（oss/cos/obs/s3a 未归一化 s3://）→ S3-兼容 warehouse native 读挂 / DV 静默丢错行。**两路径机制不同**：数据文件经 `PluginDrivenSplit` 单-arg `LocationPath.of`→`FileQueryScanNode:568`；DV 由连接器 `populateRangeParams` 烤进 thrift（fe-core 不经手）→ bridge-only 修不到 DV。
+- **修法**：新 SPI `ConnectorContext.normalizeStorageUri`（恒等 default，仿 `vendStorageCredentials`）；`DefaultConnectorContext` 经引擎 2-arg `LocationPath.of` + catalog 静态 storage map（新 lazy supplier + 4-arg ctor，`PluginDrivenExternalCatalog` 接线）；连接器在抽出的可测 `buildNativeRange` 对**数据文件 + DV 双路**调 `normalizeUri`。fail-loud。
+- **验证**：paimon 216/0/0（+3 wiring 测）、fe-core 目标测绿（normalize 4/0/0 + vend 2/0/0 未坏）、checkstyle 0、import-gate 净。live OSS+DV e2e CI-gated（未跑）。设计 [`P5-fix-URI-NORMALIZE-design.md`](./tasks/designs/P5-fix-URI-NORMALIZE-design.md)、SPI RFC §21、[DV-025](./deviations-log.md)（静态-vs-vended map scope）。
 
-## ⚠️ 实现中查出的设计订正（已落各 design 尾 + 已修，复审锚点）
-- **FIX-STORAGE-CREDS**：设计的 anon-bucket 测断言 `assertNull(fs.s3a.aws.credentials.provider)` 错——Hadoop `Configuration` 有 baked-in 默认 provider 链；改 `assertNotEquals(Simple-single,…)`（产线正确，仅测断言订正）。
-- **FIX-NATIVE-PARTVAL**：`ISO_LOCAL_DATE_TIME` 在秒+纳秒皆 0 时**省略秒**（`08:00:00`→`"…T08:00"`，legacy 同行为）；测用非零秒 wall clock（`01:02:03`）避歧义。
-- **FIX-TZ-ALIAS**：把 `resolveTimestampDigitalUnaffectedByUnsupportedZoneAlias` 的 `"CST"`→`"XYZ"`（CST 修后会解析，留 CST 则测失去捕变力）——设计说"keep as-is"，此为 Rule 9 必要订正。
-- **FIX-HMS-CONFRES**：设计 test2 用 `hive.metastore.uris`，被 `HMS_URI` 别名二次解析干扰；改用非 uri 键 `hive.metastore.sasl.qop` 隔离 file-base-vs-user 优先级（产线正确）。
-- **FIX-REST-VENDED**：设计"Construction change"（线程 `Supplier<CatalogProperty>` 入 ctor + 改 `PluginDrivenExternalCatalog`/`CatalogFactory`）**实际不需要**——impl 仅用 `rawVendedCredentials` 入参，故 0 ctor 改、0 `PluginDrivenExternalCatalog` 改（blast-radius 更小）。
+## 🔜 下一个 session：从 **#2 `FIX-STATIC-CREDS-BE`** 起，按 task-list 顺序续修
+> ⚠️ 见下「给下一个 agent 的 meta」：#1 已建好「BE-bound scan-prop 经 `ConnectorContext` 归一化」缝（`normalizeStorageUri`），#2（静态 s3/oss/cos/obs 凭据→BE `AWS_*`）可复用同模式（在 `DefaultConnectorContext` 加凭据归一化或扩 `vendStorageCredentials` tail）。#2 与 #1 共「BE scan-prop 归一化」主题。
+> ⚠️ P2 两条（#8 count-pushdown / #9 sub-split）严重度有争议（R1=MINOR/R2=MAJOR，均结果正确仅性能）—— **动手前先找用户定 scope**（accept-or-defer），别默认全做。
 
----
+每条遵循项目既定 per-fix 流程（与 `step-by-step-fix` skill 一致）：
+1. 写设计 doc → `plan-doc/tasks/designs/P5-fix-<ID>-design.md`（Problem / Root Cause / Design / Impl Plan / Risk / Test Plan）。
+2. **先拿当前代码复核 finding**（review 只读，行号可能漂移）。
+3. 实现（minimal、surgical、match style；**连接器禁 import fe-core**）。
+4. build + UT（绝对 `-f`、读 surefire XML + `MVN_EXIT`；加 fail-before/pass-after UT）。
+5. **每个 fix 独立 commit**（先看下方 Commit 须知）→ 可选 `plan-doc/reviews/P5-fix-<ID>-review-rounds.md`。
+6. SPI 改动登记 `01-spi-extensions-rfc.md`；用户签字决策入 `decisions-log.md`；接受的偏差入 `deviations-log.md`；同步更新 task-list 进度表。
 
-# ▶️ 下一步 — 用户决策：commit + live-e2e → B8 删 legacy → B9 回归
+## 📋 优先级总览（详见 task-list）
 
-**全 8 fix IMPL 完，commit 仍 HELD（项目规矩：无用户 ask 不 commit）。** 等用户决定：
-1. **commit 分组**：B7 翻闸（core cutover）+ 2 restore + 8 fix + 测 + docs 一并未提交在树。用户定 commit 分组（建议：B7 一组、8 fix 一组或逐 fix 一组）。
-2. **commit 前必 scrub** `regression-test/conf/regression-conf.groovy`（明文 Aliyun key），用 path-whitelist `git add fe/... plan-doc/...`，**勿 `git add -A`**；scratch 勿提交（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。[[catalog-spi-gson-migrate-all-three]] GSON atomic landmine 仍适用。
-3. **live-e2e（CI 跳，需真 infra）**：8 fix 的凭据/原生渲染/HMS-file/REST-vended 路径都列了 gated live 验证（见各 design 尾"Live-e2e"段）。
-4. 之后 → **B8 删 legacy**（`datasource/paimon/*` + 死 `property/metastore/Paimon*`）→ **B9 回归**。
+| 层 | 条目 | 说明 |
+|---|---|---|
+| **P0 BLOCKER（挡 commit）** | 1.`FIX-URI-NORMALIZE`(B-7DF/DV) · 2.`FIX-STATIC-CREDS-BE`(B-9) · 3.`FIX-SCHEMA-EVOLUTION`(B-1a+M-10) · 4.`FIX-JDBC-DRIVER-URL`(B-8a/b) | #1+#2 面最广（OSS/COS/OBS/私有 S3 上**所有** native 读直接挂）且共用「BE-bound scan-prop 归一化」缝（复用 `FIX-REST-VENDED` 的 `ConnectorContext` 模式）；#3 失败模式最危险（**静默错行**）但触发更窄+SPI surface 最大、**若把静默损坏排第一可先做 #3**（独立于 #1/#2）；#4 仅 JDBC flavor。 |
+| **P1 MAJOR（修或显式接受）** | 5.`FIX-MAPPING-FLAG-KEYS`(M-crit) · 6.`FIX-KERBEROS-DOAS`(M-8+M-11) · 7.`FIX-FORCE-JNI-SCANNER`(M-1) | M-crit 是 critic-surfaced、**未过 3-lens**→先复核；M-8/M-11 同属 UGI `doAs` 缺失（grouped）。 |
+| **P2 严重度有争议（perf；R1=MINOR）** | 8.`FIX-COUNT-PUSHDOWN`(M-2) · 9.`FIX-NATIVE-SUBSPLIT`(M-3) | 结果正确、仅性能/并行。**用户定 scope**：建议 accept-or-defer（defer 则登 `deviations-log`）。 |
+| **P3 覆盖缺口（去查、非确认 bug）** | 复验 `FIX-HMS-CONFRES` 是否真生效 · DDL 写路径 parity · ANALYZE/列统计 · split-count 计账 | critic 标注本轮未追/未复验；查出真分歧才转 FIX 任务。 |
+| **P4 MINOR/NIT** | 见 review §5 | 一次性 cleanup pass；唯一有真实（罕见）数据边的是 partition null-sentinel（`__HIVE_DEFAULT_PARTITION__`/`\N` 字面值被当 NULL）。 |
+
+> **交叉核对要点（review §9）**：上一轮 8 个 fix 对**本轮复测到的**全部生效；但 (a) 上一轮 2 个 PARTIAL（DV/数据文件归一化、JDBC driver_url）从未修、本轮升级为 BLOCKER；(b) 凭据有**三道缝**，catalog-FileIO 与 vended 已修，**static→BE-scan 缝（B-9）漏修**；(c) native schema-evolution（B-1a）上一轮误判 MINOR、本轮经 BE 追踪确认 BLOCKER。无任何上一轮 CONFIRMED 被本轮推翻。
 
 ---
 
 # 📦 仓库状态
+- **HEAD = `20b19d19dd8`**（`fix: FIX-URI-NORMALIZE`，本 session #1 修复；其父 `98a73bf7692` = `[P5-B7+fixes]`）。该 commit 含 #1 代码+测试+设计 doc+SPI RFC §21+DV-025+task-list 进度，并一并纳入上一 session 未 commit 的 review report + task-list。本 session 改动（**未 commit**）：`plan-doc/HANDOFF.md`（本文件）、`plan-doc/task-list-P5-rereview2-fixes.md`（#1 commit-cell 标 ✅ 的后续微调）；scratch 仍未 commit（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。
+- ⚠️ **`regression-test/conf/regression-conf.groovy` 仍 modified-未 commit 且含明文 Aliyun key** —— 任何 commit 前继续 path-whitelist，严禁 `git add -A`。
+- 当前分支 `catalog-spi-07-paimon`（非 `master`）→ 在此 commit 修复 OK。
+- **legacy `datasource/paimon/*` 仍在树内**（B8 删除未做）→ 每个 fix 都能 side-by-side diff 做 parity。
+- 迁移链：`512a67ee3ac`(B0)→`807308993fb`(B1)→`a2b765677d1`(B2/B3)→`ae5ad30b938`(B4)→`d2a2c8d761a`(B5/B6)→`98a73bf7692`(B7+fixes)→`20b19d19dd8`(rereview2 #1 FIX-URI-NORMALIZE, HEAD)。
 
-- **HEAD = `d2a2c8d761a`**。working tree **uncommitted**：B7 翻闸 + 2 restore + **8 fix** + 测 + docs + 上一轮 review 产物。
-- **本 session 改的产线文件（7）**：`PaimonCatalogFactory` / `PaimonCatalogOps` / `PaimonConnector` / `PaimonConnectorMetadata` / `PaimonScanPlanProvider`（连接器）+ `ConnectorContext`（SPI）+ `DefaultConnectorContext`（fe-core）。
-- **新测文件（4）**：`PaimonPartitionValueRenderTest` / `PaimonConnectorMetadataStatisticsTest` / `PaimonHmsConfResWiringTest`（连接器）+ `DefaultConnectorContextVendTest`（fe-core）。改测：`PaimonCatalogFactoryTest` / `PaimonScanPlanProviderTest` / `PaimonConnectorMetadataTest` / `PaimonConnectorMetadataMvccTest` / `RecordingPaimonCatalogOps` / `RecordingConnectorContext` / `FakePaimonTable`。
-- **legacy 基线** = `1872ea05310`。迁移链：`512a67ee3ac`(B0)→`807308993fb`(B1)→`a2b765677d1`(B2/B3)→`ae5ad30b938`(B4)→`d2a2c8d761a`(B5/B6)；B7 + 8 fix 未 commit。
+## ⚠️ Commit 须知（任何 `git add` 前必读）
+- **硬前置**：scrub `regression-test/conf/regression-conf.groovy`（明文 Aliyun key）+ 清 scratch（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。**path-whitelist `git add`，严禁 `git add -A`。**
+- 每个 fix 独立 commit；message = `fix: <ID>` + 根因 + 解法 + 测试，末尾带项目 Co-Authored-By trailer。
+- 改 fe-core/SPI 的 fix（#1/#2/#3，可能 #4/#6）：commit 须含连接器 + SPI + fe-core 三侧 + 测试，按 path-whitelist 加。
 
 ## ⚙️ 操作须知（复用）
-- maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> -am -Dmaven.build.cache.enabled=false -DfailIfNoTests=false`（`-am` 跨上游模块须带 `-DfailIfNoTests=false`，否则 fe-thrift 报 "No tests were executed"）；验证读 surefire XML + `MVN_EXIT`（[[doris-build-verify-gotchas]]）。
-- **`-pl :fe-connector-paimon -am` 不重编 fe-core**（连接器不依赖 fe-core）；改 `DefaultConnectorContext`/fe-core 须单独 `-pl :fe-core -am` 编/测验证。
-- 连接器禁 import fe-core(`bash tools/check-connector-imports.sh`)；单测基建技巧见 [[catalog-spi-fe-core-test-infra]]。
-- cwd 跨 Bash 调用持久，`cd` 会破相对路径 → 一律绝对路径（本 session 踩过一次）。
+- maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> -am -Dmaven.build.cache.enabled=false -DfailIfNoTests=false`；验证读 surefire XML + `MVN_EXIT`（[[doris-build-verify-gotchas]]）。`-pl :fe-connector-paimon -am` **不重编 fe-core**；改 fe-core 须单独 `-pl :fe-core -am`。
+- 连接器禁 import fe-core：`bash tools/check-connector-imports.sh`（决定 task-list「SPI?」列：B1/B3/B2 因不能 import `LocationPath`/`StorageProperties` 须走 fe-core 桥或新 `ConnectorContext` SPI 缝）。
+- cwd 跨 Bash 调用持久，`cd` 破相对路径 → 一律绝对路径。
+- 测试优先 runnable FE **单测**（连接器 harness：`FakePaimonTable`/`RecordingPaimonCatalogOps`/`RecordingConnectorContext`/`PaimonScanPlanProviderTest`）；live-e2e（S3/OSS/REST/JDBC/Kerberos）CI-gated → 注明 gated，勿谎称跑过。
 
 ## 🧠 给下一个 agent 的 meta
-- 8 fix 的逐条 root-cause + patch + UT + 实现订正已落各 `P5-fix-<id>-design.md`（IMPL SUMMARY 段）。复审以各 design 尾为锚。
-- review 报告 [`P5-paimon-fullpath-review-2026-06-11.md`](./reviews/P5-paimon-fullpath-review-2026-06-11.md) 的 file:line 是 review-only 基线（修复后行号已漂移）。
-- 记忆 [[catalog-spi-p5-fullpath-review-result]] 记 review 结论；本 session 的修复执行结论应新增/更新记忆（见下）。
+- 改 fe-core handle/scan 流前，先 grep 全 `metadata.getTableHandle` / scan-node 调用方（历史教训：独立 handle 面绕 seam 会静默错行）。
+- P2 两条（count-pushdown、sub-split）严重度有争议（R1 判 MINOR、R2 判 MAJOR，均「结果正确仅性能」）—— **先找用户定 scope 再动手**，别默认按 MAJOR 全做。
+- M-crit（mapping-flag）未过 3-lens 对抗验证 → 实现前先独立复核 dotted-vs-underscore key 事实成立再修。
