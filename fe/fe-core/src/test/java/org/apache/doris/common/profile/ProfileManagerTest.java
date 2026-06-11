@@ -20,6 +20,7 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -93,6 +94,52 @@ class ProfileManagerTest {
         summaryProfile.getSummary().getInfoStrings().put(SummaryProfile.PROFILE_ID, id);
         profile.setSummaryProfile(summaryProfile);
         return profile;
+    }
+
+    @Test
+    void getProfileCompletionStateInQueryList() {
+        Profile runningProfile = constructProfile("running");
+        profileManager.pushProfile(runningProfile);
+
+        Profile collectingProfile = constructProfile("collecting");
+        collectingProfile.markQueryFinished();
+        UUID collectingTaskId = UUID.randomUUID();
+        TUniqueId collectingQueryId = new TUniqueId(collectingTaskId.getMostSignificantBits(),
+                collectingTaskId.getLeastSignificantBits());
+        ExecutionProfile collectingExecutionProfile = new ExecutionProfile(collectingQueryId, Lists.newArrayList(0));
+        collectingExecutionProfile.addFragmentBackend(new PlanFragmentId(0), 1L);
+        collectingProfile.addExecutionProfile(collectingExecutionProfile);
+        profileManager.pushProfile(collectingProfile);
+
+        Profile completeProfile = constructProfile("complete");
+        completeProfile.markQueryFinished();
+        UUID completeTaskId = UUID.randomUUID();
+        TUniqueId completeQueryId = new TUniqueId(completeTaskId.getMostSignificantBits(),
+                completeTaskId.getLeastSignificantBits());
+        completeProfile.addExecutionProfile(new ExecutionProfile(completeQueryId, Lists.newArrayList()));
+        profileManager.pushProfile(completeProfile);
+
+        List<List<String>> rows = profileManager.getQueryInfoByColumnNameList(Lists.newArrayList(
+                SummaryProfile.PROFILE_ID, SummaryProfile.PROFILE_COMPLETION_STATE));
+
+        Set<String> checkedProfiles = new HashSet<>();
+        for (List<String> row : rows) {
+            if (row.get(0).equals("running")) {
+                Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING, row.get(1));
+                checkedProfiles.add(row.get(0));
+            } else if (row.get(0).equals("collecting")) {
+                Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_COLLECTING, row.get(1));
+                checkedProfiles.add(row.get(0));
+            } else if (row.get(0).equals("complete")) {
+                Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE, row.get(1));
+                checkedProfiles.add(row.get(0));
+            }
+        }
+        Set<String> expectedProfiles = new HashSet<>();
+        expectedProfiles.add("running");
+        expectedProfiles.add("collecting");
+        expectedProfiles.add("complete");
+        Assertions.assertEquals(expectedProfiles, checkedProfiles);
     }
 
     @Test

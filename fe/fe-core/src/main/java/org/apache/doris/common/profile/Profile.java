@@ -599,6 +599,44 @@ public class Profile {
         return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
+    public String getProfileCompletionState() {
+        if (profileHasBeenStored()) {
+            String storedState = summaryProfile.getSummary().getInfoString(SummaryProfile.PROFILE_COMPLETION_STATE);
+            if (!Strings.isNullOrEmpty(storedState)) {
+                return storedState;
+            }
+            return SummaryProfile.PROFILE_COMPLETION_STATE_UNKNOWN;
+        }
+
+        if (!isQueryFinished) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
+        }
+
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            if (!executionProfile.isCompleted()) {
+                return SummaryProfile.PROFILE_COMPLETION_STATE_COLLECTING;
+            }
+        }
+        return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
+    }
+
+    private String getProfileCompletionStateForStorage() {
+        if (!isQueryFinished) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
+        }
+
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            if (!executionProfile.isCompleted()) {
+                return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+            }
+        }
+        return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
+    }
+
+    private void updateProfileCompletionStateForStorage() {
+        summaryProfile.setProfileCompletionState(getProfileCompletionStateForStorage());
+    }
+
     // Profile IO threads races with Coordinator threads.
     public void markQueryFinished() {
         try {
@@ -648,6 +686,7 @@ public class Profile {
             DataOutputStream memoryDataStream = new DataOutputStream(memoryStream);
 
             // Write summary profile and execution profile content to memory
+            updateProfileCompletionStateForStorage();
             this.summaryProfile.write(memoryDataStream);
 
             SafeStringBuilder builder = new SafeStringBuilder();
