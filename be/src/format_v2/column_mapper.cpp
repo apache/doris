@@ -1099,48 +1099,6 @@ static Status build_file_child_projection_from_schema(
     return Status::OK();
 }
 
-// Prefer the table-to-file mapping tree for nested filter projection. This keeps renamed
-// children and field-id schema evolution in the mapper instead of leaking table names into the
-// file reader request. The file schema fallback below is only for filter-only children that do not
-// have an output child mapping yet.
-static Status build_file_child_projection_for_filter_path(
-        const ColumnMapping& mapping, std::span<const StructChildSelector> selectors,
-        LocalColumnIndex* projection) {
-    DORIS_CHECK(projection != nullptr);
-    if (selectors.empty()) {
-        return Status::InvalidArgument("Nested struct selector path is empty");
-    }
-    const auto* child_mapping = resolve_mapped_child(mapping, selectors.front());
-    if (child_mapping == nullptr) {
-        return build_file_child_projection_from_schema(mapping.original_file_children, selectors,
-                                                       projection);
-    }
-    if (!child_mapping->file_local_id.has_value()) {
-        *projection = LocalColumnIndex {};
-        return Status::OK();
-    }
-    *projection = LocalColumnIndex::local(*child_mapping->file_local_id);
-    projection->project_all_children = selectors.size() == 1;
-    projection->children.clear();
-    if (selectors.size() == 1) {
-        return Status::OK();
-    }
-    LocalColumnIndex child_projection;
-    if (child_mapping->child_mappings.empty()) {
-        RETURN_IF_ERROR(build_file_child_projection_from_schema(
-                child_mapping->original_file_children, selectors.subspan(1), &child_projection));
-    } else {
-        RETURN_IF_ERROR(build_file_child_projection_for_filter_path(
-                *child_mapping, selectors.subspan(1), &child_projection));
-    }
-    if (child_projection.local_id() < 0) {
-        *projection = LocalColumnIndex {};
-        return Status::OK();
-    }
-    projection->children.push_back(std::move(child_projection));
-    return Status::OK();
-}
-
 static bool table_root_is_struct(const ColumnMapping& mapping) {
     return struct_type_or_null(mapping.table_type) != nullptr;
 }
@@ -2017,40 +1975,36 @@ static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& 
 }
 
 static Status build_filter_projection_map(const std::vector<TableFilter>& table_filters,
-                                          std::vector<ColumnMapping>* mappings,
+                                          const std::vector<ColumnMapping>& mappings,
                                           FilterProjectionMap* filter_projections) {
-    DORIS_CHECK(mappings != nullptr);
     DORIS_CHECK(filter_projections != nullptr);
     filter_projections->clear();
     for (const auto& table_filter : table_filters) {
         if (table_filter.conjunct == nullptr) {
             continue;
         }
-        // Collect all the nested struct paths in the filter conjunct. For example, for a filter like
-        // `s.id > 5 AND s.name = 'abc'`, we will collect the path `s -> id` and `s -> name`, and
-        // try to build the projection for both paths.
+        // Collect all the nested struct paths in the filter conjunct. For example, for a filter
+        // like `s.id > 5 AND s.name = 'abc'`, collect `s -> id` and `s -> name`, then build scan
+        // projections for those paths from the file schema.
         std::vector<NestedStructPath> paths;
         collect_nested_struct_paths(table_filter.conjunct->root(), &paths);
         for (const auto& path : paths) {
-            auto mapping_it = std::ranges::find_if(*mappings, [&](const ColumnMapping& mapping) {
+            auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
                 return mapping.global_index == path.root_global_index;
             });
-            if (mapping_it == mappings->end() || !mapping_it->file_local_id.has_value() ||
+            if (mapping_it == mappings.end() || !mapping_it->file_local_id.has_value() ||
                 path.selectors.empty()) {
                 continue;
             }
 
-            LocalColumnIndex root_projection;
-            if (!resolve_nested_projection_with_mapping(path, *mappings, &root_projection)) {
-                LocalColumnIndex child_projection;
-                RETURN_IF_ERROR(build_file_child_projection_for_filter_path(
-                        *mapping_it, path.selectors, &child_projection));
-                if (child_projection.local_id() < 0) {
-                    continue;
-                }
-                root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
-                root_projection.children.push_back(std::move(child_projection));
+            LocalColumnIndex child_projection;
+            RETURN_IF_ERROR(build_file_child_projection_from_schema(
+                    mapping_it->original_file_children, path.selectors, &child_projection));
+            if (child_projection.local_id() < 0) {
+                continue;
             }
+            auto root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
+            root_projection.children.push_back(std::move(child_projection));
             auto filter_projection_it = filter_projections->find(root_projection.column_id());
             if (filter_projection_it == filter_projections->end()) {
                 filter_projections->emplace(root_projection.column_id(),
@@ -2418,7 +2372,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                                            RuntimeState* runtime_state) {
     FilterProjectionMap filter_projections;
     auto filter_mappings = _filter_visible_mappings();
-    RETURN_IF_ERROR(build_filter_projection_map(table_filters, &filter_mappings,
+    RETURN_IF_ERROR(build_filter_projection_map(table_filters, filter_mappings,
                                                 &filter_projections));
     for (const auto& table_filter : table_filters) {
         for (const auto& global_index : table_filter.global_indices) {
