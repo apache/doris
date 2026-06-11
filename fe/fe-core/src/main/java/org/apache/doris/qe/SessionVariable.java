@@ -3633,7 +3633,6 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         // enable fuzzy after we clean all case of
-        // enable_common_expr_pushdown/enable_common_exp_pushdown_for_inverted_index
         // this.enableSegmentLimitPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
