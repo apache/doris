@@ -17,12 +17,10 @@
 
 #include "storage/task/index_builder.h"
 
-#include <algorithm>
 #include <mutex>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/common/variant_util.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -37,99 +35,6 @@
 #include "util/trace.h"
 
 namespace doris {
-
-namespace {
-
-std::string alter_index_field_pattern(const TOlapTableIndex& index) {
-    if (!index.__isset.properties) {
-        return {};
-    }
-    auto it = index.properties.find("field_pattern");
-    if (it == index.properties.end()) {
-        return {};
-    }
-    return it->second;
-}
-
-bool has_field_pattern_index(const std::vector<TOlapTableIndex>& indexes) {
-    return std::any_of(indexes.begin(), indexes.end(),
-                       [](const auto& index) { return !alter_index_field_pattern(index).empty(); });
-}
-
-int32_t resolve_alter_index_column_idx(const TabletSchemaSPtr& tablet_schema,
-                                       const TOlapTableIndex& alter_index) {
-    DCHECK_EQ(alter_index.columns.size(), 1);
-    auto column_idx = tablet_schema->field_index(alter_index.columns[0]);
-    if (column_idx < 0 && alter_index.__isset.column_unique_ids &&
-        !alter_index.column_unique_ids.empty()) {
-        column_idx = tablet_schema->field_index(alter_index.column_unique_ids[0]);
-    }
-    if (column_idx < 0) {
-        return column_idx;
-    }
-
-    const auto field_pattern = alter_index_field_pattern(alter_index);
-    if (field_pattern.empty()) {
-        return column_idx;
-    }
-
-    const auto& parent_column = tablet_schema->column(column_idx);
-    const int32_t parent_unique_id = parent_column.is_extracted_column()
-                                             ? parent_column.parent_unique_id()
-                                             : parent_column.unique_id();
-    for (int32_t i = 0; i < tablet_schema->num_columns(); ++i) {
-        const auto& column = tablet_schema->column(i);
-        if (!column.has_path_info() || column.parent_unique_id() != parent_unique_id) {
-            continue;
-        }
-        const auto full_path = column.path_info_ptr()->get_path();
-        const auto relative_path = column.path_info_ptr()->copy_pop_front().get_path();
-        if (field_pattern == full_path || field_pattern == relative_path) {
-            return i;
-        }
-    }
-    return column_idx;
-}
-
-std::vector<const TabletIndex*> inverted_indexs_for_alter_index(
-        const TabletSchemaSPtr& tablet_schema, const TOlapTableIndex& alter_index,
-        const TabletColumn& column,
-        std::vector<std::shared_ptr<const TabletIndex>>* owned_indexes) {
-    auto index_metas = tablet_schema->inverted_indexs(column);
-    if (!index_metas.empty()) {
-        return index_metas;
-    }
-
-    const auto field_pattern = alter_index_field_pattern(alter_index);
-    if (field_pattern.empty()) {
-        return index_metas;
-    }
-
-    const int32_t parent_unique_id =
-            column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-    if (column.is_extracted_column()) {
-        TabletSchema::SubColumnInfo sub_column_info;
-        const std::string relative_path = column.path_info_ptr()->copy_pop_front().get_path();
-        if (variant_util::generate_sub_column_info(*tablet_schema, parent_unique_id, relative_path,
-                                                   &sub_column_info)) {
-            for (auto& index : sub_column_info.indexes) {
-                index_metas.push_back(index.get());
-                owned_indexes->emplace_back(std::move(index));
-            }
-            if (!index_metas.empty()) {
-                return index_metas;
-            }
-        }
-    }
-
-    for (const auto& index :
-         tablet_schema->inverted_index_by_field_pattern(parent_unique_id, field_pattern)) {
-        index_metas.push_back(index.get());
-    }
-    return index_metas;
-}
-
-} // namespace
 
 IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
                            const std::vector<TColumn>& columns,
@@ -192,20 +97,25 @@ Status IndexBuilder::update_inverted_index_info() {
 
         if (_is_drop_op) {
             for (const auto& t_inverted_index : _alter_inverted_indexes) {
-                const auto column_idx =
-                        resolve_alter_index_column_idx(output_rs_tablet_schema, t_inverted_index);
+                DCHECK_EQ(t_inverted_index.columns.size(), 1);
+                auto column_name = t_inverted_index.columns[0];
+                auto column_idx = output_rs_tablet_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    LOG(WARNING) << "referenced column was missing. "
-                                 << "[column=" << t_inverted_index.columns[0]
-                                 << " referenced_column=" << column_idx << "]";
-                    continue;
+                    if (!t_inverted_index.column_unique_ids.empty()) {
+                        auto column_unique_id = t_inverted_index.column_unique_ids[0];
+                        column_idx = output_rs_tablet_schema->field_index(column_unique_id);
+                    }
+                    if (column_idx < 0) {
+                        LOG(WARNING) << "referenced column was missing. "
+                                     << "[column=" << column_name
+                                     << " referenced_column=" << column_idx << "]";
+                        continue;
+                    }
                 }
                 auto column = output_rs_tablet_schema->column(column_idx);
 
                 // inverted index
-                std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
-                auto index_metas = inverted_indexs_for_alter_index(
-                        output_rs_tablet_schema, t_inverted_index, column, &owned_index_metas);
+                auto index_metas = output_rs_tablet_schema->inverted_indexs(column);
                 for (const auto& index_meta : index_metas) {
                     // Only drop the index that matches the requested index_id,
                     // not all indexes on this column
@@ -315,14 +225,6 @@ Status IndexBuilder::update_inverted_index_info() {
                 }
 
                 output_rs_tablet_schema->append_index(std::move(index));
-            }
-            if (has_field_pattern_index(_alter_inverted_indexes)) {
-                auto extended_schema =
-                        variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
-                                {input_rowset}, output_rs_tablet_schema);
-                if (extended_schema != nullptr) {
-                    output_rs_tablet_schema = std::move(extended_schema);
-                }
             }
         }
         // construct input rowset reader
@@ -552,18 +454,25 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         nullptr, true /* can_use_ram_dir */, _tablet->tablet_id());
             }
             // create inverted index writer, or ann index writer
-            std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
             for (auto inverted_index : _alter_inverted_indexes) {
                 DCHECK(inverted_index.index_type == TIndexType::INVERTED ||
                        inverted_index.index_type == TIndexType::ANN);
+                DCHECK_EQ(inverted_index.columns.size(), 1);
                 auto index_id = inverted_index.index_id;
-                const auto column_idx =
-                        resolve_alter_index_column_idx(output_rowset_schema, inverted_index);
+                auto column_name = inverted_index.columns[0];
+                auto column_idx = output_rowset_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    LOG(WARNING) << "referenced column was missing. "
-                                 << "[column=" << inverted_index.columns[0]
-                                 << " referenced_column=" << column_idx << "]";
-                    continue;
+                    if (inverted_index.__isset.column_unique_ids &&
+                        !inverted_index.column_unique_ids.empty()) {
+                        column_idx = output_rowset_schema->field_index(
+                                inverted_index.column_unique_ids[0]);
+                    }
+                    if (column_idx < 0) {
+                        LOG(WARNING) << "referenced column was missing. "
+                                     << "[column=" << column_name
+                                     << " referenced_column=" << column_idx << "]";
+                        continue;
+                    }
                 }
                 auto column = output_rowset_schema->column(column_idx);
                 // variant column is not support for building index
@@ -576,12 +485,12 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id));
-                bool writer_created = false;
+                _olap_data_convertor->add_column_data_convertor(column);
+                return_columns.emplace_back(column_idx);
 
                 if (inverted_index.index_type == TIndexType::INVERTED) {
                     // inverted index
-                    auto index_metas = inverted_indexs_for_alter_index(
-                            output_rowset_schema, inverted_index, column, &owned_index_metas);
+                    auto index_metas = output_rowset_schema->inverted_indexs(column);
                     for (const auto& index_meta : index_metas) {
                         if (index_meta->index_id() != index_id) {
                             continue;
@@ -610,7 +519,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             _index_column_writers.insert(
                                     std::make_pair(writer_sign, std::move(inverted_index_builder)));
                             inverted_index_writer_signs.emplace_back(writer_sign);
-                            writer_created = true;
                         }
                     }
                 } else if (inverted_index.index_type == TIndexType::ANN) {
@@ -640,13 +548,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             _index_column_writers.insert(
                                     std::make_pair(writer_sign, std::move(index_writer)));
                             inverted_index_writer_signs.emplace_back(writer_sign);
-                            writer_created = true;
                         }
                     }
-                }
-                if (writer_created) {
-                    _olap_data_convertor->add_column_data_convertor(column);
-                    return_columns.emplace_back(column_idx);
                 }
             }
 
@@ -763,24 +666,28 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
     VLOG_DEBUG << "begin to write inverted/ann index";
     // converter block data
     _olap_data_convertor->set_source_content(block, 0, block->rows());
-    size_t convertor_idx = 0;
-    for (const auto& inverted_index : _alter_inverted_indexes) {
+    for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
+        auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
-        auto column_idx = resolve_alter_index_column_idx(tablet_schema, inverted_index);
+        auto column_name = inverted_index.columns[0];
+        auto column_idx = tablet_schema->field_index(column_name);
         DBUG_EXECUTE_IF("IndexBuilder::_write_inverted_index_data_column_idx_is_negative",
                         { column_idx = -1; })
         if (column_idx < 0) {
-            LOG(WARNING) << "referenced column was missing. "
-                         << "[column=" << inverted_index.columns[0]
-                         << " referenced_column=" << column_idx << "]";
-            continue;
+            if (!inverted_index.column_unique_ids.empty()) {
+                auto column_unique_id = inverted_index.column_unique_ids[0];
+                column_idx = tablet_schema->field_index(column_unique_id);
+            }
+            if (column_idx < 0) {
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name << " referenced_column=" << column_idx
+                             << "]";
+                continue;
+            }
         }
         const auto& column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
-        if (_index_column_writers.find(writer_sign) == _index_column_writers.end()) {
-            continue;
-        }
-        auto converted_result = _olap_data_convertor->convert_column_data(convertor_idx++);
+        auto converted_result = _olap_data_convertor->convert_column_data(i);
         DBUG_EXECUTE_IF("IndexBuilder::_write_inverted_index_data_convert_column_data_error", {
             converted_result.first = Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "debug point: _write_inverted_index_data_convert_column_data_error");
@@ -792,10 +699,10 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         const auto* ptr = (const uint8_t*)converted_result.second->get_data();
         const auto* null_map = converted_result.second->get_nullmap();
         if (null_map) {
-            RETURN_IF_ERROR(_add_nullable(column.name(), writer_sign, &column, null_map, &ptr,
+            RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, &column, null_map, &ptr,
                                           block->rows()));
         } else {
-            RETURN_IF_ERROR(_add_data(column.name(), writer_sign, &column, &ptr, block->rows()));
+            RETURN_IF_ERROR(_add_data(column_name, writer_sign, &column, &ptr, block->rows()));
         }
     }
     _olap_data_convertor->clear_source_content();

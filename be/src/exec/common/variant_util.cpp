@@ -280,10 +280,6 @@ bool should_materialize_nested_group_regular_subcolumns(
            (info_it != uid_to_variant_extended_info.end() && info_it->second.has_nested_group);
 }
 
-bool can_skip_missing_physical_column(const TabletColumn& column) {
-    return column.has_default_value() || column.is_nullable();
-}
-
 std::unordered_set<int32_t> collect_nested_group_compaction_root_uids(
         const TabletSchemaSPtr& target,
         const std::unordered_map<int32_t, VariantExtendedInfo>& uid_to_variant_extended_info) {
@@ -900,14 +896,8 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            auto st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
-            if (st.is<ErrorCode::NOT_FOUND>()) {
-                if (!can_skip_missing_physical_column(*column)) {
-                    return st;
-                }
-                continue;
-            }
-            RETURN_IF_ERROR(st);
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
@@ -951,14 +941,8 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            auto st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
-            if (st.is<ErrorCode::NOT_FOUND>()) {
-                if (!can_skip_missing_physical_column(*column)) {
-                    return st;
-                }
-                continue;
-            }
-            RETURN_IF_ERROR(st);
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
