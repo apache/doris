@@ -480,12 +480,14 @@ void SegmentIterator::_init_schema_block_id_map() {
 
 void SegmentIterator::_init_project_schema() {
     _init_schema_block_id_map();
-    DORIS_CHECK(_opts.project_columns != nullptr);
-    if (*_opts.project_columns == _schema->column_ids()) {
+    // Direct Segment::new_iterator callers use the input schema as the project layout.
+    const auto& project_column_ids =
+            _opts.project_columns != nullptr ? *_opts.project_columns : _schema->column_ids();
+    if (project_column_ids == _schema->column_ids()) {
         _project_schema = _schema;
     } else {
         _project_schema =
-                std::make_shared<Schema>(_opts.tablet_schema->columns(), *_opts.project_columns);
+                std::make_shared<Schema>(_opts.tablet_schema->columns(), project_column_ids);
     }
 }
 
