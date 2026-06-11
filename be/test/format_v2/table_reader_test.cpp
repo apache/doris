@@ -855,6 +855,14 @@ void expect_nullable_int64_column_values(const IColumn& column,
     }
 }
 
+const IColumn& expect_not_null_nullable_nested_column(const IColumn& column) {
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+    for (const auto is_null : nullable_column.get_null_map_data()) {
+        EXPECT_EQ(is_null, 0);
+    }
+    return nullable_column.get_nested_column();
+}
+
 DataTypePtr make_iceberg_rowid_type() {
     return make_nullable(std::make_shared<DataTypeStruct>(
             DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt64>(),
@@ -1386,11 +1394,8 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     ASSERT_EQ(block.rows(), 2);
     const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
     ASSERT_EQ(struct_result.get_columns().size(), 1);
-    const auto& nullable_ids = assert_cast<const ColumnNullable&>(struct_result.get_column(0));
-    for (const auto is_null : nullable_ids.get_null_map_data()) {
-        EXPECT_EQ(is_null, 0);
-    }
-    const auto& ids = assert_cast<const ColumnInt32&>(nullable_ids.get_nested_column());
+    const auto& ids = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(struct_result.get_column(0)));
     EXPECT_EQ(ids.get_element(0), 1);
     EXPECT_EQ(ids.get_element(1), 5);
 
@@ -1408,9 +1413,12 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     write_list_struct_parquet_file(file_path);
 
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto element_type =
-            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
-    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    const auto nullable_int_type = make_nullable(int_type);
+    auto element_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, nullable_int_type}, Strings {"a", "b"});
+    auto nullable_element_type = make_nullable(element_type);
+    auto list_column =
+            make_table_column(100, "xs", std::make_shared<DataTypeArray>(nullable_element_type));
     std::vector<ColumnDefinition> projected_columns = {list_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -1448,12 +1456,14 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     const auto& element_struct =
             assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 2);
-    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    const auto& a_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(0)));
     EXPECT_EQ(a_values.get_element(0), 10);
     EXPECT_EQ(a_values.get_element(1), 20);
     EXPECT_EQ(a_values.get_element(2), 30);
     EXPECT_EQ(a_values.get_element(3), 40);
-    const auto& b_values = assert_cast<const ColumnInt32&>(element_struct.get_column(1));
+    const auto& b_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(1)));
     EXPECT_EQ(b_values.get_element(0), 11);
     EXPECT_EQ(b_values.get_element(1), 21);
     EXPECT_EQ(b_values.get_element(2), 31);
@@ -1533,15 +1543,16 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
     write_list_struct_parquet_file(file_path);
 
     const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
     const auto string_type = std::make_shared<DataTypeString>();
-    auto b_child = make_table_column(1, "renamed_b", int_type);
+    auto b_child = make_table_column(1, "renamed_b", nullable_int_type);
     b_child.name_mapping = {"b"};
     auto missing_child = make_table_column(99, "missing_child", string_type);
-    auto a_child = make_table_column(0, "renamed_a", int_type);
+    auto a_child = make_table_column(0, "renamed_a", nullable_int_type);
     a_child.name_mapping = {"a"};
-    auto element_type =
-            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type, int_type},
-                                             Strings {"renamed_b", "missing_child", "renamed_a"});
+    auto element_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, string_type, nullable_int_type},
+            Strings {"renamed_b", "missing_child", "renamed_a"});
     auto nullable_element_type = make_nullable(element_type);
     auto element_child = make_table_column(0, "element", nullable_element_type);
     element_child.children = {b_child, missing_child, a_child};
@@ -1580,9 +1591,11 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
     const auto& element_struct =
             assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 3);
-    const auto& b_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    const auto& b_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(0)));
     const auto& missing_values = assert_cast<const ColumnString&>(element_struct.get_column(1));
-    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(2));
+    const auto& a_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(2)));
     EXPECT_EQ(b_values.get_element(0), 11);
     EXPECT_EQ(b_values.get_element(1), 21);
     EXPECT_EQ(b_values.get_element(2), 31);
@@ -1610,9 +1623,11 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
 
     const auto key_type = std::make_shared<DataTypeInt32>();
     const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
     auto key_child = make_table_column(0, "key", key_type);
-    auto b_child = make_table_column(1, "b", string_type);
-    auto value_type = std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"b"});
+    auto b_child = make_table_column(1, "b", nullable_string_type);
+    auto value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_string_type}, Strings {"b"});
     auto nullable_value_type = make_nullable(value_type);
     auto value_child = make_table_column(1, "value", nullable_value_type);
     value_child.children = {b_child};
@@ -1652,7 +1667,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);
-    const auto& keys = assert_cast<const ColumnInt32&>(map_result.get_keys());
+    const auto& keys = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(map_result.get_keys()));
     EXPECT_EQ(keys.get_element(0), 1);
     EXPECT_EQ(keys.get_element(1), 2);
     EXPECT_EQ(keys.get_element(2), 3);
@@ -1663,7 +1679,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     const auto& value_struct =
             assert_cast<const ColumnStruct&>(nullable_values.get_nested_column());
     ASSERT_EQ(value_struct.get_columns().size(), 1);
-    const auto& b_values = assert_cast<const ColumnString&>(value_struct.get_column(0));
+    const auto& b_values = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(value_struct.get_column(0)));
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
     EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
     EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
@@ -1683,16 +1700,18 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
 
     const auto key_type = std::make_shared<DataTypeInt32>();
     const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
     const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
     auto key_child = make_table_column(0, "key", key_type);
-    auto b_child = make_table_column(1, "renamed_b", string_type);
+    auto b_child = make_table_column(1, "renamed_b", nullable_string_type);
     b_child.name_mapping = {"b"};
     auto missing_child = make_table_column(99, "missing_child", string_type);
-    auto a_child = make_table_column(0, "renamed_a", int_type);
+    auto a_child = make_table_column(0, "renamed_a", nullable_int_type);
     a_child.name_mapping = {"a"};
-    auto value_type =
-            std::make_shared<DataTypeStruct>(DataTypes {string_type, string_type, int_type},
-                                             Strings {"renamed_b", "missing_child", "renamed_a"});
+    auto value_type = std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_string_type, string_type, nullable_int_type},
+            Strings {"renamed_b", "missing_child", "renamed_a"});
     auto nullable_value_type = make_nullable(value_type);
     auto value_child = make_table_column(1, "value", nullable_value_type);
     value_child.children = {b_child, missing_child, a_child};
@@ -1731,7 +1750,8 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);
-    const auto& keys = assert_cast<const ColumnInt32&>(map_result.get_keys());
+    const auto& keys = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(map_result.get_keys()));
     EXPECT_EQ(keys.get_element(0), 1);
     EXPECT_EQ(keys.get_element(1), 2);
     EXPECT_EQ(keys.get_element(2), 3);
@@ -1739,9 +1759,11 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     const auto& value_struct =
             assert_cast<const ColumnStruct&>(nullable_values.get_nested_column());
     ASSERT_EQ(value_struct.get_columns().size(), 3);
-    const auto& b_values = assert_cast<const ColumnString&>(value_struct.get_column(0));
+    const auto& b_values = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(value_struct.get_column(0)));
     const auto& missing_values = assert_cast<const ColumnString&>(value_struct.get_column(1));
-    const auto& a_values = assert_cast<const ColumnInt32&>(value_struct.get_column(2));
+    const auto& a_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(value_struct.get_column(2)));
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
     EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
     EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
