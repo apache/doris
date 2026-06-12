@@ -63,9 +63,6 @@ public class PushDownAggContext {
     //   - bilateralState: global, shared by every context in the rewrite invocation.
     private final BilateralState bilateralState;
 
-    /**
-     * full constructor used by the bilateral push-down path.
-     */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
             boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen,
@@ -74,6 +71,9 @@ public class PushDownAggContext {
                 bilateralState, false);
     }
 
+    /**
+     * full constructor used by the bilateral push-down path.
+     */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
             boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen,
