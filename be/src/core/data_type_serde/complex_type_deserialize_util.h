@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 
@@ -78,11 +79,35 @@ struct ComplexTypeDeserializeUtil {
 
     static bool is_null_string(const StringRef& str) {
         if (str.size == 4) {
-            // null
-            return str.data[0] == 'n' && str.data[1] == 'u' && str.data[2] == 'l' &&
-                   str.data[3] == 'l';
+            // SQL NULL literal is case-insensitive.
+            return (str.data[0] == 'n' || str.data[0] == 'N') &&
+                   (str.data[1] == 'u' || str.data[1] == 'U') &&
+                   (str.data[2] == 'l' || str.data[2] == 'L') &&
+                   (str.data[3] == 'l' || str.data[3] == 'L');
         }
         return false;
+    }
+
+    static Status process_field(const DataTypeSerDeSPtr& serde, StringRef str, Field& field) {
+        str = str.trim_whitespace();
+        auto nullable_serde = std::dynamic_pointer_cast<DataTypeNullableSerDe>(serde);
+        if (is_null_string(str)) {
+            if (nullable_serde == nullptr) {
+                return Status::InvalidArgument(
+                        "NULL default is not allowed for non-nullable complex field");
+            }
+            field = Field::create_field<TYPE_NULL>(Null {});
+            return Status::OK();
+        }
+        auto str_without_quote = str.trim_quote();
+        auto nested_serde = serde;
+        if (nullable_serde != nullptr) {
+            // Complex default values need strict nested conversion. DataTypeNullableSerDe
+            // converts nested parse failures to NULL, which would silently accept
+            // type-mismatched default literals.
+            nested_serde = nullable_serde->get_nested_serde();
+        }
+        return nested_serde->from_fe_string(str_without_quote.to_string(), field);
     }
 
     template <bool is_strict_mode>

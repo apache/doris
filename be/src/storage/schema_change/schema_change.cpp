@@ -43,6 +43,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_nullable.h"
 #include "exec/common/variant_util.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
@@ -1537,8 +1538,11 @@ Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
     if (!column_schema.is_nullable() || value.length() != 0) {
-        RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_fe_string(
-                value, column_mapping->default_value));
+        auto type = column_schema.get_vec_type();
+        if (value.length() != 0) {
+            type = remove_nullable(type);
+        }
+        RETURN_IF_ERROR(type->get_serde()->from_fe_string(value, column_mapping->default_value));
     }
 
     return Status::OK();

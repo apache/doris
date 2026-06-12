@@ -2538,23 +2538,13 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         if (_default_value == "NULL") {
             _default_value_field = Field::create_field<TYPE_NULL>(Null {});
         } else {
-            if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                if (_default_value != "[]") {
-                    return Status::NotSupported("Array default {} is unsupported", _default_value);
-                } else {
-                    _default_value_field = Field::create_field<TYPE_ARRAY>(Array {});
-                    return Status::OK();
-                }
-            } else if (_type == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-                return Status::NotSupported("STRUCT default type is unsupported");
-            } else if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-                return Status::NotSupported("MAP default type is unsupported");
+            if (_serde == nullptr) {
+                const auto t = _type;
+                _serde = DataTypeFactory::instance()
+                                 .create_data_type(t, _precision, _scale, _len)
+                                 ->get_serde();
             }
-            const auto t = _type;
-            const auto serde = DataTypeFactory::instance()
-                                       .create_data_type(t, _precision, _scale, _len)
-                                       ->get_serde();
-            RETURN_IF_ERROR(serde->from_fe_string(_default_value, _default_value_field));
+            RETURN_IF_ERROR(_serde->from_fe_string(_default_value, _default_value_field));
         }
     } else if (_is_nullable) {
         _default_value_field = Field::create_field<TYPE_NULL>(Null {});
