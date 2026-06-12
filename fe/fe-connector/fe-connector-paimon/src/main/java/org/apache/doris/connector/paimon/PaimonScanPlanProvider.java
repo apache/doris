@@ -1050,7 +1050,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             byte[] bytes = new TSerializer(new TBinaryProtocol.Factory()).serialize(carrier);
             return BASE64_ENCODER.encodeToString(bytes);
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
+            // Catch LinkageError (e.g. IncompatibleClassChangeError from a thrift classloader split) too:
+            // wrapped as a RuntimeException it surfaces as a clean per-query failure instead of escaping
+            // the connection handler as an uncaught Error and killing the whole mysql session.
             throw new RuntimeException("Failed to serialize paimon schema-evolution info", e);
         }
     }
