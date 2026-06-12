@@ -146,10 +146,18 @@ public:
     //   frq_out    : receives the whole windowed `.frq` block.
     //   prx_out    : receives the whole windowed `.prx` block (only touched
     //                when has_prox).
+    //   pos_doc_byte_offsets : optional per-doc byte offsets into pos_vint
+    //                (offset where doc i's positions start; the end boundary is
+    //                pos_vint.size()). When provided, PART_POS is sliced from
+    //                these directly; when null, the boundaries are recovered by
+    //                scanning the whole VInt stream with pos_counts_per_doc
+    //                (slower — kept for callers that don't track offsets,
+    //                e.g. tests).
     static void Encode(const std::vector<uint32_t>& doc_deltas, const std::vector<uint32_t>& freqs,
                        const std::vector<uint8_t>& pos_vint,
                        const std::vector<uint32_t>& pos_counts_per_doc, bool has_prox,
-                       ZSTD_CCtx* cctx, ByteOutput* frq_out, ByteOutput* prx_out);
+                       ZSTD_CCtx* cctx, ByteOutput* frq_out, ByteOutput* prx_out,
+                       const std::vector<uint32_t>* pos_doc_byte_offsets = nullptr);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

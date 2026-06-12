@@ -265,10 +265,15 @@ private:
     // stream sub-blocks (windowing needs the whole term known up front), so
     // StartDoc / AddPosition buffer everything here and FinishTerm hands it to
     // WindowFrameEncoder. Unused (and empty) in the legacy path.
-    std::vector<uint32_t> _win_doc_deltas;   // every doc's delta-from-prev
-    std::vector<uint32_t> _win_freqs;        // every doc's freq (when has_prox)
-    std::vector<uint8_t> _win_pos_vint;      // whole-term VInt position deltas
-    std::vector<uint32_t> _win_pos_counts;   // per-doc position count (== freq)
+    std::vector<uint32_t> _win_doc_deltas; // every doc's delta-from-prev
+    std::vector<uint32_t> _win_freqs;      // every doc's freq (when has_prox)
+    std::vector<uint8_t> _win_pos_vint;    // whole-term VInt position deltas
+    // Byte offset into _win_pos_vint where each doc's positions START (recorded
+    // at StartDoc, when the boundary is known for free). Lets the window framer
+    // slice PART_POS at doc boundaries directly instead of re-scanning the
+    // whole VInt stream byte-by-byte; the per-doc position COUNT is just the
+    // freq, so _win_freqs doubles as the count vector.
+    std::vector<uint32_t> _win_pos_offsets;
     void FinishTermWindowed(TermInfo* info); // emits via WindowFrameEncoder
 };
 

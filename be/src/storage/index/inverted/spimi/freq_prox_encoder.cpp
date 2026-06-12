@@ -169,11 +169,11 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
         _win_doc_deltas.clear();
         _win_freqs.clear();
         _win_pos_vint.clear();
-        _win_pos_counts.clear();
+        _win_pos_offsets.clear();
         _win_doc_deltas.reserve(static_cast<size_t>(expected_doc_freq));
         if (!_omit_tfap) {
             _win_freqs.reserve(static_cast<size_t>(expected_doc_freq));
-            _win_pos_counts.reserve(static_cast<size_t>(expected_doc_freq));
+            _win_pos_offsets.reserve(static_cast<size_t>(expected_doc_freq));
         }
         return;
     }
@@ -188,6 +188,14 @@ void FreqProxEncoder::StartTerm(int32_t expected_doc_freq) {
     // (doc_delta, freq) into the PFOR vectors below; FinishTerm flushes
     // the buffers via `SpimiPforEncoder` once the full term is seen.
     _use_pfor = (expected_doc_freq >= _skip_interval);
+    // SLIM terms (df < skip_interval) write their pure-VInt block STRAIGHT to
+    // the block sink: FlushFrqBlock never ZSTD-wraps a slim block (no codec
+    // byte), so the staging hop through _frq_term_buf bought nothing but a
+    // per-term copy of the dominant vocabulary tail. PFOR terms keep staging —
+    // the whole-term ZSTD attempt needs the complete block. Byte-identical:
+    // same VInts in the same order; the slim skip tail is 0 bytes (levels=0)
+    // and slim's skip_pointer return is discarded (skip_offset stays 0).
+    _frq_out = _use_pfor ? static_cast<ByteOutput*>(&_frq_term_buf) : _frq_sink;
     _pfor_doc_deltas.clear();
     _pfor_freqs.clear();
     _pfor_freq_blocks.Clear();
@@ -255,7 +263,11 @@ void FreqProxEncoder::StartDoc(int32_t doc_id, int32_t freq) {
         _win_doc_deltas.push_back(doc_delta);
         if (!_omit_tfap) {
             _win_freqs.push_back(static_cast<uint32_t>(freq));
-            _win_pos_counts.push_back(static_cast<uint32_t>(freq));
+            // This doc's positions start at the current end of the VInt stream
+            // (AddPosition appends them next). A single term's in-memory pos
+            // stream stays far below 4 GB, so u32 offsets suffice.
+            DCHECK_LE(_win_pos_vint.size(), std::numeric_limits<uint32_t>::max());
+            _win_pos_offsets.push_back(static_cast<uint32_t>(_win_pos_vint.size()));
         }
     } else if (_use_pfor) {
         // Phase 35 PFOR mode — buffer the (doc_delta, freq) pair. The
@@ -445,8 +457,12 @@ void FreqProxEncoder::FinishTermWindowed(TermInfo* info) {
     // windowed encoder writes the whole .frq / .prx block straight to the real
     // outputs (no staging buffer / no skip-list tail — the per-window skip table
     // replaces it, so skip_offset is 0 for V4 terms).
-    WindowFrameEncoder::Encode(_win_doc_deltas, _win_freqs, _win_pos_vint, _win_pos_counts,
-                               has_prox, _cctx, _frq_sink, has_prox ? _prx_sink : nullptr);
+    // _win_freqs doubles as the per-doc position-count vector (count == freq);
+    // the recorded per-doc byte offsets let the framer slice PART_POS without
+    // re-scanning the whole position VInt stream.
+    WindowFrameEncoder::Encode(_win_doc_deltas, _win_freqs, _win_pos_vint, _win_freqs, has_prox,
+                               _cctx, _frq_sink, has_prox ? _prx_sink : nullptr,
+                               &_win_pos_offsets);
     info->doc_freq = _doc_freq;
     info->freq_pointer = _term_freq_start;
     info->prox_pointer = _term_prox_start;
@@ -457,23 +473,26 @@ void FreqProxEncoder::FinishTermWindowed(TermInfo* info) {
 void FreqProxEncoder::FlushFrqBlock() {
     const auto& buf = _frq_term_buf.bytes();
     const size_t n = buf.size();
-    faststring comp;
     // The SLIM kDefault block (df < skip_interval, !_use_pfor) is NEVER
     // ZSTD-wrapped: it carries no codec byte, so wrapping it in a kCodeModeZstd
     // envelope would be indistinguishable from a raw doc-delta VInt that happens
     // to start with 0x80. The reader decides slim purely from df < skip_interval
     // and reads the bytes verbatim; only the PFOR path (df >= skip_interval,
-    // codec-byte prefixed) opts into whole-term ZSTD here.
-    if (_use_pfor && n >= kProxCompressMin &&
-        TryCompressBlock(_cctx, buf.data(), n, &comp, FrqZstdMinBytes())) {
-        // A single term's .frq stays far below 2 GB (arena byte cap), so the
-        // VInt length casts below never lose bits.
-        DCHECK_LE(n, static_cast<size_t>(INT32_MAX));
-        _frq_sink->WriteByte(kCodeModeZstd);
-        _frq_sink->WriteVInt(static_cast<int32_t>(n));
-        _frq_sink->WriteVInt(static_cast<int32_t>(comp.size()));
-        _frq_sink->WriteBytes(comp.data(), comp.size());
-        return;
+    // codec-byte prefixed) opts into whole-term ZSTD here. The compression
+    // scratch is constructed inside the branch so the slim long tail (and slim
+    // direct-write, which arrives here with an empty staging buf) never pays it.
+    if (_use_pfor && n >= kProxCompressMin) {
+        faststring comp;
+        if (TryCompressBlock(_cctx, buf.data(), n, &comp, FrqZstdMinBytes())) {
+            // A single term's .frq stays far below 2 GB (arena byte cap), so the
+            // VInt length casts below never lose bits.
+            DCHECK_LE(n, static_cast<size_t>(INT32_MAX));
+            _frq_sink->WriteByte(kCodeModeZstd);
+            _frq_sink->WriteVInt(static_cast<int32_t>(n));
+            _frq_sink->WriteVInt(static_cast<int32_t>(comp.size()));
+            _frq_sink->WriteBytes(comp.data(), comp.size());
+            return;
+        }
     }
     // Raw fallback: emit the term .frq verbatim. For a SLIM kDefault block this
     // is pure per-doc VInt deltas with NO leading codec byte; for the PFOR path
@@ -489,20 +508,22 @@ void FreqProxEncoder::FlushProxBlock() {
         return; // no prox stream in this mode
     }
     const size_t n = _prox_raw.size();
-    faststring comp;
     // Only keep the compressed form if it actually wins after the mode-byte + two
     // VInt length headers (~≤10 B) — TryCompressBlock enforces that margin.
     // .prx ZSTD is gated independently (inverted_index_spimi_prx_zstd_enable +
     // the shared min-window-bytes) — positions carry the bulk of the ZSTD disk
-    // win, so they stay compressed even when .frq is raw.
-    if (n >= kProxCompressMin &&
-        TryCompressBlock(_cctx, _prox_raw.data(), n, &comp, PrxZstdMinBytes())) {
-        DCHECK_LE(n, static_cast<size_t>(INT32_MAX)); // single-term .prx << 2 GB
-        _prx_sink->WriteByte(kProxZstd);
-        _prx_sink->WriteVInt(static_cast<int32_t>(n));
-        _prx_sink->WriteVInt(static_cast<int32_t>(comp.size()));
-        _prx_sink->WriteBytes(comp.data(), comp.size());
-        return;
+    // win, so they stay compressed even when .frq is raw. The scratch is
+    // constructed inside the branch so tiny-prox terms skip it.
+    if (n >= kProxCompressMin) {
+        faststring comp;
+        if (TryCompressBlock(_cctx, _prox_raw.data(), n, &comp, PrxZstdMinBytes())) {
+            DCHECK_LE(n, static_cast<size_t>(INT32_MAX)); // single-term .prx << 2 GB
+            _prx_sink->WriteByte(kProxZstd);
+            _prx_sink->WriteVInt(static_cast<int32_t>(n));
+            _prx_sink->WriteVInt(static_cast<int32_t>(comp.size()));
+            _prx_sink->WriteBytes(comp.data(), comp.size());
+            return;
+        }
     }
     // Raw fallback: mode byte then the VInt position-deltas. The reader knows
     // the position count from the per-doc freqs, so no length prefix is needed.

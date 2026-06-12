@@ -42,6 +42,13 @@ int32_t ComputeNumberOfSkipLevels(int32_t df, int32_t skip_interval, int32_t max
     if (df <= 0) {
         return 0;
     }
+    // df < skip_interval ⇒ log(df)/log(interval) < 1 ⇒ floor = 0. Short-circuit
+    // the two std::log calls: this runs once per non-windowed term (Reset), and
+    // the df < interval slim tail is the overwhelming majority of a real
+    // vocabulary. Result is identical to the math below for every df.
+    if (df < skip_interval) {
+        return 0;
+    }
     const auto levels = static_cast<int32_t>(std::floor(
             std::log(static_cast<double>(df)) / std::log(static_cast<double>(skip_interval))));
     return std::min(levels, max_skip_levels);

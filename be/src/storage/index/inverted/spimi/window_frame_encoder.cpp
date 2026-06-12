@@ -274,6 +274,49 @@ inline int64_t PrxZstdMinBytes() {
                    : INT64_MAX;
 }
 
+// Analytic .frq size of a candidate framing when .frq ZSTD is disabled
+// (FrqZstdMinBytes() == INT64_MAX, the production default) and the inner mode
+// is PFOR: every window payload is then the raw tuple 1 + VIntLen(raw) + raw,
+// and each window's raw size is a pure sum of its units' pre-encoded part
+// lengths — so a candidate's exact on-disk size is computable WITHOUT
+// composing it (no per-candidate full-term byte copy). Mirrors
+// MeasureAndCacheFrq's accounting term for term (same header, same SLIM skip
+// deltas, same window grouping as ComposeFrqWindows), so the adaptive-W
+// decision made on these sizes is bit-identical to the measured search.
+size_t AnalyticRawFrqSize(const std::vector<Unit>& units, int32_t k, bool has_prox) {
+    DCHECK_GE(k, 1);
+    const auto num_units = static_cast<int32_t>(units.size());
+    const int32_t num_windows = (num_units + k - 1) / k;
+    size_t total = 2 + VIntLen(static_cast<uint32_t>(kCandidateW.back())) +
+                   VIntLen(static_cast<uint32_t>(num_windows));
+    int32_t prev_max_docid = 0;
+    size_t prev_payload_size = 0;
+    size_t payload_total = 0;
+    for (int32_t i = 0; i < num_units;) {
+        const int32_t take = std::min(k, num_units - i);
+        const int32_t win_min = units[static_cast<size_t>(i)].min_docid;
+        int32_t win_max = units[static_cast<size_t>(i)].max_docid;
+        size_t raw = 0;
+        for (int32_t j = 0; j < take; ++j) {
+            const Unit& u = units[static_cast<size_t>(i + j)];
+            raw += u.dd_len;
+            if (has_prox) {
+                raw += u.fq_len;
+            }
+            win_max = std::max(win_max, u.max_docid);
+        }
+        const size_t payload = 1 + VIntLen(static_cast<uint32_t>(raw)) + raw;
+        total += VIntLen(static_cast<uint32_t>(prev_payload_size));
+        total += VIntLen(static_cast<uint32_t>(win_min - prev_max_docid));
+        total += VIntLen(static_cast<uint32_t>(win_max - win_min));
+        prev_max_docid = win_max;
+        prev_payload_size = payload;
+        payload_total += payload;
+        i += take;
+    }
+    return total + payload_total;
+}
+
 size_t MeasureAndCacheFrq(std::vector<Window>& windows, ZSTD_CCtx* cctx, faststring& comp_scratch) {
     const int64_t frq_min = FrqZstdMinBytes();
     size_t total = 2 + VIntLen(static_cast<uint32_t>(kCandidateW.back())) +
@@ -422,11 +465,14 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
                                 const std::vector<uint32_t>& freqs,
                                 const std::vector<uint8_t>& pos_vint,
                                 const std::vector<uint32_t>& pos_counts_per_doc, bool has_prox,
-                                ZSTD_CCtx* cctx, ByteOutput* frq_out, ByteOutput* prx_out) {
+                                ZSTD_CCtx* cctx, ByteOutput* frq_out, ByteOutput* prx_out,
+                                const std::vector<uint32_t>* pos_doc_byte_offsets) {
     const auto df = static_cast<int32_t>(doc_deltas.size());
     DCHECK_GT(df, 0);
     DCHECK(!has_prox || freqs.size() == doc_deltas.size());
     DCHECK(!has_prox || pos_counts_per_doc.size() == doc_deltas.size());
+    DCHECK(!has_prox || pos_doc_byte_offsets == nullptr ||
+           pos_doc_byte_offsets->size() == doc_deltas.size());
 
     // inner_mode: PFOR for df >= kUnitDocs (skip-interval-equivalent), else the
     // VInt fallback that matches small-term behaviour. (kDefaultSkipInterval is
@@ -451,28 +497,41 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
         }
     }
 
-    // For .prx: per-doc byte ranges into pos_vint. We need the cumulative VInt
-    // byte length up to each doc to slice PART_POS. Walk pos_vint once decoding
-    // exactly pos_counts_per_doc[i] VInts per doc to find doc byte boundaries.
+    // For .prx: per-doc byte ranges into pos_vint, needed to slice PART_POS at
+    // doc boundaries. Fast path: the caller recorded each doc's start offset at
+    // StartDoc time, so the boundaries are just copied. Fallback (callers that
+    // don't track offsets, e.g. tests): walk pos_vint once, decoding exactly
+    // pos_counts_per_doc[i] VInts per doc — a byte-by-byte rescan of the whole
+    // (largest) stream that the fast path exists to avoid.
     std::vector<size_t> pos_byte_at_doc; // pos_byte_at_doc[i] = byte offset where doc i starts
     if (has_prox) {
         pos_byte_at_doc.resize(static_cast<size_t>(df) + 1);
-        size_t p = 0;
-        for (int32_t i = 0; i < df; ++i) {
-            pos_byte_at_doc[static_cast<size_t>(i)] = p;
-            const uint32_t cnt = pos_counts_per_doc[static_cast<size_t>(i)];
-            for (uint32_t c = 0; c < cnt; ++c) {
-                // Skip one VInt.
-                while (p < pos_vint.size() && (pos_vint[p] & 0x80U) != 0) {
-                    ++p;
-                }
-                if (p < pos_vint.size()) {
-                    ++p; // terminating byte
+        if (pos_doc_byte_offsets != nullptr) {
+            for (int32_t i = 0; i < df; ++i) {
+                pos_byte_at_doc[static_cast<size_t>(i)] =
+                        (*pos_doc_byte_offsets)[static_cast<size_t>(i)];
+                DCHECK(i == 0 || pos_byte_at_doc[static_cast<size_t>(i)] >=
+                                         pos_byte_at_doc[static_cast<size_t>(i - 1)]);
+            }
+            pos_byte_at_doc[static_cast<size_t>(df)] = pos_vint.size();
+        } else {
+            size_t p = 0;
+            for (int32_t i = 0; i < df; ++i) {
+                pos_byte_at_doc[static_cast<size_t>(i)] = p;
+                const uint32_t cnt = pos_counts_per_doc[static_cast<size_t>(i)];
+                for (uint32_t c = 0; c < cnt; ++c) {
+                    // Skip one VInt.
+                    while (p < pos_vint.size() && (pos_vint[p] & 0x80U) != 0) {
+                        ++p;
+                    }
+                    if (p < pos_vint.size()) {
+                        ++p; // terminating byte
+                    }
                 }
             }
+            pos_byte_at_doc[static_cast<size_t>(df)] = p;
+            DCHECK_EQ(p, pos_vint.size()) << "position VInt stream length mismatch";
         }
-        pos_byte_at_doc[static_cast<size_t>(df)] = p;
-        DCHECK_EQ(p, pos_vint.size()) << "position VInt stream length mismatch";
     }
 
     for (int32_t doc_start = 0; doc_start < df; doc_start += kUnitDocs) {
@@ -529,6 +588,48 @@ void WindowFrameEncoder::Encode(const std::vector<uint32_t>& doc_deltas,
         chosen_windows = ComposeFrqWindows(units, /*k=*/1, frq_parts, has_prox, inner_pfor,
                                            doc_deltas, freqs);
         (void)MeasureAndCacheFrq(chosen_windows, cctx, comp_scratch);
+    } else if (FrqZstdMinBytes() == INT64_MAX && inner_pfor) {
+        // .frq ZSTD disabled (the production default): every window payload is
+        // the raw tuple, so each candidate's exact size is pure arithmetic over
+        // the units' part lengths (AnalyticRawFrqSize). Run the SAME selection
+        // — same baseline, same +10% budget, same finest-W-first acceptance —
+        // on analytic sizes, then compose ONLY the chosen framing. This removes
+        // the baseline + per-candidate full-term byte copies (2x+ of the .frq
+        // volume per term) that the measured search paid just to learn sizes
+        // it could have computed. Decision (hence every emitted byte) is
+        // identical; the DCHECK below cross-checks analytic vs measured for
+        // the framing actually composed.
+        const size_t baseline_size = AnalyticRawFrqSize(units, num_units, has_prox);
+        const auto budget = static_cast<size_t>(static_cast<double>(baseline_size) * kSizeBudget);
+        int32_t chosen_k = num_units; // whole-term fallback
+        size_t chosen_analytic = baseline_size;
+        for (const int32_t W : kCandidateW) {
+            int32_t k = W / kUnitDocs;
+            if (k < 1) {
+                k = 1; // clamp (prior HANG bug guard)
+            }
+            if (k > num_units) {
+                continue; // a candidate coarser than the whole term — skip
+            }
+            const size_t sz = AnalyticRawFrqSize(units, k, has_prox);
+            if (sz <= budget) {
+                // Accept the SMALLEST-W candidate within budget (finer locality).
+                chosen_W = W;
+                chosen_k = k;
+                chosen_analytic = sz;
+                break;
+            }
+        }
+        if (chosen_k == num_units) {
+            chosen_W = num_units * kUnitDocs; // whole-term framing
+        }
+        chosen_windows = ComposeFrqWindows(units, chosen_k, frq_parts, has_prox, inner_pfor,
+                                           doc_deltas, freqs);
+        const size_t measured = MeasureAndCacheFrq(chosen_windows, cctx, comp_scratch);
+        DCHECK_EQ(measured, chosen_analytic)
+                << "analytic raw .frq size must match the measured size bit-for-bit "
+                   "(k="
+                << chosen_k << ", num_units=" << num_units << ")";
     } else {
         // Baseline: whole-term framing (one window covering all units).
         std::vector<Window> baseline = ComposeFrqWindows(units, /*k=*/num_units, frq_parts,
