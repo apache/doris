@@ -205,7 +205,7 @@ public class RepeatTest {
     }
 
     @Test
-    public void testPassThroughSlotPreservedForEmptyGroupingSetWithoutChangingGroupingShape() {
+    public void testNonGroupingSlotsNotInGroupingSets() {
         List<List<Expression>> groupingSets = ImmutableList.of(
                 ImmutableList.of(id, name),
                 ImmutableList.of(id),
@@ -216,16 +216,17 @@ public class RepeatTest {
                 ImmutableList.of(id, name, age),
                 RepeatType.GROUPING_SETS,
                 scan
-        ).withPassThroughSlots(ImmutableList.of(age));
+        );
         List<Slot> outputSlots = ImmutableList.of(id, name, age);
         List<Integer> slotIdList = ImmutableList.of(3, 4, 5);
 
         List<Set<Integer>> repeatSlotIds = repeat.computeRepeatSlotIdList(slotIdList, outputSlots);
         Repeat.GroupingSetShapes shapes = repeat.toShapes();
 
-        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(4, 3, 5)), repeatSlotIds.get(0));
-        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(3, 5)), repeatSlotIds.get(1));
-        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(5)), repeatSlotIds.get(2));
+        // non-grouping slot (age) should NOT appear in any grouping set
+        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(4, 3)), repeatSlotIds.get(0));
+        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(3)), repeatSlotIds.get(1));
+        Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of()), repeatSlotIds.get(2));
         Assertions.assertFalse(shapes.flattenGroupingSetExpression.contains(age));
     }
 }

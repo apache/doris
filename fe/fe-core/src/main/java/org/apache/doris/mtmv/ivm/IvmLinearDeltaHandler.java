@@ -167,10 +167,6 @@ class IvmLinearDeltaHandler {
         newOutputs.add(childResult.dmlFactorSlot);
         LogicalRepeat<Plan> newRepeat = repeat.withAggOutputAndChild(newOutputs, childResult.plan);
         Slot repeatDmlFactorSlot = helper.findSlotByName(newRepeat.getOutput(), Column.IVM_DML_FACTOR_COL);
-
-        List<Slot> passThroughSlots = new ArrayList<>(newRepeat.getPassThroughSlots());
-        passThroughSlots.add(repeatDmlFactorSlot);
-        newRepeat = newRepeat.withPassThroughSlots(passThroughSlots);
         return new IvmDeltaRewriteResult(newRepeat, repeatDmlFactorSlot);
     }
 

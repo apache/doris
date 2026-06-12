@@ -517,8 +517,6 @@ class IvmNormalizeMtmvTest {
         LogicalRepeat<?> normalizedRepeat = normalizedAgg.getSourceRepeat().get();
         Assertions.assertFalse(normalizedRepeat.getOutput().stream()
                 .anyMatch(slot -> Column.IVM_ROW_ID_COL.equals(slot.getName())));
-        Assertions.assertFalse(normalizedRepeat.getPassThroughSlots().stream()
-                .anyMatch(slot -> Column.IVM_ROW_ID_COL.equals(slot.getName())));
     }
 
     @Test
