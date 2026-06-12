@@ -162,7 +162,6 @@ struct ColumnMapping {
 
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
-    bool allow_missing_columns = true;
 
     std::string debug_string() const;
 };

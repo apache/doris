@@ -314,8 +314,7 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
 
 std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
-    out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
-        << ", allow_missing_columns=" << allow_missing_columns << "}";
+    out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode) << "}";
     return out.str();
 }
 
@@ -1127,6 +1126,10 @@ static const ColumnDefinition* find_file_child_for_complex_wrapper(
     if (file_child != nullptr) {
         return file_child;
     }
+    if (remove_nullable(file_field.type)->get_primitive_type() == TYPE_ARRAY &&
+        file_field.children.size() == 1) {
+        return &file_field.children[0];
+    }
     if (remove_nullable(file_field.type)->get_primitive_type() == TYPE_MAP &&
         file_field.children.size() == 1 && column_has_name(table_child, "entries")) {
         return &file_field.children[0];
@@ -1159,22 +1162,12 @@ Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table
 
     // Case B: file_index is out of range, which means the file does not contain this column.
     // Route it through the missing-column path used by schema evolution.
-    //   B1: the table column carries a default_expr injected by FE, so use the constant branch and
-    //       materialize that value for every row.
     if (table_column.default_expr != nullptr) {
         _set_constant_mapping(mapping, table_column.default_expr);
         return Status::OK();
     }
-    //   B2: if missing columns are not allowed, fail explicitly instead of silently producing
-    //       NULLs and hiding the issue.
-    if (!_options.allow_missing_columns) {
-        return Status::InvalidArgument(
-                "Table column '{}' (file_index={}) is out of range for file schema of size {}",
-                table_column.name, file_index, file_schema.size());
-    }
-    //   B3: if missing columns are allowed, keep the mapping empty
-    //       (`file_column_id` remains `nullopt`) and let the upper finalize stage fill
-    //       NULL/default values.
+    // Keep the mapping empty (`file_local_id` remains `nullopt`) and let the upper finalize
+    // stage fill NULL/default values.
     return Status::OK();
 }
 
@@ -1237,11 +1230,6 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         if (table_column.is_partition_key) {
             return Status::InvalidArgument(
                     "Table column '{}' (global_index={}) does not have a matching partition value",
-                    table_column.name, mapping->global_index.value());
-        }
-        if (!_options.allow_missing_columns) {
-            return Status::InvalidArgument(
-                    "Table column '{}' (global_index={}) does not have a matching file column",
                     table_column.name, mapping->global_index.value());
         }
     }
@@ -1562,12 +1550,6 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
             const auto* file_child =
                     find_file_child_for_complex_wrapper(table_child, file_field, _options.mode);
             if (file_child == nullptr) {
-                if (!_options.allow_missing_columns) {
-                    return Status::InvalidArgument(
-                            "Table child column '{}' does not have a matching file child "
-                            "under column '{}'",
-                            table_child.name, table_column.name);
-                }
                 ColumnMapping child_mapping;
                 child_mapping.table_column_name = table_child.name;
                 child_mapping.file_column_name = table_child.name;

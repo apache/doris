@@ -92,7 +92,7 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                                const format::FileScanRequest& request,
                                const ParquetScanRange& scan_range, bool enable_bloom_filter,
-                               RowGroupScanPlan* plan);
+                               RowGroupScanPlan* plan, const cctz::time_zone* timezone = nullptr);
 
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);

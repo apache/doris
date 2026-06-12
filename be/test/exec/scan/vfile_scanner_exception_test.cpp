@@ -619,6 +619,137 @@ TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
     EXPECT_TRUE(column.children.empty());
 }
 
+TEST(FileScannerV2Test, BuildNestedChildrenExpandsFullProjectionFromSchemaColumn) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    const auto struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, string_type}, Strings {"country", "city"});
+    format::ColumnDefinition struct_column {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "struct_column",
+            .type = struct_type,
+    };
+    format::ColumnDefinition struct_schema {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "struct_column",
+            .type = struct_type,
+            .children =
+                    {
+                            {.identifier = Field::create_field<TYPE_INT>(101),
+                             .name = "country",
+                             .name_mapping = {"old_country"},
+                             .type = string_type},
+                            {.identifier = Field::create_field<TYPE_INT>(205),
+                             .name = "city",
+                             .name_mapping = {"old_city"},
+                             .type = string_type},
+                    },
+    };
+    std::vector<TColumnAccessPath> struct_paths {data_access_path({"struct_column"})};
+    auto status = FileScannerV2::TEST_build_nested_children_from_access_paths(
+            &struct_column, struct_paths, &struct_schema);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(struct_column.children.size(), 2);
+    EXPECT_EQ(struct_column.children[0].name, "country");
+    EXPECT_EQ(struct_column.children[0].get_identifier_field_id(), 101);
+    EXPECT_EQ(struct_column.children[0].name_mapping, std::vector<std::string>({"old_country"}));
+    EXPECT_EQ(struct_column.children[1].name, "city");
+    EXPECT_EQ(struct_column.children[1].get_identifier_field_id(), 205);
+    EXPECT_EQ(struct_column.children[1].name_mapping, std::vector<std::string>({"old_city"}));
+
+    const auto element_type = std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, int_type}, Strings {"item", "quantity"});
+    const auto array_type = std::make_shared<DataTypeArray>(element_type);
+    format::ColumnDefinition array_column {
+            .identifier = Field::create_field<TYPE_INT>(200),
+            .name = "array_column",
+            .type = array_type,
+    };
+    format::ColumnDefinition array_schema {
+            .identifier = Field::create_field<TYPE_INT>(200),
+            .name = "array_column",
+            .type = array_type,
+            .children =
+                    {
+                            {.identifier = Field::create_field<TYPE_INT>(201),
+                             .name = "element",
+                             .type = element_type,
+                             .children =
+                                     {
+                                             {.identifier = Field::create_field<TYPE_INT>(202),
+                                              .name = "item",
+                                              .name_mapping = {"old_item"},
+                                              .type = string_type},
+                                             {.identifier = Field::create_field<TYPE_INT>(203),
+                                              .name = "quantity",
+                                              .type = int_type},
+                                     }},
+                    },
+    };
+    std::vector<TColumnAccessPath> array_paths {data_access_path({"array_column"})};
+    status = FileScannerV2::TEST_build_nested_children_from_access_paths(
+            &array_column, array_paths, &array_schema);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(array_column.children.size(), 1);
+    const auto& element = array_column.children[0];
+    EXPECT_EQ(element.name, "element");
+    EXPECT_EQ(element.get_identifier_field_id(), 201);
+    ASSERT_EQ(element.children.size(), 2);
+    EXPECT_EQ(element.children[0].get_identifier_field_id(), 202);
+    EXPECT_EQ(element.children[0].name_mapping, std::vector<std::string>({"old_item"}));
+    EXPECT_EQ(element.children[1].get_identifier_field_id(), 203);
+
+    const auto value_type = std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, int_type}, Strings {"full_name", "age"});
+    const auto map_type = std::make_shared<DataTypeMap>(string_type, value_type);
+    format::ColumnDefinition map_column {
+            .identifier = Field::create_field<TYPE_INT>(300),
+            .name = "new_map_column",
+            .type = map_type,
+    };
+    format::ColumnDefinition map_schema {
+            .identifier = Field::create_field<TYPE_INT>(300),
+            .name = "new_map_column",
+            .type = map_type,
+            .children =
+                    {
+                            {.identifier = Field::create_field<TYPE_INT>(301),
+                             .name = "key",
+                             .type = string_type},
+                            {.identifier = Field::create_field<TYPE_INT>(302),
+                             .name = "value",
+                             .type = value_type,
+                             .children =
+                                     {
+                                             {.identifier = Field::create_field<TYPE_INT>(303),
+                                              .name = "full_name",
+                                              .name_mapping = {"name"},
+                                              .type = string_type},
+                                             {.identifier = Field::create_field<TYPE_INT>(304),
+                                              .name = "age",
+                                              .type = int_type},
+                                     }},
+                    },
+    };
+    std::vector<TColumnAccessPath> map_paths {data_access_path({"new_map_column"})};
+    status = FileScannerV2::TEST_build_nested_children_from_access_paths(&map_column, map_paths,
+                                                                         &map_schema);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(map_column.children.size(), 1);
+    const auto& entries = map_column.children[0];
+    EXPECT_EQ(entries.name, "entries");
+    ASSERT_EQ(entries.children.size(), 2);
+    EXPECT_EQ(entries.children[0].name, "key");
+    EXPECT_EQ(entries.children[0].get_identifier_field_id(), 301);
+    EXPECT_EQ(entries.children[1].name, "value");
+    EXPECT_EQ(entries.children[1].get_identifier_field_id(), 302);
+    ASSERT_EQ(entries.children[1].children.size(), 2);
+    EXPECT_EQ(entries.children[1].children[0].get_identifier_field_id(), 303);
+    EXPECT_EQ(entries.children[1].children[0].name_mapping, std::vector<std::string>({"name"}));
+    EXPECT_EQ(entries.children[1].children[1].get_identifier_field_id(), 304);
+}
+
 TEST(FileScannerV2Test, IcebergRowidSkipsNegativeAccessPath) {
     const auto string_type = std::make_shared<DataTypeString>();
     const auto rowid_type = std::make_shared<DataTypeStruct>(

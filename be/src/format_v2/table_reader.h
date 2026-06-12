@@ -51,6 +51,7 @@
 #include "exprs/vslot_ref.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
@@ -117,7 +118,6 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
-    const bool allow_missing_columns = true;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
 };
@@ -709,6 +709,57 @@ protected:
         return Status::OK();
     }
 
+    Status _cast_column_to_type(ColumnPtr* column, const DataTypePtr& file_type,
+                                const DataTypePtr& table_type,
+                                const std::string& column_name) const {
+        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(column->get() != nullptr);
+        DORIS_CHECK(file_type != nullptr);
+        DORIS_CHECK(table_type != nullptr);
+        if (file_type->equals(*table_type)) {
+            return Status::OK();
+        }
+
+        DataTypePtr input_type = file_type;
+        if ((*column)->is_nullable() && !input_type->is_nullable()) {
+            input_type = make_nullable(input_type);
+        }
+        Block cast_block;
+        cast_block.insert({*column, input_type, column_name});
+        auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
+        auto cast_expr = Cast::create_shared(table_type);
+        cast_expr->add_child(std::move(slot_ref));
+        auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
+        RowDescriptor row_desc;
+        RETURN_IF_ERROR(cast_ctx->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(cast_ctx->open(_runtime_state));
+        ColumnPtr cast_column;
+        RETURN_IF_ERROR(cast_ctx->execute(&cast_block, cast_column));
+        *column = std::move(cast_column);
+        return Status::OK();
+    }
+
+    Status _materialize_present_child_mapping_column(const ColumnMapping& mapping,
+                                                     const ColumnPtr& file_column,
+                                                     const size_t rows, ColumnPtr* column) {
+        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(mapping.file_type != nullptr);
+        DORIS_CHECK(mapping.table_type != nullptr);
+        *column = file_column;
+        if (!mapping.is_trivial) {
+            if (!mapping.child_mappings.empty()) {
+                RETURN_IF_ERROR(
+                        _materialize_complex_mapping_column(mapping, *column, rows, column));
+            } else {
+                RETURN_IF_ERROR(_cast_column_to_type(column, mapping.file_type,
+                                                     mapping.table_type,
+                                                     mapping.file_column_name));
+            }
+        }
+        RETURN_IF_ERROR(_align_column_nullability(column, mapping.table_type));
+        return Status::OK();
+    }
+
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column) {
         if (!mapping.is_trivial && mapping.file_local_id.has_value() &&
@@ -853,10 +904,8 @@ protected:
                     _file_child_ordinal_for_mapping(mapping, child_mapping, file_ordered_children);
             DORIS_CHECK(file_child_idx < file_struct->get_columns().size());
             ColumnPtr child_column = file_struct->get_column_ptr(file_child_idx);
-            if (!child_mapping.is_trivial && !child_mapping.child_mappings.empty()) {
-                RETURN_IF_ERROR(_materialize_complex_mapping_column(child_mapping, child_column,
-                                                                    rows, &child_column));
-            }
+            RETURN_IF_ERROR(_materialize_present_child_mapping_column(
+                    child_mapping, child_column, rows, &child_column));
             child_columns.push_back(std::move(child_column));
         }
         MutableColumns mutable_child_columns;
@@ -893,10 +942,8 @@ protected:
         const auto* file_array = assert_cast<const ColumnArray*>(nested_file_column);
         ColumnPtr nested_column = file_array->get_data_ptr();
         const auto& element_mapping = mapping.child_mappings[0];
-        if (!element_mapping.is_trivial && !element_mapping.child_mappings.empty()) {
-            RETURN_IF_ERROR(_materialize_complex_mapping_column(
-                    element_mapping, nested_column, nested_column->size(), &nested_column));
-        }
+        RETURN_IF_ERROR(_materialize_present_child_mapping_column(
+                element_mapping, nested_column, nested_column->size(), &nested_column));
         auto offsets_column = file_array->get_offsets_ptr()->convert_to_full_column_if_const();
         auto result = ColumnArray::create(IColumn::mutate(std::move(nested_column)),
                                           IColumn::mutate(std::move(offsets_column)));
@@ -946,14 +993,12 @@ protected:
             }
         }
 
-        if (key_mapping != nullptr && !key_mapping->is_trivial &&
-            !key_mapping->child_mappings.empty()) {
-            RETURN_IF_ERROR(_materialize_complex_mapping_column(*key_mapping, key_column,
-                                                                key_column->size(), &key_column));
+        if (key_mapping != nullptr) {
+            RETURN_IF_ERROR(_materialize_present_child_mapping_column(
+                    *key_mapping, key_column, key_column->size(), &key_column));
         }
-        if (value_mapping != nullptr && !value_mapping->is_trivial &&
-            !value_mapping->child_mappings.empty()) {
-            RETURN_IF_ERROR(_materialize_complex_mapping_column(
+        if (value_mapping != nullptr) {
+            RETURN_IF_ERROR(_materialize_present_child_mapping_column(
                     *value_mapping, value_column, value_column->size(), &value_column));
         }
         auto offsets_column = file_map->get_offsets_ptr()->convert_to_full_column_if_const();

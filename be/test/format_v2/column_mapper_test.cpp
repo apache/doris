@@ -876,6 +876,98 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForRenamedColumn) {
     expect_mapping(mapper.mappings()[0], 0, "current_id", 0, "legacy_id", int_type, int_type);
 }
 
+TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForNestedSchemaEvolution) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_country = name_col("country", string_type);
+    table_country.name_mapping = {"old_country"};
+    auto table_city = name_col("city", string_type);
+    auto table_struct = struct_name_col("struct_column", {table_country, table_city});
+    set_name_identifiers(&table_struct, -1);
+
+    auto table_item = name_col("item", string_type);
+    table_item.name_mapping = {"product"};
+    auto table_quantity = name_col("quantity", int_type);
+    auto table_element = struct_name_col("element", {table_item, table_quantity});
+    auto table_array = array_col("array_column", -1, table_element);
+    set_name_identifiers(&table_array, -1);
+
+    auto table_key = name_col("key", string_type);
+    auto table_full_name = name_col("full_name", string_type);
+    table_full_name.name_mapping = {"name"};
+    auto table_age = name_col("age", int_type);
+    auto table_value = struct_name_col("value", {table_full_name, table_age});
+    auto table_entry = struct_name_col("entries", {table_key, table_value});
+    auto table_map = map_col("new_map_column", -1, table_entry, string_type, table_value.type);
+    table_map.name_mapping = {"map_column"};
+    set_name_identifiers(&table_map, -1);
+
+    auto file_old_country = name_col("old_country", string_type, 0);
+    auto file_city = name_col("city", string_type, 1);
+    auto file_struct = struct_name_col("struct_column", {file_old_country, file_city}, 3);
+    set_name_identifiers(&file_struct, 3);
+
+    auto file_product = name_col("product", string_type, 0);
+    auto file_element = struct_name_col("list", {file_product}, 0);
+    auto file_array = array_col("array_column", -1, file_element, 4);
+    set_name_identifiers(&file_array, 4);
+
+    auto file_key = name_col("key", string_type, 0);
+    auto file_name = name_col("name", string_type, 0);
+    auto file_age = name_col("age", int_type, 1);
+    auto file_value = struct_name_col("value", {file_name, file_age}, 1);
+    auto file_entry = struct_name_col("key_value", {file_key, file_value}, 0);
+    auto file_map = map_col("map_column", -1, file_entry, string_type, file_value.type, 5);
+    set_name_identifiers(&file_map, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_struct, table_array, table_map}, {},
+                                      {file_struct, file_array, file_map})
+                        .ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 3);
+    const auto& struct_mapping = mapper.mappings()[0];
+    expect_mapping(struct_mapping, 0, "struct_column", 3, "struct_column", file_struct.type,
+                   table_struct.type);
+    ASSERT_EQ(struct_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(struct_mapping.child_mappings[0].file_column_name, "old_country");
+    EXPECT_EQ(*struct_mapping.child_mappings[0].file_local_id, 0);
+    EXPECT_EQ(struct_mapping.child_mappings[1].file_column_name, "city");
+    EXPECT_EQ(*struct_mapping.child_mappings[1].file_local_id, 1);
+
+    const auto& array_mapping = mapper.mappings()[1];
+    expect_mapping(array_mapping, 1, "array_column", 4, "array_column", file_array.type,
+                   table_array.type);
+    ASSERT_EQ(array_mapping.child_mappings.size(), 1);
+    const auto& element_mapping = array_mapping.child_mappings[0];
+    EXPECT_EQ(element_mapping.file_column_name, "list");
+    EXPECT_EQ(*element_mapping.file_local_id, 0);
+    ASSERT_EQ(element_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(element_mapping.child_mappings[0].file_column_name, "product");
+    EXPECT_EQ(*element_mapping.child_mappings[0].file_local_id, 0);
+    expect_missing(element_mapping.child_mappings[1]);
+
+    const auto& map_mapping = mapper.mappings()[2];
+    expect_mapping(map_mapping, 2, "new_map_column", 5, "map_column", file_map.type,
+                   table_map.type);
+    ASSERT_EQ(map_mapping.child_mappings.size(), 1);
+    const auto& entry_mapping = map_mapping.child_mappings[0];
+    EXPECT_EQ(entry_mapping.file_column_name, "key_value");
+    EXPECT_EQ(*entry_mapping.file_local_id, 0);
+    ASSERT_EQ(entry_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(entry_mapping.child_mappings[0].file_column_name, "key");
+    EXPECT_EQ(*entry_mapping.child_mappings[0].file_local_id, 0);
+    const auto& value_mapping = entry_mapping.child_mappings[1];
+    EXPECT_EQ(value_mapping.file_column_name, "value");
+    EXPECT_EQ(*value_mapping.file_local_id, 1);
+    ASSERT_EQ(value_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(value_mapping.child_mappings[0].file_column_name, "name");
+    EXPECT_EQ(*value_mapping.child_mappings[0].file_local_id, 0);
+    EXPECT_EQ(value_mapping.child_mappings[1].file_column_name, "age");
+    EXPECT_EQ(*value_mapping.child_mappings[1].file_local_id, 1);
+}
+
 TEST(ColumnMapperCreateMappingTest, ByFieldIdDoesNotFallbackToNameAndUsesFirstDuplicate) {
     const auto int_type = i32();
     const std::vector<ColumnDefinition> table_schema = {
@@ -891,7 +983,7 @@ TEST(ColumnMapperCreateMappingTest, ByFieldIdDoesNotFallbackToNameAndUsesFirstDu
     };
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID, .allow_missing_columns = true});
+            {.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -900,7 +992,7 @@ TEST(ColumnMapperCreateMappingTest, ByFieldIdDoesNotFallbackToNameAndUsesFirstDu
     expect_mapping(mapper.mappings()[2], 2, "negative", 3, "negative_file", int_type, int_type);
 }
 
-TEST(ColumnMapperCreateMappingTest, ByFieldIdRejectsSameNameWithDifferentFieldId) {
+TEST(ColumnMapperCreateMappingTest, ByFieldIdTreatsSameNameDifferentFieldIdAsMissing) {
     const auto int_type = i32();
     const std::vector<ColumnDefinition> table_schema = {
             field_id_col("same_name", 10, int_type),
@@ -910,12 +1002,15 @@ TEST(ColumnMapperCreateMappingTest, ByFieldIdRejectsSameNameWithDifferentFieldId
     };
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID, .allow_missing_columns = false});
+            {.mode = TableColumnMappingMode::BY_FIELD_ID});
     const auto status = mapper.create_mapping(table_schema, {}, file_schema);
-    EXPECT_FALSE(status.ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_missing(mapper.mappings()[0]);
 }
 
-TEST(ColumnMapperCreateMappingTest, NestedFieldIdRejectsSameNameWithDifferentFieldId) {
+TEST(ColumnMapperCreateMappingTest, NestedFieldIdTreatsSameNameDifferentFieldIdAsMissing) {
     const auto int_type = i32();
     auto table_child = field_id_col("child", 10, int_type);
     auto table_root = struct_col("root", 1, {table_child});
@@ -924,9 +1019,14 @@ TEST(ColumnMapperCreateMappingTest, NestedFieldIdRejectsSameNameWithDifferentFie
     auto file_root = struct_col("root", 1, {file_child}, 0);
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID, .allow_missing_columns = false});
+            {.mode = TableColumnMappingMode::BY_FIELD_ID});
     const auto status = mapper.create_mapping({table_root}, {}, {file_root});
-    EXPECT_FALSE(status.ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_mapping(mapper.mappings()[0], 0, "root", 0, "root", file_root.type, table_root.type);
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    expect_missing(mapper.mappings()[0].child_mappings[0]);
 }
 
 TEST(ColumnMapperCreateMappingTest, ByIndexMapsTopLevelColumnsByPositionIgnoringFileNames) {
@@ -1017,7 +1117,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexOutOfRangeFallsBackToDefaultOrMissing
     };
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_INDEX, .allow_missing_columns = true});
+            {.mode = TableColumnMappingMode::BY_INDEX});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -1043,7 +1143,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexMissingIdentifierFallsBackToDefaultOr
     };
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_INDEX, .allow_missing_columns = true});
+            {.mode = TableColumnMappingMode::BY_INDEX});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -1053,7 +1153,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexMissingIdentifierFallsBackToDefaultOr
     expect_missing(mapper.mappings()[2]);
 }
 
-TEST(ColumnMapperCreateMappingTest, ByIndexOutOfRangeFailsWhenMissingIsDisallowed) {
+TEST(ColumnMapperCreateMappingTest, ByIndexOutOfRangeFallsBackToMissing) {
     const auto int_type = i32();
     const std::vector<ColumnDefinition> table_schema = {
             position_col("a", 0, int_type),
@@ -1064,10 +1164,13 @@ TEST(ColumnMapperCreateMappingTest, ByIndexOutOfRangeFailsWhenMissingIsDisallowe
     };
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_INDEX, .allow_missing_columns = false});
+            {.mode = TableColumnMappingMode::BY_INDEX});
     const auto status = mapper.create_mapping(table_schema, {}, file_schema);
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("file_index=5"), std::string::npos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    expect_mapping(mapper.mappings()[0], 0, "a", 0, "_col0", int_type, int_type);
+    expect_missing(mapper.mappings()[1]);
 }
 
 TEST(ColumnMapperCreateMappingTest, ByIndexIgnoresExtraFileColumns) {
@@ -1105,13 +1208,15 @@ TEST(ColumnMapperCreateMappingTest, ByIndexIgnoresFileColumnNames) {
     expect_mapping(mapper.mappings()[0], 0, "a", 20, "b", int_type, int_type);
 }
 
-TEST(ColumnMapperCreateMappingTest, MissingColumnFailsWhenDisallowed) {
+TEST(ColumnMapperCreateMappingTest, MissingColumnFallsBackToMissingMapping) {
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_NAME, .allow_missing_columns = false});
+            {.mode = TableColumnMappingMode::BY_NAME});
     const auto status = mapper.create_mapping({name_col("missing", i32())}, {},
                                               {name_col("present", i32(), 0)});
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("global_index=0"), std::string::npos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_missing(mapper.mappings()[0]);
 }
 
 // ----------------------------------------------------------------------
@@ -1209,7 +1314,7 @@ TEST(ColumnMapperConstantTest, MissingRowLineageDefaultExprStillUsesVirtualMappi
     };
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID, .allow_missing_columns = false});
+            {.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -1234,7 +1339,7 @@ TEST(ColumnMapperConstantTest, ByFieldIdDoesNotTreatSameNameDifferentIdAsRowLine
     };
 
     TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID, .allow_missing_columns = false});
+            {.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 2);

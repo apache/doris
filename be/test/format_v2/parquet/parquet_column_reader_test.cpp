@@ -17,6 +17,7 @@
 
 #include <arrow/api.h>
 #include <arrow/io/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
@@ -974,6 +975,18 @@ protected:
                                         {0, 1234567, 1609459200000000, 1609459201000000, -1}),
                   [](const ParquetColumnSchema& schema, const IColumn& column) {
                       EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT64);
+                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
+                                TYPE_DATETIMEV2);
+                      EXPECT_EQ(schema.type->to_string(column, 1), "1970-01-01 00:00:01.234567");
+                      EXPECT_EQ(schema.type->to_string(column, 4), "1969-12-31 23:59:59.999999");
+                  });
+        add_field(arrow::field("timestamp_micros_utc_col",
+                               arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), false),
+                  build_timestamp_array(arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
+                                        {0, 1234567, 1609459200000000, 1609459201000000, -1}),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT64);
+                      EXPECT_TRUE(schema.type_descriptor.timestamp_is_adjusted_to_utc);
                       EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(),
                                 TYPE_DATETIMEV2);
                       EXPECT_EQ(schema.type->to_string(column, 1), "1970-01-01 00:00:01.234567");
@@ -2091,6 +2104,26 @@ TEST_F(ParquetColumnReaderTest, TransformUnsignedIntegerStatistics) {
     const auto uint64_max = uint64_stats.max_value.get<TYPE_LARGEINT>();
     EXPECT_EQ(uint64_min, 0);
     EXPECT_EQ(uint64_max, static_cast<int128_t>(std::numeric_limits<uint64_t>::max()));
+}
+
+TEST_F(ParquetColumnReaderTest, TransformTimestampStatisticsUsesTimezone) {
+    auto row_group = _file_reader->metadata()->RowGroup(0);
+    ASSERT_NE(row_group, nullptr);
+
+    const auto field_idx = find_field_idx("timestamp_micros_utc_col");
+    const auto& schema = *_fields[field_idx];
+    ASSERT_TRUE(schema.type_descriptor.timestamp_is_adjusted_to_utc);
+    ASSERT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT64);
+    auto chunk = row_group->ColumnChunk(schema.leaf_column_id);
+    ASSERT_NE(chunk, nullptr);
+
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+    auto stats = ParquetStatisticsUtils::TransformColumnStatistics(schema, chunk->statistics(),
+                                                                   &shanghai);
+    ASSERT_TRUE(stats.has_min_max);
+    EXPECT_EQ(stats.min_value.to_debug_string(6), "1970-01-01 07:59:59.999999");
+    EXPECT_EQ(stats.max_value.to_debug_string(6), "2021-01-01 08:00:01.000000");
 }
 
 TEST_F(ParquetColumnReaderTest, ReadSupportedComplexTypes) {
