@@ -473,6 +473,67 @@ TEST(WindowTermReaderTest, OpenReturnsFalseForLegacyBlock) {
     EXPECT_FALSE(r2.Open(frq_big.data(), frq_big.size(), /*doc_freq=*/2000, /*has_prox=*/false));
 }
 
+// ===========================================================================
+// 常数 PFOR 块（b=0）× 懒加载窗口寻址：前半稠密（delta≡1/freq≡1 ⇒ 常数块
+// 窗口）、后半不规则间隔（普通/补丁块窗口）。不规则段的体量把自适应 W 推向
+// 细窗口，使常数块出现在多窗口框架内 —— skipTo/next 必须跨常数窗与普通窗
+// 边界与 eager oracle 逐 posting 一致（freq 也含常数 freq 块）。
+// ===========================================================================
+namespace {
+
+Term MakeDenseThenSparseTerm(int32_t dense_df, int32_t sparse_df, bool has_prox, uint32_t seed) {
+    Term t;
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<int32_t> gap(1, 50);
+    int32_t doc = 0;
+    for (int32_t i = 0; i < dense_df; ++i) {
+        doc += 1; // 稠密段：delta≡1 ⇒ 常数 doc-delta 块；freq≡1 ⇒ 常数 freq 块
+        t.docs.push_back(doc);
+        t.freqs.push_back(1);
+        t.positions.push_back(has_prox ? std::vector<int32_t> {0} : std::vector<int32_t> {});
+    }
+    for (int32_t i = 0; i < sparse_df; ++i) {
+        doc += gap(rng); // 不规则段：普通位宽块
+        t.docs.push_back(doc);
+        const int32_t f = has_prox ? (1 + (i % 4)) : 1;
+        t.freqs.push_back(f);
+        std::vector<int32_t> pos;
+        for (int32_t k = 0; k < f; ++k) {
+            pos.push_back(k * 3);
+        }
+        t.positions.push_back(has_prox ? std::move(pos) : std::vector<int32_t> {});
+    }
+    return t;
+}
+
+} // namespace
+
+TEST(WindowTermReaderTest, SkipToAcrossConstWindows) {
+    for (const bool has_prox : {true, false}) {
+        const Term t = MakeDenseThenSparseTerm(4096, 4096, has_prox, 0xC0157AB1U);
+        const auto df = static_cast<int32_t>(t.docs.size());
+        const auto frq = EncodeWindowedFrq(t, has_prox);
+        const Oracle oracle = BuildOracle(frq, df, has_prox);
+        ASSERT_EQ(oracle.size(), static_cast<size_t>(df));
+
+        // 全量扫描跨过全部常数窗 + 普通窗。
+        ExpectFullScanMatches(t, has_prox);
+
+        // 定向 seek：稠密段内部 / 稠密→稀疏边界 / 稀疏段内部 / 超出末尾。
+        const int32_t dense_mid = t.docs[2000];
+        const int32_t boundary = t.docs[4096];
+        const int32_t sparse_mid = t.docs[6000];
+        const int32_t past_end = t.docs.back() + 1;
+        (void)ExpectSkipToMatches(frq, oracle, df, has_prox, dense_mid);
+        (void)ExpectSkipToMatches(frq, oracle, df, has_prox, boundary);
+        (void)ExpectSkipToMatches(frq, oracle, df, has_prox, sparse_mid);
+        (void)ExpectSkipToMatches(frq, oracle, df, has_prox, past_end);
+
+        // 随机单调 skipTo/next 序列（含常数窗内推进与跨窗跳转）。
+        ExpectRandomMonotonicSequence(t, has_prox, 0x5EEDFACEU);
+    }
+}
+
 // df == 1 windowed term: single window, must complete without spinning and
 // round-trip a single (doc, freq).
 TEST(WindowTermReaderTest, SingleDocWindowed) {

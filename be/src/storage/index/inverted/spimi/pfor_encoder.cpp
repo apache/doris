@@ -52,6 +52,20 @@ inline uint8_t bit_width_for(uint32_t max_value) {
 constexpr uint8_t kPatchFlag = 0x80U;
 constexpr uint8_t kWidthMask = 0x3FU;
 
+// 常数块标记：整个宽度字节为 0x00（旧格式中宽度 0 非法 ⇒ 无歧义），后跟
+// VInt(常数)，零比特 payload（见 pfor_encoder.h 文件头）。
+constexpr uint8_t kConstMarker = 0x00U;
+
+// VInt(v) 的字节数（7-bit 组，MSB 连续位），与 ByteOutput::WriteVInt 一致。
+inline size_t vint_len(uint32_t v) {
+    size_t n = 1;
+    while ((v & ~0x7FU) != 0) {
+        ++n;
+        v >>= 7U;
+    }
+    return n;
+}
+
 // Bit-packs `values[0..count)` at `width` bits each into `out` via
 // Arrow's BitWriter (the same primitive Parquet uses). Returns bytes
 // written. Used for both the plain payload and the exception high-bit
@@ -162,7 +176,7 @@ bool select_patch(const uint32_t* values, size_t count, uint8_t plain_width,
 } // namespace
 
 size_t SpimiPforEncoder::EncodeBlock(const uint32_t* values, size_t count, ByteOutput* out,
-                                     bool allow_patch) {
+                                     bool allow_patch, bool allow_const) {
     DCHECK(out != nullptr);
     DCHECK_LE(count, kBlockSize);
     DCHECK_GT(count, 0U);
@@ -170,11 +184,29 @@ size_t SpimiPforEncoder::EncodeBlock(const uint32_t* values, size_t count, ByteO
     const int64_t start_offset = out->FilePointer();
 
     uint32_t max_value = 0;
+    bool all_equal = true;
     for (size_t i = 0; i < count; ++i) {
         max_value = std::max(max_value, values[i]);
+        all_equal &= (values[i] == values[0]);
     }
     const uint8_t width = bit_width_for(max_value);
     DCHECK_LE(width, 32U);
+
+    // 常数块（opt-in）：块内全部值相等时只存常数本身（[0x00][VInt(c)]，零比特
+    // payload）。仅在严格小于普通块时发射 —— 平手（如 n≤8 的全 1 块）保持普通
+    // 块，确定性且与旧字节一致。delta≡1/freq≡1 的稠密 term 由此把每 128 值块
+    // 从 17B 压到 2B，对齐 V2 TurboPFor 的 0-bit 常数块能力。全等值块不可能被
+    // patch 路径选中（base_width == plain width ⇒ select_patch 返回 false），
+    // 因此先于 patch 判定、互不干扰。
+    if (allow_const && all_equal) {
+        const size_t const_size = 1U + vint_len(values[0]);
+        const size_t plain_size = 1U + (count * width + 7U) / 8U;
+        if (const_size < plain_size) {
+            out->WriteByte(kConstMarker);
+            out->WriteVInt(static_cast<int32_t>(values[0]));
+            return static_cast<size_t>(out->FilePointer() - start_offset);
+        }
+    }
 
     // Opt-in patched encoding. Try to split the few high-magnitude
     // outliers into a patch trailer so the bitpacked payload packs at a
@@ -216,10 +248,10 @@ size_t SpimiPforEncoder::EncodeBlock(const uint32_t* values, size_t count, ByteO
 }
 
 std::vector<uint8_t> SpimiPforEncoder::EncodeBlockToBytes(const std::vector<uint32_t>& values,
-                                                          bool allow_patch) {
+                                                          bool allow_patch, bool allow_const) {
     MemoryByteOutput out;
     if (!values.empty()) {
-        (void)EncodeBlock(values.data(), values.size(), &out, allow_patch);
+        (void)EncodeBlock(values.data(), values.size(), &out, allow_patch, allow_const);
     }
     return out.bytes();
 }
@@ -237,6 +269,24 @@ public:
             SPIMI_THROW_CORRUPT("SPIMI .frq PFOR sub-block cursor underflow");
         }
         return _data[_pos++];
+    }
+    // 读取常数块的 VInt 常数（7-bit 组，MSB 连续位）。对不可信字节硬失败：
+    // ≥5 个连续字节会把 shift 推到 ≥32（uint32 上的 UB 移位），直接抛出。
+    uint32_t ReadVInt() {
+        uint32_t v = 0;
+        uint32_t shift = 0;
+        while (true) {
+            const uint8_t b = ReadByte();
+            v |= static_cast<uint32_t>(b & 0x7FU) << shift;
+            if ((b & 0x80U) == 0) {
+                break;
+            }
+            shift += 7;
+            if (shift >= 32U) [[unlikely]] {
+                SPIMI_THROW_CORRUPT("SPIMI .frq PFOR const block: VInt shift overflow");
+            }
+        }
+        return v;
     }
     // Reads `width` low-bit/high-bit bitpacked values starting at the
     // current cursor position via Arrow's BitReader, then advances the
@@ -279,6 +329,13 @@ size_t SpimiPforDecoder::DecodeBlockFromBytes(const std::vector<uint8_t>& in, si
 
     ByteCursor cur(in.data(), in.size());
     const uint8_t raw_width = cur.ReadByte();
+    // 常数块：整字节 0x00 标记 + VInt(常数)，n 个值全等，零比特 payload。
+    // 注意 0x80（patch 标志 + 宽度 0）不走此分支，仍按损坏字节硬失败。
+    if (raw_width == kConstMarker) {
+        const uint32_t c = cur.ReadVInt();
+        out->assign(count, c);
+        return count;
+    }
     const bool patched = (raw_width & kPatchFlag) != 0U; // patched-PFOR signal bit
     const uint8_t width = raw_width & kWidthMask;        // base bit width
     // Hard-fail on untrusted-byte invariants. An out-of-range bit width

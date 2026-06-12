@@ -97,7 +97,13 @@ size_t EncodePforPart(const std::vector<uint32_t>& vals, size_t off, size_t coun
     size_t i = 0;
     while (i < count) {
         const size_t n = std::min(static_cast<size_t>(SpimiPforEncoder::kBlockSize), count - i);
-        SpimiPforEncoder::EncodeBlock(vals.data() + off + i, n, &vo, allow_patch);
+        // windowed V4 路径开启常数块（allow_const）：delta≡1/freq≡1 的全等值
+        // 块收敛为 [0x00][VInt(c)]（2B/128 值），消除 V4 .frq 相对 V2 TurboPFor
+        // 0-bit 常数块的结构性劣势。块长变化天然进入 dd_len/fq_len，自适应 W
+        // 选型（AnalyticRawFrqSize / MeasureAndCacheFrq）与 skip 表偏移随之
+        // 精确反映 —— 窗口框架字节语义不变。
+        SpimiPforEncoder::EncodeBlock(vals.data() + off + i, n, &vo, allow_patch,
+                                      /*allow_const=*/true);
         i += n;
     }
     return out.size() - start;

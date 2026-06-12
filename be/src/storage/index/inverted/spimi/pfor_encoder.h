@@ -97,6 +97,21 @@ class ByteOutput;
 // stays byte-identical to the plain form (the flag is only set on a
 // strict win). The decoder is the SAME patch-aware DecodePforRun for
 // both regions, so doc-delta patches round-trip via the freq decode path.
+//
+// 常数块（CONST，b=0，opt-in：`allow_const`）。delta≡1 / freq≡1 的稠密
+// term（df≈N）是 V4 .frq 相对 V2 TurboPFor（delta-1 域 + 0-bit 常数块）
+// 唯一普遍反向的来源：旧格式位宽下限 1 bit/值，全等值的 128 值块仍要
+// 1 + 16 = 17 字节。常数块布局（N 同样隐式，由调用方供给）：
+//
+//   byte    0x00                // 常数块标记（旧格式中 0x00 非法 ⇒ 无歧义）
+//   VInt    constant            // 块内 N 个值的公共值，零比特 payload
+//
+// 仅当块内全部值相等且 1 + VIntLen(constant) 严格小于普通块
+// （1 + ceil(N*width/8)）时发射；平手或更大保持普通块，逐字节稳定。
+// 窗口可寻址性不变：常数块只是窗口 payload 内部的一种子块形态，skip 表、
+// 窗口边界、range-GET framing 与 kWinRaw/kWinZstd 字节语义都不受影响。
+// 解码侧三处（DecodeBlockFromBytes 与两份 DecodePforRun 副本）同步识别
+// 0x00 标记；0x80（patch 标志 + 宽度 0）仍按损坏字节硬失败。
 class SpimiPforEncoder {
 public:
     static constexpr size_t kBlockSize = 128;
@@ -108,15 +123,18 @@ public:
     // their staging arrays directly with no per-block copy. When
     // `allow_patch` is true AND a patched encoding is strictly smaller,
     // emits the patched form (0x80 set); otherwise emits the plain
-    // block. Returns bytes written.
+    // block. `allow_const` 为 true 且块内全部值相等且严格更小时发射常数块
+    // （0x00 标记 + VInt 常数，见文件头）；windowed V4 路径开启，legacy
+    // 路径保持默认 false（字节稳定）。Returns bytes written.
     static size_t EncodeBlock(const uint32_t* values, size_t count, ByteOutput* out,
-                              bool allow_patch = false);
+                              bool allow_patch = false, bool allow_const = false);
 
     // Test seam: encodes into a vector (bypasses ByteOutput). The
     // resulting bytes are exactly what `EncodeBlock` writes (modulo
     // the ByteOutput wrapping).
     static std::vector<uint8_t> EncodeBlockToBytes(const std::vector<uint32_t>& values,
-                                                   bool allow_patch = false);
+                                                   bool allow_patch = false,
+                                                   bool allow_const = false);
 };
 
 // Decoder counterpart. The decoder lives in the same translation unit

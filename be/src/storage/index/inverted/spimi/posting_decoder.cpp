@@ -88,6 +88,32 @@ std::vector<uint32_t> DecodePforRun(Cursor& cur, int32_t count) {
                 std::min<int64_t>(SpimiPforEncoder::kBlockSize, count - collected));
         const size_t mark = cur.pos();
         const uint8_t raw_width = cur.ReadByte();
+        // 常数块（b=0）：整字节 0x00 标记 + VInt(常数)，零比特 payload。逐字节
+        // 重组该子块（标记 + 最多 5 字节 VInt）后仍交给 DecodeBlockFromBytes 统一
+        // 解释（与 frq_window_decode_internal.h 的副本保持一致）。0x80 不进此分
+        // 支，落到下方宽度校验并硬失败。
+        if (raw_width == 0x00U) {
+            std::vector<uint8_t> block;
+            block.reserve(6);
+            block.push_back(raw_width);
+            size_t vint_bytes = 0;
+            uint8_t b = 0;
+            do {
+                b = cur.ReadByte();
+                block.push_back(b);
+                if (++vint_bytes > 5U) [[unlikely]] {
+                    SPIMI_THROW_CORRUPT("PostingDecoder PFOR const block: constant VInt overlong");
+                }
+            } while ((b & 0x80U) != 0U);
+            std::vector<uint32_t> sub;
+            SpimiPforDecoder::DecodeBlockFromBytes(block, static_cast<size_t>(n), &sub);
+            if (sub.size() != static_cast<size_t>(n)) [[unlikely]] {
+                SPIMI_THROW_CORRUPT("PostingDecoder PFOR const block decoded count mismatch");
+            }
+            values.insert(values.end(), sub.begin(), sub.end());
+            collected += n;
+            continue;
+        }
         const bool patched = (raw_width & 0x80U) != 0U; // patched-PFOR signal bit
         const uint8_t width = raw_width & 0x3FU;
         if (width == 0 || width > 32U) [[unlikely]] {

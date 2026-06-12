@@ -547,4 +547,92 @@ TEST(SpimiPforEncoderTest, PatchTrailerTruncatedHighBitsHardFails) {
     EXPECT_THROW(DecodeSeed(bytes, &out), doris::Exception);
 }
 
+// ---------------------------------------------------------------------------
+// 常数块（b=0）：宽度字节 0x00（旧格式的非法值，无歧义）+ VInt(常数)，
+// 零比特 payload。块内 n 个值全等时仅存常数本身——对 delta≡1/freq≡1 的
+// 稠密 term 把每 128 值块从 17B 压到 2B（对齐 V2 TurboPFor 的 0-bit 常数块）。
+// 仅在 allow_const=true 且严格小于普通块时发射，保证旧路径字节稳定。
+// ---------------------------------------------------------------------------
+
+// 128 个 1（稠密 term 的典型 doc-delta / freq 块）⇒ 正好 2 字节 {0x00, 0x01}。
+TEST(SpimiPforEncoderTest, ConstBlockAllOnesIsTwoBytes) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, 1U);
+    const auto bytes = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true,
+                                                            /*allow_const=*/true);
+    ASSERT_EQ(bytes.size(), 2U) << "全 1 的 128 值块必须收敛为 [0x00][VInt(1)]";
+    EXPECT_EQ(bytes[0], 0x00U);
+    EXPECT_EQ(bytes[1], 0x01U);
+    std::vector<uint32_t> back;
+    ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(bytes, values.size(), &back), values.size());
+    EXPECT_EQ(back, values);
+}
+
+// 多字节 VInt 常数（0x1234）与 32 位顶格常数（0xFFFFFFFF）都必须往返。
+TEST(SpimiPforEncoderTest, ConstBlockLargeConstantUsesVIntAndRoundTrips) {
+    for (const uint32_t c : {0x1234U, 0xFFFFFFFFU}) {
+        std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, c);
+        const auto bytes = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true,
+                                                                /*allow_const=*/true);
+        ASSERT_GE(bytes.size(), 2U);
+        EXPECT_EQ(bytes[0], 0x00U) << "常数 " << c << " 必须走常数块";
+        EXPECT_LE(bytes.size(), 6U) << "常数块 = 1 字节标记 + ≤5 字节 VInt";
+        std::vector<uint32_t> back;
+        ASSERT_EQ(SpimiPforDecoder::DecodeBlockFromBytes(bytes, values.size(), &back),
+                  values.size());
+        EXPECT_EQ(back, values);
+    }
+}
+
+// 非严格小（平手或更大）时保持普通块字节不变：8 个 1 的普通块 = 1 字节宽度 +
+// 1 字节 payload = 2B，常数块同为 2B ⇒ 平手必须发普通块（确定性、字节稳定）。
+TEST(SpimiPforEncoderTest, ConstBlockTieStaysPlain) {
+    std::vector<uint32_t> values(8, 1U);
+    const auto plain = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/false);
+    const auto maybe = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true,
+                                                            /*allow_const=*/true);
+    EXPECT_EQ(plain, maybe) << "常数块只在严格更小时发射；平手保持普通块";
+}
+
+// 值不全等时 allow_const 不得改变任何字节（与旧编码逐字节一致）。
+TEST(SpimiPforEncoderTest, ConstBlockMixedValuesByteIdenticalToPlain) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize);
+    for (size_t i = 0; i < values.size(); ++i) {
+        values[i] = static_cast<uint32_t>(i % 16);
+    }
+    const auto old_bytes = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    const auto new_bytes = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true,
+                                                                /*allow_const=*/true);
+    EXPECT_EQ(old_bytes, new_bytes) << "非全等块在 allow_const 下必须逐字节不变";
+}
+
+// allow_const 默认关闭：legacy（非 windowed）写路径的字节保持稳定。
+TEST(SpimiPforEncoderTest, ConstBlockDisabledByDefaultStaysPlain) {
+    std::vector<uint32_t> values(SpimiPforEncoder::kBlockSize, 1U);
+    const auto bytes = SpimiPforEncoder::EncodeBlockToBytes(values, /*allow_patch=*/true);
+    ASSERT_GE(bytes.size(), 1U);
+    EXPECT_NE(bytes[0], 0x00U) << "allow_const=false 时绝不发射常数块";
+    EXPECT_EQ(bytes.size(), 1U + 16U) << "全 1 块在旧编码下 = 宽度字节 + 128 bit payload";
+}
+
+// 损坏路径：常数块标记后缺 VInt ⇒ 硬失败（不得越界/不得静默）。
+TEST(SpimiPforEncoderTest, ConstBlockTruncatedConstantHardFails) {
+    const std::vector<uint8_t> bytes {0x00U};
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, 128, &out), doris::Exception);
+}
+
+// 损坏路径：常数 VInt 连续位超长（>5 字节 ⇒ shift 溢出）⇒ 硬失败。
+TEST(SpimiPforEncoderTest, ConstBlockOverlongConstantHardFails) {
+    const std::vector<uint8_t> bytes {0x00U, 0x80U, 0x80U, 0x80U, 0x80U, 0x80U, 0x01U};
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, 128, &out), doris::Exception);
+}
+
+// 损坏路径：0x80（patch 标志 + 宽度 0）仍然非法 —— 常数块标记必须是整字节 0x00。
+TEST(SpimiPforEncoderTest, WidthZeroWithPatchFlagStillHardFails) {
+    const std::vector<uint8_t> bytes {0x80U, 0x01U};
+    std::vector<uint32_t> out;
+    EXPECT_THROW(SpimiPforDecoder::DecodeBlockFromBytes(bytes, 128, &out), doris::Exception);
+}
+
 } // namespace doris::segment_v2::inverted_index::spimi

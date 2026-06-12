@@ -549,6 +549,63 @@ TEST(WindowFrameEncoderTest, HighlyCompressibleUniformOmitTfap) {
     ExpectRoundtripAndSkip(t, /*has_prox=*/false);
 }
 
+// ---------------------------------------------------------------------------
+// 常数 PFOR 块（b=0）磁盘体积测试。delta≡1 / freq≡1 的稠密 term（httplogs
+// "http"/"get" 这类 df≈N 的词）是 V4 .frq 相对 V2 TurboPFor 唯一普遍反向的
+// 来源：V2 对全等值块走 0-bit 常数块（~0.33 B/posting 实测），而旧 V4 每
+// 128 值块至少 1 bit/值 + 1 字节宽度头（17 B/块）。常数块把全等值的 128 值
+// 块压到 [0x00][VInt(常数)] = 2 字节，远低于 V2。
+// ---------------------------------------------------------------------------
+
+// DOCS_ONLY（omit_tfap）：.frq 只有 doc-delta 域。df=50000、delta≡1 时除首块
+// （首 delta=7）外全部 390 个块都是常数块（2B），整 term .frq 必须 ≤ 1024B
+// （精确算术 ≈ 814B；修复前 ≈ 6.7KB）。
+TEST(WindowFrameEncoderTest, DenseConstTermDocsOnlyTightBytes) {
+    const Term t = MakeTerm(/*df=*/50000, /*stride=*/1, /*freq=*/1);
+    std::vector<uint8_t> frq;
+    std::vector<uint8_t> prx;
+    EncodeWindowed(t, /*has_prox=*/false, &frq, &prx);
+    EXPECT_LE(frq.size(), 1024U) << "delta≡1 稠密 term 的 DOCS_ONLY .frq 必须被常数块压缩";
+    ExpectRoundtripAndSkip(t, /*has_prox=*/false);
+}
+
+// phrase-on：doc-delta 与 freq 两个域都全等（delta≡1、freq≡1），两条 PFOR
+// 流都收敛到常数块；.frq ≤ 2048B（精确算术 ≈ 1738B；修复前 ≈ 13.4KB）。
+TEST(WindowFrameEncoderTest, DenseConstTermPhraseOnTightBytes) {
+    const Term t = MakeTerm(/*df=*/50000, /*stride=*/1, /*freq=*/1);
+    std::vector<uint8_t> frq;
+    std::vector<uint8_t> prx;
+    EncodeWindowed(t, /*has_prox=*/true, &frq, &prx);
+    EXPECT_LE(frq.size(), 2048U) << "delta≡1/freq≡1 稠密 term 的 .frq 必须被常数块压缩";
+    ExpectRoundtripAndSkip(t, /*has_prox=*/true);
+}
+
+// 常数块与普通/补丁块在同一 term、同一窗口内共存：前半稠密（delta≡1 → 常数
+// 块）、后半不规则间隔（普通位宽/补丁块）。两种 prox 模式都必须逐 posting
+// 往返一致且 skip 表结构健全。
+TEST(WindowFrameEncoderTest, MixedConstAndPlainBlocksRoundTrip) {
+    Term t;
+    int32_t doc = 0;
+    for (int32_t i = 0; i < 5000; ++i) {
+        doc += 1; // 稠密段：delta≡1
+        t.docs.push_back(doc);
+        t.freqs.push_back(1);
+        t.positions.push_back({0});
+    }
+    for (int32_t i = 0; i < 5000; ++i) {
+        doc += 1 + (i * 7 + 3) % 53; // 不规则段：变宽 delta
+        t.docs.push_back(doc);
+        t.freqs.push_back(1 + (i % 3));
+        std::vector<int32_t> pos;
+        for (int32_t k = 0; k < 1 + (i % 3); ++k) {
+            pos.push_back(k * 5);
+        }
+        t.positions.push_back(std::move(pos));
+    }
+    ExpectRoundtripAndSkip(t, /*has_prox=*/true);
+    ExpectRoundtripAndSkip(t, /*has_prox=*/false);
+}
+
 // df == 1 (and the hang-case df < 256) must complete without spinning and
 // produce exactly one window. A test timeout guards the build; this asserting
 // completion at all is the no-hang regression for the k=0 clamp.
@@ -651,14 +708,20 @@ TEST(WindowFrameEncoderTest, ByteIdentityGolden) {
     // 1-2 bytes per 128-value sub-block from every PFOR doc-delta AND freq run,
     // shifting the bytes of every case that has a `.frq` PFOR block. (The earlier
     // P2 slimming of the per-window `.frq` skip table is already folded in here.)
+    //
+    // 常数块（b=0）重基线：windowed PFOR 路径开启 allow_const 后，全等值的
+    // 128 值子块（delta≡stride、freq≡常数）收敛为 [0x00][VInt(c)]，.frq 字节
+    // 变小（这是该变更的目的），7 个用例中 6 个 digest 移动；唯一不含全等值
+    // 块的 prox_varfreq700（变 delta、变 freq）digest 保持不变 —— 证明非全等
+    // 块逐字节稳定。
     std::vector<Case> cases = {
-            {"prox_df600_s2_f2", 977508873629497376ULL, MakeTerm(600, 2, 2), true},
-            {"prox_df2050_s1_f1", 13855447956602271214ULL, MakeTerm(2050, 1, 1), true},
-            {"prox_df20000_s1_f2", 3332247510199281986ULL, MakeTerm(20000, 1, 2), true},
-            {"noprox_df2049_s1_f1", 9223125671240280448ULL, MakeTerm(2049, 1, 1), false},
+            {"prox_df600_s2_f2", 2714069940281852304ULL, MakeTerm(600, 2, 2), true},
+            {"prox_df2050_s1_f1", 15396933955958265817ULL, MakeTerm(2050, 1, 1), true},
+            {"prox_df20000_s1_f2", 9238824358417953474ULL, MakeTerm(20000, 1, 2), true},
+            {"noprox_df2049_s1_f1", 16375600005028973848ULL, MakeTerm(2049, 1, 1), false},
             {"prox_varfreq700", 12758102024892498094ULL, MakeVariableFreqTerm(), true},
-            {"prox_uniform5000", 11774765915328683771ULL, MakeUniformTerm(5000, true), true},
-            {"noprox_uniform5000", 101352028602988839ULL, MakeUniformTerm(5000, false), false},
+            {"prox_uniform5000", 7784858493254484570ULL, MakeUniformTerm(5000, true), true},
+            {"noprox_uniform5000", 3785918383064875936ULL, MakeUniformTerm(5000, false), false},
     };
     for (const auto& c : cases) {
         const uint64_t got = DigestWindowed(c.term, c.has_prox);
