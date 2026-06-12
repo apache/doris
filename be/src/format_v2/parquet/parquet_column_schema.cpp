@@ -160,8 +160,9 @@ void propagate_child_levels(ParquetColumnSchema* column_schema) {
 // Important cases:
 // - repeated primitive: the primitive itself is the element (legacy two-level LIST).
 // - repeated group with multiple children: the group itself is a STRUCT element.
-// - repeated group named "array" or "<list_name>_tuple": the group itself is a STRUCT element per
-//   Parquet backward compatibility rules, even when it has one child.
+// - repeated group named "array" or "<list_name>_tuple" and without a logical annotation: the
+//   group itself is a STRUCT element per Parquet backward compatibility rules, even when it has
+//   one child.
 // - repeated group with a logical annotation, or whose only child is repeated: the group itself is
 //   the element. This preserves nested LIST/MAP and repeated fields inside struct elements.
 // - otherwise, strip the one-child repeated wrapper as standard three-level LIST encoding.
@@ -193,9 +194,11 @@ Status resolve_list_element_node(const ::parquet::schema::GroupNode& list_group,
         return Status::NotSupported("Unsupported parquet LIST element layout for column {}",
                                     list_group.name());
     }
+    const bool repeated_group_has_logical_annotation = has_logical_annotation(repeated_group);
     if (repeated_group.field_count() > 1 ||
-        has_structural_list_name(list_group.name(), repeated_group.name()) ||
-        has_logical_annotation(repeated_group)) {
+        (!repeated_group_has_logical_annotation &&
+         has_structural_list_name(list_group.name(), repeated_group.name())) ||
+        repeated_group_has_logical_annotation) {
         result->element_node = &repeated_node;
         result->element_context = result->repeated_context;
         result->element_is_repeated_node = true;

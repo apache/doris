@@ -1545,8 +1545,8 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     if (!table_column.children.empty()) {
         DORIS_CHECK(is_complex_type(mapping->file_type->get_primitive_type()));
         for (const auto& table_child : table_column.children) {
-            const auto* file_child = matcher_for_mode(_options.mode)
-                                             .find(table_child, file_field.children);
+            const auto* file_child =
+                    matcher_for_mode(_options.mode).find(table_child, file_field.children);
             if (file_child == nullptr) {
                 ColumnMapping child_mapping;
                 child_mapping.table_column_name = table_child.name;

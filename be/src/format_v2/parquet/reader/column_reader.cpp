@@ -399,8 +399,7 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
     }
     const auto& key_schema = *column_schema.children[0];
     const auto& value_schema = *column_schema.children[1];
-    const auto* value_projection =
-            format::find_child_projection(projection, value_schema.local_id);
+    const auto* value_projection = format::find_child_projection(projection, value_schema.local_id);
     if (format::is_partial_projection(projection)) {
         if (value_projection == nullptr) {
             return Status::NotSupported("Parquet MAP projection for column {} contains no value",

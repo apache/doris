@@ -39,8 +39,13 @@ enum class ParquetColumnSchemaKind {
     MAP,
 };
 
-// 新 Parquet reader 的 file-local schema tree。
-// 它描述 Parquet 逻辑字段到 leaf column ordinal 的关系，不包含 table/global schema 语义。
+// New Parquet reader file-local schema tree.
+//
+// The tree describes Parquet logical fields and leaf column ordinals, but its DataType is already
+// converted to Doris external-table semantics: Doris does not expose required nested fields from
+// external files, so STRUCT children, LIST elements, and MAP key/value children are widened to
+// nullable. Parquet required/optional details are still preserved in the level fields and
+// ColumnDescriptor metadata below for reader materialization.
 // LIST repeated-group wrappers and MAP key_value/entry wrappers are folded into their parent
 // schema nodes; LIST children are [element] and MAP children are [key, value]. The folded parent
 // nodes keep the repeated definition/repetition levels needed to assemble nested values.
