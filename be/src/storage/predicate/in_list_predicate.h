@@ -199,7 +199,7 @@ public:
     template <bool is_and>
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
@@ -458,7 +458,7 @@ private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         int16_t new_size = 0;
 
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();

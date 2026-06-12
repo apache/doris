@@ -633,7 +633,7 @@ void VerticalBlockReader::_prepare_sparse_columns(MutableColumns& columns, size_
 
     for (size_t col_idx = 0; col_idx < column_count; ++col_idx) {
         auto& col = columns[col_idx];
-        if (col->is_nullable()) {
+        if (is_column_nullable(*col)) {
             auto* nullable_col =
                     assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(col.get());
             nullable_dst_cols[col_idx] = nullable_col;

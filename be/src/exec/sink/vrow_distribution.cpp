@@ -62,6 +62,7 @@ Status VRowDistribution::_save_missing_values(
         cur_row_values.clear();
         for (int col = 0; col < col_size; ++col) {
             TNullableStringLiteral node;
+            // OlapTableBlockConvertor::_validate_data() materializes destination slots so won't be const.
             const auto* null_map = col_null_maps[col]; // null map for this col
             node.__set_is_null((null_map && (*null_map)[filter[row]])
                                        ? true

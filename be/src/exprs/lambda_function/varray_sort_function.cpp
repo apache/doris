@@ -88,7 +88,7 @@ public:
 
         ColumnPtr outside_null_map = nullptr;
 
-        if (arg_column->is_nullable()) {
+        if (is_column_nullable(*arg_column)) {
             arg_column = assert_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
             outside_null_map =
                     assert_cast<const ColumnNullable*>(column.get())->get_null_map_column_ptr();

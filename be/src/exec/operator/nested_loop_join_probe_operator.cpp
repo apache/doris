@@ -49,15 +49,61 @@ ColumnPtr align_eval_column_nullable(const ColumnWithTypeAndName& target, const 
     return column;
 }
 
-void append_many_from_source(MutableColumnPtr& dst_column, const ColumnWithTypeAndName& src_column,
-                             size_t row, size_t rows) {
-    if (!src_column.column->is_nullable() && dst_column->is_nullable()) {
+void append_many_from_column(MutableColumnPtr& dst_column, const IColumn& src_column, size_t row,
+                             size_t rows) {
+    if (!is_column_nullable(src_column) && is_column_nullable(*dst_column)) {
+        if (src_column.is_nullable()) {
+            auto full_src_column = src_column.convert_to_full_column_if_const();
+            dst_column->insert_many_from(*full_src_column, row, rows);
+            return;
+        }
         const auto origin_size = dst_column->size();
         auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
-        nullable_column->get_nested_column_ptr()->insert_many_from(*src_column.column, row, rows);
+        nullable_column->get_nested_column_ptr()->insert_many_from(src_column, row, rows);
         nullable_column->get_null_map_column().get_data().resize_fill(origin_size + rows, 0);
     } else {
-        dst_column->insert_many_from(*src_column.column, row, rows);
+        dst_column->insert_many_from(src_column, row, rows);
+    }
+}
+
+void append_many_from_source(MutableColumnPtr& dst_column, const ColumnWithTypeAndName& src_column,
+                             size_t row, size_t rows) {
+    append_many_from_column(dst_column, *src_column.column, row, rows);
+}
+
+void append_range_from_column(MutableColumnPtr& dst_column, const IColumn& src_column, size_t start,
+                              size_t length) {
+    if (!is_column_nullable(src_column) && is_column_nullable(*dst_column)) {
+        if (src_column.is_nullable()) {
+            auto full_src_column = src_column.convert_to_full_column_if_const();
+            dst_column->insert_range_from(*full_src_column, start, length);
+            return;
+        }
+        const auto origin_size = dst_column->size();
+        auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
+        nullable_column->get_nested_column_ptr()->insert_range_from(src_column, start, length);
+        nullable_column->get_null_map_column().get_data().resize_fill(origin_size + length, 0);
+    } else {
+        dst_column->insert_range_from(src_column, start, length);
+    }
+}
+
+void append_indices_from_column(MutableColumnPtr& dst_column, const IColumn& src_column,
+                                const uint32_t* indices_begin, const uint32_t* indices_end) {
+    if (!is_column_nullable(src_column) && is_column_nullable(*dst_column)) {
+        if (src_column.is_nullable()) {
+            auto full_src_column = src_column.convert_to_full_column_if_const();
+            dst_column->insert_indices_from(*full_src_column, indices_begin, indices_end);
+            return;
+        }
+        const auto origin_size = dst_column->size();
+        auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
+        nullable_column->get_nested_column_ptr()->insert_indices_from(src_column, indices_begin,
+                                                                      indices_end);
+        nullable_column->get_null_map_column().get_data().resize_fill(
+                origin_size + (indices_end - indices_begin), 0);
+    } else {
+        dst_column->insert_indices_from(src_column, indices_begin, indices_end);
     }
 }
 
@@ -68,16 +114,7 @@ void append_filtered_from_source(MutableColumnPtr& dst_column,
         return;
     }
     auto filtered_column = src_column.column->filter(filter, selected_rows);
-    if (!src_column.column->is_nullable() && dst_column->is_nullable()) {
-        const auto origin_size = dst_column->size();
-        auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
-        nullable_column->get_nested_column_ptr()->insert_range_from(*filtered_column, 0,
-                                                                    selected_rows);
-        nullable_column->get_null_map_column().get_data().resize_fill(origin_size + selected_rows,
-                                                                      0);
-    } else {
-        dst_column->insert_range_from(*filtered_column, 0, selected_rows);
-    }
+    append_range_from_column(dst_column, *filtered_column, 0, selected_rows);
 }
 
 void append_mark_value(MutableColumnPtr& dst_column, int8_t mark_value) {
@@ -167,36 +204,13 @@ void process_probe_block(int64_t probe_block_pos, Block& block, const Block& pro
     const size_t max_added_rows = build_block.rows();
     for (size_t i = 0; i < probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = probe_block.get_by_position(i);
-        if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
-            auto origin_sz = dst_columns[i]->size();
-            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                    ->get_nested_column_ptr()
-                    ->insert_many_from(*src_column.column, probe_block_pos, max_added_rows);
-            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .resize_fill(origin_sz + max_added_rows, 0);
-        } else {
-            // TODO: for cross join, maybe could insert one row, and wrap for a const column
-            dst_columns[i]->insert_many_from(*src_column.column, probe_block_pos, max_added_rows);
-        }
+        // TODO: for cross join, maybe could insert one row, and wrap for a const column
+        append_many_from_source(dst_columns[i], src_column, probe_block_pos, max_added_rows);
     }
     for (size_t i = 0; i < build_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = build_block.get_by_position(i);
-        if (!src_column.column->is_nullable() &&
-            dst_columns[probe_side_columns + i]->is_nullable()) {
-            auto origin_sz = dst_columns[probe_side_columns + i]->size();
-            assert_cast<ColumnNullable*>(dst_columns[probe_side_columns + i].get())
-                    ->get_nested_column_ptr()
-                    ->insert_range_from(*src_column.column.get(), 0, max_added_rows);
-            assert_cast<ColumnNullable*>(dst_columns[probe_side_columns + i].get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .resize_fill(origin_sz + max_added_rows, 0);
-        } else {
-            dst_columns[probe_side_columns + i]->insert_range_from(*src_column.column.get(), 0,
-                                                                   max_added_rows);
-        }
+        append_range_from_column(dst_columns[probe_side_columns + i], *src_column.column, 0,
+                                 max_added_rows);
     }
 }
 
@@ -208,35 +222,12 @@ void process_build_block(int64_t build_block_pos, Block& block, const Block& bui
     const size_t max_added_rows = probe_block.rows();
     for (size_t i = 0; i < probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = probe_block.get_by_position(i);
-        if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
-            auto origin_sz = dst_columns[i]->size();
-            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                    ->get_nested_column_ptr()
-                    ->insert_range_from(*src_column.column.get(), 0, max_added_rows);
-            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .resize_fill(origin_sz + max_added_rows, 0);
-        } else {
-            dst_columns[i]->insert_range_from(*src_column.column.get(), 0, max_added_rows);
-        }
+        append_range_from_column(dst_columns[i], *src_column.column, 0, max_added_rows);
     }
     for (size_t i = 0; i < build_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = build_block.get_by_position(i);
-        if (!src_column.column->is_nullable() &&
-            dst_columns[probe_side_columns + i]->is_nullable()) {
-            auto origin_sz = dst_columns[probe_side_columns + i]->size();
-            assert_cast<ColumnNullable*>(dst_columns[probe_side_columns + i].get())
-                    ->get_nested_column_ptr()
-                    ->insert_many_from(*src_column.column, build_block_pos, max_added_rows);
-            assert_cast<ColumnNullable*>(dst_columns[probe_side_columns + i].get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .resize_fill(origin_sz + max_added_rows, 0);
-        } else {
-            dst_columns[probe_side_columns + i]->insert_many_from(*src_column.column,
-                                                                  build_block_pos, max_added_rows);
-        }
+        append_many_from_source(dst_columns[probe_side_columns + i], src_column, build_block_pos,
+                                max_added_rows);
     }
 }
 
@@ -1032,22 +1023,9 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
             }
             for (size_t j = 0; j < p._num_build_side_columns; ++j) {
                 auto src_column = cur_block.get_by_position(j);
-                if (!src_column.column->is_nullable() &&
-                    dst_columns[p._num_probe_side_columns + j]->is_nullable()) {
-                    DCHECK(p._join_op == TJoinOp::FULL_OUTER_JOIN);
-                    assert_cast<ColumnNullable*>(dst_columns[p._num_probe_side_columns + j].get())
-                            ->get_nested_column_ptr()
-                            ->insert_indices_from(*src_column.column, selector.data(),
-                                                  selector.data() + selector_idx);
-                    assert_cast<ColumnNullable*>(dst_columns[p._num_probe_side_columns + j].get())
-                            ->get_null_map_column()
-                            .get_data()
-                            .resize_fill(column_size, 0);
-                } else {
-                    dst_columns[p._num_probe_side_columns + j]->insert_indices_from(
-                            *src_column.column.get(), selector.data(),
-                            selector.data() + selector_idx);
-                }
+                append_indices_from_column(dst_columns[p._num_probe_side_columns + j],
+                                           *src_column.column, selector.data(),
+                                           selector.data() + selector_idx);
             }
         }
         _output_null_idx_build_side = i;
@@ -1061,18 +1039,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
                     new_size++;
                     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
                         const ColumnWithTypeAndName src_column = _child_block->get_by_position(i);
-                        if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
-                            DCHECK(p._join_op == TJoinOp::FULL_OUTER_JOIN);
-                            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                                    ->get_nested_column_ptr()
-                                    ->insert_many_from(*src_column.column, j, 1);
-                            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                                    ->get_null_map_column()
-                                    .get_data()
-                                    .resize_fill(new_size, 0);
-                        } else {
-                            dst_columns[i]->insert_many_from(*src_column.column, j, 1);
-                        }
+                        append_many_from_source(dst_columns[i], src_column, j, 1);
                     }
                 }
             }
@@ -1093,8 +1060,8 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
             for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
                 const ColumnWithTypeAndName src_column = _child_block->get_by_position(i);
                 DCHECK(p._join_op != TJoinOp::FULL_OUTER_JOIN);
-                dst_columns[i]->insert_range_from(*src_column.column, _probe_block_start_pos,
-                                                  _probe_side_process_count);
+                append_range_from_column(dst_columns[i], *src_column.column, _probe_block_start_pos,
+                                         _probe_side_process_count);
             }
             for (size_t i = 0; i < p._num_build_side_columns; ++i) {
                 dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(
@@ -1111,22 +1078,8 @@ void NestedLoopJoinProbeLocalState::_append_probe_data_with_null(Block& block) c
     DCHECK(p._is_mark_join);
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
-        if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
-            auto origin_sz = dst_columns[i]->size();
-            DCHECK(p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-                   p._join_op == TJoinOp::FULL_OUTER_JOIN);
-            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                    ->get_nested_column_ptr()
-                    ->insert_range_from(*src_column.column, _probe_block_start_pos,
-                                        _probe_side_process_count);
-            assert_cast<ColumnNullable*>(dst_columns[i].get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .resize_fill(origin_sz + _probe_side_process_count, 0);
-        } else {
-            dst_columns[i]->insert_range_from(*src_column.column, _probe_block_start_pos,
-                                              _probe_side_process_count);
-        }
+        append_range_from_column(dst_columns[i], *src_column.column, _probe_block_start_pos,
+                                 _probe_side_process_count);
     }
     for (size_t i = 0; i < p._num_build_side_columns; ++i) {
         dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(_probe_side_process_count);
