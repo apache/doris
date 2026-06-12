@@ -101,10 +101,22 @@ private:
     // so this just adds the external .tis entry. Shared by both emit paths.
     void FinishAndAddTerm(int32_t field_number, std::string_view term_text);
 
+    // Inline-vs-flush decision + .tis entry for a term whose block bytes are
+    // already staged (FinishTermStaged or the slim pre-encoded fast path).
+    void AddStagedTerm(int32_t field_number, std::string_view term_text,
+                       const FreqProxEncoder::FinishedTerm& ft);
+
     ByteOutput* _frq_out; // real .frq output (advanced here when a term is external)
     ByteOutput* _prx_out; // real .prx output (advanced here when a term is external)
     bool _inline_small_terms;
     uint32_t _inline_threshold;
+    // Mirrors the encoder's slim gate (df < skip_interval) for the chain-copy
+    // fast path in EmitFromCompactDirect.
+    int32_t _skip_interval;
+    // Reused chain-copy scratch for the slim fast path (cleared per term,
+    // capacity retained across the whole emit).
+    std::vector<uint8_t> _slim_frq_scratch;
+    std::vector<uint8_t> _slim_prx_scratch;
     // DOCS_ONLY (support_phrase=false). Captured from the ctor's
     // omit_term_freq_and_positions arg (also forwarded to _encoder). When true,
     // the buffer omitted the prox slice chain, so EmitFromCompactDirect must NOT

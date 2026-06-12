@@ -507,7 +507,10 @@ void FreqProxEncoder::FlushProxBlock() {
     if (_omit_tfap) {
         return; // no prox stream in this mode
     }
-    const size_t n = _prox_raw.size();
+    FlushProxRaw(_prox_raw.data(), _prox_raw.size());
+}
+
+void FreqProxEncoder::FlushProxRaw(const uint8_t* data, size_t n) {
     // Only keep the compressed form if it actually wins after the mode-byte + two
     // VInt length headers (~≤10 B) — TryCompressBlock enforces that margin.
     // .prx ZSTD is gated independently (inverted_index_spimi_prx_zstd_enable +
@@ -516,7 +519,7 @@ void FreqProxEncoder::FlushProxBlock() {
     // constructed inside the branch so tiny-prox terms skip it.
     if (n >= kProxCompressMin) {
         faststring comp;
-        if (TryCompressBlock(_cctx, _prox_raw.data(), n, &comp, PrxZstdMinBytes())) {
+        if (TryCompressBlock(_cctx, data, n, &comp, PrxZstdMinBytes())) {
             DCHECK_LE(n, static_cast<size_t>(INT32_MAX)); // single-term .prx << 2 GB
             _prx_sink->WriteByte(kProxZstd);
             _prx_sink->WriteVInt(static_cast<int32_t>(n));
@@ -529,8 +532,40 @@ void FreqProxEncoder::FlushProxBlock() {
     // the position count from the per-doc freqs, so no length prefix is needed.
     _prx_sink->WriteByte(kProxRaw);
     if (n > 0) {
-        _prx_sink->WriteBytes(_prox_raw.data(), n);
+        _prx_sink->WriteBytes(data, n);
     }
+}
+
+FreqProxEncoder::FinishedTerm FreqProxEncoder::EmitSlimTermPreEncoded(
+        int32_t doc_freq, const std::vector<uint8_t>& frq_block,
+        const std::vector<uint8_t>& prx_raw) {
+    DCHECK(!_term_open) << "EmitSlimTermPreEncoded with an open term";
+    DCHECK(!_omit_tfap) << "slim pre-encoded emit is phrase-on only";
+    DCHECK_GT(doc_freq, 0);
+    DCHECK_LT(doc_freq, _skip_interval) << "pre-encoded emit is for slim terms only";
+    if (_inline_capable) {
+        // Fresh per-term block sinks, exactly like StartTerm.
+        _stage_frq.Clear();
+        _stage_prx.Clear();
+    }
+    FinishedTerm out;
+    // Same pointer capture StartTerm performs: where the block lands in the
+    // REAL outputs if flushed externally (inline terms ignore these).
+    out.info.doc_freq = doc_freq;
+    out.info.freq_pointer = _frq_real->FilePointer();
+    out.info.prox_pointer = _prx_out->FilePointer();
+    out.info.skip_offset = 0; // slim terms never write skip data
+    out.info.is_slim = true;
+    // The slim .frq block is the chain bytes verbatim (no codec byte, never
+    // ZSTD); the .prx block applies the same mode-byte + ZSTD policy
+    // FlushProxBlock applies to encoder-built bytes.
+    if (!frq_block.empty()) {
+        _frq_sink->WriteBytes(frq_block.data(), frq_block.size());
+    }
+    FlushProxRaw(prx_raw.data(), prx_raw.size());
+    out.frq = &_stage_frq.bytes();
+    out.prx = &_stage_prx.bytes();
+    return out;
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

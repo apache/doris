@@ -29,6 +29,7 @@ SegmentWriter::SegmentWriter(ByteOutput* tis_out, ByteOutput* tii_out, ByteOutpu
           _prx_out(prx_out),
           _inline_small_terms(inline_small_terms),
           _inline_threshold(inline_threshold),
+          _skip_interval(skip_interval),
           _omit_tfap(omit_term_freq_and_positions),
           _dict(tis_out, tii_out, index_interval, skip_interval, inline_small_terms),
           _encoder(frq_out, prx_out, skip_interval, max_skip_levels, omit_term_freq_and_positions,
@@ -44,7 +45,11 @@ void SegmentWriter::FinishAndAddTerm(int32_t field_number, std::string_view term
     }
 
     // Inline path: the encoder STAGED the term block. Decide inline-vs-flush.
-    const FreqProxEncoder::FinishedTerm ft = _encoder.FinishTermStaged();
+    AddStagedTerm(field_number, term_text, _encoder.FinishTermStaged());
+}
+
+void SegmentWriter::AddStagedTerm(int32_t field_number, std::string_view term_text,
+                                  const FreqProxEncoder::FinishedTerm& ft) {
     const size_t frq_n = ft.frq != nullptr ? ft.frq->size() : 0;
     const size_t prx_n = ft.prx != nullptr ? ft.prx->size() : 0;
     const size_t total = frq_n + prx_n;
@@ -171,6 +176,39 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
         const uint32_t n = st.occ_count;
         // Every interned term has at least one occurrence.
         DCHECK_GT(n, 0U);
+
+        // SLIM phrase-on fast path: the buffer's freq chain bytes ARE the
+        // on-disk slim .frq block (per-doc docCode VInts — same values in the
+        // same order; VInt64/VInt of the same value encode identically and
+        // direct-emit input is monotonic), and since the prox chain stores
+        // within-doc position deltas, its bytes ARE the raw .prx payload
+        // FlushProxBlock would have built. Copy each chain with one memcpy per
+        // slice and emit pre-encoded — no per-occurrence VInt decode +
+        // re-encode through StartDoc/AddPosition for the dominant vocabulary
+        // tail. DOCS_ONLY stays on the replay (its chain carries freq codes
+        // the bare-delta on-disk format omits).
+        if (!_omit_tfap && st.doc_count < static_cast<uint32_t>(_skip_interval)) {
+            _slim_frq_scratch.clear();
+            ByteSliceReader(buffer.Pool(), st.doc_start, st.doc_end)
+                    .AppendRemainingTo(_slim_frq_scratch);
+            _slim_prx_scratch.clear();
+            ByteSliceReader(buffer.Pool(), st.pos_start, st.pos_end)
+                    .AppendRemainingTo(_slim_prx_scratch);
+            const FreqProxEncoder::FinishedTerm ft = _encoder.EmitSlimTermPreEncoded(
+                    static_cast<int32_t>(st.doc_count), _slim_frq_scratch, _slim_prx_scratch);
+            const std::string_view term_text = buffer.TermAt(term.text_ref);
+            if (_inline_small_terms) {
+                AddStagedTerm(field_number, term_text, ft);
+            } else {
+                // Non-inline mode: the block already went straight to the real
+                // outputs; just record the external .tis entry.
+                _dict.Add(field_number, term_text, ft.info);
+            }
+            ++_term_count;
+            ++emitted;
+            continue;
+        }
+
         _encoder.StartTerm(static_cast<int32_t>(st.doc_count));
         // The freq chain is already grouped PER DOC (docCode = doc_delta<<1, low
         // bit = freq==1, else a trailing VInt(freq)); the prox chain holds the

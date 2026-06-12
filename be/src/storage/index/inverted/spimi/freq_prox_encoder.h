@@ -171,6 +171,20 @@ public:
     // inline_capable=true.
     FinishedTerm FinishTermStaged();
 
+    // SLIM fast path: emits a term whose block bytes are ALREADY encoded,
+    // bypassing the StartTerm/StartDoc/AddPosition/FinishTerm replay entirely.
+    // `frq_block` must be the term's slim .frq block verbatim (per-doc
+    // docCode VInts, df < skip_interval ⇒ no codec byte, never ZSTD-wrapped);
+    // `prx_raw` must be the term's raw within-doc position-delta VInt stream
+    // (the .prx mode byte + optional ZSTD envelope are applied here, exactly
+    // as FlushProxBlock would). The posting buffer's compact freq/prox chains
+    // are byte-identical to these inputs for monotonic input, which is what
+    // makes the chain-copy emit legal. Not valid for omit_tfap fields or
+    // df >= skip_interval. Returns the same FinishedTerm shape as
+    // FinishTermStaged (stage references only meaningful in inline mode).
+    FinishedTerm EmitSlimTermPreEncoded(int32_t doc_freq, const std::vector<uint8_t>& frq_block,
+                                        const std::vector<uint8_t>& prx_raw);
+
 private:
     // `_frq_out` points at `_frq_term_buf` (a per-term staging buffer); the real
     // output is `_frq_real`. FinishTerm flushes the term's buffered .frq —
@@ -259,7 +273,11 @@ private:
     // raw form so per-term framing overhead stays ~1 byte (the mode header).
     static constexpr size_t kProxCompressMin = 48;
     void FlushProxBlock(); // writes the staged term prox block to _prx_out
-    void FlushFrqBlock();  // writes the staged term .frq block (raw/ZSTD) to _frq_real
+    // Shared body of FlushProxBlock: emits the .prx block (mode byte + raw or
+    // ZSTD payload) for the given raw position-delta bytes. Also used by the
+    // slim pre-encoded fast path with chain-copied bytes.
+    void FlushProxRaw(const uint8_t* data, size_t n);
+    void FlushFrqBlock(); // writes the staged term .frq block (raw/ZSTD) to _frq_real
 
     // V4 windowed-mode whole-term buffers. In windowed mode the encoder cannot
     // stream sub-blocks (windowing needs the whole term known up front), so

@@ -397,6 +397,49 @@ TEST(SegmentWriterTest, CompactDirectEmitMatchesRecordsPathPfor) {
     ExpectDirectEmitMatchesRecords(/*docs=*/600, /*per_doc=*/2);
 }
 
+// V4 configuration (windowed + inline-small-terms): the direct-emit path —
+// including the slim chain-copy fast path, which bypasses the encoder replay
+// and emits the buffer's freq/prox chain bytes verbatim — must stay
+// byte-identical to the records-materialization path, which always replays
+// through StartDoc/AddPosition. Covers the slim df boundary (511), the
+// windowed cross-over (600), and tiny terms that land inline in the .tis.
+TEST(SegmentWriterTest, CompactDirectEmitMatchesRecordsPathV4Inline) {
+    auto emit_v4 = [](const SpimiPostingBuffer& buffer) {
+        MemoryByteOutput tis, tii, frq, prx;
+        SegmentWriter w(&tis, &tii, &frq, &prx, TermDictWriter::kDefaultIndexInterval,
+                        TermDictWriter::kDefaultSkipInterval, TermDictWriter::kMaxSkipLevels,
+                        /*omit_term_freq_and_positions=*/false,
+                        /*use_windowed=*/true, /*inline_small_terms=*/true);
+        w.Emit(buffer, /*field=*/0);
+        w.Close();
+        return SegmentBytes {.tis = tis.bytes(),
+                             .tii = tii.bytes(),
+                             .frq = frq.bytes(),
+                             .prx = prx.bytes()};
+    };
+    // (docs, per_doc) pairs: docs=3/per_doc=16 keeps every block under the
+    // inline threshold (covers AddInline on chain-copied bytes) while still
+    // crossing the 512-record compact-mode activation; 511 is the slim df
+    // boundary; 600 crosses into windowed terms.
+    constexpr std::pair<uint32_t, uint32_t> kCases[] = {{3U, 16U}, {100U, 2U}, {511U, 2U}, {600U, 2U}};
+    for (const auto& [docs, per_doc] : kCases) {
+        SpimiPostingBuffer direct;
+        SpimiPostingBuffer records;
+        BuildMonotonicCompact(direct, docs, per_doc);
+        BuildMonotonicCompact(records, docs, per_doc);
+        direct.Sort(/*allow_direct_emit=*/true);
+        records.Sort(/*allow_direct_emit=*/false);
+        ASSERT_TRUE(direct.CompactDirectEmitReady()) << "docs=" << docs;
+        ASSERT_FALSE(records.CompactDirectEmitReady()) << "docs=" << docs;
+        const SegmentBytes a = emit_v4(direct);
+        const SegmentBytes b = emit_v4(records);
+        EXPECT_EQ(a.tis, b.tis) << "docs=" << docs;
+        EXPECT_EQ(a.tii, b.tii) << "docs=" << docs;
+        EXPECT_EQ(a.frq, b.frq) << "docs=" << docs;
+        EXPECT_EQ(a.prx, b.prx) << "docs=" << docs;
+    }
+}
+
 // DOCS_ONLY oracle: a buffer that OMITS the prox chain (omit_tfap=true), emitted
 // through a DOCS_ONLY SegmentWriter, must produce a .frq byte-identical to a
 // phrase-ON buffer (which stored the prox chain) emitted through the SAME

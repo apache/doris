@@ -218,6 +218,25 @@ public:
         return v;
     }
 
+    // Bulk-appends every remaining chain byte to `out` — one memcpy per slice
+    // run instead of a bounds check per byte. Used by the slim direct-copy
+    // emit, where the chain bytes ARE the on-disk block bytes and decoding
+    // them VInt-by-VInt only to re-encode the same values would be wasted
+    // work. Traversal is identical to ReadByte's: copy up to the slice limit,
+    // then follow the 4-byte forwarding address.
+    void AppendRemainingTo(std::vector<uint8_t>& out) {
+        while (true) {
+            if (_limit > _upto) {
+                out.insert(out.end(), _buffer + _upto, _buffer + _limit);
+                _upto = _limit;
+            }
+            if (_offset + _upto >= _end) {
+                return;
+            }
+            NextSlice();
+        }
+    }
+
 private:
     void NextSlice() {
         const uint32_t next = (static_cast<uint32_t>(_buffer[_limit]) << 24) |
