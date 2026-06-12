@@ -302,7 +302,13 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
 
     {
         SCOPED_TIMER(_profile.materialization_time);
-        RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
+        DCHECK(column->is_nullable());
+        if (!_type->is_nullable()) {
+            RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column(), view));
+        } else {
+            RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
+        }
     }
     return Status::OK();
 }
