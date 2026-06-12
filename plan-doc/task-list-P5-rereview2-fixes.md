@@ -138,10 +138,18 @@ Legend: ⬜ todo / 🔄 in progress / ✅ done
 
 ---
 
-## P4 — MINOR / NIT (low-priority cleanup; full list in review §5)
+## P4 — MINOR / NIT cleanup — **✅ DONE** (2026-06-12; 2 fixed + 15 accepted; [D-057](./decisions-log.md) / [DV-035](./deviations-log.md))
 
-Bundle as one optional cleanup pass after P0–P1. Most are display-only (DESC `Key`/`Extra`/`uniqueId`, VARCHAR(65533)→STRING, EXPLAIN delete-split accounting, error-message text), perf/architectural (cache granularity), or benign. **The one with a real (rare) data edge**, worth a deliberate decision:
-- Partition null-sentinel coercion: a STRING partition whose literal value is `__HIVE_DEFAULT_PARTITION__` or `\N` is coerced to NULL (connector) vs read as the literal (legacy). `PaimonScanRange.java:212-225` / `ConnectorPartitionValues.java:32-54` vs `source/PaimonScanNode.java:323-326`.
+Read-only adversarial recon `wf_6884d37b-8ef` (6 parallel classifiers + 2 sentinel refutation skeptics + completeness critic) re-verified all ~17 review §5/§7 MINOR/NIT items against current code. User-signed scope ([D-057]): fix 2 actionable, accept 15.
+
+| item | disposition | note |
+|---|---|---|
+| **N10.1** VARCHAR(65533)→STRING | ✅ FIXED `bcee91dcb52` | `PaimonTypeMapping.toVarcharType` `>=65533`→`>65533` (pure connector, exact legacy parity). `PaimonTypeMappingReadTest`, 260/0/0. |
+| **sentinel** partition `\N`/`__HIVE_DEFAULT_PARTITION__` scan coercion | ✅ FIXED `4b2c2190dc2` | `PaimonScanRange.populateRangeParams` derives `isNull=value==null` only (legacy `PaimonScanNode:323-326`); drops Hive-directory coercion that wrongly nulled a literal value. `ConnectorPartitionValues` untouched (hudi needs it). 5-angle adversarial review SAFE. `PaimonScanRangePartitionNullTest`, 261/0/0. |
+| **M5.1** sys-table transient suppression | ⬜ ACCEPT [DV-035] | FUNCTIONAL but transient-only; `getTableHandle` swallow-to-empty is an intentional+tested contract (`failAuth→empty`) + shared existence predicate (incl. P3 createTable `remoteExists`); no surgical fix (the critic's "cheap fallback" was refuted at impl level). |
+| 14 others (M9.1/M9.2 false-premise, M10.1/M10.2/M10.3/M7.1 display, M6.1/M6.2 perf, N2.1/M3.1/N4.1/C2 text, N3.1/M2.1 inert, M4.1/M1.3 connector-more-correct, M1.1 diagnostic) | ⬜ ACCEPT [DV-035] | none a correctness regression; full enumeration in [DV-035]. |
+
+**Adversarial recon earned its keep twice**: (1) the sentinel deep-dive's ACCEPT verdict was *refuted* by the prune-path skeptic (it had only checked the scan path; `\N` is not paimon-reserved) → converted to FIX. (2) M5.1's "cheap static fallback" (critic) was refuted at impl level (intentional tested contract) → confirmed ACCEPT. Cross-connector follow-ups (hudi/iceberg same seams) folded into [DV-035] + the existing [DV-028]…[DV-034] batch.
 
 ---
 
