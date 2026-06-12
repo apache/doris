@@ -37,7 +37,9 @@ import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -870,6 +872,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
+        if (olapScan.isIncrementalScan()) {
+            olapTable = new RowBinlogTableWrapper(((OlapTableStreamWrapper) olapTable).getBaseTable(),
+                    (OlapTableStreamWrapper) olapTable);
+        }
         // generate real output tuple
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, olapTable, context);
         List<SlotDescriptor> slotDescriptors = tupleDescriptor.getSlots();
@@ -886,7 +892,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // generate base index tuple because this fragment partitioned expr relay on slots of based index
-        if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+        if (!olapScan.isIncrementalScan() && olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
             generateTupleDesc(olapScan.getBaseOutputs(), olapTable, context);
         }
 
@@ -947,16 +953,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
         }
 
-        // TODO:  remove this switch?
-        switch (olapScan.getTable().getKeysType()) {
-            case AGG_KEYS:
-            case UNIQUE_KEYS:
-            case DUP_KEYS:
-                PreAggStatus preAgg = olapScan.getPreAggStatus();
-                olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
-                break;
-            default:
-                throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
+        if (olapScan.isIncrementalScan()) {
+            olapScanNode.setSelectedIndexInfo(olapTable.getBaseIndexId(), false, "binlog<row> read");
+        } else {
+            // TODO:  remove this switch?
+            switch (olapScan.getTable().getKeysType()) {
+                case AGG_KEYS:
+                case UNIQUE_KEYS:
+                case DUP_KEYS:
+                    PreAggStatus preAgg = olapScan.getPreAggStatus();
+                    olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(),
+                            preAgg.getOffReason());
+                    break;
+                default:
+                    throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
+            }
+        }
+
+        // apply change scan info if present
+        if (olapScan.getScanParams().isPresent()) {
+            olapScanNode.setScanParams(olapScan.getScanParams().get());
         }
 
         // create scan range

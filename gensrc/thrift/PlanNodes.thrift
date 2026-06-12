@@ -80,6 +80,14 @@ struct TKeyRange {
 // - T<subclass>: all other operational parameters that are the same across
 //   all plan fragments
 
+enum TBinlogScanType {
+  NONE = 0,
+  APPEND_ONLY = 1,
+  MIN_DELTA = 2,
+  DETAIL = 3,
+  UNKNOWN = 4
+}
+
 struct TPaloScanRange {
   1: required list<Types.TNetworkAddress> hosts
   2: required string schema_hash
@@ -90,6 +98,9 @@ struct TPaloScanRange {
   7: optional list<TKeyRange> partition_column_ranges
   8: optional string index_name
   9: optional string table_name
+  10: optional i64 start_tso
+  11: optional i64 end_tso
+  12: optional TBinlogScanType binlog_scan_type
 }
 
 enum TFileFormatType {

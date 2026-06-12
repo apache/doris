@@ -97,8 +97,6 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean variantEnableFlattenNested = false;
 
-    private boolean enableTso = false;
-
     private int verticalCompactionNumColumnsPerGroup = 5;
 
     private boolean storeRowColumn = false;
@@ -169,7 +167,6 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionFileCountThreshold();
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
-                buildEnableTso();
                 buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
@@ -357,15 +354,6 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean variantEnableFlattenNested() {
         return variantEnableFlattenNested;
-    }
-
-    public TableProperty buildEnableTso() {
-        enableTso = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_TSO, "false"));
-        return this;
-    }
-
-    public boolean enableTso() {
-        return enableTso;
     }
 
     public TableProperty buildVerticalCompactionNumColumnsPerGroup() {
@@ -939,7 +927,6 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionFileCountThreshold();
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
-        buildEnableTso();
         buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();

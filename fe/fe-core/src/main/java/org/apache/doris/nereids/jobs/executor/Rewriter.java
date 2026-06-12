@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.executor;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
@@ -898,12 +899,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-                    rewriteJobs.add(
-                            topic("normalize olap table stream scan",
-                                    custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,
-                                            NormalizeOlapTableStreamScan::new)
-                            )
-                    );
+                    if (Config.enable_table_stream) {
+                        rewriteJobs.addAll(jobs(
+                                        topic("normalize olap table stream scan",
+                                                topDown(new NormalizeOlapTableStreamScan())
+                                        )
+                                )
+                        );
+                    }
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),

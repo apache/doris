@@ -179,6 +179,12 @@ public:
         // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
         // For example, use lower rowset version / segment id first.
         bool use_insert_order_when_same = false;
+        // Force a key-ordered merge across all segments even when their key ranges do not
+        // overlap. By default a rowset reader can skip the merge heap if its segments are
+        // mono-ascending and disjoint, but row-binlog scans require strict global key order
+        // (e.g. so MIN_DELTA can group consecutive same-key changes), so this flag is set.
+        // See BetaRowsetReader::is_merge_iterator() in beta_rowset_reader.h:62.
+        bool force_key_ordered_read = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
         // limit of rows for read_orderby_key
@@ -214,6 +220,7 @@ public:
 
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
+        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
     };
 
     TabletReader() = default;

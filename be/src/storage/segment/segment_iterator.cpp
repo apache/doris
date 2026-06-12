@@ -90,6 +90,7 @@
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
+#include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
@@ -1204,6 +1205,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                       _opts.target_cast_type_for_variants, _opts)) {
+                continue;
+            }
+            if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
+                // skip untrustworthy tso placeholder zonemap
+                // if possible already be pruned as a whole before,
+                // so just skip
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -2542,14 +2549,13 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
 
     DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
     Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
-    Int64 commit_time = extract_tso_physical_time(commit_tso);
 
     if (_is_pred_column[tso_col_idx]) {
         // Nullable predicate column is represented as ColumnNullable(predicate_col)
         if (auto* tso_nullable = check_and_get_column<ColumnNullable>(
                     _current_return_columns[tso_col_idx].get())) {
             _current_return_columns[tso_col_idx]->clear();
-            auto value = commit_time;
+            auto value = commit_tso;
             for (size_t j = 0; j < num_rows; j++) {
                 tso_nullable->get_nested_column_ptr()->insert_data(
                         reinterpret_cast<const char*>(&value), 0);
@@ -2561,7 +2567,7 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
         auto* tso_column = assert_cast<PredicateColumnType<TYPE_BIGINT>*>(
                 _current_return_columns[tso_col_idx].get());
         _current_return_columns[tso_col_idx]->clear();
-        auto value = commit_time;
+        auto value = commit_tso;
         for (size_t j = 0; j < num_rows; j++) {
             tso_column->insert_data(reinterpret_cast<const char*>(&value), 0);
         }
@@ -2575,13 +2581,13 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
     if (auto* tso_nullable = check_and_get_column<ColumnNullable>(column.get())) {
         auto* col_ptr = assert_cast<ColumnInt64*>(&tso_nullable->get_nested_column());
         for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_time);
+            col_ptr->insert_value(commit_tso);
             tso_nullable->get_null_map_data().emplace_back(0);
         }
     } else {
         auto* col_ptr = assert_cast<ColumnInt64*>(column.get());
         for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_time);
+            col_ptr->insert_value(commit_tso);
         }
     }
     _current_return_columns[tso_col_idx] = std::move(column);
