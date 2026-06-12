@@ -103,13 +103,33 @@ under the License.
              FileSystem' and poisoned SecurityUtil (FIX-PAIMON-HADOOP-CLASSLOADER). Self-containing the
              FS impls here (not delegating hadoop to the parent) is the correct end-state: fe-core's
              hadoop/hive-catalog-shade is removed after full connector migration. Version + exclusions
-             inherited from fe-core's dependencyManagement (${hadoop.version}; the heavy
-             software.amazon.awssdk:bundle is excluded there — S3AFileSystem's AWS SDK v2 classes resolve
-             from the FE parent classpath as a single copy until fe-core sheds hadoop, then they bundle
-             here too). -->
+             inherited from fe-core's dependencyManagement (${hadoop.version}). hadoop-aws:3.4.2 declares
+             its AWS SDK v2 as software.amazon.awssdk:bundle, which fe/pom.xml excludes on the hadoop-aws
+             dep — so the SDK is bundled here explicitly (below) child-first (RC-3), giving the plugin's S3A
+             its own ExecutionAttribute static instead of colliding on fe-core's. -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-aws</artifactId>
+        </dependency>
+
+        <!-- AWS SDK v2 for the child-bundled hadoop-aws S3AFileSystem (RC-3, completes
+             FIX-PAIMON-HADOOP-CLASSLOADER). Without it the plugin bundles S3AFileSystem child-first but NO
+             SDK: its S3AInternalAuditConstants.<clinit> registers an ExecutionAttribute against the single
+             PARENT-loaded sdk-core static, colliding with fe-core's S3A in ExecutionAttribute.ensureUnique()
+             -> ExceptionInInitializerError that permanently poisons S3A for the whole FE JVM (iceberg+paimon).
+             The 's3' module's compile closure brings sdk-core (the load-bearing ExecutionAttribute) + aws-core
+             + auth + regions + the spi/protocol/checksums modules; apache-client is added explicitly because
+             hadoop-aws 3.4.2 wires ApacheHttpClient and it is only test-scoped in s3's closure. Versions are
+             BOM-managed (awssdk ${awssdk.version}, matching fe-core). software.amazon.awssdk MUST stay
+             child-first (NOT in the parent-first allowlist) — that separate child copy of the SDK is the
+             whole point. (STS/assumed-role would need software.amazon.awssdk:sts added the same way.) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
         </dependency>
 
         <!-- hive-common supplies org.apache.hadoop.hive.conf.HiveConf for the hms/dlf flavors
