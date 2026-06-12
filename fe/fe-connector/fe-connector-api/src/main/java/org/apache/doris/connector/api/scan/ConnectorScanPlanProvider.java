@@ -127,6 +127,37 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Plans the scan, signalling whether a no-grouping {@code COUNT(*)} is being pushed down here.
+     *
+     * <p>When {@code countPushdown} is true, the engine has determined the query is a no-grouping
+     * {@code COUNT(*)} (Nereids {@code getPushDownAggNoGroupingOp()==COUNT}) and BE is already in
+     * count mode. A connector that can produce a precomputed row count for (some of) its splits
+     * should emit it so BE serves the count from metadata instead of materializing rows
+     * (e.g. Paimon's {@code DataSplit.mergedRowCount()}). The default ignores the flag and delegates
+     * to the 6-arg variant, so connectors without a metadata row count are unaffected and keep the
+     * normal scan.</p>
+     *
+     * @param session            the current session
+     * @param handle             the table handle
+     * @param columns            the columns to read
+     * @param filter             an optional remaining filter expression
+     * @param limit              the maximum number of rows to return, or -1 for no limit
+     * @param requiredPartitions the pruned partition spec strings, or null/empty for all
+     * @param countPushdown      whether a no-grouping {@code COUNT(*)} is being pushed down to this scan
+     * @return a list of scan ranges
+     */
+    default List<ConnectorScanRange> planScan(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit,
+            List<String> requiredPartitions,
+            boolean countPushdown) {
+        return planScan(session, handle, columns, filter, limit, requiredPartitions);
+    }
+
+    /**
      * Whether this connector supports batched / streaming split generation for a partitioned scan.
      *
      * <p>When {@code true}, a partition-aware ScanNode (e.g. {@code PluginDrivenScanNode}) may

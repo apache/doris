@@ -30,7 +30,7 @@
 | 5 | FIX-MAPPING-FLAG-KEYS | MAJOR | M-crit | dotted-vs-underscore type-mapping flag keys (wrong type) | no | ✅ | ✅ | ✅ 234/0/0 | ✅ `9dcf6d1a9e5` |
 | 6 | FIX-KERBEROS-DOAS | MAJOR | M-8 + M-11 | M-8: wire HDFS authenticator for fs/jdbc (fe-core); M-11: wrap ALL read RPCs in `executeAuthenticated` (connector, full legacy parity) | no³ | ✅ | ✅ | ✅ 248/0/0 + 21/0/0 | ✅ `2b1442fa57a` |
 | 7 | FIX-FORCE-JNI-SCANNER | MAJOR | M-1 | honor `force_jni_scanner` session var on connector scan | no | ✅ | ✅ | ✅ 250/0/0 | ✅ `05132a42668` |
-| 8 | FIX-COUNT-PUSHDOWN | MAJOR* | M-2 | FE-computed `mergedRowCount` / `paimon.row_count` (perf) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
+| 8 | FIX-COUNT-PUSHDOWN | MAJOR* | M-2 | FE-computed `mergedRowCount` / `paimon.row_count` (perf); SPI count-pushdown overload + fe-core forward + connector collapse-to-one | **yes** | ✅ | ✅ | ✅ 252/0/0 + fe-core | 🔄 pending |
 | 9 | FIX-NATIVE-SUBSPLIT | MAJOR* | M-3 | native ORC/Parquet sub-file splitting (parallelism) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `sev*` = round-2 rated MAJOR but round-1 rated **MINOR** (perf-only, correct results) — **user decides severity** (see §P2).
@@ -106,9 +106,13 @@ Legend: ⬜ todo / 🔄 in progress / ✅ done
 > Both are correct-results, perf/parallelism-only. Recommend **accept-or-defer** unless perf parity is required for cutover. If deferring, log in `deviations-log.md`.
 
 ### 8. FIX-COUNT-PUSHDOWN — `COUNT(*)` pushdown not implemented (M-2)
-- Connector never computes `mergedRowCount` / emits `paimon.row_count` → BE materializes merged rows to count (esp. costly on PK tables). `PaimonScanPlanProvider.java:186-296` vs `source/PaimonScanNode.java:396,421-429,483-495`.
+- **✅ DONE** (commit pending; design [`P5-fix-COUNT-PUSHDOWN-design.md`](./tasks/designs/P5-fix-COUNT-PUSHDOWN-design.md), [D-054](./decisions-log.md), [DV-032](./deviations-log.md), [RFC §25 E15](./01-spi-extensions-rfc.md)). User signed off (2026-06-12): **proceed** + **connector collapse-to-one**.
+- Recon (`wf_1ce48c93-325`) re-verified vs current code: the emit seam (`PaimonScanRange.Builder.rowCount`→`paimon.row_count`→`setTableLevelRowCount`) AND the COUNT enum→BE path are **already built**; only the **signal+compute** was missing → **NOT pure-connector** (corrected the initial framing). `dataSplit.mergedRowCount()` is SDK-only (connector); the `getPushDownAggNoGroupingOp()==COUNT` signal lives only on the fe-core node and reached nobody.
+- **Fix (3 files):** SPI `ConnectorScanPlanProvider` +1 default 7-arg `planScan(...,boolean countPushdown)` (delegates to 6-arg; other connectors no-op) [E15]; fe-core `PluginDrivenScanNode.getSplits` reads the agg-op and forwards (no post-loop math); connector `PaimonScanPlanProvider` extracts `planScanInternal(...,countPushdown)` + count short-circuit first-arm + static `isCountPushdownSplit` + `buildCountRange` (**collapse-to-one**: sum eligible `mergedRowCount`, emit ONE JNI count range bearing the total = legacy's ≤10000 case). Param=`boolean`, paimon-only (engineering calls). legacy `>10000` parallel-split trim intentionally dropped → [DV-032].
+- **Gates:** connector 252/0/0 (1 CI-gated live skip), fe-core compile + checkstyle 0, import-gate clean, **fail-before exactly the 2 new tests red** (neuter `isCountPushdownSplit`→false), end-to-end real-local-PK-table test asserts collapse-to-one carrying the merged total (2). Real BE CountReader selection = CI-gated live-e2e (legacy paimon count regression covers the BE contract; no BE change).
 
 ### 9. FIX-NATIVE-SUBSPLIT — native sub-file splitting lost (M-3)
+- **User signed off (2026-06-12): implement now.** ⬜ next.
 - One split per RawFile; large ORC/Parquet files get a single scanner. `PaimonScanPlanProvider.java:263-286` vs `source/PaimonScanNode.java:434-465` (`determineTargetFileSplitSize` + `fileSplitter.splitFile`). See also critic coverage-gap on split-count accounting (P3).
 
 ---

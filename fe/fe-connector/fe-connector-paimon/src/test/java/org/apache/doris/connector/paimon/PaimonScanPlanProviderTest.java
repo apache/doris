@@ -18,6 +18,8 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -495,6 +497,116 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals(feJavaEncode(stub),
                 PaimonScanPlanProvider.encodeSplit(stub, /*cppReader*/ true),
                 "a non-DataSplit must never take the native format, even with the cpp flag on");
+    }
+
+    @Test
+    public void countPushdownSplitDetectedOnlyWhenAggCountAndMergedCountAvailable(
+            @TempDir Path warehouse) throws Exception {
+        // FIX-COUNT-PUSHDOWN (M-2): a freshly written PK-table split has a precomputed merged
+        // (post-merge / post-deletion-vector) row count, so a COUNT(*) over it can be served from
+        // metadata instead of materializing rows.
+        DataSplit dataSplit = buildRealDataSplit(warehouse);
+        Assertions.assertTrue(dataSplit.mergedRowCountAvailable(),
+                "precondition: a freshly written PK split has a precomputed merged row count");
+        Assertions.assertEquals(2L, dataSplit.mergedRowCount(), "two rows were written");
+
+        // WHY: the count branch must fire ONLY when BOTH the agg is COUNT (countPushdown) AND the SDK
+        // precomputed the post-merge count — mirrors legacy `applyCountPushdown &&
+        // dataSplit.mergedRowCountAvailable()`. MUTATION: dropping `countPushdown &&` (or hard-coding
+        // the helper to false) -> one of these two assertions flips -> red.
+        Assertions.assertTrue(PaimonScanPlanProvider.isCountPushdownSplit(true, dataSplit),
+                "a count query over a split with a precomputed merged count must push the count down");
+        Assertions.assertFalse(PaimonScanPlanProvider.isCountPushdownSplit(false, dataSplit),
+                "without count pushdown a split must take the normal scan path, never the count branch");
+    }
+
+    @Test
+    public void countPushdownCollapsesMultipleSplitsToOneRangeBearingSummedTotal(
+            @TempDir Path warehouse) throws Exception {
+        // A PARTITIONED PK table with TWO partitions of DIFFERENT row counts (pt=1 -> 2 rows, pt=2 ->
+        // 3 rows) yields TWO count-eligible DataSplits with ASYMMETRIC mergedRowCounts (2 and 3). This
+        // is deliberately multi-split with asymmetric counts so the test pins BOTH halves of the fix's
+        // collapse-to-one (design D-054): (a) collapse N->1 — exactly ONE range despite >=2 eligible
+        // splits, and (b) cross-split summation — the one range carries 2+3=5, a total NOT reachable
+        // from any single split (so first-split-only / last-split-wins / per-split-emit all go red).
+        // (A single-split fixture would make these assertions degenerate — sum==first==last for N=1.)
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("pt", DataTypes.INT())
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .partitionKeys("pt")
+                    .primaryKey("pt", "id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 1, 100L));        // pt=1: 2 rows
+                write.write(GenericRow.of(1, 2, 200L));
+                write.write(GenericRow.of(2, 1, 300L));        // pt=2: 3 rows
+                write.write(GenericRow.of(2, 2, 400L));
+                write.write(GenericRow.of(2, 3, 500L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // Precondition: the read plan really does produce >=2 count-eligible DataSplits (else the
+            // collapse assertion below would be degenerate). This guards the fixture itself.
+            int eligibleSplits = 0;
+            for (Split s : table.newReadBuilder().newScan().plan().splits()) {
+                if (s instanceof DataSplit
+                        && PaimonScanPlanProvider.isCountPushdownSplit(true, (DataSplit) s)) {
+                    ++eligibleSplits;
+                }
+            }
+            Assertions.assertTrue(eligibleSplits >= 2,
+                    "fixture precondition: two partitions must yield >=2 count-eligible splits, got "
+                            + eligibleSplits);
+
+            // count pushdown ON: collapse-to-one — exactly ONE range carrying the SUMMED total (5).
+            // MUTATION (collapse): per-split emit -> >=2 ranges carry row_count -> countRanges!=1 -> red.
+            // MUTATION (sum): `countSum = split.mergedRowCount()` (first/last-wins instead of +=) -> "2"
+            // or "3" instead of "5" -> red. So both halves of design D-054 are pinned.
+            List<ConnectorScanRange> withCount = provider.planScan(
+                    session, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ true);
+            int countRanges = 0;
+            String emittedCount = null;
+            for (ConnectorScanRange r : withCount) {
+                String v = r.getProperties().get("paimon.row_count");
+                if (v != null) {
+                    ++countRanges;
+                    emittedCount = v;
+                }
+            }
+            Assertions.assertEquals(1, countRanges,
+                    "count pushdown must collapse >=2 eligible splits into exactly ONE count range");
+            Assertions.assertEquals("5", emittedCount,
+                    "the single count range must carry the cross-split SUM (2 + 3 = 5), "
+                            + "a total unreachable from any single split");
+
+            // count pushdown OFF: no range may carry a pushed-down row count (normal scan; BE counts).
+            // MUTATION: emitting row_count regardless of the flag -> red.
+            List<ConnectorScanRange> withoutCount = provider.planScan(
+                    session, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            for (ConnectorScanRange r : withoutCount) {
+                Assertions.assertFalse(r.getProperties().containsKey("paimon.row_count"),
+                        "without count pushdown no range may carry a pushed-down row count");
+            }
+        }
     }
 
     private static ConnectorSession sessionWithProps(Map<String, String> sessionProps) {

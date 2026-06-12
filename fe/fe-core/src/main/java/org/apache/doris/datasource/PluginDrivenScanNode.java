@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
@@ -561,8 +562,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // the rows the source returns, that would under-return. Legacy disabled limit-split whenever
         // a non-partition-equality (incl. CAST) predicate was present; this mirrors it.
         long sourceLimit = effectiveSourceLimit(limit, filteredToOriginalIndex != null);
+        // Forward the no-grouping COUNT(*) signal to the connector (FIX-COUNT-PUSHDOWN). The op is set
+        // on this node by the Nereids translator (PhysicalPlanTranslator) and shipped to BE via
+        // FileScanNode.toThrift, but a connector that can serve a precomputed row count
+        // (paimon DataSplit.mergedRowCount()) needs the signal here to emit it; otherwise BE
+        // materializes the full post-merge row set just to count. Connectors that do not override the
+        // count-pushdown overload ignore the flag (default delegates to the 6-arg planScan).
+        boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
         List<ConnectorScanRange> ranges = scanProvider.planScan(
-                connectorSession, currentHandle, columns, remainingFilter, sourceLimit, requiredPartitions);
+                connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
+                requiredPartitions, countPushdown);
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {

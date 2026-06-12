@@ -245,6 +245,33 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
+        return planScanInternal(session, handle, columns, filter, false);
+    }
+
+    /**
+     * COUNT(*)-pushdown-aware scan entry (FIX-COUNT-PUSHDOWN). The generic {@code PluginDrivenScanNode}
+     * forwards the no-grouping {@code COUNT(*)} signal here via the SPI's count-pushdown overload.
+     * {@code limit} and {@code requiredPartitions} are not consumed by the paimon read path (same as
+     * the other overloads, whose defaults fold down to the 4-arg {@code planScan}).
+     */
+    @Override
+    public List<ConnectorScanRange> planScan(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit,
+            List<String> requiredPartitions,
+            boolean countPushdown) {
+        return planScanInternal(session, handle, columns, filter, countPushdown);
+    }
+
+    private List<ConnectorScanRange> planScanInternal(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            boolean countPushdown) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         Table table = resolveScanTable(paimonHandle);
@@ -306,8 +333,30 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     Collections.emptyMap(), false, cppReader));
         }
 
+        // COUNT(*) pushdown (FIX-COUNT-PUSHDOWN): collapse every split whose merged (post-merge /
+        // post-deletion-vector) row count is precomputed into ONE count range carrying the summed
+        // total, emitted after the loop — BE serves the count from table_level_row_count (CountReader)
+        // without reading data. Mirrors legacy PaimonScanNode's count short-circuit, which is the
+        // FIRST routing arm (BEFORE the native/JNI gate): a count-eligible split must NOT also emit a
+        // data range, or BE would re-scan and double-count against deletion vectors / PK merge. The
+        // collapse == legacy's <=10000 case (singletonList(first) + assignCountToSplits([one], sum) ->
+        // one split bearing the full total); legacy's >10000 parallel-split trim needs numBackends (an
+        // fe-core-only concern) and is intentionally dropped -> perf-only divergence [deviations-log].
+        // Splits WITHOUT a precomputed merged count fall through to the normal native/JNI routing so
+        // BE still counts them from file metadata / by reading.
+        long countSum = 0;
+        DataSplit countRepresentative = null;
+
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
+            if (isCountPushdownSplit(countPushdown, dataSplit)) {
+                countSum += dataSplit.mergedRowCount();
+                if (countRepresentative == null) {
+                    countRepresentative = dataSplit;
+                }
+                continue;
+            }
+
             Map<String, String> partitionValues = getPartitionInfoMap(
                     table, dataSplit.partition(), session.getTimeZone());
 
@@ -331,6 +380,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         dataSplit, tableLocation, defaultFileFormat,
                         partitionValues, true, cppReader));
             }
+        }
+
+        // Emit the single collapsed count range carrying the summed total (legacy's <=10000 case: one
+        // split bearing the full count). Skipped when no split had a precomputed merged count.
+        if (countRepresentative != null) {
+            Map<String, String> partitionValues = getPartitionInfoMap(
+                    table, countRepresentative.partition(), session.getTimeZone());
+            ranges.add(buildCountRange(
+                    countRepresentative, tableLocation, partitionValues, cppReader, countSum));
         }
 
         return ranges;
@@ -503,6 +561,37 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
+                .build();
+    }
+
+    /**
+     * Whether a {@link DataSplit} contributes a precomputed COUNT(*)-pushdown row count: true iff count
+     * pushdown is active for this scan AND the split's merged (post-merge / post-deletion-vector) row
+     * count is precomputed by the paimon SDK. Mirrors legacy {@code PaimonScanNode}'s count gate
+     * ({@code applyCountPushdown && dataSplit.mergedRowCountAvailable()}, the FIRST routing arm).
+     * Extracted as a pure static so the correctness-critical count routing decision is unit-testable
+     * with a real {@link DataSplit}, like {@link #shouldUseNativeReader}.
+     */
+    static boolean isCountPushdownSplit(boolean countPushdown, DataSplit dataSplit) {
+        return countPushdown && dataSplit.mergedRowCountAvailable();
+    }
+
+    /**
+     * Builds the single collapsed COUNT(*)-pushdown range: a JNI-serialized {@link DataSplit} (legacy
+     * {@code new PaimonSplit(dataSplit)}) carrying the summed merged row count via {@code paimon.row_count}
+     * &rarr; BE's {@code table_level_row_count} &rarr; {@code CountReader}, so BE emits the count without
+     * reading data. The serialization format honors the cpp-reader flag, like {@link #buildJniScanRange}.
+     */
+    private PaimonScanRange buildCountRange(DataSplit dataSplit, String tableLocation,
+            Map<String, String> partitionValues, boolean cppReader, long rowCount) {
+        String serializedSplit = encodeSplit(dataSplit, cppReader);
+        return new PaimonScanRange.Builder()
+                .fileFormat("jni")
+                .paimonSplit(serializedSplit)
+                .tableLocation(tableLocation)
+                .partitionValues(partitionValues)
+                .selfSplitWeight(computeSplitWeight(dataSplit))
+                .rowCount(rowCount)
                 .build();
     }
 

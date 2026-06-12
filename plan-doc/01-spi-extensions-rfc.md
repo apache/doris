@@ -1333,3 +1333,21 @@ fi
 **已知 SPI gap（不在本 fix close）**：scan-time driver-path 校验**无** `ConnectorContext` hook（连接器 scan-time 拿不到 `ConnectorValidationContext`）→ 校验仅 CREATE-time（FE-restart/ALTER 不复校），是 pre-existing fe-core 缝、全 plugin 连接器共有。用户定接受（CREATE-time parity），跨连接器 follow-up 须新 `ConnectorContext` 校验 hook + fe-core ALTER 路接 `preCreateValidation`。详 [DV-028](./deviations-log.md)。
 
 **测**：连接器 `PaimonScanPlanProviderTest` +5（resolve 裸名、认 paimon.jdbc.* 别名、双别名优先序+override、保 scheme-bearing、非-jdbc 空）+ 新 `PaimonConnectorPreCreateValidationTest` +5（jdbc/别名 调校验、非-jdbc/无 driver_url 不调、reject 传播）。模块 232/0/0、fail-before 5/9 向红。真值闸=`test_paimon_jdbc_catalog`（CI-gated）。
+
+## 25. 扩展 E15：COUNT(\*) 下推信号 / `planScan(...,boolean countPushdown)` overload
+
+> 后补节（2026-06-12，P5-fix#8 FIX-COUNT-PUSHDOWN）。finding M-2（round-2 MAJOR/round-1 MINOR，perf-parity）—— 见 [task-list #8](./task-list-P5-rereview2-fixes.md) / [设计](./tasks/designs/P5-fix-COUNT-PUSHDOWN-design.md) / [D-054](./decisions-log.md) / [DV-032](./deviations-log.md)。**E14 之后首个新 connector-SPI（planScan 扩展链续 limit/requiredPartitions）。**
+
+**问题**：翻闸后 plugin-driven paimon `COUNT(*)` 结果正确但慢——BE 已在 count 模式（`PhysicalPlanTranslator:873` 在 `PluginDrivenScanNode` 设 `pushDownAggNoGroupingOp=COUNT`，`FileScanNode.toThrift:90` 发出）且 per-range emit 缝**已建全**（`PaimonScanRange.Builder.rowCount`→`paimon.row_count`→`populateRangeParams.setTableLevelRowCount`，与 legacy `PaimonScanNode:303-308` byte-一致），但 COUNT **信号** `getPushDownAggNoGroupingOp()==COUNT` 只在 fe-core 节点、不在任何 `planScan`/`ConnectorSession`/`ConnectorContext`/handle → 连接器从不算 merged count、每 split 发 `table_level_row_count=-1` → BE 物化全 post-merge 行去 count（`file_scanner.cpp:1298-1326`）。merged count `DataSplit.mergedRowCount()` 是 paimon-SDK-only 须连接器算，故信号**必须**过 SPI 边界（否决经 `ConnectorSession` 穿——agg-op 是 per-query planner 输出非 SET-var、会成静默无类型通道，[D-054]）。
+
+**SPI 面（default 委托，零它连接器影响）**：
+- `ConnectorScanPlanProvider.planScan(session, handle, columns, filter, limit, requiredPartitions, boolean countPushdown) → List<ConnectorScanRange>`（`fe-connector-api`）：新 **default** 方法，委托回 6 参 `planScan`（镜像既有 5 参 limit / 6 参 requiredPartitions 扩展链）→ 不 override 的连接器（es/jdbc/hive/iceberg/maxcompute/trino/hudi）忽略 flag、行为不变。
+- `countPushdown` 语义：engine 判定查询为 no-grouping `COUNT(*)`（`getPushDownAggNoGroupingOp()==TPushAggOp.COUNT`）时为 true。选 **boolean** 而非 `TPushAggOp`：BE 文件格式 count 只需 COUNT-vs-not；`MIX`/`COUNT_ON_INDEX` 不在文件格式 count 范围，`TPushAggOp` 会把 thrift 枚举拉进 SPI 签名、过度泛化。
+
+**fe-core 侧**：`PluginDrivenScanNode.getSplits` 读 `getPushDownAggNoGroupingOp()==TPushAggOp.COUNT` 传入新 overload。**无 post-loop 数学**（collapse 在连接器内做，见 [D-054]/[DV-032]）。
+
+**连接器侧（paimon-only）**：`PaimonScanPlanProvider` 抽 `planScanInternal(...,countPushdown)`（4 参委托 false、新 7 参委托 flag），加 count 短路第一臂 + 纯静态 `isCountPushdownSplit(boolean,DataSplit)` + `buildCountRange`，**collapse-to-one** 发一个 JNI count range 携 `mergedRowCount` 之和。emit 用既有 `paimon.row_count` 缝，**无新 thrift / 无 BE 改**。
+
+**作用域**：paimon-only（default no-op overload 利好将来 hive/iceberg/hudi full-adopter，各自 override 即可）。`ConnectorProvider.apiVersion()` 保持 `1`（仅新增 default，[D-009]）。
+
+**测**：连接器 `PaimonScanPlanProviderTest` +2（纯静态 `isCountPushdownSplit` 真 split=true/2、disabled=false；end-to-end `planScan(countPushdown=true)` 真 local PK 表 collapse-to-one 携 total=2、`false`→无 `paimon.row_count`）。模块 252/0/0（1 CI-gated skip）、fail-before 恰 2 新测红（neuter helper→false）。真值闸=live-e2e BE CountReader 选择/EXPLAIN（既有 legacy paimon count regression 覆盖 BE 契约）。
