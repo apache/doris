@@ -42,6 +42,7 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
 
     private final PluginDrivenExternalTable sourceTable;
     private final String sysTableName;
+    private volatile Optional<SchemaCacheValue> cachedSchemaValue;
 
     /**
      * @param source the underlying base table being wrapped
@@ -82,6 +83,33 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
             return Optional.empty();
         }
         return metadata.getSysTableHandle(session, baseHandle.get(), sysTableName);
+    }
+
+    /**
+     * Compute the schema directly on this transient instance instead of going through the base
+     * {@link ExternalTable#getSchemaCacheValue()}, which routes through {@code ExternalCatalog.getSchema()}
+     * and re-resolves the table by name in the db map. A system table (e.g. {@code tbl$snapshots}) is never
+     * registered in that map, so the base path fails with "failed to load schema cache value". Memoized
+     * (double-checked) to avoid repeated connector round-trips, mirroring legacy
+     * {@code PaimonSysExternalTable.getSchemaCacheValue}. {@code initSchema()} (inherited from
+     * {@link PluginDrivenExternalTable}) honors this class's {@link #resolveConnectorTableHandle}, so it
+     * resolves the system-table schema rather than the base table's.
+     */
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
+        if (cachedSchemaValue == null) {
+            synchronized (this) {
+                if (cachedSchemaValue == null) {
+                    cachedSchemaValue = initSchema();
+                }
+            }
+        }
+        return cachedSchemaValue;
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
+        return getSchemaCacheValue();
     }
 
     /**
