@@ -618,6 +618,30 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         } finally {
             nameToLambdaArguments.pop();
         }
+
+        // After visiting the lambda body, for any bound array whose lambda variable
+        // was NOT referenced in the body (e.g. x -> true where x never appears),
+        // visitArrayItemSlot was never called and the array column's access path is
+        // missing. This gap is exposed when an is-null or offset-only path has been
+        // registered for the same slot — NestedColumnPruning then incorrectly prunes
+        // the complex column to null-only / offset-only instead of reading full data.
+        //
+        // Must use a fresh context: when the body DOES reference some variables
+        // (e.g. (x,y) -> x > 0), visitArrayItemSlot mutates context.accessPathBuilder
+        // in-place (addPrefix without cleanup). A fresh context isolates the fallback
+        // path for unreferenced variables from pollution by referenced ones.
+        for (Expression argument : arguments) {
+            if (argument instanceof ArrayItemReference) {
+                Expression boundArray = argument.child(0);
+                if (!arguments.get(0).getInputSlots().containsAll(boundArray.getInputSlots())) {
+                    CollectorContext fullAccessCtx = new CollectorContext(
+                            context.statementContext, context.bottomFilter);
+                    fullAccessCtx.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
+                    continueCollectAccessPath(boundArray, fullAccessCtx);
+                }
+            }
+        }
+
         return null;
     }
 
