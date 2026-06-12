@@ -74,11 +74,23 @@ private:
     Status _get_expanded_block_for_outer_conjuncts(RuntimeState* state, Block* output_block,
                                                    bool* eos);
 
+    // Fast path for the case where the node produces no real output columns and downstream
+    // only needs the expanded row count (e.g. `SELECT COUNT(*)` over unnest/explode, where FE
+    // prunes every output slot and adds a constant `final projections`). Instead of building
+    // and materializing the full `_output_slots` block, it emits a single lightweight
+    // placeholder column carrying the correct row count.
+    Status _get_expanded_block_no_columns(RuntimeState* state, Block* output_block, bool* eos);
+    Status _count_only_fast_path(RuntimeState* state, MutableColumnPtr& placeholder);
+
     std::vector<TableFunction*> _fns;
     VExprContextSPtrs _vfn_ctxs;
     VExprContextSPtrs _expand_conjuncts_ctxs;
     // for table function with outer conjuncts, need to handle those child rows which all expanded rows are filtered out
     bool _need_to_handle_outer_conjuncts = false;
+    // Index of the child (input) row in `_child_block` that is currently being expanded.
+    // -1 means there is no row to process right now (the current child block is exhausted or
+    // not yet pushed); the operator then asks upstream for more input. It is advanced by
+    // process_next_child_row() and used as the source row offset when replicating child columns.
     int64_t _cur_child_offset = -1;
     std::unique_ptr<Block> _child_block;
     int _current_row_insert_times = 0;
@@ -88,6 +100,15 @@ private:
     bool _block_fast_path_prepared = false;
     bool _block_fast_path_enabled = false;
     TableFunction::BlockFastPathContext _block_fast_path_ctx;
+    // -1: undecided, 0: disabled (use the full-block path), 1: enabled (count-only path).
+    // The decision is made once, when the first non-empty child block arrives, and stays
+    // stable for the whole query so the placeholder output block schema never changes.
+    int _no_columns_mode = -1;
+    // Resume cursor for the block fast path. Because one input block can produce more output rows
+    // than `batch_size()`, expansion is spread over multiple pull() calls. `_block_fast_path_row`
+    // records the next child row to expand, and `_block_fast_path_in_row_offset` records how many
+    // elements of that child row's array have already been emitted, so the next pull() continues
+    // from the middle of a partially-consumed array instead of restarting.
     int64_t _block_fast_path_row = 0;
     uint64_t _block_fast_path_in_row_offset = 0;
 
@@ -157,16 +178,23 @@ private:
 
     Here we check if the slot is really used, otherwise we avoid copy it and just insert a default value.
 
-                                              A better solution is:
-                                              1. FE: create a new output tuple based on the real output slots;
-    2. BE: refractor (V)TableFunctionNode output rows based no the new tuple;
+    A better solution is:
+      1. FE: create a new output tuple based on the real output slots;
+      2. BE: refractor (V)TableFunctionNode output rows based no the new tuple;
     */
     [[nodiscard]] inline bool _slot_need_copy(SlotId slot_id) const {
         auto id = _output_slots[slot_id]->id();
         return (id < _output_slot_ids.size()) && (_output_slot_ids[id]);
     }
 
+    // Slots of the child (input) tuple, in tuple order. These are the columns coming from the
+    // child operator that may need to be replicated once per generated row. Their count
+    // (`_child_slots.size()`) is also the index of the first table function output column in the
+    // output block, since the output layout is `[child slots..., tf1, tf2, ...]`.
     std::vector<SlotDescriptor*> _child_slots;
+    // All output slots of this node, in tuple order: `[child slots..., table function slots...]`.
+    // Used both to build the output block and, via `_slot_need_copy()`, to decide which slots are
+    // actually referenced downstream.
     std::vector<SlotDescriptor*> _output_slots;
 
     VExprContextSPtrs _vfn_ctxs;
@@ -175,11 +203,22 @@ private:
     std::vector<TableFunction*> _fns;
     int _fn_num = 0;
 
+    // Indexed by SlotDescriptor::id(): whether that slot id is referenced downstream (present in
+    // `tnode.table_function_node.outputSlotIds`). A slot not marked here is pruned and need not be
+    // materialized. Populated by _prepare_output_slot_ids().
     std::vector<bool> _output_slot_ids;
+    // Positions (indices into `_child_slots`) of child columns that ARE used downstream and so must
+    // be replicated per generated row. Computed once in prepare() from `_slot_need_copy()`.
     std::vector<int> _output_slot_indexs;
+    // Positions (indices into `_child_slots`) of child columns that are NOT used downstream; these
+    // are only grown with default values to keep the block row count consistent, never copied.
     std::vector<int> _useless_slot_indexs;
 
-    std::vector<int> _child_slot_sizes;
+    // True when the node emits no real output columns and downstream only needs the expanded
+    // row count: all output slots are pruned, the only consumer is a constant projection (the
+    // `final projections: 1` FE inserts for COUNT(*)), there are no conjuncts/expand-conjuncts,
+    // and there is a single table function. When set, the runtime takes the count-only path.
+    bool _output_no_columns_eligible = false;
 };
 
 } // namespace doris
