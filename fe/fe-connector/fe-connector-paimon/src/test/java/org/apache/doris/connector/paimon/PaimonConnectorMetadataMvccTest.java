@@ -683,14 +683,17 @@ public class PaimonConnectorMetadataMvccTest {
         // assertNull below + the applySnapshot end-to-end test go red.
         Assertions.assertNull(snap.getProperties().get("scan.snapshot-id"),
                 "@incr must NOT emit scan.snapshot-id (it would conflict with incremental-between)");
-        // And the null-reset keys legacy seeded (scan.snapshot-id / scan.mode) must be ABSENT
-        // (stripped), NOT present-with-null. WHY: ConnectorMvccSnapshot rejects null values, and a
-        // fresh per-query Table has no inherited scan.* keys to reset, so stripping is byte-parity.
-        // MUTATION: re-introducing the null seeds -> containsKey true (or a build-time NPE) -> red.
+        // And the null-reset keys legacy seeded (scan.snapshot-id / scan.mode) must be ABSENT here,
+        // NOT present-with-null. WHY (FIX-INCR-SCAN-RESET): the resolved ConnectorMvccSnapshot is the
+        // shared, source-agnostic SPI type and is null-free by contract (Builder.property rejects null;
+        // getProperties() is "never null"). The legacy null resets ARE required (a base table can
+        // persist a stale scan.snapshot-id/scan.mode), but they are reapplied LATER at the Table.copy
+        // chokepoint by PaimonIncrementalScanParams.applyResetsIfIncremental — never on this snapshot.
+        // MUTATION: re-introducing the null seeds here -> containsKey true (or a build-time NPE) -> red.
         Assertions.assertFalse(snap.getProperties().containsKey("scan.snapshot-id"),
-                "the legacy null scan.snapshot-id reset must be STRIPPED, not present-with-null");
+                "the resolved snapshot must stay null-free — the scan.snapshot-id reset is reapplied at copy");
         Assertions.assertFalse(snap.getProperties().containsKey("scan.mode"),
-                "the legacy null scan.mode reset must be STRIPPED, not present-with-null");
+                "the resolved snapshot must stay null-free — the scan.mode reset is reapplied at copy");
     }
 
     @Test

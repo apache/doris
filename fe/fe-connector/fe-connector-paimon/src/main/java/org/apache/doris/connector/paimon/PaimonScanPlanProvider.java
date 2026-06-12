@@ -249,7 +249,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveTable(paimonHandle);
         Map<String, String> scanOptions = paimonHandle.getScanOptions();
         if (scanOptions != null && !scanOptions.isEmpty()) {
-            return table.copy(scanOptions);
+            // FIX-INCR-SCAN-RESET: for an @incr read, reapply legacy's null reset of
+            // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
+            // native/JNI scan path and the JNI serialized-table path) so a stale persisted pin on the
+            // base table cannot hijack incremental-between. Non-incremental pins pass through unchanged.
+            return table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
         }
         return table;
     }

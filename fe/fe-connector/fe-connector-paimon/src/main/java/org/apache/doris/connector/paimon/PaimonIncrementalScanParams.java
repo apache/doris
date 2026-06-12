@@ -36,17 +36,23 @@ import java.util.Map;
  * message string is reproduced for parity, EXCEPT the legacy {@code UserException} (fe-core type)
  * is replaced by {@link DorisConnectorException} (the connector cannot import fe-core).
  *
- * <p>BENIGN DIVERGENCE (documented): legacy seeds the result map with
- * {@code paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, null)} and
- * {@code put(PAIMON_SCAN_MODE, null)} (lines 842-843) as defensive RESETS &mdash; it copies these
- * nulls onto a base {@code Table} that may have inherited {@code scan.snapshot-id}/{@code scan.mode}
- * from a prior pin. Here the connector resolves a FRESH {@code Table} per query (no inherited
- * scan.snapshot-id/scan.mode), so the resets are a no-op in EFFECT. Moreover
- * {@code ConnectorMvccSnapshot.Builder.property(...)} rejects null values
- * ({@code Objects.requireNonNull}). So this port emits ONLY the non-null keys
- * ({@code incremental-between} / {@code incremental-between-timestamp} /
- * {@code incremental-between-scan-mode}); stripping the null resets is byte-parity in EFFECT on a
- * freshly-loaded base table.
+ * <p>NULL RESETS &mdash; WHERE THEY LIVE (FIX-INCR-SCAN-RESET): legacy seeds the result map with
+ * {@code put(PAIMON_SCAN_SNAPSHOT_ID, null)} and {@code put(PAIMON_SCAN_MODE, null)} (lines 842-843,
+ * re-asserted 846) as defensive RESETS, then applies them via {@code baseTable.copy(...)}. Those
+ * resets ARE required: a freshly-loaded base table's {@code tableSchema.options()} can PERSIST a
+ * stale {@code scan.snapshot-id}/{@code scan.mode} (legal &amp; mutable via {@code ALTER TABLE SET},
+ * {@code TBLPROPERTIES}, {@code table-default.*}); without the reset, {@code Table.copy} merges the
+ * stale {@code scan.snapshot-id} with {@code incremental-between} and paimon 1.3.1 either THROWS
+ * ({@code "[incremental-between] must be null when you set [scan.snapshot-id,scan.tag-name]"}) or
+ * silently resolves to {@code FROM_SNAPSHOT} at the stale id (wrong @incr rows). However, the null
+ * values must NOT enter the SHARED, source-agnostic {@link
+ * org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot} SPI type (its {@code Builder.property}
+ * rejects null and its {@code getProperties()} is documented "never null"). So {@link #validate}
+ * emits ONLY the non-null {@code incremental-between*} keys (snapshot/handle stay null-free), and the
+ * two legacy null resets are reintroduced LOCALLY at the {@code Table.copy} chokepoint via {@link
+ * #applyResetsIfIncremental}, where paimon's {@code copyInternal} (1.3.1: {@code v == null ?
+ * options.remove(k) : options.put(k, v)}) consumes them to clear the stale pin &mdash; the nulls are
+ * created and discarded at copy time, never stored, serialized, or placed in the SPI.
  */
 public final class PaimonIncrementalScanParams {
 
@@ -74,7 +80,9 @@ public final class PaimonIncrementalScanParams {
      * (in place of the legacy {@code UserException}) with the SAME message strings.
      *
      * @param params the raw Doris incremental-read window arguments
-     * @return the paimon scan option map (null-valued reset keys stripped &mdash; see class doc)
+     * @return the paimon scan option map (non-null {@code incremental-between*} keys only; the legacy
+     *         null {@code scan.snapshot-id}/{@code scan.mode} resets are reapplied at copy time by
+     *         {@link #applyResetsIfIncremental} &mdash; see class doc)
      */
     public static Map<String, String> validate(Map<String, String> params) {
         // Check if snapshot-based parameters exist
@@ -220,17 +228,16 @@ public final class PaimonIncrementalScanParams {
         }
 
         // Fill the result map based on parameter combinations.
-        // BENIGN DIVERGENCE (see class doc): legacy seeds PAIMON_SCAN_SNAPSHOT_ID=null and
-        // PAIMON_SCAN_MODE=null here (lines 842-843) as defensive RESETS against a base Table that
-        // may have inherited a prior scan.snapshot-id/scan.mode. The connector resolves a FRESH Table
-        // per query (no inherited keys), so these null resets are a no-op in EFFECT; and
-        // ConnectorMvccSnapshot.Builder.property rejects null values. So we DO NOT seed the null keys
-        // (stripping them is byte-parity on a freshly-loaded base table) and emit only the non-null
-        // incremental-between* keys below.
+        // NULL RESETS (see class doc + FIX-INCR-SCAN-RESET): legacy seeds PAIMON_SCAN_SNAPSHOT_ID=null
+        // and PAIMON_SCAN_MODE=null here (lines 842-843) as defensive RESETS against a base Table that
+        // PERSISTS a stale scan.snapshot-id/scan.mode. Those resets ARE required, but the null values
+        // must NOT enter the shared ConnectorMvccSnapshot SPI (null-free by contract). So we emit ONLY
+        // the non-null incremental-between* keys here; the two null resets are reapplied at the
+        // Table.copy chokepoint via applyResetsIfIncremental(...).
         Map<String, String> paimonScanParams = new HashMap<>();
 
         if (hasSnapshotParams) {
-            // Legacy re-seeds PAIMON_SCAN_MODE=null here (line 846); stripped (see above).
+            // Legacy re-seeds PAIMON_SCAN_MODE=null here (line 846); reapplied at copy time (see above).
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
                 throw new DorisConnectorException(
@@ -265,5 +272,49 @@ public final class PaimonIncrementalScanParams {
         }
 
         return paimonScanParams;
+    }
+
+    /**
+     * Reapplies legacy's defensive null resets of {@code scan.snapshot-id}/{@code scan.mode} at the
+     * {@code Table.copy} chokepoint (FIX-INCR-SCAN-RESET). Legacy
+     * {@code PaimonScanNode.validateIncrementalReadParams:842-843,846} seeds both keys to {@code null}
+     * and applies them via {@code baseTable.copy(...)}; a base table that PERSISTS a stale
+     * {@code scan.snapshot-id}/{@code scan.mode} (via {@code ALTER TABLE SET} / {@code TBLPROPERTIES} /
+     * {@code table-default.*}) would otherwise collide with {@code incremental-between} &mdash; paimon
+     * 1.3.1 {@code Table.copy} then THROWS ({@code "[incremental-between] must be null when you set
+     * [scan.snapshot-id,scan.tag-name]"}) or silently downgrades the read to {@code FROM_SNAPSHOT} at
+     * the stale id (wrong @incr rows).
+     *
+     * <p>The reset is applied here, not in {@link #validate}, so the shared {@link
+     * org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot} SPI type and {@code
+     * PaimonTableHandle.scanOptions} stay null-free; the null-valued map is created locally and handed
+     * straight to paimon {@code copyInternal} ({@code v == null ? options.remove(k) : options.put(k,
+     * v)}), which consumes the nulls to remove the stale options.
+     *
+     * <p>Gated on the presence of an incremental key ({@code incremental-between} OR
+     * {@code incremental-between-timestamp}) &mdash; every successful {@link #validate} output carries
+     * exactly one, and no non-incremental scan-option producer emits either (snapshot/timestamp pins
+     * emit {@code scan.snapshot-id}, tag pins emit {@code scan.tag-name}). So a non-incremental pin is
+     * returned UNCHANGED and its legitimate {@code scan.snapshot-id} is never clobbered. Scope is
+     * strict legacy parity: {@code scan.snapshot-id} + {@code scan.mode} only.
+     *
+     * @param scanOptions the handle's scan options about to be passed to {@code Table.copy}
+     * @return for an incremental scan, a NEW map seeded with the two null resets then the original
+     *         options; otherwise {@code scanOptions} unchanged (same reference)
+     */
+    public static Map<String, String> applyResetsIfIncremental(Map<String, String> scanOptions) {
+        if (scanOptions == null || scanOptions.isEmpty()) {
+            return scanOptions;
+        }
+        if (!scanOptions.containsKey(PAIMON_INCREMENTAL_BETWEEN)
+                && !scanOptions.containsKey(PAIMON_INCREMENTAL_BETWEEN_TIMESTAMP)) {
+            return scanOptions;
+        }
+        // HashMap (not Map.of / immutable) — it must hold null VALUES (the reset markers).
+        Map<String, String> withResets = new HashMap<>();
+        withResets.put(PAIMON_SCAN_SNAPSHOT_ID, null);
+        withResets.put(PAIMON_SCAN_MODE, null);
+        withResets.putAll(scanOptions);
+        return withResets;
     }
 }

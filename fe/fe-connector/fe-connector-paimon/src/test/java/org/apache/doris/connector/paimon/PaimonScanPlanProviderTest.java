@@ -412,6 +412,55 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void resolveScanTableResetsStalePinForIncrementalRead(@TempDir Path warehouse) throws Exception {
+        // A REAL paimon table (not FakePaimonTable, whose copy() is a no-op recorder that cannot
+        // reproduce paimon's merge/remove/immutability) that PERSISTS a stale scan.snapshot-id/scan.mode
+        // in its schema options — legal & mutable via TBLPROPERTIES / ALTER TABLE SET / table-default.*.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .option("scan.snapshot-id", "1")
+                    .option("scan.mode", "from-snapshot")
+                    .build(), false);
+            Table base = catalog.getTable(id);
+            Assertions.assertEquals("1", base.options().get("scan.snapshot-id"),
+                    "fixture precondition: the base table must persist a stale scan.snapshot-id");
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(base);
+            // applySnapshot's INCREMENTAL pin produces exactly this scanOptions map (incremental-between
+            // ONLY — the null resets are NOT carried through the SPI; they are reapplied at copy time).
+            PaimonTableHandle incrHandle = handle.withScanOptions(
+                    Collections.singletonMap("incremental-between", "3,5"));
+
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            Table scanTable = provider.resolveScanTable(incrHandle);
+
+            // WHY (FIX-INCR-SCAN-RESET): an @incr read over a base table that persists a stale
+            // scan.snapshot-id must reset it to null BEFORE Table.copy (the single chokepoint shared by
+            // the native/JNI scan path planScanInternal and the JNI serialized-table path
+            // getScanNodeProperties). Without the reset, paimon 1.3.1 THROWS at copy()
+            // ("[incremental-between] must be null when you set [scan.snapshot-id,scan.tag-name]") — so
+            // resolveScanTable would throw before reaching these assertions — or silently downgrades to
+            // FROM_SNAPSHOT at the stale id (wrong @incr rows). With the reset, the stale pin is removed
+            // and the incremental window survives. MUTATION: dropping applyResetsIfIncremental in
+            // resolveScanTable -> copy throws (or returns a table still carrying scan.snapshot-id) -> red.
+            Assertions.assertFalse(scanTable.options().containsKey("scan.snapshot-id"),
+                    "the stale persisted scan.snapshot-id must be reset (removed) for an @incr read");
+            Assertions.assertEquals("3,5", scanTable.options().get("incremental-between"),
+                    "the @incr window (incremental-between) must survive the copy");
+        }
+    }
+
+    @Test
     public void resolveTableUsesTransientWithoutReload() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(

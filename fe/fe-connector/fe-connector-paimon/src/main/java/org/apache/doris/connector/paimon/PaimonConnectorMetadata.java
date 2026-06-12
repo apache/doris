@@ -488,8 +488,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // Validate the raw @incr window params and produce the paimon scan options. This is
                 // the ~180-line legacy validation, ported byte-faithfully into the connector
                 // (PaimonIncrementalScanParams). The produced opts hold incremental-between* keys ONLY
-                // (the legacy null-valued scan.snapshot-id/scan.mode resets are stripped — see that
-                // class's javadoc for why that's byte-parity on a freshly-loaded base table).
+                // — the snapshot/handle stay null-free (shared SPI contract). The legacy null-valued
+                // scan.snapshot-id/scan.mode resets are NOT carried here; they are reapplied at the
+                // Table.copy chokepoint via PaimonIncrementalScanParams.applyResetsIfIncremental
+                // (FIX-INCR-SCAN-RESET), so a base table that persists a stale scan.snapshot-id cannot
+                // hijack incremental-between.
                 Map<String, String> opts = PaimonIncrementalScanParams.validate(spec.getIncrementalParams());
                 // Legacy @incr reads at the LATEST snapshot and applies incremental-between at scan time:
                 // PaimonExternalTable.getPaimonSnapshotCacheValue falls through (neither tag/branch nor

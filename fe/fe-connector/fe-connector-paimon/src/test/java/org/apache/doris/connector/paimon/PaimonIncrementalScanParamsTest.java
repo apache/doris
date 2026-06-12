@@ -31,8 +31,11 @@ import java.util.Map;
  * a rule matters (a wrong window silently reads the WRONG incremental diff -> wrong rows), and pins
  * the EXACT legacy error message so the connector's {@link DorisConnectorException} stays parity with
  * the legacy {@code UserException}. The two parameter groups (snapshot-based vs timestamp-based) are
- * mutually exclusive; the produced map carries ONLY the non-null {@code incremental-between*} keys
- * (the legacy null {@code scan.snapshot-id}/{@code scan.mode} resets are STRIPPED).
+ * mutually exclusive; {@link PaimonIncrementalScanParams#validate} carries ONLY the non-null
+ * {@code incremental-between*} keys (so the shared {@code ConnectorMvccSnapshot} SPI / handle stay
+ * null-free), and the legacy null {@code scan.snapshot-id}/{@code scan.mode} resets are reapplied at
+ * the {@code Table.copy} chokepoint by {@link PaimonIncrementalScanParams#applyResetsIfIncremental}
+ * (FIX-INCR-SCAN-RESET) &mdash; covered by the {@code applyResetsIfIncremental*} cases below.
  */
 public class PaimonIncrementalScanParamsTest {
 
@@ -225,19 +228,85 @@ public class PaimonIncrementalScanParamsTest {
     }
 
     @Test
-    public void nullResetKeysAreStrippedNotPresentWithNull() {
-        // WHY (the documented benign divergence): legacy SEEDS scan.snapshot-id=null and scan.mode=null
-        // (lines 842-843/846) as defensive resets against an inherited base Table. The connector loads a
-        // FRESH Table per query (nothing to reset) and ConnectorMvccSnapshot rejects null values, so the
-        // port STRIPS these — they must be ABSENT, not present-with-null. Stripping is byte-parity in
-        // EFFECT on a freshly-loaded base. MUTATION: re-seeding the null keys -> containsKey true -> red.
+    public void validateKeepsTheSnapshotPropertiesNullFree() {
+        // WHY (FIX-INCR-SCAN-RESET): legacy SEEDS scan.snapshot-id=null and scan.mode=null (lines
+        // 842-843/846) as defensive resets. Those resets ARE required (a base table can persist a stale
+        // scan.snapshot-id/scan.mode), but the null values must NOT enter validate()'s output, because
+        // that map flows into the SHARED ConnectorMvccSnapshot SPI / PaimonTableHandle.scanOptions,
+        // which are null-free by contract (Builder.property rejects null; getProperties() is "never
+        // null"). So validate() emits ONLY the non-null incremental-between* keys; the two null resets
+        // are reapplied later at the Table.copy chokepoint by applyResetsIfIncremental (see the cases
+        // below). MUTATION: emitting the reset keys here (with null) -> containsValue(null) true -> red.
         Map<String, String> out = PaimonIncrementalScanParams.validate(
                 params("startSnapshotId", "1", "endSnapshotId", "5"));
         Assertions.assertFalse(out.containsKey("scan.snapshot-id"),
-                "the legacy null scan.snapshot-id reset must be STRIPPED (absent), not present-with-null");
+                "validate() must not emit scan.snapshot-id — the reset is reapplied at the copy chokepoint");
         Assertions.assertFalse(out.containsKey("scan.mode"),
-                "the legacy null scan.mode reset must be STRIPPED (absent), not present-with-null");
+                "validate() must not emit scan.mode — the reset is reapplied at the copy chokepoint");
         Assertions.assertFalse(out.containsValue(null),
-                "the produced option map must contain NO null values (ConnectorMvccSnapshot rejects them)");
+                "validate() output feeds the null-free ConnectorMvccSnapshot SPI; it must contain NO nulls");
+    }
+
+    // ==================== applyResetsIfIncremental — the Table.copy-chokepoint reset (FIX-INCR-SCAN-RESET)
+
+    @Test
+    public void applyResetsIfIncrementalSeedsNullResetsForSnapshotWindow() {
+        // WHY: an @incr scan whose options carry incremental-between must reset a stale persisted
+        // scan.snapshot-id/scan.mode to null BEFORE Table.copy, or paimon throws ("[incremental-between]
+        // must be null when you set [scan.snapshot-id,...]") or silently downgrades to FROM_SNAPSHOT
+        // (wrong rows). paimon copyInternal consumes a null value as options.remove(key). MUTATION:
+        // not seeding the nulls -> the reset keys are absent -> stale pin survives -> red.
+        Map<String, String> out = PaimonIncrementalScanParams.applyResetsIfIncremental(
+                params("incremental-between", "3,5"));
+        Assertions.assertTrue(out.containsKey("scan.snapshot-id") && out.get("scan.snapshot-id") == null,
+                "incremental scan must carry scan.snapshot-id=null (the copy-time reset of a stale pin)");
+        Assertions.assertTrue(out.containsKey("scan.mode") && out.get("scan.mode") == null,
+                "incremental scan must carry scan.mode=null (the copy-time reset of a stale pin)");
+        Assertions.assertEquals("3,5", out.get("incremental-between"),
+                "the original incremental-between window must be preserved");
+    }
+
+    @Test
+    public void applyResetsIfIncrementalSeedsNullResetsForTimestampWindow() {
+        // WHY: the timestamp @incr group (incremental-between-timestamp) needs the SAME reset as the
+        // snapshot group — the detector must recognize BOTH incremental keys, else a timestamp @incr
+        // over a table with a persisted scan.snapshot-id breaks. MUTATION: detecting only
+        // incremental-between -> timestamp window gets no reset -> red.
+        Map<String, String> out = PaimonIncrementalScanParams.applyResetsIfIncremental(
+                params("incremental-between-timestamp", "100,200"));
+        Assertions.assertTrue(out.containsKey("scan.snapshot-id") && out.get("scan.snapshot-id") == null,
+                "timestamp incremental scan must also carry scan.snapshot-id=null");
+        Assertions.assertTrue(out.containsKey("scan.mode") && out.get("scan.mode") == null,
+                "timestamp incremental scan must also carry scan.mode=null");
+        Assertions.assertEquals("100,200", out.get("incremental-between-timestamp"),
+                "the original incremental-between-timestamp window must be preserved");
+    }
+
+    @Test
+    public void applyResetsIfIncrementalPassesThroughNonIncrementalPins() {
+        // WHY (no false positive): a genuine snapshot-id / tag time-travel pin must NOT be touched —
+        // injecting scan.snapshot-id=null here would CLOBBER the legitimate pin and read the wrong
+        // version. The helper resets iff an incremental key is present. MUTATION: unconditionally
+        // seeding the resets -> a scan.snapshot-id pin loses its value / gains scan.mode=null -> red.
+        Map<String, String> snapshotPin = params("scan.snapshot-id", "5");
+        Assertions.assertSame(snapshotPin, PaimonIncrementalScanParams.applyResetsIfIncremental(snapshotPin),
+                "a scan.snapshot-id pin is non-incremental -> returned unchanged (same reference)");
+        Map<String, String> tagPin = params("scan.tag-name", "t");
+        Map<String, String> tagOut = PaimonIncrementalScanParams.applyResetsIfIncremental(tagPin);
+        Assertions.assertSame(tagPin, tagOut, "a scan.tag-name pin is non-incremental -> returned unchanged");
+        Assertions.assertFalse(tagOut.containsKey("scan.mode"),
+                "a non-incremental pin must NOT gain a scan.mode reset");
+    }
+
+    @Test
+    public void applyResetsIfIncrementalIsNoOpForEmptyOrNull() {
+        // WHY: the latest-read / no-scan-options path (empty or null map) must pass through untouched —
+        // resolveScanTable only copies when scanOptions is non-empty, and a no-op here keeps that path
+        // allocation-free and reset-free.
+        Map<String, String> empty = params();
+        Assertions.assertSame(empty, PaimonIncrementalScanParams.applyResetsIfIncremental(empty),
+                "an empty scan-options map must be returned unchanged");
+        Assertions.assertNull(PaimonIncrementalScanParams.applyResetsIfIncremental(null),
+                "a null scan-options map must be returned unchanged (null)");
     }
 }
