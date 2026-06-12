@@ -496,6 +496,15 @@ inline void ensure_env_inited() {
         }
         config::inverted_index_ram_buffer_size = 512;  // MB, production default
         config::inverted_index_max_buffered_docs = -1; // production default
+        // Buffer-budget override: the SPIMI writer derives its spill budget
+        // from config::inverted_index_ram_buffer_size at construction
+        // (ConfiguredMemoryBudgetBytes), so SPIMI_RAM_BUFFER_MB=128 forces the
+        // spill+merge path on corpora that would not spill under the 512
+        // default. mDouble — hot-settable, and [BENCH-CONFIG] below prints the
+        // effective derived budget.
+        if (const char* m = std::getenv("SPIMI_RAM_BUFFER_MB")) {
+            config::inverted_index_ram_buffer_size = std::atof(m);
+        }
         // frq/prx ZSTD defaults follow the compiled config (config::init above
         // applies the DEFINE defaults). Env overrides let one binary measure
         // either side of the split: SPIMI_FRQ_ZSTD=0/1, SPIMI_PRX_ZSTD=0/1
