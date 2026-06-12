@@ -397,14 +397,7 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
         return Status::NotSupported("Unsupported parquet MAP layout for column {}",
                                     column_schema.name);
     }
-    std::unique_ptr<ParquetColumnReader> key_reader;
     const auto& key_schema = *column_schema.children[0];
-    const auto* key_projection = format::find_child_projection(projection, key_schema.local_id);
-    // MAP materialization always needs keys. A partial MAP projection may prune inside the value
-    // type, but it must not drop the key stream because offsets and entry existence are derived
-    // from the key levels.
-    RETURN_IF_ERROR(create_column_reader(key_schema, key_projection, true, &key_reader));
-    std::unique_ptr<ParquetColumnReader> value_reader;
     const auto& value_schema = *column_schema.children[1];
     const auto* value_projection =
             format::find_child_projection(projection, value_schema.local_id);
@@ -414,18 +407,26 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
                                         column_schema.name);
         }
         for (const auto& child_projection : projection->children) {
-            if (child_projection.local_id() != key_schema.local_id &&
-                child_projection.local_id() != value_schema.local_id) {
+            if (child_projection.local_id() == key_schema.local_id) {
+                return Status::NotSupported(
+                        "Parquet MAP projection for column {} does not support key child",
+                        column_schema.name);
+            }
+            if (child_projection.local_id() != value_schema.local_id) {
                 return Status::InvalidArgument(
                         "Parquet MAP projection for column {} contains invalid child",
                         column_schema.name);
             }
         }
     }
+    std::unique_ptr<ParquetColumnReader> key_reader;
+    // MAP materialization always needs the full key stream. It owns entry existence, offsets and
+    // key equality semantics, so MAP projection is defined only as value-subtree pruning.
+    RETURN_IF_ERROR(create_column_reader(key_schema, nullptr, true, &key_reader));
+    std::unique_ptr<ParquetColumnReader> value_reader;
     RETURN_IF_ERROR(create_column_reader(value_schema, value_projection, true, &value_reader));
     DataTypePtr type = column_schema.type;
-    if (format::is_partial_projection(key_projection) ||
-        format::is_partial_projection(value_projection)) {
+    if (format::is_partial_projection(value_projection)) {
         type = std::make_shared<DataTypeMap>(make_nullable(key_reader->type()),
                                              make_nullable(value_reader->type()));
         if (column_schema.type != nullptr && column_schema.type->is_nullable()) {

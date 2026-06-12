@@ -840,7 +840,13 @@ static Status rebuild_projected_file_children_and_type(
     return Status::OK();
 }
 
-// Build the complex column projection according to the ColumnMapping which is re-ordered by the file-schema's order.
+// Build the complex column projection according to the ColumnMapping which is re-ordered by the
+// file-schema's order.
+//
+// For MAP, a partial projection represents value-subtree pruning only. The key child is not a
+// projected output shape; file readers still read full keys to construct ColumnMap offsets and keep
+// key semantics unchanged. If a caller tries to project only/prune the key child, the common schema
+// projection helper rejects it.
 static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection) {
     if (projection == nullptr) {
         return Status::InvalidArgument("projection is null");

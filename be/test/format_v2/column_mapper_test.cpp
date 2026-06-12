@@ -419,6 +419,20 @@ TEST(ColumnMapperSchemaProjectionTest, ProjectsMapValueStructLeaf) {
     EXPECT_EQ(projected_value->get_element_name(0), "b");
 }
 
+TEST(ColumnMapperSchemaProjectionTest, RejectsMapKeyProjection) {
+    auto key = field_id_col("key", 1, str(), 0);
+    auto value = field_id_col("value", 2, i32(), 1);
+    auto map = map_col("m", 100, {key, value}, str(), i32(), 9);
+
+    LocalColumnIndex projection = LocalColumnIndex::partial_local(9);
+    projection.children.push_back(LocalColumnIndex::local(0));
+
+    ColumnDefinition projected;
+    const auto status = project_column_definition(map, projection, &projected);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("does not support key child projection"), std::string::npos);
+}
+
 TEST(ColumnMapperSchemaProjectionTest, RejectsInvalidProjectionChildIdWithFieldName) {
     auto root = struct_col("s", 100, {field_id_col("a", 101, i32(), 0)}, 7);
 

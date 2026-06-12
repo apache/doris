@@ -46,9 +46,11 @@ namespace doris::format {
 //   self-consistent. STRUCT uses projected child names/types, ARRAY uses the projected element
 //   type, and MAP preserves the original key type while rebuilding the projected value type.
 //
-// A full projection copies `field` unchanged. Partial MAP projection must include the value child;
-// key-only projection is rejected because Doris MAP materialization needs values and because the
-// key type is carried by the original DataTypeMap instead of being rebuilt from projected children.
+// A full projection copies `field` unchanged. Partial MAP projection is intentionally limited to
+// the value child. MAP is materialized as offsets + keys + values, so the reader must still read
+// the complete key stream to build entry shape and offsets. The projected DataTypeMap keeps the
+// original key type and only rebuilds the value type from the projected value child; key-only or
+// key-pruned MAP projections are rejected.
 Status project_column_definition(const ColumnDefinition& field, const LocalColumnIndex& projection,
                                  ColumnDefinition* projected_field);
 
