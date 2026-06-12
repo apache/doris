@@ -551,6 +551,42 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         }
     }
 
+    @Test
+    public void testCreateTableLocalConflictWithoutIfNotExistsRejects() throws Exception {
+        // Remote says ABSENT (getTableHandle empty) but the FE cache HAS the table -- the local arm of the
+        // legacy remote-then-local probe (PaimonMetadataOps.performCreateTable:206-214). Under
+        // lower_case_meta_names a case-variant name folds onto an existing local table while the
+        // case-sensitive remote has no such table. Legacy throws ERR_TABLE_EXISTS_ERROR here; the bridge
+        // must NOT fall through to metadata.createTable, which would CREATE a duplicate remote table
+        // (silent metadata corruption).
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        Mockito.doReturn(Mockito.mock(ExternalTable.class)).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.empty());
+
+        try (MockedStatic<CreateTableInfoToConnectorRequestConverter> conv =
+                Mockito.mockStatic(CreateTableInfoToConnectorRequestConverter.class)) {
+            ConnectorCreateTableRequest req = Mockito.mock(ConnectorCreateTableRequest.class);
+            conv.when(() -> CreateTableInfoToConnectorRequestConverter.convert(Mockito.any(), Mockito.any()))
+                    .thenReturn(req);
+            CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+            Mockito.when(info.getDbName()).thenReturn("db1");
+            Mockito.when(info.getTableName()).thenReturn("t1");
+            Mockito.when(info.isIfNotExists()).thenReturn(false);
+
+            // WHY (Rule 9 / Rule 12): a local-ONLY conflict without IF NOT EXISTS must be REJECTED at the FE
+            // level (ERR_TABLE_EXISTS_ERROR), never handed to connector.createTable. The pre-fix code
+            // consumed the existence probe only in the IF NOT EXISTS branch and fell through here, calling
+            // metadata.createTable -> created a duplicate remote table. Mutation (drop the localExists
+            // guard) -> no throw + createTable called -> both assertions go red.
+            DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+            Assertions.assertTrue(ex.getMessage().contains("already exists"));
+            Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
+            Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
+        }
+    }
+
     // ==================== helpers ====================
 
     @SuppressWarnings("unchecked")

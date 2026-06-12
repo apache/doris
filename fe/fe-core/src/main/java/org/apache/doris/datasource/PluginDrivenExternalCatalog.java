@@ -19,6 +19,8 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -290,16 +292,26 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // short-circuit (Env.createTable contract: return true when the table already exists), so a
         // "CREATE TABLE IF NOT EXISTS ... AS SELECT" does NOT fall through to an INSERT into the
         // pre-existing table. The table name is intentionally NOT remote-resolved (legacy parity).
-        boolean exists = metadata.getTableHandle(session, db.getRemoteName(),
-                createTableInfo.getTableName()).isPresent()
-                || db.getTableNullable(createTableInfo.getTableName()) != null;
-        if (exists && createTableInfo.isIfNotExists()) {
-            LOG.info("create table[{}.{}.{}] which already exists; skipping (IF NOT EXISTS)",
-                    getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
-            return true;
+        boolean remoteExists = metadata.getTableHandle(session, db.getRemoteName(),
+                createTableInfo.getTableName()).isPresent();
+        boolean localExists = db.getTableNullable(createTableInfo.getTableName()) != null;
+        if (remoteExists || localExists) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}.{}.{}] which already exists; skipping (IF NOT EXISTS)",
+                        getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
+                return true;
+            }
+            // !IF NOT EXISTS: a table present ONLY in the local FE cache (folded onto an existing name
+            // under lower_case_meta_names while the case-sensitive remote has no such table) must be
+            // rejected HERE -- connector.createTable would otherwise CREATE it remotely instead of
+            // failing. Mirrors legacy PaimonMetadataOps.performCreateTable:206-214 (local arm). A
+            // remote-only conflict still falls through to connector.createTable, which throws
+            // "already exists" -> DdlException (unchanged).
+            if (localExists) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR,
+                        createTableInfo.getTableName());
+            }
         }
-        // existing + !IF NOT EXISTS falls through to connector.createTable, which throws
-        // "already exists" -> DdlException (unchanged); only the IF NOT EXISTS hit short-circuits.
         ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter
                 .convert(createTableInfo, db.getRemoteName());
         try {
