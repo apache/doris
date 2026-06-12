@@ -1621,7 +1621,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             } catch (JobException ex) {
                 log.warn("refresh provider props before cleanMeta failed, job id: {}", getJobId(), ex);
             }
-            ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId());
+            long runtimeBackendId = runningStreamTask != null ? runningStreamTask.getRunningBackendId() : -1;
+            ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId(), runtimeBackendId);
         }
     }
 }

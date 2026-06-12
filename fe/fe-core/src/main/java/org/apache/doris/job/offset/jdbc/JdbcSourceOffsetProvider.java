@@ -1007,11 +1007,20 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
-    public void cleanMeta(Long jobId) throws JobException {
+    public void cleanMeta(Long jobId, long runtimeBackendId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        // Route to the bound BE so close tears down its live reader; dead/unbound falls back to random.
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
+        // Dropping the slot only succeeds on the BE owning the live reader (it stops its own engine
+        // first, freeing the slot). Prefer the runtime BE (covers the unbound snapshot phase), then
+        // the bound BE; both may be alive but not load-available, so route by isAlive. Only when
+        // neither is alive fall back to a random BE to drop the now-inactive slot.
+        Backend backend = aliveBackend(runtimeBackendId);
+        if (backend == null) {
+            backend = aliveBackend(boundBackendId);
+        }
+        if (backend == null) {
+            backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
+        }
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -1034,6 +1043,14 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Close job error: ", ex);
         }
+    }
+
+    private static Backend aliveBackend(long backendId) {
+        if (backendId <= 0) {
+            return null;
+        }
+        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+        return be != null && be.isAlive() ? be : null;
     }
 
     private String getFrontendAddress() {

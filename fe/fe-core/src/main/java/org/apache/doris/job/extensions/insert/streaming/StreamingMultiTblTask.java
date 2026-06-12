@@ -346,6 +346,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         // No-op: the reader is async and reused; releasing here (per-iteration finally) would kill it.
     }
 
+    @Override
+    public long getRunningBackendId() {
+        return runningBackendId;
+    }
+
     // Best-effort release on runningBackendId (keep slot): on task failure to stop a stuck/zombie
     // reader early, and on manual pause so resume can rebind. Failures swallowed; idle reaper backs up.
     @Override

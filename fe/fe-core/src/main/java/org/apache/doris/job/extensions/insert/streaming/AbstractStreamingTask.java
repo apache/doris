@@ -89,6 +89,10 @@ public abstract class AbstractStreamingTask {
     public void releaseRemoteReader() {
     }
 
+    public long getRunningBackendId() {
+        return -1;
+    }
+
     public void execute() throws JobException {
         while (retryCount <= MAX_RETRY) {
             try {
