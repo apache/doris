@@ -217,7 +217,7 @@ public:
         return Status::OK();
     }
 
-    std::string debug_string() const;
+    virtual std::string debug_string() const;
 
     virtual Status annotate_projected_column(const TFileScanSlotInfo& slot_info,
                                              ProjectedColumnBuildContext* context,
@@ -327,6 +327,7 @@ protected:
             _data_reader.block_template.insert(
                     {column.type->create_column(), column.type, column.name});
         }
+        LOG(WARNING) << "TableReader debug: " << debug_string();
         RETURN_IF_ERROR(_open_mapping_exprs());
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         return Status::OK();

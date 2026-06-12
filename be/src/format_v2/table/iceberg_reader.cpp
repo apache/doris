@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <sstream>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -43,6 +44,86 @@
 #include "io/file_factory.h"
 
 namespace doris::iceberg {
+
+template <typename T>
+static std::string join_values_for_debug(const std::vector<T>& values) {
+    std::ostringstream out;
+    out << "[";
+    for (size_t idx = 0; idx < values.size(); ++idx) {
+        if (idx > 0) {
+            out << ", ";
+        }
+        out << values[idx];
+    }
+    out << "]";
+    return out.str();
+}
+
+static std::string iceberg_delete_file_debug_string(const TIcebergDeleteFileDesc& delete_file) {
+    std::ostringstream out;
+    out << "TIcebergDeleteFileDesc{path="
+        << (delete_file.__isset.path ? delete_file.path : "null")
+        << ", content=" << (delete_file.__isset.content ? delete_file.content : -1)
+        << ", file_format="
+        << (delete_file.__isset.file_format ? static_cast<int>(delete_file.file_format) : -1)
+        << ", position_lower_bound="
+        << (delete_file.__isset.position_lower_bound ? delete_file.position_lower_bound : -1)
+        << ", position_upper_bound="
+        << (delete_file.__isset.position_upper_bound ? delete_file.position_upper_bound : -1)
+        << ", field_ids="
+        << (delete_file.__isset.field_ids ? join_values_for_debug(delete_file.field_ids) : "[]")
+        << ", content_offset="
+        << (delete_file.__isset.content_offset ? delete_file.content_offset : -1)
+        << ", content_size_in_bytes="
+        << (delete_file.__isset.content_size_in_bytes ? delete_file.content_size_in_bytes : -1)
+        << "}";
+    return out.str();
+}
+
+static std::string iceberg_delete_files_debug_string(
+        const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+    std::ostringstream out;
+    out << "[";
+    for (size_t idx = 0; idx < delete_files.size(); ++idx) {
+        if (idx > 0) {
+            out << ", ";
+        }
+        out << iceberg_delete_file_debug_string(delete_files[idx]);
+    }
+    out << "]";
+    return out.str();
+}
+
+static std::string iceberg_params_debug_string(const std::optional<TIcebergFileDesc>& params) {
+    if (!params.has_value()) {
+        return "null";
+    }
+    const auto& iceberg_params = *params;
+    std::ostringstream out;
+    out << "TIcebergFileDesc{format_version="
+        << (iceberg_params.__isset.format_version ? iceberg_params.format_version : -1)
+        << ", content=" << (iceberg_params.__isset.content ? iceberg_params.content : -1)
+        << ", original_file_path="
+        << (iceberg_params.__isset.original_file_path ? iceberg_params.original_file_path : "null")
+        << ", row_count=" << (iceberg_params.__isset.row_count ? iceberg_params.row_count : -1)
+        << ", partition_spec_id="
+        << (iceberg_params.__isset.partition_spec_id ? iceberg_params.partition_spec_id : 0)
+        << ", has_partition_data_json=" << iceberg_params.__isset.partition_data_json
+        << ", first_row_id="
+        << (iceberg_params.__isset.first_row_id ? iceberg_params.first_row_id : -1)
+        << ", last_updated_sequence_number="
+        << (iceberg_params.__isset.last_updated_sequence_number
+                    ? iceberg_params.last_updated_sequence_number
+                    : -1)
+        << ", delete_file_count="
+        << (iceberg_params.__isset.delete_files ? iceberg_params.delete_files.size() : 0)
+        << ", delete_files="
+        << (iceberg_params.__isset.delete_files
+                    ? iceberg_delete_files_debug_string(iceberg_params.delete_files)
+                    : "[]")
+        << ", has_serialized_split=" << iceberg_params.__isset.serialized_split << "}";
+    return out.str();
+}
 
 IcebergTableReader::PositionDeleteRowsCollector::PositionDeleteRowsCollector(
         std::string data_file_path, format::DeleteRows* rows)
@@ -90,6 +171,66 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
     }
     RETURN_IF_ERROR(_init_delete_predicates(options.current_range.table_format_params));
     return Status::OK();
+}
+
+std::string IcebergTableReader::debug_string() const {
+    size_t position_delete_file_count = 0;
+    size_t equality_delete_file_count = 0;
+    size_t deletion_vector_file_count = 0;
+    if (_iceberg_params.has_value() && _iceberg_params->__isset.delete_files) {
+        for (const auto& delete_file : _iceberg_params->delete_files) {
+            if (!delete_file.__isset.content) {
+                continue;
+            }
+            if (delete_file.content == POSITION_DELETE) {
+                ++position_delete_file_count;
+            } else if (delete_file.content == EQUALITY_DELETE) {
+                ++equality_delete_file_count;
+            } else if (delete_file.content == DELETION_VECTOR) {
+                ++deletion_vector_file_count;
+            }
+        }
+    }
+
+    std::ostringstream equality_filters;
+    equality_filters << "[";
+    for (size_t idx = 0; idx < _equality_delete_filters.size(); ++idx) {
+        if (idx > 0) {
+            equality_filters << ", ";
+        }
+        const auto& filter = _equality_delete_filters[idx];
+        equality_filters << "EqualityDeleteFilter{field_ids="
+                         << join_values_for_debug(filter.field_ids) << ", key_types=[";
+        for (size_t type_idx = 0; type_idx < filter.key_types.size(); ++type_idx) {
+            if (type_idx > 0) {
+                equality_filters << ", ";
+            }
+            equality_filters << (filter.key_types[type_idx] == nullptr
+                                         ? "null"
+                                         : filter.key_types[type_idx]->get_name());
+        }
+        equality_filters << "], delete_block_rows=" << filter.delete_block.rows()
+                         << ", delete_block_columns=" << filter.delete_block.columns() << "}";
+    }
+    equality_filters << "]";
+
+    std::ostringstream out;
+    out << "IcebergTableReader{base=" << format::TableReader::debug_string()
+        << ", iceberg_params=" << iceberg_params_debug_string(_iceberg_params)
+        << ", row_lineage_first_row_id=" << _row_lineage_columns.first_row_id
+        << ", row_lineage_last_updated_sequence_number="
+        << _row_lineage_columns.last_updated_sequence_number
+        << ", need_row_lineage_row_id=" << _need_row_lineage_row_id()
+        << ", need_iceberg_rowid=" << _need_iceberg_rowid()
+        << ", row_position_block_position=" << _row_position_block_position
+        << ", delete_predicates_initialized=" << _delete_predicates_initialized
+        << ", position_delete_file_count=" << position_delete_file_count
+        << ", equality_delete_file_count=" << equality_delete_file_count
+        << ", deletion_vector_file_count=" << deletion_vector_file_count
+        << ", position_delete_rows_storage_count=" << _position_delete_rows_storage.size()
+        << ", equality_delete_filter_count=" << _equality_delete_filters.size()
+        << ", equality_delete_filters=" << equality_filters.str() << "}";
+    return out.str();
 }
 
 Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {

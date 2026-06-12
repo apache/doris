@@ -53,6 +53,7 @@ public:
     }
 
     Status prepare_split(const format::SplitReadOptions& options) override;
+    std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
         return !_data_reader.file_schema.empty() && _has_field_id(_data_reader.file_schema)
                        ? format::TableColumnMappingMode::BY_FIELD_ID
