@@ -83,13 +83,13 @@ void TermDictWriter::Add(int32_t field_number, std::string_view term_utf8, const
     DCHECK_GE(info.freq_pointer, _last_tis_info.freq_pointer) << "freqPointer out of order";
     DCHECK_GE(info.prox_pointer, _last_tis_info.prox_pointer) << "proxPointer out of order";
 
-    const std::wstring term_wide = Utf8ToWide(term_utf8);
+    Utf8ToWideInto(term_utf8, &_wide_scratch);
 
     // Strict ordering check against the previous .tis entry (skip on the
     // first call when _last_tis_field is sentinel -1).
     if (_last_tis_field != -1) {
         const int32_t cmp =
-                CompareTermsByField(_last_tis_field, _last_tis_term, field_number, term_wide);
+                CompareTermsByField(_last_tis_field, _last_tis_term, field_number, _wide_scratch);
         DCHECK_LT(cmp, 0) << "Terms must be added in strictly ascending order";
     }
 
@@ -105,7 +105,7 @@ void TermDictWriter::Add(int32_t field_number, std::string_view term_utf8, const
         WriteEntry(Stream::Tii, _last_tis_field, _last_tis_term, _last_tis_info);
     }
 
-    WriteEntry(Stream::Tis, field_number, term_wide, info);
+    WriteEntry(Stream::Tis, field_number, _wide_scratch, info);
 }
 
 void TermDictWriter::AddInline(int32_t field_number, std::string_view term_utf8,
@@ -119,11 +119,11 @@ void TermDictWriter::AddInline(int32_t field_number, std::string_view term_utf8,
     DCHECK_LE(frq_len, kInlineHardCapBytes) << "inline .frq exceeds hard cap";
     DCHECK_LE(prx_len, kInlineHardCapBytes) << "inline .prx exceeds hard cap";
 
-    const std::wstring term_wide = Utf8ToWide(term_utf8);
+    Utf8ToWideInto(term_utf8, &_wide_scratch);
 
     if (_last_tis_field != -1) {
         const int32_t cmp =
-                CompareTermsByField(_last_tis_field, _last_tis_term, field_number, term_wide);
+                CompareTermsByField(_last_tis_field, _last_tis_term, field_number, _wide_scratch);
         DCHECK_LT(cmp, 0) << "Terms must be added in strictly ascending order";
     }
 
@@ -136,10 +136,10 @@ void TermDictWriter::AddInline(int32_t field_number, std::string_view term_utf8,
     payload.frq_len = frq_len;
     payload.prx = prx_bytes;
     payload.prx_len = prx_len;
-    WriteEntry(Stream::Tis, field_number, term_wide, info, &payload);
+    WriteEntry(Stream::Tis, field_number, _wide_scratch, info, &payload);
 }
 
-void TermDictWriter::WriteEntry(Stream stream, int32_t field_number, const std::wstring& term_wide,
+void TermDictWriter::WriteEntry(Stream stream, int32_t field_number, std::wstring& term_wide,
                                 const TermInfo& info, const InlinePayload* inline_payload) {
     ByteOutput* out = (stream == Stream::Tis) ? _tis_out : _tii_out;
     const std::wstring& last_term = (stream == Stream::Tis) ? _last_tis_term : _last_tii_term;
@@ -190,7 +190,11 @@ void TermDictWriter::WriteEntry(Stream stream, int32_t field_number, const std::
         _last_tii_info = info;
         ++_tii_size;
     } else {
-        _last_tis_term = term_wide;
+        // Steal the caller's wide buffer instead of copying it. Add/AddInline
+        // pass `_wide_scratch` (refilled on the next call, so the stale old
+        // last-term it receives is harmless); the .tii boundary calls pass
+        // `_last_tis_term` itself but never reach this branch.
+        std::swap(_last_tis_term, term_wide);
         _last_tis_field = field_number;
         if (inlined) {
             // Inline terms wrote NO freq/prox pointer delta, so the running
@@ -214,7 +218,12 @@ void TermDictWriter::WriteTerm(ByteOutput* out, const std::wstring& term_wide,
     out->WriteVInt(start);
     out->WriteVInt(length);
     if (length > 0) {
-        out->WriteSCharsFromWide(term_wide.data() + start, length);
+        // Stage the suffix once and emit it with a single bulk WriteBytes —
+        // same bytes as WriteSCharsFromWide (shared encoding core), without a
+        // virtual WriteByte per encoded byte.
+        _schar_scratch.clear();
+        AppendSCharsFromWide(term_wide.data() + start, length, &_schar_scratch);
+        out->WriteBytes(_schar_scratch.data(), _schar_scratch.size());
     }
     out->WriteVInt(field_number);
 }

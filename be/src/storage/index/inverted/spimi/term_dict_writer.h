@@ -180,7 +180,10 @@ private:
     // place. For .tis entries, also adds an index entry to .tii when the
     // running .tis size is a multiple of indexInterval. `inline_payload` is
     // non-null only for inlined .tis entries (writer must be inline_enabled).
-    void WriteEntry(Stream stream, int32_t field_number, const std::wstring& term_wide,
+    // `term_wide` is taken by mutable reference so the .tis branch can SWAP it
+    // into `_last_tis_term` (one wstring copy per term saved); .tii entries
+    // copy and leave it untouched.
+    void WriteEntry(Stream stream, int32_t field_number, std::wstring& term_wide,
                     const TermInfo& info, const InlinePayload* inline_payload = nullptr);
 
     // Writes the front-coded term portion (prefix_vint, suffix_vint,
@@ -206,6 +209,13 @@ private:
     std::wstring _last_tii_term;
     int32_t _last_tii_field = -1;
     TermInfo _last_tii_info {};
+
+    // Per-term scratch, reused across the whole dictionary: the wide form of
+    // the current term (one Utf8ToWideInto fill per Add instead of a heap
+    // wstring per term) and the encoded suffix bytes (one bulk WriteBytes
+    // instead of a virtual WriteByte per byte).
+    std::wstring _wide_scratch;
+    std::vector<uint8_t> _schar_scratch;
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

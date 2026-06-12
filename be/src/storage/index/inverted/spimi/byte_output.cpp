@@ -49,33 +49,59 @@ void ByteOutput::WriteVLong(int64_t v) {
     WriteByte(static_cast<uint8_t>(i));
 }
 
+namespace {
+
+// Shared encoding core for WriteSCharsFromWide / AppendSCharsFromWide: encodes
+// one wide char into `buf`, returning the byte count. Matches CLucene's
+// writeSChars<TCHAR> exactly — UTF-8 up to 0xFFFF, the "modified 4-byte"
+// shape (0x80.. lead, no 0xF0 marker) for 0x10000..0x10FFFF, U+FFFD beyond.
+inline uint32_t EncodeSChar(uint32_t code, uint8_t buf[4]) {
+    if (code <= 0x7FU) {
+        buf[0] = static_cast<uint8_t>(code);
+        return 1;
+    }
+    if (code <= 0x7FFU) {
+        buf[0] = static_cast<uint8_t>(0xC0U | (code >> 6));
+        buf[1] = static_cast<uint8_t>(0x80U | (code & 0x3FU));
+        return 2;
+    }
+    if (code <= 0xFFFFU) {
+        buf[0] = static_cast<uint8_t>(0xE0U | (code >> 12));
+        buf[1] = static_cast<uint8_t>(0x80U | ((code >> 6) & 0x3FU));
+        buf[2] = static_cast<uint8_t>(0x80U | (code & 0x3FU));
+        return 3;
+    }
+    if (code <= 0x10FFFFU) {
+        buf[0] = static_cast<uint8_t>(0x80U | (code >> 18));
+        buf[1] = static_cast<uint8_t>(0x80U | ((code >> 12) & 0x3FU));
+        buf[2] = static_cast<uint8_t>(0x80U | ((code >> 6) & 0x3FU));
+        buf[3] = static_cast<uint8_t>(0x80U | (code & 0x3FU));
+        return 4;
+    }
+    // Replacement character (U+FFFD) in proper UTF-8.
+    buf[0] = 0xEFU;
+    buf[1] = 0xBFU;
+    buf[2] = 0xBDU;
+    return 3;
+}
+
+} // namespace
+
 void ByteOutput::WriteSCharsFromWide(const wchar_t* s, int32_t length) {
+    uint8_t buf[4];
     for (int32_t i = 0; i < length; ++i) {
-        const auto code = static_cast<uint32_t>(s[i]);
-        if (code <= 0x7FU) {
-            WriteByte(static_cast<uint8_t>(code));
-        } else if (code <= 0x7FFU) {
-            WriteByte(static_cast<uint8_t>(0xC0U | (code >> 6)));
-            WriteByte(static_cast<uint8_t>(0x80U | (code & 0x3FU)));
-        } else if (code <= 0xFFFFU) {
-            WriteByte(static_cast<uint8_t>(0xE0U | (code >> 12)));
-            WriteByte(static_cast<uint8_t>(0x80U | ((code >> 6) & 0x3FU)));
-            WriteByte(static_cast<uint8_t>(0x80U | (code & 0x3FU)));
-        } else if (code <= 0x10FFFFU) {
-            // CLucene's "modified 4-byte" encoding: high bit set on the lead
-            // byte, no leading 0xF0..0xF4 marker. This is intentional in
-            // CLucene; we must replicate it byte-for-byte so existing
-            // readers can decode our output.
-            WriteByte(static_cast<uint8_t>(0x80U | (code >> 18)));
-            WriteByte(static_cast<uint8_t>(0x80U | ((code >> 12) & 0x3FU)));
-            WriteByte(static_cast<uint8_t>(0x80U | ((code >> 6) & 0x3FU)));
-            WriteByte(static_cast<uint8_t>(0x80U | (code & 0x3FU)));
-        } else {
-            // Replacement character (U+FFFD) in proper UTF-8.
-            WriteByte(0xEFU);
-            WriteByte(0xBFU);
-            WriteByte(0xBDU);
+        const uint32_t n = EncodeSChar(static_cast<uint32_t>(s[i]), buf);
+        for (uint32_t k = 0; k < n; ++k) {
+            WriteByte(buf[k]);
         }
+    }
+}
+
+void AppendSCharsFromWide(const wchar_t* s, int32_t length, std::vector<uint8_t>* out) {
+    uint8_t buf[4];
+    for (int32_t i = 0; i < length; ++i) {
+        const uint32_t n = EncodeSChar(static_cast<uint32_t>(s[i]), buf);
+        out->insert(out->end(), buf, buf + n);
     }
 }
 
@@ -104,13 +130,20 @@ inline bool IsContinuationByte(uint8_t b) {
 } // namespace
 
 std::wstring Utf8ToWide(std::string_view utf8) {
+    std::wstring out;
+    Utf8ToWideInto(utf8, &out);
+    return out;
+}
+
+void Utf8ToWideInto(std::string_view utf8, std::wstring* out_ptr) {
     // U+FFFD REPLACEMENT CHARACTER, emitted whenever the input bytes are not
     // a valid scalar value. Centralising the replacement here means
     // `WriteSCharsFromWide` always sees a well-formed Unicode scalar — it
     // does not need to special-case surrogates, overlong forms, or out-of-
     // range codepoints from a malformed input.
     constexpr wchar_t kReplacement = 0xFFFD;
-    std::wstring out;
+    std::wstring& out = *out_ptr;
+    out.clear();
     out.reserve(utf8.size());
     size_t i = 0;
     while (i < utf8.size()) {
@@ -169,7 +202,6 @@ std::wstring Utf8ToWide(std::string_view utf8) {
         }
         out.push_back(wc);
     }
-    return out;
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

@@ -93,4 +93,16 @@ private:
 // writer and unit tests share the conversion.
 std::wstring Utf8ToWide(std::string_view utf8);
 
+// Scratch-reuse variant: clears `out` and fills it with the same conversion.
+// The term-dictionary writer calls this once per term, so reusing one member
+// wstring avoids a heap allocation per term.
+void Utf8ToWideInto(std::string_view utf8, std::wstring* out);
+
+// Encodes wide characters with EXACTLY the byte layout WriteSCharsFromWide
+// produces, appending to `out` instead of streaming through the virtual
+// WriteByte. Lets hot writers stage a term suffix once and emit it with a
+// single WriteBytes call. Both functions share one encoding core, so they
+// cannot drift.
+void AppendSCharsFromWide(const wchar_t* s, int32_t length, std::vector<uint8_t>* out);
+
 } // namespace doris::segment_v2::inverted_index::spimi
