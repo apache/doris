@@ -800,6 +800,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             resetFailureInfo(reason);
             if (JobStatus.PAUSED.equals(newStatus) && runningStreamTask != null) {
+                // Force resume to swap in a fresh reader, in case the release RPC races or fails.
+                this.needRebuildReader = true;
                 runningStreamTask.releaseRemoteReader();
             }
         } finally {
