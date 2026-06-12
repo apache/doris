@@ -154,27 +154,47 @@ public class DefaultConnectorContext implements ConnectorContext {
 
     @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
-        if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        // Reuse the EXACT legacy normalization tail (AbstractVendedCredentialsProvider): filter to
-        // cloud-storage props, run StorageProperties.createAll (normalizes arbitrary token key shapes
-        // + derives region/endpoint), then map to the BE-facing AWS_* properties. Single source of
-        // truth — no re-ported normalization that could drift. Fail-soft (empty) on any error,
-        // matching the legacy provider, so a malformed token degrades gracefully rather than killing
-        // the scan.
+        // Map the per-table vended token to the BE-facing AWS_* properties. Fail-soft (empty) on any
+        // error, matching the legacy provider, so a malformed token degrades gracefully rather than
+        // killing the scan. The outer try also covers getBackendPropertiesFromStorageMap so the
+        // fail-soft boundary is byte-identical to the pre-refactor method; buildVendedStorageMap shares
+        // the typed-map build with normalizeStorageUri (single source of truth — no drift).
         try {
-            Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
-            if (filtered.isEmpty()) {
-                return Collections.emptyMap();
-            }
-            List<StorageProperties> vended = StorageProperties.createAll(filtered);
-            Map<StorageProperties.Type, StorageProperties> map = vended.stream()
-                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-            return CredentialUtils.getBackendPropertiesFromStorageMap(map);
+            Map<StorageProperties.Type, StorageProperties> map = buildVendedStorageMap(rawVendedCredentials);
+            return map == null ? Collections.emptyMap()
+                    : CredentialUtils.getBackendPropertiesFromStorageMap(map);
         } catch (Exception e) {
             LOG.warn("Failed to normalize vended credentials", e);
             return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * Builds the vended {@link StorageProperties} typed map from a raw per-table token: filter to
+     * cloud-storage props, run {@link StorageProperties#createAll} (normalizes arbitrary token key
+     * shapes + derives region/endpoint), then index by {@link StorageProperties.Type}. Mirrors the
+     * legacy {@code AbstractVendedCredentialsProvider} tail exactly, so the BE-credential overlay
+     * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
+     * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
+     * token is null/empty, yields no cloud-storage props, or normalization throws — replicating the
+     * legacy provider's "return null → Factory falls back to the base/static map" contract.
+     */
+    private Map<StorageProperties.Type, StorageProperties> buildVendedStorageMap(
+            Map<String, String> rawVendedCredentials) {
+        if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
+            return null;
+        }
+        try {
+            Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
+            if (filtered.isEmpty()) {
+                return null;
+            }
+            List<StorageProperties> vended = StorageProperties.createAll(filtered);
+            return vended.stream()
+                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+        } catch (Exception e) {
+            LOG.warn("Failed to normalize vended credentials", e);
+            return null;
         }
     }
 
@@ -191,16 +211,28 @@ public class DefaultConnectorContext implements ConnectorContext {
 
     @Override
     public String normalizeStorageUri(String rawUri) {
+        // No vended token → normalize against the catalog's static storage map (behavior unchanged).
+        return normalizeStorageUri(rawUri, null);
+    }
+
+    @Override
+    public String normalizeStorageUri(String rawUri, Map<String, String> rawVendedCredentials) {
         if (Strings.isNullOrEmpty(rawUri)) {
             return rawUri;
         }
         // Mirror legacy PaimonScanNode's 2-arg LocationPath.of(path, storagePropertiesMap):
-        // scheme-normalize (oss/cos/obs/s3a -> s3, OSS bucket.endpoint -> bucket) via the catalog's
-        // static storage properties so BE's scheme-dispatched S3 factory can open the file. Fail-loud
-        // (StoragePropertiesException propagates) — a path that cannot be normalized would otherwise
-        // silently corrupt reads (esp. a deletion-vector path on merge-on-read). Single source of
-        // truth: the SAME LocationPath normalization legacy/iceberg/hive use, so no drift.
-        return LocationPath.of(rawUri, storagePropertiesSupplier.get()).toStorageLocation().toString();
+        // scheme-normalize (oss/cos/obs/s3a -> s3, OSS bucket.endpoint -> bucket) so BE's
+        // scheme-dispatched S3 factory can open the file. The storage map follows legacy
+        // VendedCredentialsFactory precedence: when the connector supplies a per-table vended token
+        // (REST catalogs, whose static map is empty by design) the VENDED map REPLACES the static map;
+        // otherwise the catalog's static storage map is used. Fail-loud (StoragePropertiesException
+        // propagates) — a path that cannot be normalized would otherwise silently corrupt reads (esp. a
+        // deletion-vector path on merge-on-read). Single source of truth: the SAME LocationPath
+        // normalization legacy/iceberg/hive use, so no drift.
+        Map<StorageProperties.Type, StorageProperties> vended = buildVendedStorageMap(rawVendedCredentials);
+        Map<StorageProperties.Type, StorageProperties> effective =
+                vended != null ? vended : storagePropertiesSupplier.get();
+        return LocationPath.of(rawUri, effective).toStorageLocation().toString();
     }
 
     private static Map<String, String> buildEnvironment() {

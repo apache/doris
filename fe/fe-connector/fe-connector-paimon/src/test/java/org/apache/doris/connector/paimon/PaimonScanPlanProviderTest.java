@@ -268,7 +268,7 @@ public class PaimonScanPlanProviderTest {
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), 0L, 100L);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 100L);
 
         // WHY: BE's scheme-dispatched S3 file factory only opens canonical s3://. An un-normalized
         // oss:// DATA-file path fails the native ORC/Parquet read outright; an un-normalized oss:// DV
@@ -293,7 +293,7 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), 0L, 100L);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L);
 
         // WHY: a DV-less native split must still normalize its data-file path and must NOT emit a DV
         // descriptor. MUTATION: emitting a deletion_file for a null DV, or skipping data normalization -> red.
@@ -313,10 +313,45 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), 0L, 100L);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L);
 
         // MUTATION: NPE on null context, or fabricating a normalized path from nothing -> red.
         Assertions.assertEquals("oss://bkt/a/part-0.parquet", range.getPath().orElse(null));
+    }
+
+    @Test
+    public void buildNativeRangeThreadsVendedTokenToBothPaths() {
+        // FIX-REST-VENDED-URI-NORMALIZE (P9-1, BLOCKER): the per-table vended token must reach the
+        // engine's normalize seam on BOTH the data-file AND the deletion-vector path, so a REST
+        // object-store read (whose catalog static storage map is empty by design) normalizes via the
+        // vended credentials instead of throwing "No storage properties found for schema: oss". The
+        // positive RESTTokenFileIO extraction needs a live REST stack (E2E-gated); here we pin that
+        // whatever token the scan computes is threaded VERBATIM to each normalize call.
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+        Map<String, String> vendedToken = new HashMap<>();
+        vendedToken.put("fs.oss.accessKeyId", "STS.ak");
+        vendedToken.put("fs.oss.accessKeySecret", "sk");
+        RawFile file = parquetRawFile("oss://bkt/warehouse/db/t/part-0.parquet");
+        DeletionFile dv = new DeletionFile(
+                "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
+
+        PaimonScanRange range = provider.buildNativeRange(
+                file, dv, "parquet", Collections.emptyMap(), vendedToken, 0L, 100L);
+
+        // WHY: the engine seam normalizes against the VENDED map (the REST static map is empty). If the
+        // connector dropped the token (reverting to the 1-arg seam) or substituted an empty map, a REST
+        // native read would reach BE with an un-openable oss:// (data) or a silently-dropped DV
+        // (merge-on-read corruption). MUTATION: 1-arg normalize (token lost -> lastVendedToken null), or
+        // passing Collections.emptyMap() instead of the token -> assertSame red.
+        Assertions.assertEquals("s3://bkt/warehouse/db/t/part-0.parquet", range.getPath().orElse(null));
+        Assertions.assertEquals("s3://bkt/warehouse/db/t/index/dv-0.index",
+                range.getProperties().get("paimon.deletion_file.path"));
+        Assertions.assertEquals(2, ctx.normalizeCount,
+                "both the data-file and the DV path must route through the vended-aware normalize");
+        Assertions.assertSame(vendedToken, ctx.lastVendedToken,
+                "the per-table vended token must be threaded to the normalize seam (not empty/null)");
     }
 
     @Test
@@ -780,7 +815,7 @@ public class PaimonScanPlanProviderTest {
         long target = Math.max(1L, file.length() / 3);   // force the file to sub-split into >=2 ranges
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, dv, "parquet", Collections.emptyMap(), target);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), target);
 
         // WHY: the load-bearing correctness claim of FIX-NATIVE-SUBSPLIT — a paimon deletion vector is a
         // bitmap of GLOBAL file row positions, so EVERY sub-range of a DV-bearing file must carry the
@@ -808,7 +843,7 @@ public class PaimonScanPlanProviderTest {
         RawFile file = parquetRawFile("oss://bkt/a/part-0.parquet");
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, null, "parquet", Collections.emptyMap(), 0L);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L);
 
         Assertions.assertEquals(1, ranges.size(),
                 "a non-positive target (COUNT(*) pushdown) must keep the file as one whole-file range");

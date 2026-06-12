@@ -46,9 +46,11 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
     String lastHiveConfResourcesArg;
 
-    // ---- FIX-URI-NORMALIZE: normalizeStorageUri hook ----
+    // ---- FIX-URI-NORMALIZE / FIX-REST-VENDED-URI-NORMALIZE: normalizeStorageUri hook ----
     /** Number of times the connector invoked {@link #normalizeStorageUri}. */
     int normalizeCount;
+    /** The vended token the connector passed to the most recent 2-arg {@link #normalizeStorageUri}. */
+    Map<String, String> lastVendedToken;
 
     @Override
     public String getCatalogName() {
@@ -57,10 +59,18 @@ final class RecordingConnectorContext implements ConnectorContext {
 
     @Override
     public String normalizeStorageUri(String rawUri) {
+        // The 1-arg form folds to the 2-arg with no token, so every caller path is recorded identically.
+        return normalizeStorageUri(rawUri, null);
+    }
+
+    @Override
+    public String normalizeStorageUri(String rawUri, Map<String, String> vendedToken) {
         normalizeCount++;
+        lastVendedToken = vendedToken;
         // Deterministic stand-in for the engine's oss://->s3:// scheme rewrite, so a connector wiring
-        // test can prove BOTH the data-file and DV paths were routed through this hook (the real
-        // normalization is covered by DefaultConnectorContextNormalizeUriTest in fe-core).
+        // test can prove BOTH the data-file and DV paths were routed through this hook AND that the
+        // per-table vended token is threaded to each (the real normalization is covered by
+        // DefaultConnectorContextNormalizeUriTest in fe-core).
         if (rawUri != null && rawUri.startsWith("oss://")) {
             return "s3://" + rawUri.substring("oss://".length());
         }

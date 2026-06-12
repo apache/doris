@@ -164,6 +164,26 @@ public interface ConnectorContext {
     }
 
     /**
+     * Vended-credential-aware variant of {@link #normalizeStorageUri(String)}. For a REST catalog the
+     * catalog's <em>static</em> storage map is empty by design (vended creds are per-table/dynamic), so
+     * the single-arg form would throw on an object-store path. This overload lets the connector pass the
+     * raw per-table vended token (the same map it gives {@link #vendStorageCredentials}); the engine
+     * normalizes the URI against the vended credentials when present and falls back to the static map
+     * otherwise (legacy {@code VendedCredentialsFactory} precedence: vended replaces static).
+     *
+     * <p>The default ignores the token and delegates to {@link #normalizeStorageUri(String)}, so every
+     * connector that has no vended credentials — and the no-op default — is unaffected.
+     *
+     * @param rawUri               the raw storage URI (null/blank is returned unchanged)
+     * @param rawVendedCredentials the raw per-table vended token map (may be null/empty → static path)
+     * @return the normalized BE-facing URI
+     * @throws RuntimeException if normalization fails (fail-loud, legacy parity)
+     */
+    default String normalizeStorageUri(String rawUri, Map<String, String> rawVendedCredentials) {
+        return normalizeStorageUri(rawUri);
+    }
+
+    /**
      * Returns the catalog's static storage credentials/config normalized to BE-canonical scan
      * properties: object-store creds as {@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} /
      * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION}, and HDFS config as the resolved

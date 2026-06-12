@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,5 +96,53 @@ public class DefaultConnectorContextNormalizeUriTest {
         DefaultConnectorContext noStorage = new DefaultConnectorContext("c", 1L);
         Assertions.assertThrows(RuntimeException.class,
                 () -> noStorage.normalizeStorageUri("oss://bkt/a/part-0.parquet"));
+    }
+
+    // ---- FIX-REST-VENDED-URI-NORMALIZE (P9-1): the 2-arg overload normalizes via the per-table
+    //      vended token, which is the ONLY storage map a REST catalog has (its static map is empty). ----
+
+    /** The raw per-table OSS vended token shape a REST catalog returns (mirrors
+     *  DefaultConnectorContextVendTest / PaimonVendedCredentialsProviderTest). */
+    private static Map<String, String> ossVendedToken() {
+        Map<String, String> token = new HashMap<>();
+        token.put("fs.oss.accessKeyId", "STS.testAccessKey123");
+        token.put("fs.oss.accessKeySecret", "testSecretKey456");
+        token.put("fs.oss.securityToken", "testSessionToken789");
+        token.put("fs.oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        return token;
+    }
+
+    @Test
+    public void vendedRestCredentialsNormalizeUnderEmptyStaticMap() {
+        // THE BUG (P9-1, BLOCKER): a REST catalog's static storage map is EMPTY by design (vended creds
+        // are per-table/dynamic), so the static-only path throws "No storage properties found for schema:
+        // oss" on a native ORC/Parquet read — the exact corner DV-025 deferred but never closed. The
+        // 2-arg overload normalizes against the per-table VENDED token instead (legacy
+        // VendedCredentialsFactory: the vended map REPLACES the empty static map). MUTATION: ignoring the
+        // token (the old static-only path) -> throws -> red.
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L); // empty static map = REST
+        Assertions.assertEquals("s3://bkt/warehouse/db/t/part-0.parquet",
+                restCtx.normalizeStorageUri("oss://bkt/warehouse/db/t/part-0.parquet", ossVendedToken()));
+    }
+
+    @Test
+    public void emptyTokenUnderEmptyStaticStillFailsLoud() {
+        // WHY: prove the fix is the TOKEN, not a swallow — with an empty static map AND no vended token
+        // there is genuinely no credential, so normalization must still FAIL LOUD (legacy parity) rather
+        // than ship the raw oss:// to BE (silent read corruption). MUTATION: swallowing to the raw path
+        // when the token is empty -> red.
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> restCtx.normalizeStorageUri("oss://bkt/a/part-0.parquet", Collections.emptyMap()));
+    }
+
+    @Test
+    public void staticMapPathUnaffectedByEmptyToken() throws Exception {
+        // WHY: the 2-arg overload with an EMPTY token must fold to the static-map path byte-identically
+        // to the 1-arg form, so non-REST (static-cred) reads are unchanged. MUTATION: an empty token
+        // suppressing the static map -> no normalization / throw -> red.
+        Assertions.assertEquals("s3://bkt/warehouse/db/t/part-0.parquet",
+                ossContext().normalizeStorageUri(
+                        "oss://bkt/warehouse/db/t/part-0.parquet", Collections.emptyMap()));
     }
 }

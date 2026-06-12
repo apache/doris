@@ -342,6 +342,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Read the cpp-reader flag once: it selects the JNI split serialization format (see encodeSplit).
         boolean cppReader = isCppReaderEnabled(session);
 
+        // FIX-REST-VENDED-URI-NORMALIZE (P9-1): extract the per-table vended token ONCE per scan
+        // (validToken() may refresh; legacy computes its storage map once in doInitialize), threaded into
+        // the native-path URI normalization below so REST object-store reads normalize via the vended
+        // credentials (a REST catalog's static storage map is empty by design, so the static-only path
+        // would throw "No storage properties found for schema: oss"). Empty for non-REST tables (FileIO
+        // gate in extractVendedToken) and offline unit tests (no context) → the 2-arg normalize folds to
+        // the static-map path, leaving non-REST reads byte-unchanged.
+        Map<String, String> vendedToken =
+                context != null ? extractVendedToken(table) : Collections.emptyMap();
+
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
             ranges.add(buildJniScanRange(split, tableLocation, defaultFileFormat,
@@ -402,7 +412,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
                                     ? optDeletionFiles.get().get(i) : null;
                     ranges.addAll(buildNativeRanges(file, deletionFile, defaultFileFormat,
-                            partitionValues, effectiveSplitSize));
+                            partitionValues, vendedToken, effectiveSplitSize));
                 }
             } else {
                 // JNI reader path
@@ -429,14 +439,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * deletion vector. BOTH the data-file path and the deletion-vector path are routed through
      * {@link #normalizeUri} so BE's scheme-dispatched S3 factory receives canonical {@code s3://}
      * URIs on OSS/COS/OBS/s3a warehouses (FIX-URI-NORMALIZE; legacy {@code PaimonScanNode} normalizes
-     * both via the 2-arg {@code LocationPath.of}). Package-private so both normalization sites are
+     * both via the 2-arg {@code LocationPath.of}). The {@code vendedToken} (empty for non-REST) is the
+     * per-table vended credential map, routed into normalization so REST object-store paths normalize via
+     * the vended map (FIX-REST-VENDED-URI-NORMALIZE). Package-private so both normalization sites are
      * unit-testable without a live deletion-vector-bearing split.
      */
     PaimonScanRange buildNativeRange(RawFile file, DeletionFile deletionFile,
-            String defaultFileFormat, Map<String, String> partitionValues, long start, long length) {
+            String defaultFileFormat, Map<String, String> partitionValues,
+            Map<String, String> vendedToken, long start, long length) {
         String fileFormat = getFileFormatBySuffix(file.path()).orElse(defaultFileFormat);
         PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
-                .path(normalizeUri(file.path()))
+                .path(normalizeUri(file.path(), vendedToken))
                 .start(start)
                 .length(length)
                 .fileSize(file.length())
@@ -445,7 +458,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .schemaId(file.schemaId());
         if (deletionFile != null) {
             builder.deletionFile(
-                    normalizeUri(deletionFile.path()), deletionFile.offset(), deletionFile.length());
+                    normalizeUri(deletionFile.path(), vendedToken),
+                    deletionFile.offset(), deletionFile.length());
         }
         return builder.build();
     }
@@ -462,11 +476,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * DV-on-every-sub-range invariant is unit-testable without a live DV-bearing split.
      */
     List<PaimonScanRange> buildNativeRanges(RawFile file, DeletionFile deletionFile,
-            String defaultFileFormat, Map<String, String> partitionValues, long targetSplitSize) {
+            String defaultFileFormat, Map<String, String> partitionValues,
+            Map<String, String> vendedToken, long targetSplitSize) {
         List<PaimonScanRange> result = new ArrayList<>();
         for (long[] offset : computeFileSplitOffsets(file.length(), targetSplitSize)) {
-            result.add(buildNativeRange(
-                    file, deletionFile, defaultFileFormat, partitionValues, offset[0], offset[1]));
+            result.add(buildNativeRange(file, deletionFile, defaultFileFormat,
+                    partitionValues, vendedToken, offset[0], offset[1]));
         }
         return result;
     }
@@ -479,11 +494,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * file factory only recognizes {@code s3://}, so an un-normalized OSS/COS/OBS path fails the
      * native read (data file) or silently drops the deletion vector (merge-on-read wrong rows). The
      * connector cannot import fe-core's {@code LocationPath}, so it delegates to the
-     * {@link ConnectorContext#normalizeStorageUri} seam. With no context (offline unit tests) the raw
-     * path is preserved — same null-guard as the {@code vendStorageCredentials} overlay below.
+     * {@link ConnectorContext#normalizeStorageUri(String, Map)} seam, passing the per-table
+     * {@code vendedToken} (empty for non-REST) so a REST object-store path normalizes via the vended
+     * credentials — the catalog's static storage map is empty for REST, so the static-only path would
+     * throw (FIX-REST-VENDED-URI-NORMALIZE). With no context (offline unit tests) the raw path is
+     * preserved — same null-guard as the {@code vendStorageCredentials} overlay below.
      */
-    private String normalizeUri(String rawUri) {
-        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
+    private String normalizeUri(String rawUri, Map<String, String> vendedToken) {
+        return context != null ? context.normalizeStorageUri(rawUri, vendedToken) : rawUri;
     }
 
     @Override
