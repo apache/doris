@@ -933,7 +933,7 @@ void expect_nullable_int64_column_values(const IColumn& column,
     }
 }
 
-void expect_nullable_int64_column_values(
+void expect_nullable_int64_column_optional_values(
         const IColumn& column, const std::vector<std::optional<int64_t>>& expected_values) {
     const auto full_column = column.convert_to_full_column_if_const();
     const auto& nullable_column = assert_cast<const ColumnNullable&>(*full_column);
@@ -3187,10 +3187,10 @@ TEST(TableReaderTest, IcebergPhysicalRowIdKeepsNullsWithoutFirstRowId) {
     ASSERT_FALSE(eos);
 
     ASSERT_EQ(block.rows(), 3);
-    expect_nullable_int64_column_values(
+    expect_nullable_int64_column_optional_values(
             *block.get_by_position(0).column,
             std::vector<std::optional<int64_t>> {7000, std::nullopt, 7002});
-    expect_nullable_int64_column_values(
+    expect_nullable_int64_column_optional_values(
             *block.get_by_position(1).column,
             std::vector<std::optional<int64_t>> {80, std::nullopt, 82});
     expect_int32_column_values(*block.get_by_position(2).column, {1, 2, 3});
@@ -3239,10 +3239,10 @@ TEST(TableReaderTest, IcebergMissingRowIdStaysNullWithoutFirstRowId) {
     ASSERT_FALSE(eos);
 
     ASSERT_EQ(block.rows(), 3);
-    expect_nullable_int64_column_values(
+    expect_nullable_int64_column_optional_values(
             *block.get_by_position(0).column,
             std::vector<std::optional<int64_t>> {std::nullopt, std::nullopt, std::nullopt});
-    expect_nullable_int64_column_values(
+    expect_nullable_int64_column_optional_values(
             *block.get_by_position(1).column,
             std::vector<std::optional<int64_t>> {std::nullopt, std::nullopt, std::nullopt});
     expect_int32_column_values(*block.get_by_position(2).column, {1, 2, 3});
