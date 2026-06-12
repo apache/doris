@@ -751,8 +751,7 @@ protected:
                 RETURN_IF_ERROR(
                         _materialize_complex_mapping_column(mapping, *column, rows, column));
             } else {
-                RETURN_IF_ERROR(_cast_column_to_type(column, mapping.file_type,
-                                                     mapping.table_type,
+                RETURN_IF_ERROR(_cast_column_to_type(column, mapping.file_type, mapping.table_type,
                                                      mapping.file_column_name));
             }
         }
@@ -904,8 +903,8 @@ protected:
                     _file_child_ordinal_for_mapping(mapping, child_mapping, file_ordered_children);
             DORIS_CHECK(file_child_idx < file_struct->get_columns().size());
             ColumnPtr child_column = file_struct->get_column_ptr(file_child_idx);
-            RETURN_IF_ERROR(_materialize_present_child_mapping_column(
-                    child_mapping, child_column, rows, &child_column));
+            RETURN_IF_ERROR(_materialize_present_child_mapping_column(child_mapping, child_column,
+                                                                      rows, &child_column));
             child_columns.push_back(std::move(child_column));
         }
         MutableColumns mutable_child_columns;

@@ -1107,34 +1107,6 @@ static std::map<GlobalIndex, FileSlotRewriteInfo> build_file_slot_rewrite_map(
     return global_to_file_slot;
 }
 
-static const ColumnDefinition* find_file_child_by_table_column(
-        const ColumnDefinition& table_column, const std::vector<ColumnDefinition>& file_children,
-        TableColumnMappingMode mode) {
-    return matcher_for_mode(mode).find(table_column, file_children);
-}
-
-static const ColumnDefinition* find_file_child_for_complex_wrapper(
-        const ColumnDefinition& table_child, const ColumnDefinition& file_field,
-        TableColumnMappingMode mode) {
-    if (file_field.children.empty()) {
-        return nullptr;
-    }
-    const auto* file_child =
-            find_file_child_by_table_column(table_child, file_field.children, mode);
-    if (file_child != nullptr) {
-        return file_child;
-    }
-    if (remove_nullable(file_field.type)->get_primitive_type() == TYPE_ARRAY &&
-        file_field.children.size() == 1) {
-        return &file_field.children[0];
-    }
-    if (remove_nullable(file_field.type)->get_primitive_type() == TYPE_MAP &&
-        file_field.children.size() == 1 && column_has_name(table_child, "entries")) {
-        return &file_field.children[0];
-    }
-    return nullptr;
-}
-
 Status TableColumnMapper::_create_by_index_mapping(const ColumnDefinition& table_column,
                                                    const std::vector<ColumnDefinition>& file_schema,
                                                    ColumnMapping* mapping) {

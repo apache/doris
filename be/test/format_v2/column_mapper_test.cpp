@@ -909,8 +909,8 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForNestedSchemaEvolutio
     table_full_name.name_mapping = {"name"};
     auto table_age = name_col("age", int_type);
     auto table_value = struct_name_col("value", {table_full_name, table_age});
-    auto table_entry = struct_name_col("entries", {table_key, table_value});
-    auto table_map = map_col("new_map_column", -1, table_entry, string_type, table_value.type);
+    auto table_map =
+            map_col("new_map_column", -1, {table_key, table_value}, string_type, table_value.type);
     table_map.name_mapping = {"map_column"};
     set_name_identifiers(&table_map, -1);
 
@@ -928,8 +928,8 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForNestedSchemaEvolutio
     auto file_name = name_col("name", string_type, 0);
     auto file_age = name_col("age", int_type, 1);
     auto file_value = struct_name_col("value", {file_name, file_age}, 1);
-    auto file_entry = struct_name_col("key_value", {file_key, file_value}, 0);
-    auto file_map = map_col("map_column", -1, file_entry, string_type, file_value.type, 5);
+    auto file_map =
+            map_col("map_column", -1, {file_key, file_value}, string_type, file_value.type, 5);
     set_name_identifiers(&file_map, 5);
 
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
@@ -962,14 +962,10 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForNestedSchemaEvolutio
     const auto& map_mapping = mapper.mappings()[2];
     expect_mapping(map_mapping, 2, "new_map_column", 5, "map_column", file_map.type,
                    table_map.type);
-    ASSERT_EQ(map_mapping.child_mappings.size(), 1);
-    const auto& entry_mapping = map_mapping.child_mappings[0];
-    EXPECT_EQ(entry_mapping.file_column_name, "key_value");
-    EXPECT_EQ(*entry_mapping.file_local_id, 0);
-    ASSERT_EQ(entry_mapping.child_mappings.size(), 2);
-    EXPECT_EQ(entry_mapping.child_mappings[0].file_column_name, "key");
-    EXPECT_EQ(*entry_mapping.child_mappings[0].file_local_id, 0);
-    const auto& value_mapping = entry_mapping.child_mappings[1];
+    ASSERT_EQ(map_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(map_mapping.child_mappings[0].file_column_name, "key");
+    EXPECT_EQ(*map_mapping.child_mappings[0].file_local_id, 0);
+    const auto& value_mapping = map_mapping.child_mappings[1];
     EXPECT_EQ(value_mapping.file_column_name, "value");
     EXPECT_EQ(*value_mapping.file_local_id, 1);
     ASSERT_EQ(value_mapping.child_mappings.size(), 2);
@@ -993,8 +989,7 @@ TEST(ColumnMapperCreateMappingTest, ByFieldIdDoesNotFallbackToNameAndUsesFirstDu
             field_id_col("negative_file", -7, int_type, 3),
     };
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -1012,8 +1007,7 @@ TEST(ColumnMapperCreateMappingTest, ByFieldIdTreatsSameNameDifferentFieldIdAsMis
             field_id_col("same_name", 20, int_type, 0),
     };
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     const auto status = mapper.create_mapping(table_schema, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
@@ -1029,8 +1023,7 @@ TEST(ColumnMapperCreateMappingTest, NestedFieldIdTreatsSameNameDifferentFieldIdA
     auto file_child = field_id_col("child", 20, int_type, 0);
     auto file_root = struct_col("root", 1, {file_child}, 0);
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     const auto status = mapper.create_mapping({table_root}, {}, {file_root});
     ASSERT_TRUE(status.ok()) << status.to_string();
 
@@ -1127,8 +1120,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexOutOfRangeFallsBackToDefaultOrMissing
             field_id_col("_col1", 101, int_type, 1),
     };
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_INDEX});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_INDEX});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -1153,8 +1145,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexMissingIdentifierFallsBackToDefaultOr
             field_id_col("_col0", 100, int_type, 0),
     };
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_INDEX});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_INDEX});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -1174,8 +1165,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexOutOfRangeFallsBackToMissing) {
             field_id_col("_col0", 100, int_type, 0),
     };
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_INDEX});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_INDEX});
     const auto status = mapper.create_mapping(table_schema, {}, file_schema);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
@@ -1220,8 +1210,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexIgnoresFileColumnNames) {
 }
 
 TEST(ColumnMapperCreateMappingTest, MissingColumnFallsBackToMissingMapping) {
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_NAME});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
     const auto status = mapper.create_mapping({name_col("missing", i32())}, {},
                                               {name_col("present", i32(), 0)});
     ASSERT_TRUE(status.ok()) << status.to_string();
@@ -1324,8 +1313,7 @@ TEST(ColumnMapperConstantTest, MissingRowLineageDefaultExprStillUsesVirtualMappi
             field_id_col("name", 2, make_nullable(str()), 1),
     };
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -1349,8 +1337,7 @@ TEST(ColumnMapperConstantTest, ByFieldIdDoesNotTreatSameNameDifferentIdAsRowLine
             field_id_col("_last_updated_sequence_number", 101, make_nullable(i64()), 1),
     };
 
-    TableColumnMapper mapper(
-            {.mode = TableColumnMappingMode::BY_FIELD_ID});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 2);
