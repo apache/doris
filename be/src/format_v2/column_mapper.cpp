@@ -783,6 +783,31 @@ static bool needs_projected_file_type_rebuild(const ColumnMapping& mapping) {
     return false;
 }
 
+static const ColumnDefinition* find_file_child_for_mapping(
+        const ColumnDefinition& table_child, const ColumnDefinition& file_parent,
+        TableColumnMappingMode mode) {
+    const auto file_parent_type = remove_nullable(file_parent.type)->get_primitive_type();
+    switch (file_parent_type) {
+    case TYPE_ARRAY:
+        DORIS_CHECK(file_parent.children.size() == 1);
+        return &file_parent.children[0];
+    case TYPE_MAP:
+        DORIS_CHECK(file_parent.children.size() == 2);
+        if (table_child.name == "key") {
+            return &file_parent.children[0];
+        }
+        if (table_child.name == "value") {
+            return &file_parent.children[1];
+        }
+        if (table_child.local_id == 0 || table_child.local_id == 1) {
+            return &file_parent.children[table_child.local_id];
+        }
+        return nullptr;
+    default:
+        return matcher_for_mode(mode).find(table_child, file_parent.children);
+    }
+}
+
 static bool has_projected_file_children(const ColumnMapping& mapping) {
     if (mapping.original_file_children.empty() || mapping.projected_file_children.empty()) {
         return false;
@@ -1518,7 +1543,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
         DORIS_CHECK(is_complex_type(mapping->file_type->get_primitive_type()));
         for (const auto& table_child : table_column.children) {
             const auto* file_child =
-                    matcher_for_mode(_options.mode).find(table_child, file_field.children);
+                    find_file_child_for_mapping(table_child, file_field, _options.mode);
             if (file_child == nullptr) {
                 ColumnMapping child_mapping;
                 child_mapping.table_column_name = table_child.name;
