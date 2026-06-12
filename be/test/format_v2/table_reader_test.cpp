@@ -51,10 +51,10 @@
 #include "exec/common/endian.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
-#include "format/format_common.h"
-#include "format/table/deletion_vector_reader.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/format_common.h"
+#include "format/table/deletion_vector_reader.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -831,8 +831,7 @@ void write_iceberg_row_lineage_parquet_file(
         ASSERT_EQ(ids.size(), last_updated_sequence_numbers.size());
     }
     const auto id_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"0"});
-    const auto row_id_metadata =
-            arrow::key_value_metadata({"PARQUET:field_id"}, {"2147483540"});
+    const auto row_id_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"2147483540"});
     const auto last_updated_sequence_number_metadata =
             arrow::key_value_metadata({"PARQUET:field_id"}, {"2147483539"});
     auto schema = arrow::schema({
@@ -844,11 +843,11 @@ void write_iceberg_row_lineage_parquet_file(
             build_nullable_int64_array(row_ids),
     };
     if (!last_updated_sequence_numbers.empty()) {
-        schema = schema->AddField(
-                               schema->num_fields(),
-                               arrow::field("_last_updated_sequence_number", arrow::int64(), true)
-                                       ->WithMetadata(last_updated_sequence_number_metadata))
-                         .ValueOrDie();
+        schema =
+                schema->AddField(schema->num_fields(),
+                                 arrow::field("_last_updated_sequence_number", arrow::int64(), true)
+                                         ->WithMetadata(last_updated_sequence_number_metadata))
+                        .ValueOrDie();
         arrays.push_back(build_nullable_int64_array(last_updated_sequence_numbers));
     }
     auto table = arrow::Table::Make(schema, arrays);
@@ -1189,6 +1188,172 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
 void apply_final_conjuncts(Block* block, const VExprContextSPtrs& conjuncts) {
     const auto status = VExprContext::filter_block(conjuncts, block, block->columns());
     ASSERT_TRUE(status.ok()) << status;
+}
+
+struct FakeFileReaderState {
+    int init_count = 0;
+    int open_count = 0;
+    int close_count = 0;
+    std::shared_ptr<FileScanRequest> last_request;
+};
+
+class FakeFileReader final : public FileReader {
+public:
+    FakeFileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
+                   std::unique_ptr<io::FileDescription>& file_description,
+                   std::vector<ColumnDefinition> schema, std::shared_ptr<FakeFileReaderState> state)
+            : FileReader(system_properties, file_description, nullptr, nullptr),
+              _schema(std::move(schema)),
+              _state(std::move(state)) {}
+
+    Status init(RuntimeState* state) override {
+        (void)state;
+        ++_state->init_count;
+        _eof = false;
+        return Status::OK();
+    }
+
+    Status get_schema(std::vector<ColumnDefinition>* file_schema) const override {
+        DORIS_CHECK(file_schema != nullptr);
+        *file_schema = _schema;
+        return Status::OK();
+    }
+
+    Status open(std::shared_ptr<FileScanRequest> request) override {
+        RETURN_IF_ERROR(FileReader::open(std::move(request)));
+        _state->last_request = _request;
+        ++_state->open_count;
+        _returned_batch = false;
+        return Status::OK();
+    }
+
+    Status get_block(Block* file_block, size_t* rows, bool* eof) override {
+        DORIS_CHECK(file_block != nullptr);
+        DORIS_CHECK(rows != nullptr);
+        DORIS_CHECK(eof != nullptr);
+        DORIS_CHECK(_request != nullptr);
+        if (_returned_batch) {
+            *rows = 0;
+            *eof = true;
+            return Status::OK();
+        }
+
+        for (const auto& [file_column_id, block_position] : _request->local_positions) {
+            if (file_column_id == LocalColumnId(0)) {
+                auto column = ColumnInt32::create();
+                column->insert_value(1);
+                column->insert_value(2);
+                file_block->replace_by_position(block_position.value(), std::move(column));
+            } else if (file_column_id == LocalColumnId(1)) {
+                auto column = ColumnString::create();
+                column->insert_data("one", 3);
+                column->insert_data("two", 3);
+                file_block->replace_by_position(block_position.value(), std::move(column));
+            } else {
+                return Status::InvalidArgument("Unexpected fake file column id {}",
+                                               file_column_id.value());
+            }
+        }
+
+        _returned_batch = true;
+        *rows = 2;
+        *eof = true;
+        return Status::OK();
+    }
+
+    Status close() override {
+        ++_state->close_count;
+        _request.reset();
+        _eof = true;
+        return Status::OK();
+    }
+
+private:
+    std::vector<ColumnDefinition> _schema;
+    std::shared_ptr<FakeFileReaderState> _state;
+    bool _returned_batch = false;
+};
+
+class FakeTableReader final : public TableReader {
+public:
+    FakeTableReader(std::vector<ColumnDefinition> file_schema,
+                    std::shared_ptr<FakeFileReaderState> state)
+            : _file_schema(std::move(file_schema)), _state(std::move(state)) {}
+
+protected:
+    Status create_file_reader(std::unique_ptr<FileReader>* reader) override {
+        DORIS_CHECK(reader != nullptr);
+        auto system_properties = std::make_shared<io::FileSystemProperties>();
+        system_properties->system_type = TFileType::FILE_LOCAL;
+        auto file_description = std::make_unique<io::FileDescription>();
+        file_description->path = "fake-table-reader-input";
+        *reader = std::make_unique<FakeFileReader>(system_properties, file_description,
+                                                   _file_schema, _state);
+        return Status::OK();
+    }
+
+private:
+    std::vector<ColumnDefinition> _file_schema;
+    std::shared_ptr<FakeFileReaderState> _state;
+};
+
+TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    file_schema.push_back(make_file_column(1, "value", std::make_shared<DataTypeString>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .allow_missing_columns = true,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_FALSE(eos);
+
+    ASSERT_EQ(fake_state->init_count, 1);
+    ASSERT_EQ(fake_state->open_count, 1);
+    ASSERT_EQ(fake_state->close_count, 1);
+    ASSERT_NE(fake_state->last_request, nullptr);
+    ASSERT_EQ(fake_state->last_request->local_positions.at(LocalColumnId(1)).value(), 0);
+    ASSERT_EQ(fake_state->last_request->local_positions.at(LocalColumnId(0)).value(), 1);
+    EXPECT_EQ(projection_ids(fake_state->last_request->non_predicate_columns),
+              std::vector<int32_t>({1, 0}));
+    EXPECT_TRUE(fake_state->last_request->predicate_columns.empty());
+
+    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(value_column.get_data_at(0).to_string(), "one");
+    EXPECT_EQ(value_column.get_data_at(1).to_string(), "two");
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 2);
+
+    block = build_table_block(projected_columns);
+    eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
 }
 
 TEST(TableReaderTest, ReopenSplitAfterClose) {
@@ -3101,8 +3266,7 @@ TEST(TableReaderTest, IcebergRowLineageUsesPhysicalRowIdAndFillsNulls) {
     std::filesystem::create_directories(test_dir);
 
     const auto file_path = (test_dir / "split.parquet").string();
-    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3},
-                                           {7000, std::nullopt, 7002},
+    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3}, {7000, std::nullopt, 7002},
                                            {80, std::nullopt, 82});
 
     std::vector<ColumnDefinition> projected_columns;
@@ -3153,8 +3317,7 @@ TEST(TableReaderTest, IcebergPhysicalRowIdKeepsNullsWithoutFirstRowId) {
     std::filesystem::create_directories(test_dir);
 
     const auto file_path = (test_dir / "split.parquet").string();
-    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3},
-                                           {7000, std::nullopt, 7002},
+    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3}, {7000, std::nullopt, 7002},
                                            {80, std::nullopt, 82});
 
     std::vector<ColumnDefinition> projected_columns;
@@ -3259,8 +3422,7 @@ TEST(TableReaderTest, IcebergRowIdPredicateFiltersAfterRowLineageMaterialization
     std::filesystem::create_directories(test_dir);
 
     const auto file_path = (test_dir / "split.parquet").string();
-    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3},
-                                           {7000, std::nullopt, 7002},
+    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3}, {7000, std::nullopt, 7002},
                                            {80, std::nullopt, 82});
 
     std::vector<ColumnDefinition> projected_columns;
@@ -3273,8 +3435,8 @@ TEST(TableReaderTest, IcebergRowIdPredicateFiltersAfterRowLineageMaterialization
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     VExprContextSPtrs conjuncts = {prepared_conjunct(
-            &state, table_nullable_int64_binary_predicate("eq", TExprOpcode::EQ, 0, 0, "_row_id",
-                                                          1001))};
+            &state,
+            table_nullable_int64_binary_predicate("eq", TExprOpcode::EQ, 0, 0, "_row_id", 1001))};
     doris::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -3316,8 +3478,7 @@ TEST(TableReaderTest, IcebergLastUpdatedSequencePredicateFiltersAfterMaterializa
     std::filesystem::create_directories(test_dir);
 
     const auto file_path = (test_dir / "split.parquet").string();
-    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3},
-                                           {7000, std::nullopt, 7002},
+    write_iceberg_row_lineage_parquet_file(file_path, {1, 2, 3}, {7000, std::nullopt, 7002},
                                            {80, std::nullopt, 82});
 
     std::vector<ColumnDefinition> projected_columns;
@@ -4460,10 +4621,8 @@ TEST(TableColumnMapperTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) {
     const auto int_type = std::make_shared<DataTypeInt32>();
 
     const auto table_id = make_table_column(0, "id", int_type);
-    auto table_struct =
-            make_table_column(10, "s",
-                              std::make_shared<DataTypeStruct>(DataTypes {int_type},
-                                                               Strings {"c"}));
+    auto table_struct = make_table_column(
+            10, "s", std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"c"}));
 
     const auto file_id = make_file_column(0, "id", int_type);
     auto file_struct = make_file_column(

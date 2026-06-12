@@ -239,7 +239,7 @@ protected:
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos);
-    Status create_file_reader(std::unique_ptr<FileReader>* reader);
+    virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
         DORIS_CHECK(file_schema != nullptr);

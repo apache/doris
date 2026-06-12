@@ -554,9 +554,9 @@ Status TableReader::create_next_reader(bool* eos) {
 Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(reader != nullptr);
     if (_format == FileFormat::PARQUET) {
-        _data_reader.reader = std::make_unique<parquet::ParquetReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context);
+        *reader = std::make_unique<parquet::ParquetReader>(_system_properties,
+                                                           _current_task->data_file, _io_ctx,
+                                                           _scanner_profile, _global_rowid_context);
         return Status::OK();
     }
     return Status::NotSupported("TableReader does not support file format {}",
