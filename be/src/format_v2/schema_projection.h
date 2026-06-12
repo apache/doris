@@ -17,26 +17,40 @@
 
 #pragma once
 
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "common/status.h"
-#include "core/data_type/data_type.h"
 #include "format_v2/file_reader.h"
 
 namespace doris::format {
 
-Status rebuild_projected_type(const DataTypePtr& original_type,
-                              const std::vector<DataTypePtr>& child_types,
-                              const std::vector<std::string>& child_names,
-                              DataTypePtr* projected_type);
-
-// Build the file-local column definition after applying a LocalColumnIndex projection.
+// Build a projected file-local semantic schema node from a full schema node and a nested
+// LocalColumnIndex projection.
 //
-// The projection is matched by ColumnDefinition::file_local_id(), not by vector ordinal. This keeps
-// nested schema evolution semantics in the common helper and lets callers use the same projection
-// tree for type rebuilding and file block layout.
+// This module is deliberately about semantic ColumnDefinition trees, not physical file-format
+// trees. FileReader::get_schema() returns file-local columns after type conversion to Doris
+// DataType, and their children must follow Doris semantics:
+//
+//   STRUCT children = fields
+//   ARRAY children = [element]
+//   MAP children = [key, value]
+//
+// Format-specific wrappers, such as Parquet MAP key_value/entry nodes, are intentionally hidden
+// from this API. A format reader that needs those wrappers for its physical reader tree should
+// translate the semantic projection back to its physical layout internally.
+//
+// The function does three things:
+// - Copies `field` metadata to `projected_field`.
+// - Recursively prunes children according to `projection.children`, matching children by
+//   ColumnDefinition::file_local_id() rather than vector ordinal. The root projection id is not
+//   interpreted here because the caller has already selected `field`.
+// - Rebuilds the node DataType from the projected semantic children so the returned definition is
+//   self-consistent. STRUCT uses projected child names/types, ARRAY uses the projected element
+//   type, and MAP preserves the original key type while rebuilding the projected value type.
+//
+// A full projection copies `field` unchanged. Partial MAP projection is intentionally limited to
+// the value child. MAP is materialized as offsets + keys + values, so the reader must still read
+// the complete key stream to build entry shape and offsets. The projected DataTypeMap keeps the
+// original key type and only rebuilds the value type from the projected value child; key-only or
+// key-pruned MAP projections are rejected.
 Status project_column_definition(const ColumnDefinition& field, const LocalColumnIndex& projection,
                                  ColumnDefinition* projected_field);
 

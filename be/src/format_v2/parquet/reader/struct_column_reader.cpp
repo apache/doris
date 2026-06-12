@@ -29,23 +29,19 @@
 #include "format_v2/parquet/reader/scalar_column_reader.h"
 
 namespace doris::parquet {
-namespace {
-
-ParquetColumnReader* struct_shape_source_reader(const StructColumnReader& reader) {
-    for (size_t child_idx = 0; child_idx < reader.child_count(); ++child_idx) {
-        auto* child_reader = reader.child_reader(child_idx);
+ParquetColumnReader* StructColumnReader::shape_source_reader() const {
+    for (const auto& child : _children) {
+        auto* child_reader = child.get();
         DORIS_CHECK(child_reader != nullptr);
         if (!child_reader->is_or_has_repeated_child()) {
             return child_reader;
         }
     }
-    if (reader.child_count() == 0) {
+    if (_children.empty()) {
         return nullptr;
     }
-    return reader.child_reader(0);
+    return _children[0].get();
 }
-
-} // namespace
 
 Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     RETURN_IF_ERROR(load_nested_batch(rows));
@@ -91,7 +87,7 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     auto* struct_column = struct_column_from_output(column);
     DORIS_CHECK(struct_column != nullptr);
     auto* parent_null_map = null_map_from_nullable_output(column);
-    auto* shape_reader = struct_shape_source_reader(*this);
+    auto* shape_reader = shape_source_reader();
     DORIS_CHECK(shape_reader != nullptr);
     const auto& def_levels = shape_reader->nested_definition_levels();
     const auto& rep_levels = shape_reader->nested_repetition_levels();
@@ -203,25 +199,25 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
 }
 
 const std::vector<int16_t>& StructColumnReader::nested_definition_levels() const {
-    auto* shape_reader = struct_shape_source_reader(*this);
+    auto* shape_reader = shape_source_reader();
     DORIS_CHECK(shape_reader != nullptr);
     return shape_reader->nested_definition_levels();
 }
 
 const std::vector<int16_t>& StructColumnReader::nested_repetition_levels() const {
-    auto* shape_reader = struct_shape_source_reader(*this);
+    auto* shape_reader = shape_source_reader();
     DORIS_CHECK(shape_reader != nullptr);
     return shape_reader->nested_repetition_levels();
 }
 
 int64_t StructColumnReader::nested_levels_written() const {
-    auto* shape_reader = struct_shape_source_reader(*this);
+    auto* shape_reader = shape_source_reader();
     DORIS_CHECK(shape_reader != nullptr);
     return shape_reader->nested_levels_written();
 }
 
 bool StructColumnReader::is_or_has_repeated_child() const {
-    auto* shape_reader = struct_shape_source_reader(*this);
+    auto* shape_reader = shape_source_reader();
     return shape_reader != nullptr && shape_reader->is_or_has_repeated_child();
 }
 

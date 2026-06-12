@@ -46,8 +46,6 @@ public:
     const std::vector<int16_t>& nested_repetition_levels() const override;
     int64_t nested_levels_written() const override;
     bool is_or_has_repeated_child() const override;
-    ParquetColumnReader* key_reader() const { return _key_reader.get(); }
-    ParquetColumnReader* value_reader() const { return _value_reader.get(); }
 
 private:
     std::unique_ptr<ParquetColumnReader> _key_reader;

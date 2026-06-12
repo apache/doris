@@ -1968,20 +1968,15 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     const auto key_type = std::make_shared<DataTypeInt32>();
     const auto string_type = std::make_shared<DataTypeString>();
     const auto nullable_string_type = make_nullable(string_type);
-    auto key_child = make_table_column(0, "key", key_type);
     auto b_child = make_table_column(1, "b", nullable_string_type);
     auto value_type =
             std::make_shared<DataTypeStruct>(DataTypes {nullable_string_type}, Strings {"b"});
     auto nullable_value_type = make_nullable(value_type);
     auto value_child = make_table_column(1, "value", nullable_value_type);
     value_child.children = {b_child};
-    auto entry_type = std::make_shared<DataTypeStruct>(DataTypes {key_type, nullable_value_type},
-                                                       Strings {"key", "value"});
-    auto entry_child = make_table_column(0, "key_value", entry_type);
-    entry_child.children = {key_child, value_child};
     auto map_column = make_table_column(
             100, "kv", std::make_shared<DataTypeMap>(key_type, nullable_value_type));
-    map_column.children = {entry_child};
+    map_column.children = {value_child};
     std::vector<ColumnDefinition> projected_columns = {map_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2046,7 +2041,6 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     const auto nullable_int_type = make_nullable(int_type);
     const auto string_type = std::make_shared<DataTypeString>();
     const auto nullable_string_type = make_nullable(string_type);
-    auto key_child = make_table_column(0, "key", key_type);
     auto b_child = make_table_column(1, "renamed_b", nullable_string_type);
     b_child.name_mapping = {"b"};
     auto missing_child = make_table_column(99, "missing_child", string_type);
@@ -2058,13 +2052,9 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     auto nullable_value_type = make_nullable(value_type);
     auto value_child = make_table_column(1, "value", nullable_value_type);
     value_child.children = {b_child, missing_child, a_child};
-    auto entry_type = std::make_shared<DataTypeStruct>(DataTypes {key_type, nullable_value_type},
-                                                       Strings {"key", "value"});
-    auto entry_child = make_table_column(0, "key_value", entry_type);
-    entry_child.children = {key_child, value_child};
     auto map_column = make_table_column(
             100, "kv", std::make_shared<DataTypeMap>(key_type, nullable_value_type));
-    map_column.children = {entry_child};
+    map_column.children = {value_child};
     std::vector<ColumnDefinition> projected_columns = {map_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2163,16 +2153,13 @@ TEST(TableReaderTest, MaterializeMapKeyStructReordersRenamedChildren) {
     value_mapping.file_type = int_type;
     value_mapping.is_trivial = true;
 
-    ColumnMapping entry_mapping;
-    entry_mapping.child_mappings = {key_mapping, value_mapping};
-
     ColumnMapping map_mapping;
     map_mapping.table_column_name = "kv";
     map_mapping.file_column_name = "kv";
     map_mapping.table_type = table_map_type;
     map_mapping.file_type = file_map_type;
     map_mapping.is_trivial = false;
-    map_mapping.child_mappings = {entry_mapping};
+    map_mapping.child_mappings = {key_mapping, value_mapping};
 
     auto a_keys = ColumnInt32::create();
     a_keys->insert_value(10);

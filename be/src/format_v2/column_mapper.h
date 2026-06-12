@@ -130,8 +130,8 @@ struct ColumnMapping {
     // and to localize nested filters that reference children not present in the output projection.
     DataTypePtr original_file_type;
     std::vector<ColumnDefinition> original_file_children;
-    // File children after applying the scan projection. The order follows the physical file schema,
-    // not table child order. TableReader uses this to map table-output children back to the
+    // File children after applying the scan projection. The order follows the file-local semantic
+    // schema, not table child order. TableReader uses this to map table-output children back to the
     // file-local block layout when projection, predicate-only children, and schema evolution mix.
     std::vector<ColumnDefinition> projected_file_children;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
