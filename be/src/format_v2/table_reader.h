@@ -43,8 +43,10 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "exec/common/stringop_substring.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
@@ -551,11 +553,99 @@ protected:
             idx++;
         }
         RETURN_IF_ERROR(materialize_virtual_columns(block));
+        // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
+        RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
         return Status::OK();
     }
 
     // Materialize virtual columns in table block, such as _row_id and _last_updated_sequence_number in Iceberg. This is called after finalize_chunk, so the virtual column can be referenced in finalize_expr.
     virtual Status materialize_virtual_columns(Block* table_block) { return Status::OK(); }
+
+    Status _truncate_char_or_varchar_columns(Block* block) {
+        DORIS_CHECK(block != nullptr);
+        if (_runtime_state == nullptr ||
+            !_runtime_state->query_options().truncate_char_or_varchar_columns) {
+            return Status::OK();
+        }
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
+        for (size_t idx = 0; idx < _data_reader.column_mapper.mappings().size(); ++idx) {
+            const auto& mapping = _data_reader.column_mapper.mappings()[idx];
+            if (!_should_truncate_char_or_varchar_column(mapping)) {
+                continue;
+            }
+            const auto target_len =
+                    assert_cast<const DataTypeString*>(remove_nullable(mapping.table_type).get())
+                            ->len();
+            _truncate_char_or_varchar_column(block, idx, target_len);
+        }
+        return Status::OK();
+    }
+
+    // Only truncate CHAR/VARCHAR columns when target length is smaller than file schema, eg: varchar(10) vs varchar(20),
+    // or file schema doesn't have length limit but table schema has. eg: varchar(10) vs string
+    static bool _should_truncate_char_or_varchar_column(const ColumnMapping& mapping) {
+        if (mapping.table_type == nullptr) {
+            return false;
+        }
+        const auto table_type = remove_nullable(mapping.table_type);
+        const auto primitive_type = table_type->get_primitive_type();
+        if (primitive_type != TYPE_VARCHAR && primitive_type != TYPE_CHAR) {
+            return false;
+        }
+        const auto target_len = assert_cast<const DataTypeString*>(table_type.get())->len();
+        if (target_len <= 0) {
+            return false;
+        }
+        if (mapping.file_type == nullptr) {
+            return true;
+        }
+        const auto file_type = remove_nullable(mapping.file_type);
+        DORIS_CHECK(file_type != nullptr);
+        int file_len = -1;
+        if (file_type->get_primitive_type() == TYPE_VARCHAR ||
+            file_type->get_primitive_type() == TYPE_CHAR ||
+            file_type->get_primitive_type() == TYPE_STRING) {
+            file_len = assert_cast<const DataTypeString*>(file_type.get())->len();
+        }
+
+        return file_len < 0 || target_len < file_len;
+    }
+
+    // VARCHAR substring(VARCHAR str, INT pos[, INT len])
+    static void _truncate_char_or_varchar_column(Block* block, size_t idx, int len) {
+        DORIS_CHECK(block != nullptr);
+        auto int_type = std::make_shared<DataTypeInt32>();
+        const auto num_columns_without_result = cast_set<uint32_t>(block->columns());
+        auto& target = block->get_by_position(idx);
+        const bool is_nullable = target.type->is_nullable();
+        ColumnPtr input_column = target.column;
+        ColumnPtr null_map_column;
+        if (is_nullable) {
+            const auto* nullable_column = assert_cast<const ColumnNullable*>(target.column.get());
+            input_column = nullable_column->get_nested_column_ptr();
+            null_map_column = nullable_column->get_null_map_column_ptr();
+        }
+        block->replace_by_position(idx, std::move(input_column));
+        block->insert({int_type->create_column_const(block->rows(), to_field<TYPE_INT>(1)),
+                       int_type, "const 1"});
+        block->insert({int_type->create_column_const(block->rows(), to_field<TYPE_INT>(len)),
+                       int_type, "const len"});
+        block->insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+
+        ColumnNumbers temp_arguments(3);
+        temp_arguments[0] = cast_set<uint32_t>(idx);
+        temp_arguments[1] = num_columns_without_result;
+        temp_arguments[2] = num_columns_without_result + 1;
+        const uint32_t result_column_id = num_columns_without_result + 2;
+        SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows());
+
+        ColumnPtr result_column = block->get_by_position(result_column_id).column;
+        if (is_nullable) {
+            result_column = ColumnNullable::create(std::move(result_column), null_map_column);
+        }
+        block->replace_by_position(idx, std::move(result_column));
+        block->erase_tail(num_columns_without_result);
+    }
 
     Status _try_materialize_aggregate_pushdown_rows(Block* block, bool* pushed_down) {
         DORIS_CHECK(block != nullptr);
