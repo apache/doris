@@ -276,12 +276,10 @@ public:
         auto& res_data = output->get_data();
         DCHECK(res_data.empty())
                 << "filter_by_selector requires the destination column to be empty";
-        res_data.reserve(sel_size);
-        auto* dst = reinterpret_cast<value_type*>(res_data.get_end_ptr());
-        for (size_t i = 0; i < sel_size; i++) {
-            dst[i] = data[sel[i]];
-        }
         res_data.resize(sel_size);
+        for (size_t i = 0; i < sel_size; i++) {
+            res_data[i] = data[sel[i]];
+        }
         return Status::OK();
     }
 
