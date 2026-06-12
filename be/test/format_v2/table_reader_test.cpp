@@ -53,7 +53,8 @@
 #include "exprs/vexpr.h"
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
-#include "format_v2/expr/slot_ref.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -196,17 +197,17 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionKeepsFileChildOrder) {
 }
 
 VExprSPtr table_int32_slot_ref(int slot_id, int column_id, const std::string& column_name) {
-    return TableSlotRef::create_shared(slot_id, column_id, slot_id,
+    return VSlotRef::create_shared(slot_id, column_id, slot_id,
                                        std::make_shared<DataTypeInt32>(), column_name);
 }
 
 VExprSPtr table_int32_literal(int32_t value) {
-    return TableLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+    return VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
                                        Field::create_field<TYPE_INT>(value));
 }
 
 VExprSPtr table_int64_literal(int64_t value) {
-    return TableLiteral::create_shared(std::make_shared<DataTypeInt64>(),
+    return VLiteral::create_shared(std::make_shared<DataTypeInt64>(),
                                        Field::create_field<TYPE_BIGINT>(value));
 }
 
@@ -275,7 +276,7 @@ VExprSPtr table_nullable_int64_binary_predicate(const std::string& function_name
     auto expr = table_function_expr(function_name, std::make_shared<DataTypeUInt8>(),
                                     {nullable_int64_type, int64_type}, TExprNodeType::BINARY_PRED,
                                     opcode);
-    expr->add_child(TableSlotRef::create_shared(slot_id, column_id, slot_id, nullable_int64_type,
+    expr->add_child(VSlotRef::create_shared(slot_id, column_id, slot_id, nullable_int64_type,
                                                 column_name));
     expr->add_child(table_int64_literal(value));
     return expr;
@@ -289,9 +290,9 @@ VExprSPtr table_struct_child_int32_greater_than_expr(int slot_id, int column_id,
     const auto string_type = std::make_shared<DataTypeString>();
     auto child_expr = table_function_expr("struct_element", int_type, {struct_type, string_type});
     child_expr->add_child(
-            TableSlotRef::create_shared(slot_id, column_id, slot_id, struct_type, column_name));
+            VSlotRef::create_shared(slot_id, column_id, slot_id, struct_type, column_name));
     child_expr->add_child(
-            TableLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(child_name)));
+            VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(child_name)));
 
     auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
                                     TExprNodeType::BINARY_PRED, TExprOpcode::GT);
@@ -2490,7 +2491,7 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({1}));
     ASSERT_EQ(file_request.conjuncts.size(), 1);
-    const auto* localized_slot = assert_cast<const TableSlotRef*>(
+    const auto* localized_slot = assert_cast<const VSlotRef*>(
             file_request.conjuncts[0]->root()->children()[0].get());
     EXPECT_EQ(localized_slot->slot_id(), 0);
     EXPECT_EQ(localized_slot->column_id(), 1);
@@ -2638,7 +2639,7 @@ TEST(TableReaderTest, DefaultExprResultMatchesNullableTableType) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     auto missing_column = make_table_column(99, "c_new", make_nullable(int_type));
     missing_column.default_expr = VExprContext::create_shared(
-            TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(42)));
+            VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(42)));
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(std::move(missing_column));
 

@@ -509,7 +509,7 @@ static VExprSPtr original_table_literal_for_nested_predicate(const VExprSPtr& li
     if (rewritten_literal == nullptr) {
         return literal_expr;
     }
-    return TableLiteral::create_shared(rewritten_literal->original_type(),
+    return VLiteral::create_shared(rewritten_literal->original_type(),
                                        rewritten_literal->original_field());
 }
 
@@ -800,7 +800,7 @@ static bool extract_nested_null_filter(const VExprSPtr& expr,
 
 SplitLocalFileLiteral::SplitLocalFileLiteral(const DataTypePtr& file_type, const Field& file_field,
                                              DataTypePtr original_type, Field original_field)
-        : TableLiteral(file_type, file_field),
+        : VLiteral(file_type, file_field),
           _original_type(std::move(original_type)),
           _original_field(std::move(original_field)) {}
 

@@ -51,7 +51,6 @@
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/expr/slot_ref.h"
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/iceberg_reader.h"
@@ -439,14 +438,14 @@ Status rewrite_slot_refs_to_global_index(
         if (global_index_it == slot_id_to_global_index.end()) {
             DORIS_CHECK(slot_ref->slot_id() >= 0);
             const auto global_index = format::GlobalIndex(cast_set<size_t>(slot_ref->slot_id()));
-            *expr = TableSlotRef::create_shared(cast_set<int>(global_index.value()),
+            *expr = VSlotRef::create_shared(cast_set<int>(global_index.value()),
                                                 cast_set<int>(global_index.value()), -1,
                                                 slot_ref->data_type(), slot_ref->column_name());
             RETURN_IF_ERROR(expr->get()->prepare(nullptr, RowDescriptor(), nullptr));
             return Status::OK();
         }
         const auto global_index = global_index_it->second;
-        *expr = TableSlotRef::create_shared(cast_set<int>(global_index.value()),
+        *expr = VSlotRef::create_shared(cast_set<int>(global_index.value()),
                                             cast_set<int>(global_index.value()), -1,
                                             slot_ref->data_type(), slot_ref->column_name());
         RETURN_IF_ERROR(expr->get()->prepare(nullptr, RowDescriptor(), nullptr));

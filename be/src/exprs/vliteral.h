@@ -46,6 +46,13 @@ public:
         }
     }
 
+    VLiteral(const DataTypePtr& type, const Field& field) : VExpr(type, false) {
+        _data_type = type;
+        _column_ptr = _data_type->create_column_const(1, field);
+        _node_type = TExprNodeType::LITERAL;
+        _expr_name = _data_type->get_name();
+    }
+
 #ifdef BE_TEST
     VLiteral() = default;
     MOCK_FUNCTION std::string value() const;
@@ -74,10 +81,7 @@ public:
         DORIS_CHECK(cloned_expr != nullptr);
         Field field;
         _column_ptr->get(0, field);
-        auto node = create_texpr_node_from(field, remove_nullable(_data_type)->get_primitive_type(),
-                                           static_cast<int>(_data_type->get_precision()),
-                                           static_cast<int>(_data_type->get_scale()));
-        *cloned_expr = VLiteral::create_shared(node);
+        *cloned_expr = VLiteral::create_shared(_data_type, field);
         return Status::OK();
     }
 

@@ -37,6 +37,8 @@ class VSlotRef : public VExpr {
 public:
     VSlotRef(const TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
+    VSlotRef(int slot_id, int column_id, int column_uniq_id, const DataTypePtr& type,
+             std::string column_name);
 #ifdef BE_TEST
     VSlotRef() = default;
     void set_slot_id(int slot_id) { _slot_id = slot_id; }
@@ -85,6 +87,7 @@ private:
     int _slot_id;
     int _column_id;
     int _column_uniq_id = -1;
+    std::string _owned_column_name;
     const std::string* _column_name = nullptr;
     const std::string _column_label;
 };

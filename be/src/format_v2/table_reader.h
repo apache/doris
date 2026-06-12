@@ -51,7 +51,7 @@
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
-#include "format_v2/expr/slot_ref.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
@@ -516,7 +516,7 @@ protected:
 
         auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
         const auto block_position = request->local_positions.at(row_position_column_id);
-        delete_predicate->add_child(TableSlotRef::create_shared(
+        delete_predicate->add_child(VSlotRef::create_shared(
                 cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
                 std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
 

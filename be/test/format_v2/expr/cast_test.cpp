@@ -33,8 +33,8 @@
 #include "core/field.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/expr/literal.h"
-#include "format_v2/expr/slot_ref.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/table_reader.h"
 #include "runtime/descriptors.h"
@@ -67,7 +67,7 @@ protected:
     static VExprContextSPtr create_context(const DataTypePtr& return_type,
                                            const DataTypePtr& child_type, int child_column_id = 0) {
         auto cast = Cast::create_shared(return_type);
-        cast->add_child(TableSlotRef::create_shared(child_column_id, child_column_id, -1,
+        cast->add_child(VSlotRef::create_shared(child_column_id, child_column_id, -1,
                                                     child_type, "source_column"));
         return VExprContext::create_shared(cast);
     }
@@ -205,7 +205,7 @@ TEST_F(CastTest, CastLiteralToString) {
     auto source_type = std::make_shared<DataTypeInt32>();
     auto return_type = std::make_shared<DataTypeString>();
     auto cast = Cast::create_shared(return_type);
-    cast->add_child(TableLiteral::create_shared(source_type, Field::create_field<TYPE_INT>(123)));
+    cast->add_child(VLiteral::create_shared(source_type, Field::create_field<TYPE_INT>(123)));
     auto context = VExprContext::create_shared(cast);
     Block block;
     block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3}));
@@ -251,8 +251,8 @@ TEST_F(CastTest, PrepareRejectsMissingChild) {
 TEST_F(CastTest, PrepareRejectsMultipleChildren) {
     auto child_type = std::make_shared<DataTypeInt32>();
     auto cast = Cast::create_shared(std::make_shared<DataTypeInt64>());
-    cast->add_child(TableSlotRef::create_shared(0, 0, -1, child_type, "c0"));
-    cast->add_child(TableSlotRef::create_shared(1, 1, -1, child_type, "c1"));
+    cast->add_child(VSlotRef::create_shared(0, 0, -1, child_type, "c0"));
+    cast->add_child(VSlotRef::create_shared(1, 1, -1, child_type, "c1"));
     VExprContext context(cast);
 
     auto status = context.prepare(&state, RowDescriptor());
@@ -336,7 +336,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     ASSERT_TRUE(status.ok()) << status;
 
     auto predicate = std::make_shared<Int64ChildGreaterThanExpr>(15);
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -353,7 +353,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_child->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
@@ -395,7 +395,7 @@ TEST_F(CastTest, ColumnMapperRepreparesRewrittenPreparedFilter) {
     ASSERT_TRUE(status.ok()) << status;
 
     auto cast = Cast::create_shared(table_column.type);
-    cast->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    cast->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(cast);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -413,7 +413,7 @@ TEST_F(CastTest, ColumnMapperRepreparesRewrittenPreparedFilter) {
     ASSERT_NE(dynamic_cast<const Cast*>(localized_expr.get()), nullptr);
     ASSERT_EQ(localized_expr->get_num_children(), 1);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_expr->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
 
@@ -443,9 +443,9 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     ASSERT_TRUE(status.ok()) << status;
 
     auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -459,7 +459,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_expr->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     const auto& localized_literal = localized_expr->children()[1];
@@ -504,8 +504,8 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
 
     auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::LT);
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -521,7 +521,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
     EXPECT_TRUE(localized_literal->is_literal());
     EXPECT_TRUE(localized_literal->data_type()->equals(*file_field.type));
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_expr->children()[1].get());
+            assert_cast<const VSlotRef*>(localized_expr->children()[1].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
 
@@ -562,11 +562,11 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     ASSERT_TRUE(status.ok()) << status;
 
     auto predicate = MockInExpr::create();
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(22)));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(22)));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -580,7 +580,7 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 3);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_expr->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_expr->children()[1]->is_literal());
@@ -607,10 +607,10 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
     ASSERT_TRUE(status.ok()) << status;
 
     auto predicate = MockInExpr::create();
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_STRING>("10")));
-    predicate->add_child(TableLiteral::create_shared(table_column.type,
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_STRING>("10")));
+    predicate->add_child(VLiteral::create_shared(table_column.type,
                                                      Field::create_field<TYPE_STRING>("bad")));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
@@ -627,7 +627,7 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_child->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
@@ -645,11 +645,11 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
     std::vector<format::ColumnDefinition> projected_columns {table_column};
 
     auto predicate = MockInExpr::create();
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(22)));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(22)));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -688,7 +688,7 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralAcrossSplits)
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
     ASSERT_EQ(bigint_localized_expr->get_num_children(), 3);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(bigint_localized_expr->children()[0].get());
+            assert_cast<const VSlotRef*>(bigint_localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*bigint_file_field.type));
     EXPECT_TRUE(bigint_localized_expr->children()[1]->is_literal());
@@ -715,8 +715,8 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
     ASSERT_TRUE(status.ok()) << status;
 
     auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
-    predicate->add_child(TableLiteral::create_shared(table_column.type,
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VLiteral::create_shared(table_column.type,
                                                      Field::create_field<TYPE_STRING>("bad")));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
@@ -733,7 +733,7 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_child->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
@@ -749,9 +749,9 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
     std::vector<format::ColumnDefinition> projected_columns {table_column};
 
     auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -788,7 +788,7 @@ TEST_F(CastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits) {
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
     ASSERT_EQ(bigint_localized_expr->get_num_children(), 2);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(bigint_localized_expr->children()[0].get());
+            assert_cast<const VSlotRef*>(bigint_localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*bigint_file_field.type));
     EXPECT_TRUE(bigint_localized_expr->children()[1]->is_literal());
@@ -813,11 +813,11 @@ TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
     ASSERT_TRUE(status.ok()) << status;
 
     auto explicit_cast = Cast::create_shared(std::make_shared<DataTypeString>());
-    explicit_cast->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    explicit_cast->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
     predicate->add_child(explicit_cast);
     predicate->add_child(
-            TableLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(15)));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -835,7 +835,7 @@ TEST_F(CastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredicate) {
     ASSERT_EQ(localized_cast->get_num_children(), 1);
     ASSERT_NE(dynamic_cast<const Cast*>(localized_cast->children()[0].get()), nullptr);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_cast->children()[0]->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_cast->children()[0]->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
 }
@@ -858,7 +858,7 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
     ASSERT_TRUE(status.ok()) << status;
 
     auto predicate = std::make_shared<Int64ChildGreaterThanExpr>(15);
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -879,7 +879,7 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
     const auto* localized_slot =
-            assert_cast<const TableSlotRef*>(localized_child->children()[0].get());
+            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
 }
 
@@ -891,7 +891,7 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     std::vector<format::ColumnDefinition> projected_columns {table_column};
 
     auto predicate = std::make_shared<Int64ChildGreaterThanExpr>(15);
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -929,7 +929,7 @@ TEST_F(CastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSplitType) {
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
     ASSERT_EQ(bigint_localized_expr->get_num_children(), 1);
     const auto& bigint_localized_child = bigint_localized_expr->children()[0];
-    const auto* localized_slot = assert_cast<const TableSlotRef*>(bigint_localized_child.get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(bigint_localized_child.get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*bigint_file_field.type));
 
@@ -967,7 +967,7 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, {file_field}).ok());
 
     auto predicate = std::make_shared<Int64ChildGreaterThanExpr>(15);
-    predicate->add_child(TableSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -975,7 +975,7 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     format::FileScanRequest first_request;
     ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &first_request, &state).ok());
     ASSERT_EQ(first_request.conjuncts.size(), 1);
-    const auto* first_slot = assert_cast<const TableSlotRef*>(
+    const auto* first_slot = assert_cast<const VSlotRef*>(
             first_request.conjuncts[0]->root()->children()[0].get());
     EXPECT_EQ(first_slot->slot_id(), 7);
     EXPECT_EQ(first_slot->column_id(), 0);
@@ -986,7 +986,7 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     second_request.non_predicate_columns.push_back(field_projection(9));
     ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &second_request, &state).ok());
     ASSERT_EQ(second_request.conjuncts.size(), 1);
-    const auto* second_slot = assert_cast<const TableSlotRef*>(
+    const auto* second_slot = assert_cast<const VSlotRef*>(
             second_request.conjuncts[0]->root()->children()[0].get());
     EXPECT_EQ(second_slot->slot_id(), 7);
     EXPECT_EQ(second_slot->column_id(), 1);

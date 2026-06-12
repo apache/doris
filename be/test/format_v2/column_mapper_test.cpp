@@ -38,8 +38,8 @@
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
-#include "format_v2/expr/literal.h"
-#include "format_v2/expr/slot_ref.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
@@ -229,11 +229,11 @@ private:
 };
 
 VExprSPtr table_slot(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
-    return TableSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
+    return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
 
 VExprSPtr literal(DataTypePtr type, Field value) {
-    return TableLiteral::create_shared(std::move(type), std::move(value));
+    return VLiteral::create_shared(std::move(type), std::move(value));
 }
 
 VExprSPtr struct_element(const VExprSPtr& parent, DataTypePtr child_type,

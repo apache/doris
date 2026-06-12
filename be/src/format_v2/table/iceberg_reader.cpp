@@ -37,7 +37,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
-#include "format_v2/expr/slot_ref.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
@@ -443,7 +443,7 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
             const auto field_column_id = format::LocalColumnId(field_it->file_local_id());
             _append_file_scan_column(request, field_column_id, &request->predicate_columns);
             const auto block_position = request->local_positions.at(field_column_id).value();
-            auto slot = TableSlotRef::create_shared(cast_set<int>(block_position),
+            auto slot = VSlotRef::create_shared(cast_set<int>(block_position),
                                                     cast_set<int>(block_position), -1,
                                                     field_it->type, field_it->name);
             if (field_it->type->equals(*filter.key_types[idx])) {

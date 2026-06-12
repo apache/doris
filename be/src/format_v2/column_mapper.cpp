@@ -40,10 +40,9 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
+#include "exprs/vliteral.h"
 #include "exprs/vtopn_pred.h"
 #include "format_v2/expr/cast.h"
-#include "format_v2/expr/literal.h"
-#include "format_v2/expr/slot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/schema_projection.h"
@@ -282,7 +281,7 @@ struct RewriteContext {
 static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
                                       const FileSlotRewriteInfo& rewrite_info,
                                       RewriteContext* rewrite_context) {
-    auto ref = TableSlotRef::create_shared(slot_ref.slot_id(),
+    auto ref = VSlotRef::create_shared(slot_ref.slot_id(),
                                            cast_set<int>(rewrite_info.block_position), -1,
                                            rewrite_info.file_type, rewrite_info.file_column_name);
     rewrite_context->add_created_expr(ref);
@@ -478,29 +477,14 @@ static Field literal_field_from_expr(const VExpr& literal_expr) {
 }
 
 // Table filter localization clones an already-prepared table expr and then rewrites it to file
-// slots. Slot refs and literals must be detached from the original FE/runtime descriptors before
-// the cloned tree is reused across splits; other nodes use their own VExpr::clone_node().
+// slots. Only split-local literals and BE cast nodes need table-reader-specific clone behavior;
+// plain slot refs and literals use their own VExpr::clone_node().
 static Status clone_table_expr_node(const VExpr& expr, VExprSPtr* cloned_expr) {
     DORIS_CHECK(cloned_expr != nullptr);
-    if (const auto* table_slot_ref = dynamic_cast<const TableSlotRef*>(&expr)) {
-        *cloned_expr = TableSlotRef::create_shared(table_slot_ref->slot_id(),
-                                                   table_slot_ref->column_id(),
-                                                   table_slot_ref->column_uniq_id(),
-                                                   table_slot_ref->data_type(),
-                                                   table_slot_ref->column_name());
-    } else if (const auto* vslot_ref = dynamic_cast<const VSlotRef*>(&expr)) {
-        *cloned_expr = TableSlotRef::create_shared(vslot_ref->slot_id(), vslot_ref->column_id(),
-                                                   vslot_ref->column_uniq_id(),
-                                                   vslot_ref->data_type(),
-                                                   vslot_ref->column_name());
-    } else if (const auto* split_literal = dynamic_cast<const SplitLocalFileLiteral*>(&expr)) {
+    if (const auto* split_literal = dynamic_cast<const SplitLocalFileLiteral*>(&expr)) {
         *cloned_expr = std::make_shared<SplitLocalFileLiteral>(
                 split_literal->data_type(), literal_field_from_expr(expr),
                 split_literal->original_type(), split_literal->original_field());
-    } else if (dynamic_cast<const TableLiteral*>(&expr) != nullptr) {
-        *cloned_expr = TableLiteral::create_shared(expr->data_type(), literal_field_from_expr(expr));
-    } else if (expr->is_literal()) {
-        *cloned_expr = TableLiteral::create_shared(expr->data_type(), literal_field_from_expr(expr));
     } else if (const auto* vcast_expr = dynamic_cast<const VCastExpr*>(&expr);
                vcast_expr != nullptr && vcast_expr->node_type() == TExprNodeType::CAST_EXPR) {
         *cloned_expr = Cast::create_shared(vcast_expr->data_type());
@@ -525,8 +509,8 @@ static VExprSPtr original_table_literal(const VExprSPtr& literal_expr,
     if (rewritten_literal == nullptr) {
         return literal_expr;
     }
-    auto literal = TableLiteral::create_shared(rewritten_literal->original_type(),
-                                               rewritten_literal->original_field());
+    auto literal = VLiteral::create_shared(rewritten_literal->original_type(),
+                                           rewritten_literal->original_field());
     if (rewrite_context != nullptr) {
         rewrite_context->add_created_expr(literal);
     }
@@ -1091,14 +1075,14 @@ static bool needs_complex_rematerialize(const ColumnMapping& mapping) {
 static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position) {
     DORIS_CHECK(mapping->file_local_id.has_value());
     if (mapping->is_trivial || needs_complex_rematerialize(*mapping)) {
-        mapping->projection = VExprContext::create_shared(TableSlotRef::create_shared(
+        mapping->projection = VExprContext::create_shared(VSlotRef::create_shared(
                 cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
                 mapping->file_type, mapping->file_column_name));
         return;
     }
 
     auto expr = Cast::create_shared(mapping->table_type);
-    expr->add_child(TableSlotRef::create_shared(cast_set<int>(block_position.value()),
+    expr->add_child(VSlotRef::create_shared(cast_set<int>(block_position.value()),
                                                 cast_set<int>(block_position.value()), -1,
                                                 mapping->file_type, mapping->file_column_name));
     mapping->projection = VExprContext::create_shared(expr);
@@ -1218,7 +1202,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     if (const auto* partition_value = find_partition_value(table_column, _partition_values);
         table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
-        _set_constant_mapping(mapping, VExprContext::create_shared(TableLiteral::create_shared(
+        _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
                                        mapping->table_type, *partition_value)));
     } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
                !table_column.is_partition_key && table_column.has_identifier_field_id()) {

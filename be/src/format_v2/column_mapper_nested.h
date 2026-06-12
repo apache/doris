@@ -26,9 +26,9 @@
 #include "core/data_type/data_type.h"
 #include "core/field.h"
 #include "exprs/vexpr_fwd.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/expr/literal.h"
 #include "format_v2/file_reader.h"
 
 namespace doris::format {
@@ -46,7 +46,7 @@ struct NestedStructPath {
 
 // A split-local literal produced by slot-literal predicate localization. This wrapper keeps the
 // original table literal so a cloned conjunct can be localized again for another split.
-class SplitLocalFileLiteral final : public TableLiteral {
+class SplitLocalFileLiteral final : public VLiteral {
 public:
     SplitLocalFileLiteral(const DataTypePtr& file_type, const Field& file_field,
                           DataTypePtr original_type, Field original_field);

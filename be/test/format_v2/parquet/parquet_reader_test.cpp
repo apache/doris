@@ -50,8 +50,8 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
-#include "format_v2/expr/literal.h"
-#include "format_v2/expr/slot_ref.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
@@ -176,7 +176,7 @@ VExprSPtr struct_element_expr(const VExprSPtr& parent, const DataTypePtr& child_
                               const std::string& child_name) {
     auto expr = std::make_shared<TestFunctionExpr>("struct_element", make_nullable(child_type));
     expr->add_child(parent);
-    expr->add_child(TableLiteral::create_shared(std::make_shared<DataTypeString>(),
+    expr->add_child(VLiteral::create_shared(std::make_shared<DataTypeString>(),
                                                 Field::create_field<TYPE_STRING>(child_name)));
     return expr;
 }
@@ -187,7 +187,7 @@ VExprSPtr in_predicate_expr(const VExprSPtr& probe_expr, const DataTypePtr& lite
                                                    TExprNodeType::IN_PRED);
     expr->add_child(probe_expr);
     for (const auto& value : values) {
-        expr->add_child(TableLiteral::create_shared(literal_type, value));
+        expr->add_child(VLiteral::create_shared(literal_type, value));
     }
     return expr;
 }
@@ -795,8 +795,8 @@ TEST(TableColumnMapperTest, MergesStructFilterOnlyChildIntoPredicateProjection) 
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     filter_expr->add_child(struct_element_expr(
-            TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "a"));
-    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+            VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "a"));
+    filter_expr->add_child(VLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -862,8 +862,8 @@ TEST(TableColumnMapperTest, MapsRenamedNestedStructPredicateByFieldId) {
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     filter_expr->add_child(struct_element_expr(
-            TableSlotRef::create_shared(0, 0, -1, table_column.type, "s"), id_type, "table_id"));
-    filter_expr->add_child(TableLiteral::create_shared(id_type, Field::create_field<TYPE_INT>(5)));
+            VSlotRef::create_shared(0, 0, -1, table_column.type, "s"), id_type, "table_id"));
+    filter_expr->add_child(VLiteral::create_shared(id_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -923,7 +923,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilter) {
     const auto full_table_struct_type =
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     auto filter_expr = in_predicate_expr(
-            struct_element_expr(TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
+            struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
                                 a_type, "a"),
             a_type, {Field::create_field<TYPE_INT>(5), Field::create_field<TYPE_INT>(7)});
     format::TableFilter table_filter {
@@ -981,9 +981,9 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterForReverseCompariso
             std::make_shared<DataTypeStruct>(DataTypes {a_type, b_type}, Strings {"a", "b"});
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "lt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::LT);
-    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    filter_expr->add_child(VLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     filter_expr->add_child(struct_element_expr(
-            TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "a"));
+            VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "a"));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -1041,11 +1041,11 @@ TEST(TableColumnMapperTest, BuildsNestedStructNullPredicateFilters) {
                                                           TExprNodeType::COMPOUND_PRED,
                                                           TExprOpcode::COMPOUND_AND);
     filter_expr->add_child(null_predicate_expr(
-            struct_element_expr(TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
+            struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
                                 a_type, "a"),
             true));
     filter_expr->add_child(null_predicate_expr(
-            struct_element_expr(TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
+            struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
                                 a_type, "a"),
             false));
     format::TableFilter table_filter {
@@ -1107,11 +1107,11 @@ TEST(TableColumnMapperTest, BuildsNestedStructPredicateFilterThroughSafeCast) {
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     filter_expr->add_child(cast_expr(
-            struct_element_expr(TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
+            struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
                                 file_a_type, "a"),
             table_a_type));
     filter_expr->add_child(
-            TableLiteral::create_shared(table_a_type, Field::create_field<TYPE_BIGINT>(5)));
+            VLiteral::create_shared(table_a_type, Field::create_field<TYPE_BIGINT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -1169,11 +1169,11 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedStructPredicateFilterThroughUnsafe
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     filter_expr->add_child(cast_expr(
-            struct_element_expr(TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
+            struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
                                 file_a_type, "a"),
             table_a_type));
     filter_expr->add_child(
-            TableLiteral::create_shared(table_a_type, Field::create_field<TYPE_INT>(5)));
+            VLiteral::create_shared(table_a_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -1241,7 +1241,7 @@ TEST(TableColumnMapperTest, BuildsNestedStructInListPredicateFilterForDeepPath) 
     table_column.children = {table_child};
 
     auto nested_id_expr = struct_element_expr(
-            struct_element_expr(TableSlotRef::create_shared(0, 0, -1, full_struct_type, "s"),
+            struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_struct_type, "s"),
                                 inner_type, "a"),
             id_type, "id");
     auto filter_expr =
@@ -1303,8 +1303,8 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterForMissingChild) {
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     filter_expr->add_child(struct_element_expr(
-            TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "missing"));
-    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+            VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "missing"));
+    filter_expr->add_child(VLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -1356,10 +1356,10 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterFromOr) {
     auto left = std::make_shared<TestFunctionExpr>("gt", std::make_shared<DataTypeUInt8>(),
                                                    TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     left->add_child(struct_element_expr(
-            TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "a"));
-    left->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+            VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"), a_type, "a"));
+    left->add_child(VLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     auto right = in_predicate_expr(
-            struct_element_expr(TableSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
+            struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
                                 a_type, "a"),
             a_type, {Field::create_field<TYPE_INT>(7)});
     auto filter_expr = std::make_shared<TestFunctionExpr>("or", std::make_shared<DataTypeUInt8>(),
@@ -1503,9 +1503,9 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedPredicateFilterThroughArrayWrapper
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     auto item_expr = struct_element_expr(
-            TableSlotRef::create_shared(0, 0, -1, table_column.type, "items"), item_type, "item");
+            VSlotRef::create_shared(0, 0, -1, table_column.type, "items"), item_type, "item");
     filter_expr->add_child(struct_element_expr(item_expr, a_type, "a"));
-    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    filter_expr->add_child(VLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -1589,12 +1589,12 @@ TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     auto full_entry_type = entry_field.type;
     auto entries_expr = struct_element_expr(
-            TableSlotRef::create_shared(
+            VSlotRef::create_shared(
                     0, 0, -1, std::make_shared<DataTypeMap>(key_type, full_value_type), "m"),
             full_entry_type, "entries");
     auto value_expr = struct_element_expr(entries_expr, full_value_type, "value");
     filter_expr->add_child(struct_element_expr(value_expr, a_type, "a"));
-    filter_expr->add_child(TableLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
+    filter_expr->add_child(VLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -2744,7 +2744,7 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
 
     static const std::vector<int64_t> deleted_rows {1, 3};
     auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
-    delete_predicate->add_child(TableSlotRef::create_shared(
+    delete_predicate->add_child(VSlotRef::create_shared(
             2, 2, -1, std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
 
     auto request = std::make_shared<format::FileScanRequest>();
@@ -2785,7 +2785,7 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
 
     static const std::vector<int64_t> deleted_rows {3};
     auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
-    delete_predicate->add_child(TableSlotRef::create_shared(
+    delete_predicate->add_child(VSlotRef::create_shared(
             2, 2, -1, std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
 
     auto request = std::make_shared<format::FileScanRequest>();

@@ -28,8 +28,8 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "core/field.h"
 #include "exprs/vexpr_fwd.h"
-#include "format_v2/expr/literal.h"
 #include "format_v2/file_reader.h"
 
 namespace doris {
