@@ -277,6 +277,11 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
         if (maintainType) {
             throw new IllegalStateException("streaming dispatch does not support maintainType");
         }
+        // Install the JsonReaderInternalAccess hook now, i.e. inside the caller's
+        // (single-threaded) static initialization window such as GsonUtils class init.
+        // The hook field is a plain non-volatile static, so installing it lazily on
+        // the first streaming read could in theory be invisible to other threads.
+        EnteredObjectJsonReader.ensureInternalAccessHookInstalled();
         this.streamingDispatch = true;
         return this;
     }
@@ -630,6 +635,13 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
                     gsonBuiltin.promoteNameToValue(reader);
                 }
             };
+        }
+
+        /**
+         * Triggers class initialization; the static block above installs the hook
+         * exactly once under the JVM class-init lock.
+         */
+        static void ensureInternalAccessHookInstalled() {
         }
 
         private final JsonReader delegate;

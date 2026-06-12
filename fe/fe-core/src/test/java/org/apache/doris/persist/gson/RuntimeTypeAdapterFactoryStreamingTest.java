@@ -113,6 +113,15 @@ public class RuntimeTypeAdapterFactoryStreamingTest {
     }
 
     @Test
+    public void testInternalAccessHookInstalledEagerly() {
+        // withStreamingDispatch() (already called by STREAMING_GSON setup above) must
+        // have replaced the gson built-in hook with the unwrapping version, instead of
+        // deferring the installation to the first streaming read
+        Assert.assertTrue(com.google.gson.internal.JsonReaderInternalAccess.INSTANCE.getClass().getName()
+                .startsWith("org.apache.doris"));
+    }
+
+    @Test
     public void testStreamingWriteByteIdenticalWithTree() {
         Circle circle = buildCircle();
         String treeJson = TREE_GSON.toJson(circle, Shape.class);
