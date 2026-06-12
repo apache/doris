@@ -95,10 +95,12 @@ class PostgresStreamReadITCase {
             List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
             CdcClientReadHarness.SnapshotResult snapshot = harness.readSnapshot(splits);
 
-            // snapshot streamed full-load
+            // snapshot streamed full-load — exactly the two seed rows, no more
+            assertThat(snapshot.records()).hasSize(2);
             Map<Integer, JsonNode> snap = indexById(snapshot.records());
-            assertThat(snap).containsKeys(1, 2);
+            assertThat(snap).containsOnlyKeys(1, 2);
             assertThat(snap.get(1).get("name").asText()).isEqualTo("alice");
+            assertThat(snap.get(2).get("name").asText()).isEqualTo("bob");
 
             // incremental insert/update/delete streamed from WAL
             try (Connection conn = connect();

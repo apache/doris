@@ -38,10 +38,17 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Verifies the from-to {@code writeRecords} path applies the configured server timezone when
- * deserializing MySQL temporal types: a TIMESTAMP (absolute instant, stored in UTC) read under two
- * different server timezones denotes the same instant, while a DATETIME (wall-clock, timezone-free)
- * reads identically regardless of the server timezone.
+ * Verifies MySQL temporal values round-trip through the from-to {@code writeRecords} path: a
+ * TIMESTAMP and a DATETIME both keep their inserted wall-clock regardless of the configured server
+ * timezone.
+ *
+ * <p>For TIMESTAMP this is non-trivial: Debezium reads it using the connection's server timezone
+ * (producing a different UTC instant per zone — e.g. 04:00Z under Asia/Shanghai vs 10:00Z under
+ * Europe/Berlin for the same stored 12:00), and the deserializer converts it back using the same
+ * server timezone, so the two offsets cancel and the materialized wall-clock is stable. If those two
+ * zones ever diverged (e.g. the deserializer's zone were lost and defaulted), the output would shift
+ * and these exact-string assertions would fail — which is the property under test. DATETIME is
+ * timezone-free to begin with.
  */
 @Testcontainers
 class MySqlTimezoneITCase {
@@ -50,6 +57,9 @@ class MySqlTimezoneITCase {
     private static final String ROOT_PASSWORD = "123456";
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final AtomicLong JOB_ID_SEQ = new AtomicLong(910_000);
+
+    /** The inserted wall-clock that must survive end to end under any server timezone. */
+    private static final String EXPECTED_WALL_CLOCK = "2023-06-15 12:00:00.0";
 
     @Container
     static final MySQLContainer<?> MYSQL =
@@ -72,22 +82,21 @@ class MySqlTimezoneITCase {
     }
 
     @Test
-    void timestampDenotesSameInstantAcrossServerTimezones() throws Exception {
-        // '2023-06-15 12:00:00' inserted at session tz UTC -> stored instant 2023-06-15T12:00:00Z.
-        String shanghai = readTimestampColumns("Asia/Shanghai");
-        String berlin = readTimestampColumns("Europe/Berlin");
+    void temporalValuesRoundTripToInsertedWallClockAcrossServerTimezones() throws Exception {
+        // '2023-06-15 12:00:00' inserted at session tz UTC, read back under two different reader
+        // server timezones.
+        JsonNode shanghai = MAPPER.readTree(readTimestampColumns("Asia/Shanghai"));
+        JsonNode berlin = MAPPER.readTree(readTimestampColumns("Europe/Berlin"));
 
-        JsonNode sh = MAPPER.readTree(shanghai);
-        JsonNode be = MAPPER.readTree(berlin);
+        // TIMESTAMP: read-zone and deserialize-zone cancel out, so the inserted wall-clock is
+        // preserved identically under both server timezones. A broken cancellation would shift one
+        // or both of these off 12:00:00.
+        assertThat(shanghai.get("c_timestamp").asText()).isEqualTo(EXPECTED_WALL_CLOCK);
+        assertThat(berlin.get("c_timestamp").asText()).isEqualTo(EXPECTED_WALL_CLOCK);
 
-        // DATETIME is wall-clock: identical text regardless of the reader's server timezone.
-        assertThat(sh.get("c_datetime").asText()).isEqualTo(be.get("c_datetime").asText());
-
-        // TIMESTAMP is an absolute instant: both readings denote the same moment in time.
-        java.time.Instant shInstant = parseInstant(sh.get("c_timestamp").asText());
-        java.time.Instant beInstant = parseInstant(be.get("c_timestamp").asText());
-        assertThat(shInstant).isEqualTo(beInstant);
-        assertThat(shInstant).isEqualTo(java.time.Instant.parse("2023-06-15T12:00:00Z"));
+        // DATETIME: timezone-free wall-clock, unaffected by the server timezone.
+        assertThat(shanghai.get("c_datetime").asText()).isEqualTo(EXPECTED_WALL_CLOCK);
+        assertThat(berlin.get("c_datetime").asText()).isEqualTo(EXPECTED_WALL_CLOCK);
     }
 
     private String readTimestampColumns(String serverTimezone) throws Exception {
@@ -133,16 +142,6 @@ class MySqlTimezoneITCase {
                     Statement st = conn.createStatement()) {
                 st.execute("DROP DATABASE IF EXISTS " + database);
             }
-        }
-    }
-
-    /** Accept both an ISO instant ("...Z"/offset) and a plain "yyyy-MM-dd HH:mm:ss" (taken as UTC). */
-    private java.time.Instant parseInstant(String value) {
-        String v = value.trim();
-        try {
-            return java.time.Instant.parse(v.contains(" ") ? v.replace(' ', 'T') + "Z" : v);
-        } catch (Exception e) {
-            return java.time.OffsetDateTime.parse(v).toInstant();
         }
     }
 
