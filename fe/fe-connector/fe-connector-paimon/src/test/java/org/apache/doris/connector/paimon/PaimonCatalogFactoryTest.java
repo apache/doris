@@ -419,6 +419,27 @@ public class PaimonCatalogFactoryTest {
     }
 
     @Test
+    public void buildHmsHiveConfKerberosSurvivesSimpleHdfsAuthPassthrough() {
+        HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(props(
+                "uri", "thrift://nn:9083",
+                "hive.metastore.authentication.type", "kerberos",
+                "hive.metastore.client.principal", "doris@REALM",
+                "hive.metastore.client.keytab", "/etc/doris.keytab",
+                "hadoop.security.authentication", "simple"));
+
+        // WHY (pre-existing MAJOR, found by the FIX-FECONF impl review): legacy runs initHadoopAuthenticator
+        // LAST, so a kerberized HMS forces hadoop.security.authentication=kerberos authoritatively even when
+        // the HDFS namenode uses simple auth (a real kerberized-HMS + simple-HDFS deployment). The connector's
+        // raw hadoop.* passthrough in applyStorageConfig re-copies the literal hadoop.security.authentication=
+        // simple, so if the kerberos block runs BEFORE the overlay the forced "kerberos" is clobbered back to
+        // "simple" while sasl.enabled stays "true" -> an inconsistent HiveConf that breaks the live GSSAPI
+        // handshake. The kerberos block must therefore run AFTER applyStorageConfig. MUTATION: kerberos block
+        // before the storage overlay -> hadoop.security.authentication clobbered to "simple" -> red.
+        Assertions.assertEquals("kerberos", hc.get("hadoop.security.authentication"));
+        Assertions.assertEquals("true", hc.get("hive.metastore.sasl.enabled"));
+    }
+
+    @Test
     public void buildHmsHiveConfSimpleDoesNotEnableSasl() {
         HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(props(
                 "uri", "thrift://nn:9083",
@@ -764,5 +785,261 @@ public class PaimonCatalogFactoryTest {
         // the 2-arg-with-empty-map -> red.
         Assertions.assertEquals("thrift://nn:9083", hc.get("hive.metastore.uris"));
         Assertions.assertEquals("10", hc.get("hive.metastore.client.socket.timeout"));
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-FECONF-STORAGE-PARITY — S3 endpoint-from-region + divergent tuning defaults + path-style
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHadoopConfigurationDerivesS3EndpointFromRegion() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "s3.access_key", "ak",
+                "s3.secret_key", "sk",
+                "s3.region", "us-west-2"));
+
+        // WHY (user-approved parity, same defect class as the OSS P8-1 fix): a region-only AWS S3 catalog
+        // (no explicit endpoint) must still derive an endpoint so the FE Paimon FileIO can resolve it; legacy
+        // S3Properties.getEndpointFromRegion returns https://s3.<region>.amazonaws.com. MUTATION: dropping the
+        // derivation leaves fs.s3a.endpoint null while fs.s3a.endpoint.region is set -> red.
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("us-west-2", conf.get("fs.s3a.endpoint.region"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationEmitsS3TuningDefaults() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "s3.endpoint", "s3.amazonaws.com",
+                "s3.region", "us-east-1"));
+
+        // WHY (BLOCKER-class parity, caught only by the completeness critic): legacy appendS3HdfsProperties
+        // ALWAYS emits the 4 tuning keys, and the AWS-S3 field DEFAULTS are 50/3000/1000 (S3Properties),
+        // NOT the 100/10000/10000 the object stores use. A single shared default would silently mis-tune
+        // every AWS S3 paimon catalog. MUTATION: emitting no tuning keys (today) or the 100/10000/10000
+        // object-store values for the S3 path -> red.
+        Assertions.assertEquals("50", conf.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("3000", conf.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("1000", conf.get("fs.s3a.connection.timeout"));
+        Assertions.assertEquals("false", conf.get("fs.s3a.path.style.access"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationEmitsS3PathStyleFromAlias() {
+        Configuration pathStyle = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "s3.endpoint", "minio:9000",
+                "s3.region", "us-east-1",
+                "use_path_style", "true"));
+        Configuration s3Alias = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "s3.endpoint", "minio:9000",
+                "s3.region", "us-east-1",
+                "s3.path-style-access", "true"));
+
+        // WHY (P8-2/P9-3, MinIO/path-style): fs.s3a.path.style.access must be derived from either the
+        // use_path_style or s3.path-style-access alias; before the fix it was never emitted, so a MinIO /
+        // path-style bucket was hit virtual-hosted-style and failed. MUTATION: not reading the alias (always
+        // false) -> red.
+        Assertions.assertEquals("true", pathStyle.get("fs.s3a.path.style.access"));
+        Assertions.assertEquals("true", s3Alias.get("fs.s3a.path.style.access"));
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-FECONF-STORAGE-PARITY — OSS endpoint-from-region (filesystem + hms) + S3A base
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHadoopConfigurationDerivesOssEndpointFromRegion() {
+        Configuration internal = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk",
+                "oss.region", "cn-hangzhou"));
+
+        // WHY (P8-1/P8-3): a filesystem-flavor OSS catalog with only a region (no explicit oss.endpoint) must
+        // derive the OSS endpoint, mirroring legacy OSSProperties.getOssEndpoint(region, dlfAccessPublic). The
+        // DEFAULT (dlfAccessPublic=false) is the -internal endpoint. Before the fix the derivation lived only
+        // in the DLF flavor, so a filesystem OSS catalog got fs.oss.endpoint=null -> FileIO could not resolve.
+        // MUTATION: no derivation for the filesystem path, or deriving the public form by default -> red.
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", internal.get("fs.oss.endpoint"));
+
+        Configuration pub = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk",
+                "oss.region", "cn-hangzhou",
+                "dlf.access.public", "true"));
+        // WHY: dlf.access.public=true selects the public (no -internal) form, even for a filesystem OSS
+        // catalog. MUTATION: ignoring the public flag on the shared OSS path -> red.
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", pub.get("fs.oss.endpoint"));
+    }
+
+    @Test
+    public void buildHmsHiveConfDerivesOssEndpointFromRegion() {
+        HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(props(
+                "uri", "thrift://nn:9083",
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk",
+                "oss.region", "cn-shanghai"));
+
+        // WHY (parity completeness, RT-skeptic-3): moving the OSS endpoint-from-region derivation into the
+        // shared applyCanonicalOssConfig also grants the HMS flavor the same legacy OSSProperties.of()
+        // derivation it always had via fe-core. MUTATION: deriving only on the filesystem/dlf paths and not
+        // when applyStorageConfig is overlaid onto a HiveConf -> red.
+        Assertions.assertEquals("oss-cn-shanghai-internal.aliyuncs.com", hc.get("fs.oss.endpoint"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationEmitsS3aBaseForOssCatalog() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "oss.access_key", "oss-ak",
+                "oss.secret_key", "oss-sk",
+                "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com"));
+
+        // WHY (P8-1/P8-3, RT-skeptic-1/4): legacy OSS inherits the full S3A base via super.appendS3HdfsProperties
+        // (for s3://-over-OSS back-compat); before the fix applyCanonicalOssConfig emitted ONLY Jindo fs.oss.*
+        // keys. The S3A base must carry the OSS-resolved endpoint/creds (NOT re-resolved from s3.* aliases) and
+        // the OSS tuning default (100, NOT the S3 50). MUTATION: OSS block skipping the S3A base (fs.s3a.impl
+        // null), or emitting the S3 tuning default -> red.
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.s3a.impl"));
+        Assertions.assertEquals("oss-ak", conf.get("fs.s3a.access.key"));
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("100", conf.get("fs.s3a.connection.maximum"));
+        // The Jindo OSS keys remain (unchanged behavior).
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", conf.get("fs.oss.impl"));
+        Assertions.assertEquals("oss-ak", conf.get("fs.oss.accessKeyId"));
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-FECONF-STORAGE-PARITY — COS / OBS (P9-2)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHadoopConfigurationEmitsCosKeysForCosCatalog() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "cosn://bucket/wh",
+                "cos.access_key", "cak",
+                "cos.secret_key", "csk",
+                "cos.endpoint", "cos.ap-beijing.myqcloud.com"));
+
+        // WHY (P9-2): a cosn:// paimon catalog needs the Tencent COS FileSystem impl + cosn credentials; before
+        // the fix there was NO COS handling at all. fs.cosn.impl=S3AFileSystem makes cosn:// an S3A instance, so
+        // the S3A base (endpoint/creds, resolved from the cos.* aliases) is ALSO load-bearing. MUTATION: no COS
+        // block (fs.cosn.impl null), or not threading the cos.* creds into the S3A base -> red.
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.cosn.impl"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.cos.impl"));
+        Assertions.assertEquals("cak", conf.get("fs.cosn.userinfo.secretId"));
+        Assertions.assertEquals("csk", conf.get("fs.cosn.userinfo.secretKey"));
+        // S3A base carries the cos endpoint + creds + the object-store tuning default.
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("cak", conf.get("fs.s3a.access.key"));
+        Assertions.assertEquals("100", conf.get("fs.s3a.connection.maximum"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationDetectsCosByEndpointPattern() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "cosn://bucket/wh",
+                "s3.access_key", "ak",
+                "s3.secret_key", "sk",
+                "s3.endpoint", "cos.ap-beijing.myqcloud.com"));
+
+        // WHY (RT-skeptic-2, the framing fix): legacy detects COS by ENDPOINT PATTERN (myqcloud.com), NOT by a
+        // cos.* key. A cosn:// catalog configured with only s3.* keys + an s3.endpoint pointing at a myqcloud
+        // endpoint must STILL get fs.cosn.impl (a cos.*-key-only gate would miss it and the cosn:// warehouse
+        // would have no COS FileSystem impl). MUTATION: gating COS only on cos.* keys -> fs.cosn.impl null -> red.
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.cosn.impl"));
+        Assertions.assertEquals("ak", conf.get("fs.cosn.userinfo.secretId"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationEmitsCosRegionUnconditionally() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "cosn://bucket/wh",
+                "cos.access_key", "cak",
+                "cos.secret_key", "csk",
+                "cos.endpoint", "cos.ap-beijing.myqcloud.com"));
+
+        // WHY (RT-critic): legacy COSProperties writes fs.cosn.bucket.region UNCONDITIONALLY (even when blank),
+        // unlike the isNotBlank-guarded S3/OSS cred block — an empty key differs from an absent key for
+        // downstream Hadoop default resolution. MUTATION: guarding fs.cosn.bucket.region behind isNotBlank
+        // (absent when no region) -> red.
+        Assertions.assertEquals("", conf.get("fs.cosn.bucket.region"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationEmitsObsKeysForObsCatalog() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "obs://bucket/wh",
+                "obs.access_key", "oak",
+                "obs.secret_key", "osk",
+                "obs.endpoint", "obs.cn-north-4.myhuaweicloud.com"));
+
+        // WHY (P9-2): an obs:// paimon catalog needs the Huawei OBS FileSystem impl + obs credentials; before
+        // the fix there was NO OBS handling. The impl is native OBSFileSystem when classpath-available, else the
+        // S3A fallback (classpath-dependent, so accept either), but the creds/endpoint are load-bearing.
+        // MUTATION: no OBS block (fs.obs.access.key null) -> red.
+        String obsImpl = conf.get("fs.obs.impl");
+        Assertions.assertTrue("org.apache.hadoop.fs.obs.OBSFileSystem".equals(obsImpl)
+                        || "org.apache.hadoop.fs.s3a.S3AFileSystem".equals(obsImpl),
+                "fs.obs.impl must be the native OBS impl or the S3A fallback, got: " + obsImpl);
+        Assertions.assertEquals("oak", conf.get("fs.obs.access.key"));
+        Assertions.assertEquals("osk", conf.get("fs.obs.secret.key"));
+        Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com", conf.get("fs.obs.endpoint"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationDetectsObsByEndpointPattern() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "obs://bucket/wh",
+                "s3.access_key", "ak",
+                "s3.secret_key", "sk",
+                "s3.endpoint", "obs.cn-north-4.myhuaweicloud.com"));
+
+        // WHY (RT-skeptic-2): legacy detects OBS by the myhuaweicloud.com endpoint pattern, not an obs.* key.
+        // An obs:// catalog with only s3.* keys must still get fs.obs.*. MUTATION: obs.*-key-only gate -> red.
+        Assertions.assertNotNull(conf.get("fs.obs.impl"));
+        Assertions.assertEquals("ak", conf.get("fs.obs.access.key"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationDoesNotEmitCosOrObsForPlainS3() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "s3://bucket/wh",
+                "s3.access_key", "ak",
+                "s3.secret_key", "sk",
+                "s3.endpoint", "s3.us-east-1.amazonaws.com"));
+
+        // WHY (RT-skeptic-2, negative parity): a plain AWS S3 catalog (no cos./obs. key, no myqcloud/
+        // myhuaweicloud endpoint) must NOT trigger the COS or OBS blocks. MUTATION: a detection gate that
+        // fires COS/OBS on shared s3.* keys -> fs.cosn.impl/fs.obs.impl emitted for a pure-S3 catalog -> red.
+        Assertions.assertNull(conf.get("fs.cosn.impl"));
+        Assertions.assertNull(conf.get("fs.obs.impl"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.s3a.impl"));
+    }
+
+    // ---------------------------------------------------------------------
+    // FIX-FECONF-STORAGE-PARITY — HMS username alias (P8-4)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHmsHiveConfResolvesUsernameFromHiveMetastoreUsernameAlias() {
+        HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(props(
+                "uri", "thrift://nn:9083",
+                "hive.metastore.username", "hms-user"));
+
+        // WHY (P8-4): legacy HMSBaseProperties binds the username from {hive.metastore.username, hadoop.username}
+        // and sets HADOOP_USER_NAME (= "hadoop.username"). Before the fix the connector only copied the literal
+        // hadoop.username, so a user who set ONLY hive.metastore.username had it land as an inert verbatim hive.*
+        // key and never reach hadoop.username (the UGI key). MUTATION: dropping the alias resolution -> null -> red.
+        Assertions.assertEquals("hms-user", hc.get("hadoop.username"));
+    }
+
+    @Test
+    public void buildHmsHiveConfUsernameAliasPriorityHiveMetastoreWins() {
+        HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(props(
+                "uri", "thrift://nn:9083",
+                "hive.metastore.username", "primary",
+                "hadoop.username", "secondary"));
+
+        // WHY: legacy alias order lists hive.metastore.username FIRST, so it wins when both are set.
+        // MUTATION: reversing the priority (hadoop.username wins) -> red.
+        Assertions.assertEquals("primary", hc.get("hadoop.username"));
     }
 }

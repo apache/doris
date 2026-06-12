@@ -105,12 +105,78 @@ public final class PaimonCatalogFactory {
             "oss.endpoint", "fs.oss.endpoint"};
     private static final String[] OSS_REGION_ALIASES = {"oss.region", "dlf.region"};
 
+    // S3A connection-tuning aliases (ported from each legacy *Properties @ConnectorProperty names). NOTE the
+    // defaults DIVERGE by backend: S3Properties = 50/3000/1000, while OSS/COS/OBS = 100/10000/10000. Emitting
+    // one shared default would silently mis-tune AWS S3 (round-3 re-review, FIX-FECONF-STORAGE-PARITY).
+    private static final String[] S3_MAX_CONN_ALIASES = {"s3.connection.maximum", "AWS_MAX_CONNECTIONS"};
+    private static final String[] S3_REQ_TIMEOUT_ALIASES = {
+            "s3.connection.request.timeout", "AWS_REQUEST_TIMEOUT_MS"};
+    private static final String[] S3_CONN_TIMEOUT_ALIASES = {"s3.connection.timeout", "AWS_CONNECTION_TIMEOUT_MS"};
+    private static final String[] S3_PATH_STYLE_ALIASES = {"use_path_style", "s3.path-style-access"};
+
+    private static final String[] OSS_MAX_CONN_ALIASES = {"oss.connection.maximum", "s3.connection.maximum"};
+    private static final String[] OSS_REQ_TIMEOUT_ALIASES = {
+            "oss.connection.request.timeout", "s3.connection.request.timeout"};
+    private static final String[] OSS_CONN_TIMEOUT_ALIASES = {"oss.connection.timeout", "s3.connection.timeout"};
+    private static final String[] OSS_PATH_STYLE_ALIASES = {
+            "oss.use_path_style", "use_path_style", "s3.path-style-access"};
+
+    // COS aliases (ported from COSProperties @ConnectorProperty names). Detection is independent of these
+    // (cos.* key OR a "myqcloud.com" endpoint/warehouse), so the value lists may safely include the shared
+    // s3.*/AWS_* aliases legacy COSProperties accepts.
+    private static final String[] COS_ACCESS_KEY_ALIASES = {
+            "cos.access_key", "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"};
+    private static final String[] COS_SECRET_KEY_ALIASES = {
+            "cos.secret_key", "s3.secret_key", "s3.secret-access-key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"};
+    private static final String[] COS_SESSION_TOKEN_ALIASES = {
+            "cos.session_token", "s3.session_token", "s3.session-token", "session_token"};
+    private static final String[] COS_ENDPOINT_ALIASES = {
+            "cos.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"};
+    private static final String[] COS_REGION_ALIASES = {
+            "cos.region", "s3.region", "AWS_REGION", "region", "REGION"};
+    private static final String[] COS_MAX_CONN_ALIASES = {"cos.connection.maximum", "s3.connection.maximum"};
+    private static final String[] COS_REQ_TIMEOUT_ALIASES = {
+            "cos.connection.request.timeout", "s3.connection.request.timeout"};
+    private static final String[] COS_CONN_TIMEOUT_ALIASES = {"cos.connection.timeout", "s3.connection.timeout"};
+    private static final String[] COS_PATH_STYLE_ALIASES = {
+            "cos.use_path_style", "use_path_style", "s3.path-style-access"};
+
+    // OBS aliases (ported from OBSProperties @ConnectorProperty names).
+    private static final String[] OBS_ACCESS_KEY_ALIASES = {
+            "obs.access_key", "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"};
+    private static final String[] OBS_SECRET_KEY_ALIASES = {
+            "obs.secret_key", "s3.secret_key", "s3.secret-access-key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"};
+    private static final String[] OBS_SESSION_TOKEN_ALIASES = {
+            "obs.session_token", "s3.session_token", "s3.session-token", "session_token"};
+    private static final String[] OBS_ENDPOINT_ALIASES = {
+            "obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"};
+    private static final String[] OBS_REGION_ALIASES = {
+            "obs.region", "s3.region", "AWS_REGION", "region", "REGION"};
+    private static final String[] OBS_MAX_CONN_ALIASES = {"obs.connection.maximum", "s3.connection.maximum"};
+    private static final String[] OBS_REQ_TIMEOUT_ALIASES = {
+            "obs.connection.request.timeout", "s3.connection.request.timeout"};
+    private static final String[] OBS_CONN_TIMEOUT_ALIASES = {"obs.connection.timeout", "s3.connection.timeout"};
+    private static final String[] OBS_PATH_STYLE_ALIASES = {
+            "obs.use_path_style", "use_path_style", "s3.path-style-access"};
+
+    // Per-backend tuning defaults (legacy *Properties field defaults).
+    private static final String S3_DEFAULT_MAX_CONN = "50";
+    private static final String S3_DEFAULT_REQ_TIMEOUT = "3000";
+    private static final String S3_DEFAULT_CONN_TIMEOUT = "1000";
+    private static final String OBJ_STORE_DEFAULT_MAX_CONN = "100";
+    private static final String OBJ_STORE_DEFAULT_REQ_TIMEOUT = "10000";
+    private static final String OBJ_STORE_DEFAULT_CONN_TIMEOUT = "10000";
+    private static final String DEFAULT_PATH_STYLE = "false";
+
     private static final String S3A_IMPL = "org.apache.hadoop.fs.s3a.S3AFileSystem";
     private static final String S3A_SIMPLE_CRED_PROVIDER =
             "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider";
     // JindoOSS impls (literals; avoid the Aliyun compile dep, same pattern as appendDlfOptions).
     private static final String JINDO_OSS_IMPL = "com.aliyun.jindodata.oss.JindoOssFileSystem";
     private static final String JINDO_OSS_ABSTRACT_IMPL = "com.aliyun.jindodata.oss.JindoOSS";
+    // Native Huawei OBS impls (literals; avoid the hadoop-obs compile dep). Used only when classpath-available.
+    private static final String OBS_NATIVE_IMPL = "org.apache.hadoop.fs.obs.OBSFileSystem";
+    private static final String OBS_NATIVE_ABSTRACT_IMPL = "org.apache.hadoop.fs.obs.OBS";
 
     private PaimonCatalogFactory() {
     }
@@ -412,6 +478,8 @@ public final class PaimonCatalogFactory {
     private static void applyStorageConfig(Map<String, String> props, BiConsumer<String, String> setter) {
         applyCanonicalS3Config(props, setter);
         applyCanonicalOssConfig(props, setter);
+        applyCanonicalCosConfig(props, setter);
+        applyCanonicalObsConfig(props, setter);
         props.forEach((key, value) -> {
             for (String prefix : USER_STORAGE_PREFIXES) {
                 if (key.startsWith(prefix)) {
@@ -444,6 +512,30 @@ public final class PaimonCatalogFactory {
         if (ak == null && endpoint == null && region == null) {
             return;
         }
+        // Endpoint-from-region (legacy S3Properties.getEndpointFromRegion): a region-only AWS S3 catalog
+        // (no explicit endpoint) derives https://s3.<region>.amazonaws.com so the FE FileIO can resolve it.
+        if (StringUtils.isBlank(endpoint) && StringUtils.isNotBlank(region)) {
+            endpoint = "https://s3." + region + ".amazonaws.com";
+        }
+        applyS3aBaseConfig(setter, ak, sk, token, endpoint, region,
+                firstNonBlankOrDefault(props, S3_DEFAULT_MAX_CONN, S3_MAX_CONN_ALIASES),
+                firstNonBlankOrDefault(props, S3_DEFAULT_REQ_TIMEOUT, S3_REQ_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, S3_DEFAULT_CONN_TIMEOUT, S3_CONN_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, DEFAULT_PATH_STYLE, S3_PATH_STYLE_ALIASES));
+    }
+
+    /**
+     * Port of legacy {@code AbstractS3CompatibleProperties.appendS3HdfsProperties} — the S3A base block that
+     * S3/OSS/COS/OBS all inherit via {@code super.initializeHadoopStorageConfig()}. The caller resolves the
+     * credentials AND the 4 tuning values from its OWN scheme aliases/defaults (so a pure-{@code oss.*} catalog
+     * never re-reads {@code s3.*} keys, and AWS S3 gets its 50/3000/1000 defaults while OSS/COS/OBS get
+     * 100/10000/10000); this helper only emits. {@code fs.s3a.endpoint}/{@code endpoint.region} are CONDITIONAL
+     * here — legacy emits them unconditionally via {@code Preconditions.checkNotNull}, but the connector has no
+     * {@code setRegionIfPossible} throw-guard, so it omits them when blank (matches the existing connector style).
+     */
+    private static void applyS3aBaseConfig(BiConsumer<String, String> setter, String ak, String sk,
+            String token, String endpoint, String region, String maxConnections, String requestTimeoutMs,
+            String connectionTimeoutMs, String usePathStyle) {
         setter.accept("fs.s3.impl", S3A_IMPL);
         setter.accept("fs.s3a.impl", S3A_IMPL);
         setter.accept("fs.s3.impl.disable.cache", "true");
@@ -462,6 +554,10 @@ public final class PaimonCatalogFactory {
                 setter.accept("fs.s3a.session.token", token);
             }
         }
+        setter.accept("fs.s3a.connection.maximum", maxConnections);
+        setter.accept("fs.s3a.connection.request.timeout", requestTimeoutMs);
+        setter.accept("fs.s3a.connection.timeout", connectionTimeoutMs);
+        setter.accept("fs.s3a.path.style.access", usePathStyle);
     }
 
     /**
@@ -481,6 +577,23 @@ public final class PaimonCatalogFactory {
         if (ak == null && endpoint == null && region == null) {
             return;
         }
+        // Endpoint-from-region (legacy OSSProperties.initNormalizeAndCheckProps -> getOssEndpoint): when no
+        // explicit oss.endpoint is given, derive oss-<region>[-internal].aliyuncs.com. publicAccess defaults
+        // to false (=> -internal), sourced from dlf.access.public/dlf.catalog.accessPublic (the only legacy
+        // dlfAccessPublic aliases). This is the SAME derivation the DLF flavor used (its former DLF-local
+        // block in buildDlfHiveConf is now removed) and that the legacy HMS+OSS path got via OSSProperties.of().
+        if (StringUtils.isBlank(endpoint) && StringUtils.isNotBlank(region)) {
+            boolean publicAccess = BooleanUtils.toBoolean(
+                    firstNonBlank(props, "dlf.access.public", "dlf.catalog.accessPublic"));
+            endpoint = "oss-" + region + (publicAccess ? "" : "-internal") + ".aliyuncs.com";
+        }
+        // Emit the S3A base too (legacy OSS inherits it via super.appendS3HdfsProperties) for s3://-over-OSS.
+        applyS3aBaseConfig(setter, ak, sk, token, endpoint, region,
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_MAX_CONN, OSS_MAX_CONN_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_REQ_TIMEOUT, OSS_REQ_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_CONN_TIMEOUT, OSS_CONN_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, DEFAULT_PATH_STYLE, OSS_PATH_STYLE_ALIASES));
+        // Jindo OSS keys (legacy OSSProperties.initializeHadoopStorageConfig).
         setter.accept("fs.oss.impl", JINDO_OSS_IMPL);
         setter.accept("fs.AbstractFileSystem.oss.impl", JINDO_OSS_ABSTRACT_IMPL);
         if (StringUtils.isNotBlank(ak)) {
@@ -496,6 +609,74 @@ public final class PaimonCatalogFactory {
         if (StringUtils.isNotBlank(region)) {
             setter.accept("fs.oss.region", region);
         }
+    }
+
+    /**
+     * Translates the canonical {@code cos.*}/{@code s3.*} aliases into the {@code fs.cosn.*} keys the Tencent
+     * COS FileIO reads. Port of legacy {@code COSProperties.initializeHadoopStorageConfig}, which emits the S3A
+     * base via {@code super} FIRST, then the cosn keys. Detection mirrors legacy {@code COSProperties.guessIsMe}
+     * (endpoint/uri PATTERN, not the scheme key), augmented with the {@code cos.*} key signal: fire when any
+     * {@code cos.*} key is present OR a resolved endpoint/warehouse value contains {@code myqcloud.com}. The
+     * {@code fs.cosn.*} keys are emitted UNCONDITIONALLY (legacy parity — an empty value is written, not absent).
+     */
+    private static void applyCanonicalCosConfig(Map<String, String> props, BiConsumer<String, String> setter) {
+        String endpoint = firstNonBlank(props, COS_ENDPOINT_ALIASES);
+        if (!anyKeyStartsWith(props, "cos.")
+                && !containsToken(endpoint, "myqcloud.com")
+                && !containsToken(props.get(PaimonConnectorProperties.WAREHOUSE), "myqcloud.com")) {
+            return;
+        }
+        String ak = firstNonBlank(props, COS_ACCESS_KEY_ALIASES);
+        String sk = firstNonBlank(props, COS_SECRET_KEY_ALIASES);
+        String region = firstNonBlank(props, COS_REGION_ALIASES);
+        String token = firstNonBlank(props, COS_SESSION_TOKEN_ALIASES);
+        applyS3aBaseConfig(setter, ak, sk, token, endpoint, region,
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_MAX_CONN, COS_MAX_CONN_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_REQ_TIMEOUT, COS_REQ_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_CONN_TIMEOUT, COS_CONN_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, DEFAULT_PATH_STYLE, COS_PATH_STYLE_ALIASES));
+        setter.accept("fs.cos.impl", S3A_IMPL);
+        setter.accept("fs.cosn.impl", S3A_IMPL);
+        setter.accept("fs.cosn.bucket.region", nullToEmpty(region));
+        setter.accept("fs.cosn.userinfo.secretId", nullToEmpty(ak));
+        setter.accept("fs.cosn.userinfo.secretKey", nullToEmpty(sk));
+    }
+
+    /**
+     * Translates the canonical {@code obs.*}/{@code s3.*} aliases into the {@code fs.obs.*} keys the Huawei OBS
+     * FileIO reads. Port of legacy {@code OBSProperties.initializeHadoopStorageConfig}: S3A base via {@code super}
+     * FIRST, then the obs keys, preferring the native {@code OBSFileSystem} when it is on the classpath, else the
+     * S3A fallback. Detection mirrors legacy {@code OBSProperties.guessIsMe}: any {@code obs.*} key OR a resolved
+     * endpoint/warehouse containing {@code myhuaweicloud.com}. The {@code fs.obs.*} keys are UNCONDITIONAL.
+     */
+    private static void applyCanonicalObsConfig(Map<String, String> props, BiConsumer<String, String> setter) {
+        String endpoint = firstNonBlank(props, OBS_ENDPOINT_ALIASES);
+        if (!anyKeyStartsWith(props, "obs.")
+                && !containsToken(endpoint, "myhuaweicloud.com")
+                && !containsToken(props.get(PaimonConnectorProperties.WAREHOUSE), "myhuaweicloud.com")) {
+            return;
+        }
+        String ak = firstNonBlank(props, OBS_ACCESS_KEY_ALIASES);
+        String sk = firstNonBlank(props, OBS_SECRET_KEY_ALIASES);
+        String region = firstNonBlank(props, OBS_REGION_ALIASES);
+        String token = firstNonBlank(props, OBS_SESSION_TOKEN_ALIASES);
+        applyS3aBaseConfig(setter, ak, sk, token, endpoint, region,
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_MAX_CONN, OBS_MAX_CONN_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_REQ_TIMEOUT, OBS_REQ_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_CONN_TIMEOUT, OBS_CONN_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, DEFAULT_PATH_STYLE, OBS_PATH_STYLE_ALIASES));
+        // obs is not s3a-compatible; prefer the native OBSFileSystem when it is on the classpath (legacy
+        // OBSProperties.isClassAvailable). The connector's child-first loader delegates this non-plugin class
+        // to the host parent, so the answer matches legacy's.
+        if (isClassAvailable(OBS_NATIVE_IMPL)) {
+            setter.accept("fs.obs.impl", OBS_NATIVE_IMPL);
+            setter.accept("fs.AbstractFileSystem.obs.impl", OBS_NATIVE_ABSTRACT_IMPL);
+        } else {
+            setter.accept("fs.obs.impl", S3A_IMPL);
+        }
+        setter.accept("fs.obs.access.key", nullToEmpty(ak));
+        setter.accept("fs.obs.secret.key", nullToEmpty(sk));
+        setter.accept("fs.obs.endpoint", nullToEmpty(endpoint));
     }
 
     /**
@@ -557,10 +738,24 @@ public final class PaimonCatalogFactory {
         copyIfPresent(props, hiveConf, "hadoop.security.authentication");
         copyIfPresent(props, hiveConf, "hadoop.kerberos.principal");
         copyIfPresent(props, hiveConf, "hadoop.kerberos.keytab");
-        copyIfPresent(props, hiveConf, "hadoop.username");
 
-        // Kerberos-conditional metastore keys, ported faithfully from
-        // HMSBaseProperties.initHadoopAuthenticator (lines 152-185):
+        // Metastore client socket timeout default (legacy checkAndInit lines 204-208): when the user
+        // did not override it, default to Config.hive_metastore_client_timeout_second (=10s). The
+        // ConfVar key string is "hive.metastore.client.socket.timeout"; legacy expresses the value in
+        // seconds via HiveConf.setVar(..., METASTORE_CLIENT_SOCKET_TIMEOUT, "10").
+        if (StringUtils.isBlank(props.get("hive.metastore.client.socket.timeout"))) {
+            hiveConf.set("hive.metastore.client.socket.timeout", "10");
+        }
+
+        // Overlay the storage config (legacy buildHiveConfiguration + appendUserHadoopConfig).
+        applyStorageConfig(props, hiveConf::set);
+
+        // Kerberos-conditional metastore keys, ported faithfully from HMSBaseProperties.initHadoopAuthenticator
+        // (lines 152-185). This block runs LAST, AFTER the storage overlay, mirroring legacy's
+        // initHadoopAuthenticator-last ordering: the raw hadoop.* passthrough in applyStorageConfig would
+        // otherwise re-copy a user-supplied literal hadoop.security.authentication (e.g. a kerberized-HMS +
+        // simple-HDFS catalog) and CLOBBER the forced "kerberos" back to "simple", leaving sasl.enabled=true
+        // with auth=simple — an inconsistent HiveConf that breaks the live GSSAPI handshake.
         //   - the SERVICE principal hive.metastore.kerberos.principal is set UNCONDITIONALLY when a
         //     service principal is supplied (legacy field hiveMetastoreServicePrincipal, sourced from
         //     "hive.metastore.service.principal" OR "hive.metastore.kerberos.principal"); not gated on
@@ -587,16 +782,16 @@ public final class PaimonCatalogFactory {
             hiveConf.set("hive.metastore.sasl.enabled", "true");
         }
 
-        // Metastore client socket timeout default (legacy checkAndInit lines 204-208): when the user
-        // did not override it, default to Config.hive_metastore_client_timeout_second (=10s). The
-        // ConfVar key string is "hive.metastore.client.socket.timeout"; legacy expresses the value in
-        // seconds via HiveConf.setVar(..., METASTORE_CLIENT_SOCKET_TIMEOUT, "10").
-        if (StringUtils.isBlank(props.get("hive.metastore.client.socket.timeout"))) {
-            hiveConf.set("hive.metastore.client.socket.timeout", "10");
+        // Username (legacy HMSBaseProperties @ConnectorProperty(names={"hive.metastore.username",
+        // "hadoop.username"}) -> hiveConf.set(HADOOP_USER_NAME="hadoop.username", hmsUserName)): resolve the
+        // alias to hadoop.username, also after the storage overlay so the legacy @ConnectorProperty priority
+        // is authoritative (same raw hadoop.* passthrough clobber reason as the kerberos block). The bare
+        // pre-fix copyIfPresent also missed a user who set ONLY hive.metastore.username (it stayed an inert
+        // verbatim hive.* key).
+        String hmsUserName = firstNonBlank(props, "hive.metastore.username", "hadoop.username");
+        if (StringUtils.isNotBlank(hmsUserName)) {
+            hiveConf.set("hadoop.username", hmsUserName);
         }
-
-        // Overlay the storage config (legacy buildHiveConfiguration + appendUserHadoopConfig).
-        applyStorageConfig(props, hiveConf::set);
         return hiveConf;
     }
 
@@ -661,18 +856,10 @@ public final class PaimonCatalogFactory {
         hiveConf.set("dlf.catalog.id", nullToEmpty(catalogId));
         hiveConf.set("dlf.catalog.proxyMode", proxyMode);
         // Overlay the OSS storage config (legacy ossProps.getHadoopStorageConfig + appendUserHadoopConfig).
+        // The OSS endpoint-from-region derivation now lives in applyCanonicalOssConfig (shared with the
+        // filesystem/hms flavors, using the same dlf.access.public source), so no DLF-local derivation is
+        // needed here.
         applyStorageConfig(props, hiveConf::set);
-        // DLF parity: when the user supplied only a region (no explicit oss.endpoint), derive the OSS
-        // storage endpoint from it, mirroring legacy OSSProperties.getOssEndpoint(region, accessPublic).
-        // DLF users typically pass dlf.region/oss.region, not oss.endpoint. Kept DLF-local (not in the
-        // shared applyCanonicalOssConfig, which the filesystem flavor requires an explicit endpoint for).
-        if (StringUtils.isBlank(hiveConf.get("fs.oss.endpoint"))) {
-            String ossRegion = firstNonBlank(props, OSS_REGION_ALIASES);
-            if (StringUtils.isNotBlank(ossRegion)) {
-                hiveConf.set("fs.oss.endpoint", "oss-" + ossRegion
-                        + (BooleanUtils.toBoolean(accessPublic) ? "" : "-internal") + ".aliyuncs.com");
-            }
-        }
         return hiveConf;
     }
 
@@ -707,5 +894,34 @@ public final class PaimonCatalogFactory {
 
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    /** As {@link #firstNonBlank}, but returns {@code defaultValue} (not null) when no key is set. */
+    private static String firstNonBlankOrDefault(Map<String, String> props, String defaultValue, String... keys) {
+        String value = firstNonBlank(props, keys);
+        return value != null ? value : defaultValue;
+    }
+
+    private static boolean anyKeyStartsWith(Map<String, String> props, String prefix) {
+        for (String key : props.keySet()) {
+            if (key != null && key.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsToken(String value, String token) {
+        return value != null && value.contains(token);
+    }
+
+    /** Whether {@code className} is loadable (legacy {@code OBSProperties.isClassAvailable} parity). */
+    private static boolean isClassAvailable(String className) {
+        try {
+            Class.forName(className, false, PaimonCatalogFactory.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
     }
 }
