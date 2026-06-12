@@ -72,6 +72,12 @@ optional group m (MAP) {
 5. 对容易误判的 schema 保持严格，避免把普通 struct 错解析成 LIST/MAP。
 6. 支持范围对齐 Arrow 的稳定 legacy compatibility 规则，而不是无限放宽。
 
+MAP projection 语义也保持收敛：
+
+- partial MAP projection 只表示 value subtree pruning，例如 `MAP<K, STRUCT<a,b>>` 投影 `value.b` 后输出 `MAP<K, STRUCT<b>>`。
+- key 不作为可裁剪 projection 子树。reader 始终读取完整 key stream，因为 key stream 决定 entry existence、offsets，并且 key 本身承载 MAP 的 key equality 语义。
+- schema projection 重建 `DataTypeMap` 时保留原始 key type，只根据 projected value child 重建 value type。
+
 ## LIST 兼容规则
 
 对于 outer group annotated as `LIST`：
@@ -410,13 +416,14 @@ return
 
 ## MAP schema build
 
-`build_node_schema()` 的 MAP 分支继续输出当前 reader 需要的结构：
+`build_node_schema()` 的 MAP 分支应和 LIST 一样在 schema 构建阶段折叠物理 wrapper。
+`key_value` / `entries` / 任意合法 entry group 只用于解析 repeated entry level，不出现在
+最终 `ParquetColumnSchema.children` 中：
 
 ```text
 MAP
-  child[0]: STRUCT(key, value)   // entry / key_value schema
-      child[0]: key
-      child[1]: value
+  child[0]: key
+  child[1]: value
 ```
 
 构造流程：
@@ -432,22 +439,19 @@ column_schema.repeated_repetition_level = entry_context.repeated_repetition_leve
 build key child from entry_group.field(0)
 build value child from entry_group.field(1)
 
-entry_schema.kind = STRUCT
-entry_schema.children = [key, value]
-entry_schema.type = DataTypeStruct([nullable(key.type), nullable(value.type)], names)
-
 column_schema.type = nullable_if_needed(DataTypeMap(nullable(key.type), nullable(value.type)), map_node)
-column_schema.children = [entry_schema]
+column_schema.children = [key_schema, value_schema]
 propagate_child_levels(column_schema)
 ```
 
-这里保持当前 `MapColumnReader` 的假设：
+这里保持 `MapColumnReader` 的直接 key/value 假设：
 
-- `column_schema.children[0]` 是 entry struct。
-- `entry.children[0]` 是 key。
-- `entry.children[1]` 是 value。
+- `column_schema.children[0]` 是 key。
+- `column_schema.children[1]` 是 value。
+- MAP node 自身保存 entry repeated group 的 `definition_level` / `repetition_level` /
+  `repeated_repetition_level`，用于 materialize offsets、null map 和 empty map。
 
-注意：`DataTypeStruct` / `DataTypeMap` 中把 key type 包成 nullable 是 Doris nested column materialization 的内部类型约定，不代表 Parquet nullable key 被支持。Schema resolver 仍必须在 `key_node.repetition != REQUIRED` 时 reject。
+注意：`DataTypeMap` 中把 key type 包成 nullable 是 Doris nested column materialization 的内部类型约定，不代表 Parquet nullable key 被支持。Schema resolver 仍必须在 `key_node.repetition != REQUIRED` 时 reject。
 
 ## 不支持 key-only map 的原因
 
@@ -493,7 +497,8 @@ optional group m (MAP) {
 保持：
 
 - `ListColumnReader` 只读取 `column_schema.children[0]` 作为 element reader。
-- `MapColumnReader` 只读取 `column_schema.children[0].children[0/1]` 作为 key/value reader。
+- `MapColumnReader` 读取 `column_schema.children[0/1]` 作为 key/value reader。
+- `MapColumnReader` 对 partial MAP projection 只接受 value child projection，显式 key child projection 应 reject；即使只裁剪 value，reader 也必须完整读取 key stream。
 - `ParquetLeafReader` 只负责 leaf records/levels/values 读取和 batch materialization。
 - `nested_column_materializer.*` 只负责 Doris nested Column 构造 helper。
 
@@ -645,9 +650,12 @@ optional group a (LIST) {
    - read 测试至少覆盖 null list、empty list、单元素、多元素，验证 def/rep materialization。
 4. 增加 MAP helper：
    - `resolve_map_entry_group()`
-5. 改造 MAP 分支，放宽 entry group 名字限制，但保持 key/value 结构严格。
+5. 改造 MAP 分支，放宽 entry group 名字限制，但保持 key/value 结构严格，并在 schema build 阶段折叠 entry wrapper，输出 `MAP -> key,value`。
 6. 增加 MAP schema/unit/regression 测试。
-7. 如后续确有需求，再单独设计 key-only map 支持。
+   - 覆盖 entry group 名字兼容。
+   - 覆盖 `ParquetColumnSchema(MAP).children == [key, value]`。
+   - 覆盖 partial MAP projection 只允许 value child，key child projection reject。
+7. 如后续确有需求，再单独设计 key-only map 或 key subtree projection 支持。
 
 ## 预期收益
 
