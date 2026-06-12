@@ -58,6 +58,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
@@ -144,6 +145,74 @@ public class MTMVTask extends AbstractTask {
         NOT_REFRESH
     }
 
+    private enum RefreshAttemptType {
+        IVM,
+        PARTITIONS,
+        COMPLETE
+    }
+
+    private enum AttemptResultType {
+        SUCCESS,
+        // The current attempt failed before writing MV data, so the task may
+        // continue to the next configured fallback attempt.
+        FALLBACK_ALLOWED,
+        // A previous IVM delta may have partially written data. PARTITIONS
+        // cannot prove it repairs that state, so recovery must be COMPLETE.
+        FALLBACK_TO_COMPLETE
+    }
+
+    private static class RefreshRequest {
+        private final RefreshMode refreshMode;
+        private final boolean allowFallback;
+        private final List<String> partitions;
+        // True only for REFRESH ... PARTITION(S). Explicit partition refresh is
+        // a user-selected scope and must not expand to COMPLETE via fallback.
+        private final boolean explicitPartitions;
+
+        private RefreshRequest(RefreshMode refreshMode, boolean allowFallback,
+                List<String> partitions, boolean explicitPartitions) {
+            this.refreshMode = Objects.requireNonNull(refreshMode, "refreshMode can not be null");
+            this.allowFallback = allowFallback;
+            this.partitions = partitions == null ? Lists.newArrayList() : partitions;
+            this.explicitPartitions = explicitPartitions;
+        }
+    }
+
+    private static class PartitionRefreshPlan {
+        private final MTMVRefreshContext context;
+        // False means partition planning failed before any refresh write. The
+        // caller may convert it to COMPLETE only when the request allows fallback.
+        private final boolean canRefreshByPartitions;
+        private final List<String> partitions;
+        private final String fallbackReason;
+
+        private PartitionRefreshPlan(MTMVRefreshContext context, boolean canRefreshByPartitions,
+                List<String> partitions, String fallbackReason) {
+            this.context = context;
+            this.canRefreshByPartitions = canRefreshByPartitions;
+            this.partitions = partitions == null ? Lists.newArrayList() : partitions;
+            this.fallbackReason = fallbackReason;
+        }
+
+        private static PartitionRefreshPlan success(MTMVRefreshContext context, List<String> partitions) {
+            return new PartitionRefreshPlan(context, true, partitions, null);
+        }
+
+        private static PartitionRefreshPlan fallback(String fallbackReason) {
+            return new PartitionRefreshPlan(null, false, Lists.newArrayList(), fallbackReason);
+        }
+    }
+
+    private static class PartitionPlanningException extends Exception {
+        private PartitionPlanningException(String message) {
+            super(message);
+        }
+
+        private PartitionPlanningException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     @SerializedName(value = "di")
     private long dbId;
     @SerializedName(value = "mi")
@@ -158,6 +227,8 @@ public class MTMVTask extends AbstractTask {
     MTMVTaskRefreshMode refreshMode;
     @SerializedName("lastQueryId")
     String lastQueryId;
+    // Persisted for SHOW MTMV TASK diagnostics. It records the IVM pre-execution
+    // reason that caused fallback, or the hard failure reason from IVM execution.
     @SerializedName("ifr")
     private String ivmFallbackReason;
     @SerializedName("cg")
@@ -215,24 +286,39 @@ public class MTMVTask extends AbstractTask {
             List<TableIf> tableIfs = Lists.newArrayList(tablesInPlan.first);
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
-            syncPartitionsIfNeeded(ctx, tableIfs);
-
-            MTMVRefreshContext context;
-            MetaLockUtils.readLockTables(tableIfs);
-            try {
-                context = MTMVRefreshContext.buildContext(mtmv);
-                this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
-            } finally {
-                MetaLockUtils.readUnlockTables(tableIfs);
+            // This checks whether an MV in SCHEMA_CHANGE state still matches
+            // its base-table schema and partition definition. It is not part of
+            // refresh fallback: incompatible MV definitions must fail directly.
+            ensureQueryUsableIfNeeded(ctx, tableIfs);
+            RefreshRequest request = resolveRefreshRequest();
+            boolean disablePartitionRefresh = false;
+            for (RefreshAttemptType attemptType : buildAttempts(request)) {
+                switch (attemptType) {
+                    case IVM:
+                        AttemptResultType ivmResult = executeIvmAttempt(request);
+                        if (ivmResult == AttemptResultType.SUCCESS) {
+                            return;
+                        }
+                        if (ivmResult == AttemptResultType.FALLBACK_TO_COMPLETE) {
+                            disablePartitionRefresh = true;
+                        }
+                        break;
+                    case PARTITIONS:
+                        if (disablePartitionRefresh) {
+                            break;
+                        }
+                        if (executePartitionBasedRefresh(ctx, tableIfs, request)) {
+                            return;
+                        }
+                        break;
+                    case COMPLETE:
+                        executeCompleteAttempt(tableIfs);
+                        return;
+                    default:
+                        throw new JobException("Unsupported refresh attempt type: " + attemptType);
+                }
             }
-            this.refreshMode = generateRefreshMode(needRefreshPartitions);
-            if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
-                return;
-            }
-            if (tryIvmFastPath()) {
-                return;
-            }
-            executePartitionBasedRefresh(context);
+            throw new JobException("No refresh attempt succeeded for mv=" + mtmv.getName());
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
                 LOG.warn("run task failed: {}", e.getMessage());
@@ -244,28 +330,40 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
+    private void ensureQueryUsableIfNeeded(ConnectContext ctx, List<TableIf> tableIfs)
+            throws JobException, AnalysisException {
+        MetaLockUtils.readLockTables(tableIfs);
+        try {
+            if (MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
+                MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx);
+            }
+        } finally {
+            MetaLockUtils.readUnlockTables(tableIfs);
+        }
+    }
+
     private void syncPartitionsIfNeeded(ConnectContext ctx, List<TableIf> tableIfs)
-            throws JobException, AnalysisException, DdlException {
+            throws JobException, AnalysisException, DdlException, PartitionPlanningException {
         Pair<List<String>, List<PartitionKeyDesc>> syncPartitions = null;
         // lock table order by id to avoid deadlock
         MetaLockUtils.readLockTables(tableIfs);
         try {
-            // if mtmv is schema_change, check if column type has changed
-            // If it's not in the schema_change state, the column type definitely won't change.
-            if (MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
-                MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx);
-            }
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                 Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
                 for (MTMVRelatedTableIf pctTable : pctTables) {
                     if (!pctTable.isValidRelatedTable()) {
-                        throw new JobException("MTMV " + mtmv.getName() + "'s pct table " + pctTable.getName()
+                        throw new PartitionPlanningException("MTMV " + mtmv.getName()
+                                + "'s pct table " + pctTable.getName()
                                 + " is not a valid pct table anymore, stop refreshing."
                                 + " e.g. Table has multiple partition columns"
                                 + " or including not supported transform functions.");
                     }
                 }
-                syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
+                try {
+                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
+                } catch (Exception e) {
+                    throw new PartitionPlanningException(e.getMessage(), e);
+                }
             }
         } finally {
             MetaLockUtils.readUnlockTables(tableIfs);
@@ -280,52 +378,205 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private boolean tryIvmFastPath() throws JobException {
-        // Attempt IVM refresh only when refresh mode is AUTO (scheduled) or INCREMENTAL (manual).
-        // COMPLETE and PARTITIONS always skip IVM and go straight to partition-based refresh.
-        RefreshMode currentRefreshMode = taskContext.getRefreshMode();
-        if (!mtmv.isIvm()
-                || (currentRefreshMode != RefreshMode.AUTO
-                    && currentRefreshMode != RefreshMode.INCREMENTAL)) {
-            return false;
+    private RefreshRequest resolveRefreshRequest() throws JobException {
+        if (taskContext.useMvDefaultRefreshPolicy()) {
+            // Scheduled/on-commit/system tasks use the policy persisted on the
+            // MV, not the default AUTO value of a newly created task context.
+            RefreshMethod refreshMethod = mtmv.getRefreshInfo().getRefreshMethod();
+            if (refreshMethod == null) {
+                throw new JobException("MTMV " + mtmv.getName()
+                        + " has unknown refresh method, please refresh or recreate it.");
+            }
+            return new RefreshRequest(RefreshMode.valueOf(refreshMethod.name()),
+                    mtmv.getRefreshInfo().allowFallback(), Lists.newArrayList(), false);
+        }
+        if (!CollectionUtils.isEmpty(taskContext.getPartitions())) {
+            // A partitionSpec is an exact manual request. It never falls back to
+            // COMPLETE because that would refresh more data than the user asked.
+            return new RefreshRequest(RefreshMode.PARTITIONS, false, taskContext.getPartitions(), true);
+        }
+        return new RefreshRequest(taskContext.getRefreshMode(), taskContext.allowFallback(),
+                Lists.newArrayList(), false);
+    }
+
+    private List<RefreshAttemptType> buildAttempts(RefreshRequest request) {
+        List<RefreshAttemptType> attempts = Lists.newArrayList();
+        switch (request.refreshMode) {
+            case AUTO:
+                if (mtmv.isIvm()) {
+                    attempts.add(RefreshAttemptType.IVM);
+                }
+                // AUTO always has the full fallback chain. If the MV was created
+                // as non-IVM, it starts from PARTITIONS and may end at COMPLETE.
+                attempts.add(RefreshAttemptType.PARTITIONS);
+                attempts.add(RefreshAttemptType.COMPLETE);
+                break;
+            case INCREMENTAL:
+                attempts.add(RefreshAttemptType.IVM);
+                if (request.allowFallback) {
+                    attempts.add(RefreshAttemptType.PARTITIONS);
+                    attempts.add(RefreshAttemptType.COMPLETE);
+                }
+                break;
+            case PARTITIONS:
+                attempts.add(RefreshAttemptType.PARTITIONS);
+                if (!request.explicitPartitions && request.allowFallback) {
+                    attempts.add(RefreshAttemptType.COMPLETE);
+                }
+                break;
+            case COMPLETE:
+                attempts.add(RefreshAttemptType.COMPLETE);
+                break;
+            default:
+                throw new IllegalStateException("Unsupported refresh mode: " + request.refreshMode);
+        }
+        return attempts;
+    }
+
+    private PartitionRefreshPlan planPartitionRefresh(ConnectContext ctx, List<TableIf> tableIfs,
+            RefreshRequest request) throws JobException, AnalysisException, DdlException {
+        if (mtmv.isIvm() && mtmv.getIvmInfo().isRunningIvmRefresh()) {
+            // A failed IVM run may have written partial delta data. Only a
+            // COMPLETE refresh can be used as recovery; PARTITIONS is skipped.
+            return PartitionRefreshPlan.fallback(
+                    "A previous incremental refresh did not complete; full refresh is required");
+        }
+        if (request.explicitPartitions) {
+            MTMVRefreshContext context = buildRefreshContext(tableIfs);
+            return PartitionRefreshPlan.success(context, request.partitions);
+        }
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            // Keep this inside the PARTITIONS attempt so PARTITIONS FALLBACK and
+            // AUTO can still continue to COMPLETE for non-partitioned MVs.
+            return PartitionRefreshPlan.fallback(
+                    "The partition method of this asynchronous materialized view "
+                            + "does not support refreshing by partition");
+        }
+        try {
+            syncPartitionsIfNeeded(ctx, tableIfs);
+        } catch (PartitionPlanningException e) {
+            return PartitionRefreshPlan.fallback(e.getMessage());
+        }
+        MTMVRefreshContext context = buildRefreshContext(tableIfs);
+        boolean fresh;
+        try {
+            fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevelAndFromView(),
+                    mtmv.getExcludedTriggerTables());
+        } catch (Exception e) {
+            return PartitionRefreshPlan.fallback(e.getMessage());
+        }
+        if (fresh) {
+            return PartitionRefreshPlan.success(context, Lists.newArrayList());
+        }
+        try {
+            return PartitionRefreshPlan.success(context,
+                    MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context,
+                            relation.getBaseTablesOneLevelAndFromView()));
+        } catch (Exception e) {
+            return PartitionRefreshPlan.fallback(e.getMessage());
+        }
+    }
+
+    private MTMVRefreshContext buildRefreshContext(List<TableIf> tableIfs) throws AnalysisException {
+        MetaLockUtils.readLockTables(tableIfs);
+        try {
+            return MTMVRefreshContext.buildContext(mtmv);
+        } finally {
+            MetaLockUtils.readUnlockTables(tableIfs);
+        }
+    }
+
+    private void executeCompleteAttempt(List<TableIf> tableIfs)
+            throws JobException, AnalysisException {
+        MTMVRefreshContext context = buildRefreshContext(tableIfs);
+        this.needRefreshPartitions = Lists.newArrayList(mtmv.getPartitionNames());
+        this.refreshMode = generateRefreshMode(needRefreshPartitions);
+        if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
+            return;
+        }
+        executePartitionBasedRefresh(context);
+    }
+
+    private AttemptResultType executeIvmAttempt(RefreshRequest request) throws JobException {
+        if (!mtmv.isIvm()) {
+            throw new JobException("Cannot use " + request.refreshMode
+                    + " refresh on a materialized view without INCREMENTAL capability.");
         }
         IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
         ivmFallbackPlanSignature = null;
         ivmFallbackPlanCanonicalString = null;
-        IvmRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
+        IvmRefreshResult ivmResult;
+        try {
+            ivmResult = ivmRefreshManager.doRefresh(mtmv);
+        } catch (IvmException e) {
+            // IVM execution failures are hard failures. Delta commands run one
+            // by one and may already have written partial data, so this task must
+            // not continue to PARTITIONS/COMPLETE fallback.
+            ivmFallbackReason = e.getFailureReason().name();
+            throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
+                    + ", reason=" + e.getFailureReason()
+                    + ", detail=" + e.getMessage(), e);
+        } catch (Exception e) {
+            throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
+                    + ", detail=" + e.getMessage(), e);
+        }
         if (ivmResult.isSuccess()) {
             LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
                     mtmv.getName(), getTaskId());
-            return true;
+            return AttemptResultType.SUCCESS;
         }
         ivmFallbackReason = ivmResult.getFailureReason().name();
         if (ivmResult.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
-            // Keep the analyzed current signature only for this task run. After fallback full refresh succeeds,
-            // it becomes the next persisted layout baseline while the canonical string is logged for diagnosis.
             IvmPlanSignature currentPlanSignature = ivmResult.getCurrentPlanSignature();
             ivmFallbackPlanSignature = currentPlanSignature == null ? null : currentPlanSignature.getSha256();
             ivmFallbackPlanCanonicalString = currentPlanSignature == null
                     ? null
                     : currentPlanSignature.getCanonicalString();
         }
-        // INCREMENTAL was explicitly requested; do not fall back to full refresh.
-        if (currentRefreshMode == RefreshMode.INCREMENTAL) {
+        if (!request.allowFallback) {
             throw new JobException(
                     "IVM incremental refresh failed for mv=" + mtmv.getName()
                     + ", reason=" + ivmResult.getFailureReason()
                     + ", detail=" + ivmResult.getDetailMessage());
         }
+        // TODO(IVM): More pre-execution failures may require direct COMPLETE
+        // recovery, such as signature mismatch or invalid binlog state.
+        if (ivmResult.getFailureReason() == IvmFailureReason.PREVIOUS_RUN_INCOMPLETE) {
+            // The previous task already entered the IVM execution phase. If
+            // fallback is allowed, jump directly to COMPLETE recovery instead of
+            // trying PARTITIONS first.
+            LOG.warn("IVM previous run incomplete for mv={}, taskId={}. Continuing with COMPLETE recovery.",
+                    mtmv.getName(), getTaskId());
+            return AttemptResultType.FALLBACK_TO_COMPLETE;
+        }
         LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
                 + "Continuing with partition-based refresh.",
                 mtmv.getName(), ivmResult.getFailureReason(),
                 ivmResult.getDetailMessage(), getTaskId());
-        // Only a layout-signature mismatch requires rebuilding the full MV to establish
-        // a new baseline. Other IVM fallbacks should keep the ordinary MTMV refresh scope.
         if (ivmResult.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
-            this.needRefreshPartitions = Lists.newArrayList(mtmv.getPartitionNames());
-            this.refreshMode = generateRefreshMode(needRefreshPartitions);
+            return AttemptResultType.FALLBACK_TO_COMPLETE;
         }
-        return false;
+        return AttemptResultType.FALLBACK_ALLOWED;
+    }
+
+    private boolean executePartitionBasedRefresh(ConnectContext ctx, List<TableIf> tableIfs,
+            RefreshRequest request) throws JobException, AnalysisException, DdlException {
+        PartitionRefreshPlan partitionPlan = planPartitionRefresh(ctx, tableIfs, request);
+        if (!partitionPlan.canRefreshByPartitions) {
+            if (request.allowFallback) {
+                LOG.warn("MTMV partition refresh fell back for mv={}, reason={}, taskId={}",
+                        mtmv.getName(), partitionPlan.fallbackReason, getTaskId());
+                return false;
+            }
+            throw new JobException(partitionPlan.fallbackReason);
+        }
+        this.needRefreshPartitions = partitionPlan.partitions;
+        this.refreshMode = generateRefreshMode(needRefreshPartitions);
+        if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
+            return true;
+        }
+        executePartitionBasedRefresh(partitionPlan.context);
+        return true;
     }
 
     private void executePartitionBasedRefresh(MTMVRefreshContext context)
@@ -736,13 +987,14 @@ public class MTMVTask extends AbstractTask {
     }
 
     public List<String> calculateNeedRefreshPartitions(MTMVRefreshContext context)
-            throws AnalysisException {
+            throws AnalysisException, JobException {
+        RefreshRequest request = resolveRefreshRequest();
+        if (request.refreshMode == RefreshMode.COMPLETE) {
+            return Lists.newArrayList(mtmv.getPartitionNames());
+        }
         // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
-            if (taskContext.isComplete()) {
-                return Lists.newArrayList(mtmv.getPartitionNames());
-            } else if (!CollectionUtils
-                    .isEmpty(taskContext.getPartitions())) {
+            if (!CollectionUtils.isEmpty(taskContext.getPartitions())) {
                 return taskContext.getPartitions();
             }
         }

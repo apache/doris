@@ -74,7 +74,7 @@ import java.util.Set;
  *
  * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
  * Min/max use an assert_true guard: if a deleted row matches the current extreme,
- * execution fails and IvmRefreshManager falls back to COMPLETE refresh.
+ * execution fails with a reason that requires full refresh recovery.
  *
  * <h3>Overall flow</h3>
  * <ol>

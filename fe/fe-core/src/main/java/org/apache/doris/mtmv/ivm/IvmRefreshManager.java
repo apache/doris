@@ -277,8 +277,10 @@ public class IvmRefreshManager {
         try {
             commands = analyzeDeltaCommands(context);
         } catch (IvmException e) {
-            // Preserve the typed failure reason across the refresh boundary so MTMVTask can decide
-            // whether ordinary partition fallback is enough or a full layout-baseline rebuild is required.
+            // Analysis has not written MV data yet, so unsupported IVM patterns
+            // can be represented as a fallback result for the task planner. Preserve
+            // the typed failure reason so MTMVTask can decide whether ordinary partition
+            // fallback is enough or a full layout-baseline rebuild is required.
             IvmPlanSignature currentSignature = e.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH
                     ? currentPlanSignatureForFallback : null;
             IvmRefreshResult result = IvmRefreshResult.fallback(
@@ -288,6 +290,9 @@ public class IvmRefreshManager {
         } catch (Exception e) {
             String detail = e.getMessage() != null ? e.getMessage()
                     : e.getClass().getName() + " (no message)";
+            // Unknown analysis errors are still pre-execution failures. Return a
+            // fallback result instead of throwing so AUTO/INCREMENTAL FALLBACK
+            // can try PARTITIONS/COMPLETE.
             IvmRefreshResult result = IvmRefreshResult.fallback(
                     IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, detail);
             LOG.warn("IVM plan analysis failed for mv={}, result={}", mtmv.getName(), result, e);
@@ -320,17 +325,14 @@ public class IvmRefreshManager {
             deltaExecutor.execute(context, commands, exprIdStart);
         } catch (Exception e) {
             // Leave runningIvmRefresh=true — the next task will detect this and
-            // fall back to full refresh, which resets the flag on success.
+            // require full refresh recovery, which resets the flag on success.
+            // Do not return a fallback result here: delta commands are executed
+            // one by one and may already have partially modified the MV.
             String detail = e.getMessage() != null ? e.getMessage()
                     : e.getClass().getName() + " (no message)";
-            IvmRefreshResult result = buildExecutionFailureResult(detail);
-            if (result.getFailureReason() == IvmFailureReason.INCREMENTAL_EXECUTION_FAILED) {
-                LOG.warn("IVM execution failed for mv={}, result={}", mtmv.getName(), result, e);
-            } else {
-                LOG.info("IVM execution requires non-incremental recovery for mv={}, result={}",
-                        mtmv.getName(), result);
-            }
-            return result;
+            LOG.warn("IVM execution failed for mv={}, detail={}", mtmv.getName(), detail, e);
+            throw new IvmException(IvmFailureClassifier.classifyExecutionFailure(detail)
+                    .orElse(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED), detail);
         }
 
         // Advance consumedTso to latestTso for all base tables and clear the flag,
@@ -338,19 +340,6 @@ public class IvmRefreshManager {
         advanceConsumedTsoAndClearFlag(mtmv);
 
         return IvmRefreshResult.success();
-    }
-
-    private IvmRefreshResult buildExecutionFailureResult(String detail) {
-        if (detail.contains("IVM: deleted row may be current")) {
-            return IvmRefreshResult.fallback(IvmFailureReason.MIN_MAX_BOUNDARY_HIT, detail);
-        }
-        if (detail.contains("IVM: deleted row affects BITMAP aggregate")) {
-            return IvmRefreshResult.fallback(IvmFailureReason.BITMAP_AGG_DELETE, detail);
-        }
-        if (detail.contains("IVM fallback: delete on non-deterministic row_id")) {
-            return IvmRefreshResult.fallback(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, detail);
-        }
-        return IvmRefreshResult.fallback(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, detail);
     }
 
     /**

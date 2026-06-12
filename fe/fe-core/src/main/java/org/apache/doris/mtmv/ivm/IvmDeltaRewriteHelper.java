@@ -57,9 +57,6 @@ import java.util.Map;
 class IvmDeltaRewriteHelper {
     static final IvmDeltaRewriteHelper INSTANCE = new IvmDeltaRewriteHelper();
 
-    private static final String NON_DET_ROW_ID_MSG_PREFIX =
-            "IVM fallback: delete on non-deterministic row_id in ";
-
     private IvmDeltaRewriteHelper() {
     }
 
@@ -133,10 +130,10 @@ class IvmDeltaRewriteHelper {
 
     /**
      * Wraps the dml_factor slot with an assert_true guard that triggers a runtime exception
-     * when dml_factor < 0, causing fallback to full refresh.
+     * when dml_factor < 0 and preserves the fallback reason for recovery.
      */
     IvmDeltaRewriteResult wrapDmlFactorWithNonDetGuard(IvmDeltaRewriteResult result, JoinType joinType) {
-        String msg = NON_DET_ROW_ID_MSG_PREFIX + joinType;
+        String msg = IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX + " in " + joinType;
         Expression guardedExpr = new If(
                 new AssertTrue(new GreaterThanEqual(result.dmlFactorSlot,
                         new TinyIntLiteral((byte) 0)), new StringLiteral(msg)),

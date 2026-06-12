@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -52,6 +53,7 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
 
     @Override
     protected String fallbackMessage() {
-        return "IVM: deleted row may be current MIN value, fallback to COMPLETE";
+        return IvmFailureClassifier.MIN_MAX_BOUNDARY_MSG_PREFIX
+                + ": deleted row may be current MIN value";
     }
 }

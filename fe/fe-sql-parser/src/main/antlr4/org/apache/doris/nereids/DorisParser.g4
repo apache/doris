@@ -74,7 +74,7 @@ statementBase
 materializedViewStatement
     : CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
-        (REFRESH refreshMethod? refreshTrigger?)?
+        (REFRESH refreshPolicy? refreshTrigger?)?
         ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
@@ -85,9 +85,9 @@ materializedViewStatement
     | explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier INCREMENTAL explainDeltaClause?
                                                                                                 #explainRefreshIvm
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
-        (partitionSpec | COMPLETE | AUTO | INCREMENTAL | PARTITIONS)                            #refreshMTMV
+        (partitionSpec | refreshPolicy)                                                         #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
-        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+        | (REFRESH (refreshPolicy | refreshTrigger | refreshPolicy refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
@@ -1127,8 +1127,16 @@ refreshSchedule
     : EVERY INTEGER_VALUE refreshUnit = identifier (STARTS STRING_LITERAL)?
     ;
 
+refreshPolicy
+    : refreshMethod refreshFallback?
+    ;
+
+refreshFallback
+    : FALLBACK
+    ;
+
 refreshMethod
-    : COMPLETE | AUTO | INCREMENTAL
+    : COMPLETE | AUTO | INCREMENTAL | PARTITIONS
     ;
 
 mvPartition
@@ -2140,6 +2148,7 @@ nonReserved
     | EXCLUDE
     | EXPIRED
     | EXTERNAL
+    | FALLBACK
     | FAILED_LOGIN_ATTEMPTS
     | FAST
     | FEATURE

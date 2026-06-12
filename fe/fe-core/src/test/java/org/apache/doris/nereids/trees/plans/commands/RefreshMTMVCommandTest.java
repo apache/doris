@@ -99,8 +99,38 @@ public class RefreshMTMVCommandTest {
     public void testParseRefreshWithPartitionSpec() throws Exception {
         RefreshMTMVInfo info = extractRefreshInfo(
                 "REFRESH MATERIALIZED VIEW db1.mv1 PARTITIONS (p1, p2)");
-        Assertions.assertEquals(RefreshMode.AUTO, info.getRefreshMode());
+        Assertions.assertEquals(RefreshMode.PARTITIONS, info.getRefreshMode());
         Assertions.assertEquals(2, info.getPartitions().size());
+        Assertions.assertFalse(info.allowFallback());
+    }
+
+    @Test
+    public void testParseRefreshWithFallback() throws Exception {
+        RefreshMTMVInfo info = extractRefreshInfo(
+                "REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL FALLBACK");
+        Assertions.assertEquals(RefreshMode.INCREMENTAL, info.getRefreshMode());
+        Assertions.assertTrue(info.allowFallback());
+    }
+
+    @Test
+    public void testParseRefreshPartitionsFallback() throws Exception {
+        RefreshMTMVInfo info = extractRefreshInfo(
+                "REFRESH MATERIALIZED VIEW db1.mv1 PARTITIONS FALLBACK");
+        Assertions.assertEquals(RefreshMode.PARTITIONS, info.getRefreshMode());
+        Assertions.assertTrue(info.allowFallback());
+    }
+
+    @Test
+    public void testParseRefreshCompleteFallback() throws Exception {
+        RefreshMTMVInfo info = extractRefreshInfo(
+                "REFRESH MATERIALIZED VIEW db1.mv1 COMPLETE FALLBACK");
+        Assertions.assertEquals(RefreshMode.COMPLETE, info.getRefreshMode());
+        Assertions.assertTrue(info.allowFallback());
+    }
+
+    @Test
+    public void testParsePartitionSpecFallbackFails() {
+        assertParseFails("REFRESH MATERIALIZED VIEW db1.mv1 PARTITIONS (p1) FALLBACK");
     }
 
     // TC-8-extra: isComplete() backward compat — only true for COMPLETE mode

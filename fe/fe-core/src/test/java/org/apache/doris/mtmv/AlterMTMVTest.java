@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmStreamRef;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -213,6 +214,48 @@ public class AlterMTMVTest extends TestWithFeService {
                 () -> alterMv("ALTER MATERIALIZED VIEW alt_auto_mv5\n"
                         + " REFRESH INCREMENTAL ON MANUAL"));
         Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterAutoFallbackPersistsFallbackFlag() throws Exception {
+        createDatabaseAndUse("alter_test_auto_fallback");
+        createTable("CREATE TABLE alter_test_auto_fallback.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_auto_fallback_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+
+        alterMv("ALTER MATERIALIZED VIEW alt_auto_fallback_mv REFRESH AUTO FALLBACK ON MANUAL");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_test_auto_fallback").get()
+                .getTableOrMetaException("alt_auto_fallback_mv");
+        Assertions.assertEquals(RefreshMethod.AUTO, mtmv.getRefreshInfo().getRefreshMethod());
+        Assertions.assertTrue(mtmv.getRefreshInfo().allowFallback());
+    }
+
+    @Test
+    public void testAlterNonPartitionMvToPartitionsFallbackRejected() throws Exception {
+        createDatabaseAndUse("alter_test_partitions_fallback");
+        createTable("CREATE TABLE alter_test_partitions_fallback.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_partitions_fallback_mv\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_partitions_fallback_mv "
+                        + "REFRESH PARTITIONS FALLBACK ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to PARTITIONS"),
                 "unexpected message: " + ex.getMessage());
     }
 
