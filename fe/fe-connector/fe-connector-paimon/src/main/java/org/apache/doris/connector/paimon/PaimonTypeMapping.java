@@ -112,7 +112,11 @@ public final class PaimonTypeMapping {
 
     private static ConnectorType toVarcharType(VarCharType type) {
         int len = type.getLength();
-        if (len <= 0 || len >= 65533) {
+        // 65533 == ScalarType.MAX_VARCHAR_LENGTH is the legal exact-fit max VARCHAR, not the STRING
+        // wildcard; only a length strictly greater than it overflows to STRING. Use `> 65533` to
+        // match legacy PaimonUtil.paimonPrimitiveTypeToDorisType byte-for-byte (the `len <= 0` guard
+        // is unreachable for real paimon — VarCharType min length is 1 — kept defensively).
+        if (len <= 0 || len > 65533) {
             return ConnectorType.of("STRING");
         }
         return ConnectorType.of("VARCHAR", len, 0);
