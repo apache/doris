@@ -25,6 +25,8 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.ivm.IvmDeltaExplainBundle;
 import org.apache.doris.mtmv.ivm.IvmRefreshExplainResult;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
@@ -149,6 +151,9 @@ public class ExplainRefreshIvmCommandTest {
     public void testRunExplainRefreshOverviewSuccess() throws Exception {
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.isIvm()).thenReturn(true);
+        MTMVRefreshInfo refreshInfo = Mockito.mock(MTMVRefreshInfo.class);
+        Mockito.when(refreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getRefreshInfo()).thenReturn(refreshInfo);
         IvmRefreshManager manager = Mockito.mock(IvmRefreshManager.class);
         IvmRefreshExplainResult result = mockExplainResultWithTwoDeltas();
         Mockito.when(manager.explainRefresh(mtmv)).thenReturn(result);
@@ -184,6 +189,9 @@ public class ExplainRefreshIvmCommandTest {
     public void testRunExplainRefreshAnalyzedDeltaSuccess() throws Exception {
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.isIvm()).thenReturn(true);
+        MTMVRefreshInfo refreshInfo = Mockito.mock(MTMVRefreshInfo.class);
+        Mockito.when(refreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getRefreshInfo()).thenReturn(refreshInfo);
         IvmRefreshManager manager = Mockito.mock(IvmRefreshManager.class);
         IvmRefreshExplainResult result = mockExplainResultWithDelta();
         Mockito.when(manager.explainRefresh(mtmv)).thenReturn(result);
@@ -206,6 +214,9 @@ public class ExplainRefreshIvmCommandTest {
     public void testRunExplainRefreshUnknownDeltaFails() throws Exception {
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.isIvm()).thenReturn(true);
+        MTMVRefreshInfo refreshInfo = Mockito.mock(MTMVRefreshInfo.class);
+        Mockito.when(refreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getRefreshInfo()).thenReturn(refreshInfo);
         IvmRefreshManager manager = Mockito.mock(IvmRefreshManager.class);
         IvmRefreshExplainResult result = mockExplainResultWithTwoDeltas();
         Mockito.when(manager.explainRefresh(mtmv)).thenReturn(result);
