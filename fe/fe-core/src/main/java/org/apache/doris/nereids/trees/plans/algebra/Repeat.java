@@ -61,10 +61,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         return Optional.empty();
     }
 
-    default List<Slot> getPassThroughSlots() {
-        return ImmutableList.of();
-    }
-
 
     @Override
     default List<Expression> getGroupByExpressions() {
@@ -180,20 +176,11 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
     default List<Set<Integer>> computeRepeatSlotIdList(List<Integer> slotIdList, List<Slot> outputSlots) {
         List<Set<Integer>> groupingSetsIndexesInOutput = getGroupingSetsIndexesInOutput(outputSlots);
         List<Set<Integer>> repeatSlotIdList = Lists.newArrayList();
-        Map<Expression, Integer> indexMap = indexesOfOutput(outputSlots);
         for (Set<Integer> groupingSetIndex : groupingSetsIndexesInOutput) {
             // keep order
             Set<Integer> repeatSlotId = Sets.newLinkedHashSet();
             for (Integer exprInOutputIndex : groupingSetIndex) {
                 repeatSlotId.add(slotIdList.get(exprInOutputIndex));
-            }
-            for (Slot passThroughSlot : getPassThroughSlots()) {
-                Integer index = indexMap.get(passThroughSlot);
-                if (index == null) {
-                    throw new AnalysisException("Can not find repeat pass-through slot in output: "
-                            + passThroughSlot);
-                }
-                repeatSlotId.add(slotIdList.get(index));
             }
             repeatSlotIdList.add(repeatSlotId);
         }

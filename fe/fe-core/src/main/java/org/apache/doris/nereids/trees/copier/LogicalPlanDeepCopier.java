@@ -218,18 +218,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         SlotReference groupingId = (SlotReference) ExpressionDeepCopier.INSTANCE
                 .deepCopy(repeat.getGroupingId().get(), context);
         if (repeat.getGroupingIdValues().isPresent()) {
-            List<Slot> passThroughSlots = repeat.getPassThroughSlots().stream()
-                    .map(e -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(e, context))
-                    .collect(ImmutableList.toImmutableList());
             return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId,
-                    repeat.getGroupingIdValues().get(), repeat.getRepeatType(), child)
-                    .withPassThroughSlots(passThroughSlots);
+                    repeat.getGroupingIdValues().get(), repeat.getRepeatType(), child);
         }
-        List<Slot> passThroughSlots = repeat.getPassThroughSlots().stream()
-                .map(e -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(e, context))
-                .collect(ImmutableList.toImmutableList());
-        return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, repeat.getRepeatType(), child)
-                .withPassThroughSlots(passThroughSlots);
+        return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, repeat.getRepeatType(), child);
     }
 
     @Override
