@@ -203,7 +203,8 @@ public class PaimonScanPlanProviderTest {
         // wrong rows. MUTATION: dropping the `!forceJni` guard in shouldUseNativeReader ->
         // returns true here (native) -> red.
         Assertions.assertFalse(
-                PaimonScanPlanProvider.shouldUseNativeReader(/*forceJni*/ true, rawFiles),
+                PaimonScanPlanProvider.shouldUseNativeReader(
+                        /*forceJni*/ true, /*forceJniScanner*/ false, rawFiles),
                 "a forceJni (binlog/audit_log) sys split must route to JNI, never native, "
                         + "even when its raw files would otherwise support the native reader");
     }
@@ -219,7 +220,8 @@ public class PaimonScanPlanProviderTest {
         // would regress the native fast path for normal tables and "ro". MUTATION: gating native on
         // anything stricter (e.g. isSystemTable) -> returns false here -> red.
         Assertions.assertTrue(
-                PaimonScanPlanProvider.shouldUseNativeReader(/*forceJni*/ false, rawFiles),
+                PaimonScanPlanProvider.shouldUseNativeReader(
+                        /*forceJni*/ false, /*forceJniScanner*/ false, rawFiles),
                 "a non-forced split with native-eligible raw files must still take the native path");
     }
 
@@ -228,8 +230,27 @@ public class PaimonScanPlanProviderTest {
         // Sanity: even when not forced, a split whose raw files are absent must not go native.
         // MUTATION: making shouldUseNativeReader ignore supportNativeReader -> returns true -> red.
         Assertions.assertFalse(
-                PaimonScanPlanProvider.shouldUseNativeReader(/*forceJni*/ false, Optional.empty()),
+                PaimonScanPlanProvider.shouldUseNativeReader(
+                        /*forceJni*/ false, /*forceJniScanner*/ false, Optional.empty()),
                 "a split without convertible raw files must route to JNI regardless of forceJni");
+    }
+
+    @Test
+    public void forceJniScannerRoutesNativeEligibleSplitToJni() {
+        // FIX-FORCE-JNI-SCANNER (M-1): a normal (non-name-forced) split whose raw files DO support the
+        // native reader must STILL route to JNI when the session sets force_jni_scanner=true — this is the
+        // user escape hatch legacy honors (PaimonScanNode.getSplits gate: !forceJniScanner && ...). Without
+        // it the native-reader bug the user is trying to dodge stays on the native path.
+        Optional<java.util.List<RawFile>> rawFiles = Optional.of(
+                Arrays.asList(parquetRawFile("/data/part-0.parquet")));
+
+        // WHY: routing-correctness — force_jni_scanner is a sibling of the handle name-force, ANDed into
+        // the same native gate. MUTATION: dropping the `!forceJniScanner` conjunct in shouldUseNativeReader
+        // -> this native-eligible split goes native despite force_jni_scanner=true -> red.
+        Assertions.assertFalse(
+                PaimonScanPlanProvider.shouldUseNativeReader(
+                        /*forceJni*/ false, /*forceJniScanner*/ true, rawFiles),
+                "force_jni_scanner=true must route even native-eligible ORC/Parquet splits to JNI");
     }
 
     // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----
@@ -537,6 +558,22 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(
                 sessionWithProps(Collections.emptyMap())), "absent flag must default to false");
         Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(null),
+                "a null session must default to false");
+    }
+
+    @Test
+    public void isForceJniScannerEnabledReadsSessionProperty() {
+        // FIX-FORCE-JNI-SCANNER (M-1): pins the EXACT session key ("force_jni_scanner", byte-identical to
+        // SessionVariable.FORCE_JNI_SCANNER) and the default-false semantics. Both native sites (the split
+        // router and the schema-evolution emit gate) hinge on reading this flag correctly. MUTATION: wrong
+        // key, or defaulting true -> red.
+        Assertions.assertTrue(PaimonScanPlanProvider.isForceJniScannerEnabled(
+                sessionWithProps(Collections.singletonMap("force_jni_scanner", "true"))));
+        Assertions.assertFalse(PaimonScanPlanProvider.isForceJniScannerEnabled(
+                sessionWithProps(Collections.singletonMap("force_jni_scanner", "false"))));
+        Assertions.assertFalse(PaimonScanPlanProvider.isForceJniScannerEnabled(
+                sessionWithProps(Collections.emptyMap())), "absent flag must default to false");
+        Assertions.assertFalse(PaimonScanPlanProvider.isForceJniScannerEnabled(null),
                 "a null session must default to false");
     }
 

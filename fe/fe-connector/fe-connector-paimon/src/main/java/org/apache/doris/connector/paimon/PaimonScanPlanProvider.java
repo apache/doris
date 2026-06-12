@@ -133,6 +133,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // (paimon::Split::Deserialize), so FE must serialize a DataSplit with that format, not Java serde.
     private static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
 
+    // Session variable name (byte-identical to SessionVariable.FORCE_JNI_SCANNER) surfaced through
+    // ConnectorSession.getSessionProperties() (VariableMgr.toMap), exactly like ENABLE_PAIMON_CPP_READER
+    // above. When true it is the user/session JNI escape hatch: every native-eligible DataSplit is routed
+    // to the JNI reader (legacy PaimonScanNode.getSplits gate, sessionVariable.isForceJniScanner()),
+    // bypassing the native ORC/Parquet readers to dodge native-reader bugs. Default false (legacy default).
+    private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
     // FIX-SCHEMA-EVOLUTION (B-1a): scan-level prop carrying the base64 TBinaryProtocol-serialized
     // schema dictionary (a throwaway TFileScanRangeParams holding current_schema_id +
     // history_schema_info). getScanNodeProperties builds it from the live table; populateScanLevelParams
@@ -168,6 +175,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         return Boolean.parseBoolean(session.getSessionProperties().get(ENABLE_PAIMON_CPP_READER));
+    }
+
+    /**
+     * Reads the {@code force_jni_scanner} session flag from the SPI session properties (same
+     * {@code VariableMgr.toMap} channel as {@link #isCppReaderEnabled}). When true the JNI escape
+     * hatch is engaged: every native-eligible DataSplit is routed to JNI (see
+     * {@link #shouldUseNativeReader}), bypassing the native ORC/Parquet readers to dodge native-reader
+     * bugs. Default false (legacy default), so normal reads are unaffected. Package-private static for
+     * offline unit testing.
+     */
+    static boolean isForceJniScannerEnabled(ConnectorSession session) {
+        if (session == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
     }
 
     /**
@@ -292,7 +314,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
-            if (shouldUseNativeReader(paimonHandle.isForceJni(), optRawFiles)) {
+            if (shouldUseNativeReader(paimonHandle.isForceJni(),
+                    isForceJniScannerEnabled(session), optRawFiles)) {
                 // Native reader path
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
@@ -432,8 +455,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // FIX-SCHEMA-EVOLUTION (B-1a): emit the native-reader schema dictionary so BE matches file<->table
         // columns BY FIELD ID across schema evolution (rename/reorder) instead of falling back to NAME
         // matching (which silently reads NULL/garbage for renamed columns). Only meaningful when the table
-        // can take the native path (a DataTable read without force_jni_scanner); JNI splits never consult it.
-        if (!paimonHandle.isForceJni()) {
+        // can take the native path: skip it when the handle name-forces JNI (binlog/audit_log) OR the
+        // session forces JNI (force_jni_scanner) — in both cases every split goes JNI and never consults
+        // the dict (FIX-FORCE-JNI-SCANNER: honor the same session escape hatch the native router uses).
+        if (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session)) {
             buildSchemaEvolutionParam(table).ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
         }
 
@@ -492,22 +517,30 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Decides whether a {@link DataSplit} may take the native (ORC/Parquet) reader path.
      *
-     * <p>The split is native-eligible iff (a) it is NOT name-forced to JNI by the handle, AND (b) its
-     * raw files all support the native reader (see {@link #supportNativeReader}). Gating on
-     * {@code forceJni} is the T19 fix: {@code binlog} / {@code audit_log} system tables are paimon
-     * {@code DataTable}s whose {@code DataSplit.convertToRawFiles()} may succeed, but the native
+     * <p>The split is native-eligible iff (a) it is NOT name-forced to JNI by the handle, AND (b) it is
+     * NOT session-forced to JNI via {@code force_jni_scanner}, AND (c) its raw files all support the
+     * native reader (see {@link #supportNativeReader}). Mirrors legacy's three-boolean gate
+     * {@code !forceJniScanner && !forceJniForSystemTable && supportNativeReader} (PaimonScanNode.getSplits).
+     *
+     * <p>{@code forceJni} is the T19 name-force: {@code binlog} / {@code audit_log} system tables are
+     * paimon {@code DataTable}s whose {@code DataSplit.convertToRawFiles()} may succeed, but the native
      * reader cannot reproduce their read semantics (binlog pack/merge + array materialization;
      * audit_log rowkind/sequence-number projection), so they would silently return wrong rows. Legacy
      * forces them to JNI ({@code PaimonScanNode.shouldForceJniForSystemTable}, captured by
-     * {@link PaimonTableHandle#isForceJni()}). ONLY the {@code forceJni} flag gates this: metadata sys
-     * tables already go JNI via the non-DataSplit path, and a non-forced {@code DataTable} like "ro"
-     * (forceJni=false) must still be allowed native — so this must not over-force.
+     * {@link PaimonTableHandle#isForceJni()}). It must NOT over-force: metadata sys tables already go
+     * JNI via the non-DataSplit path, and a non-forced {@code DataTable} like "ro" (forceJni=false)
+     * must still be allowed native.
+     *
+     * <p>{@code forceJniScanner} is the user/session escape hatch ({@code SET force_jni_scanner=true},
+     * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible split is routed to
+     * JNI to dodge native-reader bugs. Default false, so normal reads are unaffected.
      *
      * <p>Extracted as a pure static so the correctness-critical routing decision is unit-testable
      * with real {@link RawFile}s, without driving a full Paimon {@code ReadBuilder}/{@code TableScan}.
      */
-    static boolean shouldUseNativeReader(boolean forceJni, Optional<List<RawFile>> optRawFiles) {
-        return !forceJni && supportNativeReader(optRawFiles);
+    static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
+            Optional<List<RawFile>> optRawFiles) {
+        return !forceJni && !forceJniScanner && supportNativeReader(optRawFiles);
     }
 
     private static boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
