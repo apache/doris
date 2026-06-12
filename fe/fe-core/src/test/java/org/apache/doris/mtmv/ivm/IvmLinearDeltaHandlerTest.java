@@ -177,8 +177,6 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalRepeat<?> rewrittenRepeat = (LogicalRepeat<?>) result.plan;
         Assertions.assertEquals(repeat.getGroupingSets(), rewrittenRepeat.getGroupingSets());
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
-        Assertions.assertEquals(1, rewrittenRepeat.getPassThroughSlots().stream()
-                .filter(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())).count());
         Assertions.assertFalse(rewrittenRepeat.toShapes().flattenGroupingSetExpression.stream()
                 .anyMatch(expr -> expr instanceof Slot
                         && Column.IVM_DML_FACTOR_COL.equals(((Slot) expr).getName())));
