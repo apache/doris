@@ -273,9 +273,12 @@ public:
     // memory. Unlike `Saturated()` (a hard limit that freezes the buffer),
     // `ShouldFlush()` is advisory: Append() continues to work after the
     // budget is exceeded, but each additional record increases peak RAM.
-    // Default 256 MiB balances spill frequency against merge cost for
-    // typical OLAP fulltext workloads.
-    static constexpr size_t kDefaultMemoryBudget = size_t {256} << 20;
+    // Default 128 MiB: with spill-to-disk (spilled bytes are freed, no resident
+    // accumulation) a lower budget sharply cuts the large-doc write peak
+    // (wiki 546→259 MB, below V2's 288) for only +0.75% .idx (more spills → a
+    // slightly less optimal k-way re-encode). Short docs never cross it and are
+    // unaffected.
+    static constexpr size_t kDefaultMemoryBudget = size_t {128} << 20;
 
     struct Limits {
         size_t max_term_bytes = kMaxTermBytes;
