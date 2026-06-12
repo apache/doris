@@ -288,7 +288,9 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
     } else {
         /// Skip excessive stack frames that we have created while finding stack trace.
         for (size_t i = 0; i < size; ++i) {
-            if (frame_pointers[i] == caller_address) {
+            if (frame_pointers[i] == caller_address ||
+                frame_pointers[i] ==
+                        reinterpret_cast<void*>(reinterpret_cast<char*>(caller_address) + 1)) {
                 offset = i;
                 break;
             }
