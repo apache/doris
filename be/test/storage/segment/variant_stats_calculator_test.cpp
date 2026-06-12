@@ -102,7 +102,7 @@ protected:
     }
 
     // Helper method to create a map column (sparse column)
-    ColumnPtr create_map_column() {
+    ColumnMap::MutablePtr create_map_column() {
         auto keys = ColumnString::create();
         auto values = ColumnString::create();
         auto offsets = ColumnArray::ColumnOffsets::create();
@@ -220,7 +220,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSparseColumn) {
     auto string_column = ColumnString::create();
     // add parant column to block
     block.insert({std::move(string_column), std::make_shared<DataTypeString>(), "variant_column"});
-    block.insert({std::move(map_column),
+    block.insert({static_cast<const IColumn&>(*map_column).get_ptr(),
                   std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
                                                 std::make_shared<DataTypeString>()),
                   "sparse_column"});
@@ -312,8 +312,8 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
                   std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "sub1"});
 
     auto map_col = create_map_column();
-    map_col->assert_mutable()->insert_many_defaults(3);
-    block.insert({std::move(map_col),
+    map_col->insert_many_defaults(3);
+    block.insert({static_cast<const IColumn&>(*map_col).get_ptr(),
                   std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
                                                 std::make_shared<DataTypeString>()),
                   "sparse"});

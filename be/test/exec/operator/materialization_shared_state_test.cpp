@@ -119,7 +119,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(100));
         value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(101));
         resp_block1.insert(
-                {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value"});
+                {make_mut_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value"});
 
         PMultiGetResponseV2 response_;
         auto serialized_block = response_.add_blocks()->mutable_block();
@@ -145,7 +145,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
         value_col_data2->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
         resp_block2.insert(
-                {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value"});
+                {make_mut_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value"});
 
         PMultiGetResponseV2 response_;
         auto serialized_block = response_.add_blocks()->mutable_block();
@@ -226,8 +226,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto resp_value_col1 = _int_type->create_column();
         auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
         value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(100));
-        resp_block1.insert(
-                {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value1"});
+        resp_block1.insert({make_mut_nullable(std::move(resp_value_col1)), make_nullable(_int_type),
+                            "value1"});
 
         PMultiGetResponseV2 response_;
         auto serialized_block = response_.add_blocks()->mutable_block();
@@ -251,8 +251,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto resp_value_col2 = _int_type->create_column();
         auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
         value_col_data2->insert(Field::create_field<PrimitiveType::TYPE_INT>(102));
-        resp_block2.insert(
-                {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value1"});
+        resp_block2.insert({make_mut_nullable(std::move(resp_value_col2)), make_nullable(_int_type),
+                            "value1"});
 
         PMultiGetResponseV2 response_;
         auto serialized_block = response_.add_blocks()->mutable_block();
@@ -277,8 +277,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto resp_value_col1 = _int_type->create_column();
         auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
         value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
-        resp_block1.insert(
-                {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value2"});
+        resp_block1.insert({make_mut_nullable(std::move(resp_value_col1)), make_nullable(_int_type),
+                            "value2"});
 
         auto serialized_block =
                 _shared_state->rpc_struct_map[_backend_id1].response.add_blocks()->mutable_block();
@@ -299,8 +299,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto resp_value_col2 = _int_type->create_column();
         auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
         value_col_data2->insert(Field::create_field<PrimitiveType::TYPE_INT>(201));
-        resp_block2.insert(
-                {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value2"});
+        resp_block2.insert({make_mut_nullable(std::move(resp_value_col2)), make_nullable(_int_type),
+                            "value2"});
 
         auto* serialized_block =
                 _shared_state->rpc_struct_map[_backend_id2].response.add_blocks()->mutable_block();
@@ -368,7 +368,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseBackendNotFound) {
         auto col = _int_type->create_column();
         reinterpret_cast<ColumnInt32*>(col.get())->insert(
                 Field::create_field<PrimitiveType::TYPE_INT>(42));
-        resp_block.insert({make_nullable(std::move(col)), make_nullable(_int_type), "value"});
+        resp_block.insert({make_mut_nullable(std::move(col)), make_nullable(_int_type), "value"});
 
         PMultiGetResponseV2 response;
         auto* serialized_block = response.add_blocks()->mutable_block();
@@ -454,7 +454,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
         auto col = _int_type->create_column();
         reinterpret_cast<ColumnInt32*>(col.get())->insert(
                 Field::create_field<PrimitiveType::TYPE_INT>(100));
-        rel0_block.insert({make_nullable(std::move(col)), make_nullable(_int_type), "price"});
+        rel0_block.insert({make_mut_nullable(std::move(col)), make_nullable(_int_type), "price"});
 
         auto* pb0 = response.add_blocks()->mutable_block();
         size_t us = 0, cs = 0;
@@ -479,7 +479,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
         Block rel1_block;
         auto col = _string_type->create_column();
         reinterpret_cast<ColumnString*>(col.get())->insert_data("Alice", 5);
-        rel1_block.insert({make_nullable(std::move(col)), make_nullable(_string_type), "name"});
+        rel1_block.insert({make_mut_nullable(std::move(col)), make_nullable(_string_type), "name"});
 
         _shared_state->rpc_struct_map[_backend_id2]
                 .request.mutable_request_block_descs(1)

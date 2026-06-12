@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_variant.h"
 #include "exprs/function/cast/cast_base.h"
@@ -37,7 +38,7 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         variant_column = &nullable->get_nested_column();
     }
     const auto* variant = assert_cast<const ColumnVariant*>(variant_column);
-    ColumnPtr col_to = data_type_to->create_column();
+    MutableColumnPtr col_to = data_type_to->create_column();
 
     ColumnPtr finalized_input_column;
     if (!variant->is_finalized()) {
@@ -101,20 +102,23 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         Status st = wrapper(new_context.get(), tmp_block, {0}, 1, input_rows_count, nullptr);
         if (!st.ok()) {
             // Fill with default values, which is null
-            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
-            col_to = make_nullable(col_to, true);
+            col_to->insert_many_defaults(input_rows_count);
+            col_to = make_mut_nullable(std::move(col_to), true);
         } else {
-            col_to = tmp_block.get_by_position(1).column;
-            col_to = wrap_in_nullable(col_to,
-                                      Block({{nested, nested_from_type, ""},
-                                             {col_from, col_with_type_and_name.type, ""},
-                                             {col_to, data_type_to, ""}}),
-                                      {0, 1}, input_rows_count);
+            col_to = IColumn::mutate(std::move(tmp_block.get_by_position(1).column));
+            ColumnPtr col_to_ptr = std::move(col_to);
+            ColumnPtr wrapped_col_to =
+                    wrap_in_nullable(col_to_ptr,
+                                     Block({{nested, nested_from_type, ""},
+                                            {col_from, col_with_type_and_name.type, ""},
+                                            {col_to_ptr, data_type_to, ""}}),
+                                     {0, 1}, input_rows_count);
+            col_to = IColumn::mutate(std::move(wrapped_col_to));
         }
     } else {
         if (variant->only_have_default_values()) {
-            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
-            col_to = make_nullable(col_to, true);
+            col_to->insert_many_defaults(input_rows_count);
+            col_to = make_mut_nullable(std::move(col_to), true);
         } else if (is_string_type(data_type_to->get_primitive_type())) {
             // serialize to string
             return execute_on_finalized_input([&](Block& finalized_block) {
@@ -130,16 +134,15 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         } else if (!data_type_to->is_nullable() &&
                    !is_string_type(data_type_to->get_primitive_type())) {
             // other types
-            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
-            col_to = make_nullable(col_to, true);
+            col_to->insert_many_defaults(input_rows_count);
+            col_to = make_mut_nullable(std::move(col_to), true);
         } else {
-            assert_cast<ColumnNullable&>(*col_to->assert_mutable())
-                    .insert_many_defaults(input_rows_count);
+            assert_cast<ColumnNullable&>(*col_to).insert_many_defaults(input_rows_count);
         }
     }
 
     if (null_map == nullptr) {
-        if (const auto* nullable_result = check_and_get_column<ColumnNullable>(*col_to);
+        if (auto* nullable_result = check_and_get_column<ColumnNullable>(*col_to);
             nullable_result != nullptr && !nullable_result->has_null()) {
             col_to = nullable_result->get_nested_column_ptr();
         }

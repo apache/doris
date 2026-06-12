@@ -157,8 +157,8 @@ static void read_orc_line(int64_t line, std::string block_dump,
     }
     auto data_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);
-    block->insert(ColumnWithTypeAndName(data_type->create_column()->assert_mutable(), data_type,
-                                        "row_id"));
+    MutableColumnPtr row_id_column = data_type->create_column();
+    block->insert(ColumnWithTypeAndName(std::move(row_id_column), data_type, "row_id"));
 
     bool eof = false;
     size_t read_row = 0;

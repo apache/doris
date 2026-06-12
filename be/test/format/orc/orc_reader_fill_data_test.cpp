@@ -83,7 +83,7 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
     TFileRangeDesc range;
     auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
-    MutableColumnPtr xx = column->assert_mutable();
+    MutableColumnPtr xx = column->get_ptr();
 
     Status status = reader->_fill_doris_data_column<false>(
             "test_long", xx, data_type, const_node, orc_type_ptr.get(), batch.get(), values.size());
@@ -109,7 +109,7 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
     TFileRangeDesc range;
     auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
-    MutableColumnPtr xx = column->assert_mutable();
+    MutableColumnPtr xx = column->get_ptr();
 
     Status status =
             reader->_fill_doris_data_column<false>("test_long_with_null", xx, data_type, const_node,
@@ -204,7 +204,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 std::vector<DataTypePtr> {
                         std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>())},
                 std::vector<std::string> {"col1"});
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column();
 
         Status status = reader->_fill_doris_data_column<false>("test", doris_column,
                                                                doris_struct_type, const_node,
@@ -290,7 +290,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
                                           std::make_shared<DataTypeInt32>()},
                 std::vector<std::string> {"col1", "col2"});
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column();
 
         Status status = reader->_fill_doris_data_column<false>("test", doris_column,
                                                                doris_struct_type, const_node,
@@ -375,7 +375,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal64>(18, 5)},
                 std::vector<std::string> {"col1"});
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column();
         reader->_decimal_scale_params.resize(0);
         reader->_decimal_scale_params_index = 0;
         Status status = reader->_fill_doris_data_column<false>("test", doris_column,
@@ -488,7 +488,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         auto doris_struct_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                                                std::make_shared<DataTypeFloat32>());
-        MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
+        MutableColumnPtr doris_column = doris_struct_type->create_column();
 
         Status status =
                 reader->_fill_doris_data_column<false>("test", doris_column, doris_struct_type,

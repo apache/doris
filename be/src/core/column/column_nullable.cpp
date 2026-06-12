@@ -22,6 +22,7 @@
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "exec/common/sip_hash.h"
@@ -701,6 +702,23 @@ ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
     }
 
     return ColumnNullable::create(column, ColumnUInt8::create(column->size(), is_nullable ? 1 : 0));
+}
+
+MutableColumnPtr make_mut_nullable(MutableColumnPtr&& column, bool is_nullable) {
+    if (is_column_nullable(*column)) {
+        return std::move(column);
+    }
+
+    if (is_column_const(*column)) {
+        return ColumnConst::create(
+                make_nullable(assert_cast<const ColumnConst&>(*column).get_data_column_ptr(),
+                              is_nullable),
+                column->size());
+    }
+
+    const auto size = column->size();
+    return ColumnNullable::create(std::move(column),
+                                  ColumnUInt8::create(size, is_nullable ? 1 : 0));
 }
 
 ColumnPtr remove_nullable(const ColumnPtr& column) {

@@ -1270,8 +1270,7 @@ TEST_F(ColumnVariantTest, get_data_at) {
 }
 
 TEST_F(ColumnVariantTest, replace_column_data) {
-    EXPECT_ANY_THROW(
-            column_variant->replace_column_data(column_variant->assert_mutable_ref(), 0, 0));
+    EXPECT_ANY_THROW(column_variant->replace_column_data(*column_variant, 0, 0));
 }
 
 TEST_F(ColumnVariantTest, serialize_value_into_arena) {
@@ -3185,12 +3184,11 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         PathInData sub_path("k");
         nested_object_ptr->add_sub_column(sub_path, std::move(flattend_column),
                                           std::move(flattend_type));
-        nested_object = make_nullable(nested_object->get_ptr())->assert_mutable();
-        auto array =
-                make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
+        nested_object = make_mut_nullable(std::move(nested_object));
+        auto array = make_mut_nullable(
+                MutableColumnPtr(ColumnArray::create(std::move(nested_object), std::move(offset))));
         PathInData path("v.k");
-        container_variant.add_sub_column(path, array->assert_mutable(),
-                                         container_variant.NESTED_TYPE);
+        container_variant.add_sub_column(path, std::move(array), container_variant.NESTED_TYPE);
         container_variant.set_num_rows(3);
         for (auto subcolumn : container_variant.get_subcolumns()) {
             if (subcolumn->data.is_root) {

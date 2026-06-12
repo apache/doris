@@ -289,7 +289,7 @@ public:
 
     const ColumnPtr& get_nested_column_ptr() const { return _nested_column; }
 
-    MutableColumnPtr get_nested_column_ptr() { return _nested_column->assert_mutable(); }
+    MutableColumnPtr get_nested_column_ptr() { return _nested_column.get()->get_ptr(); }
 
     void clear() override {
         _null_map->clear();
@@ -396,9 +396,7 @@ public:
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
     ColumnUInt8::MutablePtr get_null_map_column_ptr() {
-        auto null_map = _null_map->assert_mutable();
-        return ColumnUInt8::cast_to_column_mutptr(
-                assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get()));
+        return ColumnUInt8::cast_to_column_mutptr(_null_map.get());
     }
     ColumnUInt8& get_null_map_column() { return *_null_map; }
     NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
@@ -419,5 +417,6 @@ private:
 };
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
+MutableColumnPtr make_mut_nullable(MutableColumnPtr&& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
 } // namespace doris

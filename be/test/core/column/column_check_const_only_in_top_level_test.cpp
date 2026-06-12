@@ -118,8 +118,8 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, ColumnStructWithNonConstElements) {
     auto int_col2 = ColumnHelper::create_column<DataTypeInt32>({4, 5, 6});
 
     MutableColumns columns;
-    columns.push_back(int_col1->assert_mutable());
-    columns.push_back(int_col2->assert_mutable());
+    columns.push_back(IColumn::mutate(std::move(int_col1)));
+    columns.push_back(IColumn::mutate(std::move(int_col2)));
 
     // Should not throw
     EXPECT_NO_THROW({

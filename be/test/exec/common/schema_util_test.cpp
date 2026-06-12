@@ -835,8 +835,9 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
     auto simple_type = std::make_shared<DataTypeJsonb>();
 
     // Insert some test dataset
-    auto nested_array = ColumnArray::create(make_nullable(ColumnIPv4::create()),
-                                            ColumnArray::ColumnOffsets::create());
+    auto nested_array =
+            ColumnArray::create(make_mut_nullable(MutableColumnPtr(ColumnIPv4::create())),
+                                ColumnArray::ColumnOffsets::create());
     nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(1))));
     nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(2))));
 
@@ -1329,10 +1330,11 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     auto nullable_string = make_nullable(string_column->get_ptr());
 
     auto variant_column = ColumnVariant::create(10, false);
-    variant_column->create_root(string_type, nullable_string->assert_mutable());
+    variant_column->create_root(string_type, IColumn::mutate(std::move(nullable_string)));
     auto nullable_variant = make_nullable(variant_column->get_ptr());
 
-    block.insert({nullable_variant, variant_type, "nullable_variant"});
+    block.insert({static_cast<const IColumn&>(*nullable_variant).get_ptr(), variant_type,
+                  "nullable_variant"});
 
     std::vector<uint32_t> variant_pos {0};
     ParseConfig config;

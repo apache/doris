@@ -44,7 +44,7 @@ namespace doris {
 
 static MutableColumnPtr create_nullable_nested_array_column(MutableColumnPtr nested,
                                                             MutableColumnPtr offsets) {
-    return ColumnArray::create(make_nullable(std::move(nested)), std::move(offsets));
+    return ColumnArray::create(make_mut_nullable(std::move(nested)), std::move(offsets));
 }
 
 class MockTableFunctionChildOperator : public OperatorXBase {
@@ -1438,8 +1438,9 @@ TEST_F(UnnestTest, inner) {
         for (const auto& id : ids) {
             id_column->insert_data((const char*)(&id), 0);
         }
-        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
-                                                   data_type_int_nullable, "id"));
+        result_block->insert(
+                ColumnWithTypeAndName(make_mut_nullable(MutableColumnPtr(std::move(id_column))),
+                                      data_type_int_nullable, "id"));
 
         auto arr_data_column = ColumnInt32::create();
         auto arr_offsets_column = ColumnOffset64::create();
@@ -1455,10 +1456,12 @@ TEST_F(UnnestTest, inner) {
         for (size_t i = 1; i < offsets.size(); i++) {
             arr_offsets_column->insert_data((const char*)(&offsets[i]), 0);
         }
-        auto array_column = ColumnArray::create(make_nullable(std::move(arr_data_column)),
-                                                std::move(arr_offsets_column));
-        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(array_column)),
-                                                   data_type_array_type_nullable, "tags"));
+        auto array_column =
+                ColumnArray::create(make_mut_nullable(MutableColumnPtr(std::move(arr_data_column))),
+                                    std::move(arr_offsets_column));
+        result_block->insert(
+                ColumnWithTypeAndName(make_mut_nullable(MutableColumnPtr(std::move(array_column))),
+                                      data_type_array_type_nullable, "tags"));
         return result_block;
     };
 
@@ -1478,7 +1481,8 @@ TEST_F(UnnestTest, inner) {
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         expected_output_block.insert(ColumnWithTypeAndName(
-                make_nullable(std::move(unnested_tag_column)), data_type_int_nullable, "tag"));
+                make_mut_nullable(MutableColumnPtr(std::move(unnested_tag_column))),
+                data_type_int_nullable, "tag"));
         auto mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 0);
@@ -1546,8 +1550,9 @@ TEST_F(UnnestTest, outer) {
         for (const auto& id : ids) {
             id_column->insert_data((const char*)(&id), 0);
         }
-        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
-                                                   data_type_int_nullable, "id"));
+        result_block->insert(
+                ColumnWithTypeAndName(make_mut_nullable(MutableColumnPtr(std::move(id_column))),
+                                      data_type_int_nullable, "id"));
 
         auto arr_data_column = ColumnInt32::create();
         auto arr_offsets_column = ColumnOffset64::create();
@@ -1563,10 +1568,12 @@ TEST_F(UnnestTest, outer) {
         for (size_t i = 1; i < offsets.size(); i++) {
             arr_offsets_column->insert_data((const char*)(&offsets[i]), 0);
         }
-        auto array_column = ColumnArray::create(make_nullable(std::move(arr_data_column)),
-                                                std::move(arr_offsets_column));
-        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(array_column)),
-                                                   data_type_array_type_nullable, "tags"));
+        auto array_column =
+                ColumnArray::create(make_mut_nullable(MutableColumnPtr(std::move(arr_data_column))),
+                                    std::move(arr_offsets_column));
+        result_block->insert(
+                ColumnWithTypeAndName(make_mut_nullable(MutableColumnPtr(std::move(array_column))),
+                                      data_type_array_type_nullable, "tags"));
         return result_block;
     };
 
@@ -1587,7 +1594,8 @@ TEST_F(UnnestTest, outer) {
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         expected_output_block.insert(ColumnWithTypeAndName(
-                make_nullable(std::move(unnested_tag_column)), data_type_int_nullable, "tag"));
+                make_mut_nullable(MutableColumnPtr(std::move(unnested_tag_column))),
+                data_type_int_nullable, "tag"));
         auto mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 0);
@@ -1664,8 +1672,9 @@ TEST_F(UnnestTest, inner_with_nulls_fast_path) {
         for (int32_t id : {1, 2, 3, 4, 5}) {
             id_column->insert_data((const char*)(&id), 0);
         }
-        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
-                                                   data_type_int_nullable, "id"));
+        result_block->insert(
+                ColumnWithTypeAndName(make_mut_nullable(MutableColumnPtr(std::move(id_column))),
+                                      data_type_int_nullable, "id"));
 
         auto arr_data = ColumnInt32::create();
         auto arr_offsets = ColumnOffset64::create();
@@ -1702,8 +1711,8 @@ TEST_F(UnnestTest, inner_with_nulls_fast_path) {
         arr_offsets->insert_data((const char*)(&off), 0);
         arr_nullmap->get_data().push_back(0);
 
-        auto array_column =
-                ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
+        auto array_column = ColumnArray::create(
+                make_mut_nullable(MutableColumnPtr(std::move(arr_data))), std::move(arr_offsets));
         auto nullable_array =
                 ColumnNullable::create(std::move(array_column), std::move(arr_nullmap));
         result_block->insert(ColumnWithTypeAndName(std::move(nullable_array),
@@ -1793,8 +1802,9 @@ TEST_F(UnnestTest, outer_with_nulls_fast_path) {
         for (int32_t id : {1, 2, 3, 4, 5}) {
             id_column->insert_data((const char*)(&id), 0);
         }
-        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
-                                                   data_type_int_nullable, "id"));
+        result_block->insert(
+                ColumnWithTypeAndName(make_mut_nullable(MutableColumnPtr(std::move(id_column))),
+                                      data_type_int_nullable, "id"));
 
         auto arr_data = ColumnInt32::create();
         auto arr_offsets = ColumnOffset64::create();
@@ -1831,8 +1841,8 @@ TEST_F(UnnestTest, outer_with_nulls_fast_path) {
         arr_offsets->insert_data((const char*)(&off), 0);
         arr_nullmap->get_data().push_back(0);
 
-        auto array_column =
-                ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
+        auto array_column = ColumnArray::create(
+                make_mut_nullable(MutableColumnPtr(std::move(arr_data))), std::move(arr_offsets));
         auto nullable_array =
                 ColumnNullable::create(std::move(array_column), std::move(arr_nullmap));
         result_block->insert(ColumnWithTypeAndName(std::move(nullable_array),
@@ -2074,8 +2084,9 @@ TEST_F(UnnestTest, posexplode_with_nulls_fast_path) {
         for (int32_t id : {1, 2, 3, 4}) {
             id_column->insert_data((const char*)(&id), 0);
         }
-        result_block->insert(ColumnWithTypeAndName(make_nullable(std::move(id_column)),
-                                                   data_type_int_nullable, "id"));
+        result_block->insert(
+                ColumnWithTypeAndName(make_mut_nullable(MutableColumnPtr(std::move(id_column))),
+                                      data_type_int_nullable, "id"));
 
         auto arr_data = ColumnInt32::create();
         auto arr_offsets = ColumnOffset64::create();
@@ -2104,8 +2115,8 @@ TEST_F(UnnestTest, posexplode_with_nulls_fast_path) {
         arr_offsets->insert_data((const char*)(&off), 0);
         arr_nullmap->get_data().push_back(0);
 
-        auto array_column =
-                ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
+        auto array_column = ColumnArray::create(
+                make_mut_nullable(MutableColumnPtr(std::move(arr_data))), std::move(arr_offsets));
         auto nullable_array =
                 ColumnNullable::create(std::move(array_column), std::move(arr_nullmap));
         result_block->insert(ColumnWithTypeAndName(std::move(nullable_array),

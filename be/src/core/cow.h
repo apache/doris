@@ -320,6 +320,7 @@ public:
     // uniquely owned. This does not detach shared owners; use a type-specific
     // COW entry point (for example IColumn::mutate) when the pointer may be
     // shared.
+    MutablePtr assert_mutable() = delete;
     MutablePtr assert_mutable() const {
         if (this->use_count() > 1) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assert_mutable: use_count() > 1");
@@ -328,6 +329,7 @@ public:
     }
 
     // Reference variant of assert_mutable(), with the same ownership contract.
+    Derived& assert_mutable_ref() = delete;
     Derived& assert_mutable_ref() const {
         if (this->use_count() > 1) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assert_mutable: use_count() > 1");
