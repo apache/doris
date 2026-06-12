@@ -81,4 +81,14 @@ suite('push_down_filter_through_join_with_unique_function') {
          from t1, t2, t2 as t3
          where random() > 10 and t1.id * 2 = t3.id * 5
          '''
+
+    // Volatile predicates stay above the join even when they reference only one
+    // side. Pushing them into a child would evaluate the volatile expression once
+    // per input row instead of once per joined row.
+    qt_push_down_filter_through_join_4 '''
+        explain shape plan
+        select t1.id, t2.id
+        from t1 join t2
+        where rand() > 0.1 and t2.id + rand() > 0.2
+    '''
 }

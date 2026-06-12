@@ -16,6 +16,7 @@
 // under the License.
 
 suite("distinct_agg_rewriter") {
+    sql "set parallel_pipeline_task_num=2"
     multi_sql"""
     SET ignore_shape_nodes='PhysicalProject';
     set runtime_filter_mode=OFF;

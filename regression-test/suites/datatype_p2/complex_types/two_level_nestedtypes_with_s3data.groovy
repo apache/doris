@@ -241,14 +241,14 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
 
     // array-struct
     // select element_at(column)
-    order_qt_select_arr "select struct_element(${colNameArr[0]}[1], 1), struct_element(${colNameArr[0]}[1], 'col17') from ${table_names[2]} where k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_arr "select element_at(${colNameArr[0]}[1], 1), element_at(${colNameArr[0]}[1], 'col17') from ${table_names[2]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
-    order_qt_select_arr "select struct_element(${colNameArr[0]}[1], 1), struct_element(${colNameArr[0]}[1], 'col17') from ${table_names[2]} where struct_element(${colNameArr[0]}[1], 1) IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_arr "select element_at(${colNameArr[0]}[1], 1), element_at(${colNameArr[0]}[1], 'col17') from ${table_names[2]} where element_at(${colNameArr[0]}[1], 1) IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where groupby|orderby column will meet exception
     groupby_or_orderby_exception(true, table_names[2], colNameArr[0])
     groupby_or_orderby_exception(false, table_names[2], colNameArr[0])
     // select * from table where groupby|orderby element_at(column)
-    agg_expr = "struct_element(${colNameArr[0]}[1], 1)"
+    agg_expr = "element_at(${colNameArr[0]}[1], 1)"
     groupby_or_orderby_element_at(true, table_names[2], agg_expr)
     groupby_or_orderby_element_at(false, table_names[2], agg_expr)
 
@@ -325,14 +325,14 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
     groupby_or_orderby_element_at(false, table_names[4], agg_expr)
     // map-struct
     // select element_at(column)
-    order_qt_select_map "select struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_map "select element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
-    order_qt_select_map "select struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_map "select element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where groupby|orderby column will meet exception
     groupby_or_orderby_exception(true, table_names[5], colNameArr[0])
     groupby_or_orderby_exception(false, table_names[5], colNameArr[0])
     // select * from table where groupby|orderby element_at(column)
-    agg_expr = "struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1)"
+    agg_expr = "element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1)"
     groupby_or_orderby_element_at(true, table_names[5], agg_expr)
     groupby_or_orderby_element_at(false, table_names[5], agg_expr)
 
@@ -370,24 +370,24 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
         String table_name = table_names[i] // struct-array, struct-map, struct-struct
         // select element_at(column)
         for (String col : colNameArr) {
-            order_qt_select_struct "select struct_element(${colNameArr[0]}, 1), struct_element(${colNameArr[0]}, 'col_1') from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
+            order_qt_select_struct "select element_at(${colNameArr[0]}, 1), element_at(${colNameArr[0]}, 'col_1') from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
         }
         // struct make error
         test {
-            sql "select struct_element(${colNameArr[0]}, -1), struct_element(${colNameArr[0]}, 'not_exist') from ${table_name} order by k1 limit 10;"
+            sql "select element_at(${colNameArr[0]}, -1), element_at(${colNameArr[0]}, 'not_exist') from ${table_name} order by k1 limit 10;"
             exception("the specified field index out of bound")
         }
 
         test {
-            sql "select struct_element(${colNameArr[0]}, 0), struct_element(${colNameArr[0]}, 'not_exist') from ${table_name} order by k1 limit 10;"
+            sql "select element_at(${colNameArr[0]}, 0), element_at(${colNameArr[0]}, 'not_exist') from ${table_name} order by k1 limit 10;"
             exception("the specified field index out of bound")
         }
         test {
-            sql "select struct_element(${colNameArr[0]}, 1000) from ${table_name} order by k1 limit 10;"
+            sql "select element_at(${colNameArr[0]}, 1000) from ${table_name} order by k1 limit 10;"
             exception("the specified field index out of bound")
         }
 
-        order_qt_select_struct "select * from ${table_name} where size(struct_element(${colNameArr[0]}, 'col_1')) > 0 AND k1 IS NOT NULL order by k1 limit 1;"
+        order_qt_select_struct "select * from ${table_name} where size(element_at(${colNameArr[0]}, 'col_1')) > 0 AND k1 IS NOT NULL order by k1 limit 1;"
 
         // select * from table where groupby|orderby column will meet exception
 
@@ -395,32 +395,32 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
         groupby_or_orderby_exception(false, table_names[i], colNameArr[0])
 
         // select * from table where groupby|orderby element_at(column)
-        agg_expr = "struct_element(${colNameArr[0]}, 1)"
+        agg_expr = "element_at(${colNameArr[0]}, 1)"
         groupby_or_orderby_exception(true, table_names[i], agg_expr)
         groupby_or_orderby_exception(false, table_names[i], agg_expr)
     }
 
     // most-nested-column
     // struct-array
-    agg_expr = "struct_element(${colNameArr[0]}, 1)[1]"
+    agg_expr = "element_at(${colNameArr[0]}, 1)[1]"
     select_nested_scala_element_at(agg_expr, table_names[6])
     groupby_or_orderby_element_at(true, table_names[6], agg_expr)
     groupby_or_orderby_element_at(false, table_names[6], agg_expr)
     // struct-map
-    agg_expr = "struct_element(${colNameArr[0]}, 1)[map_keys(struct_element(${colNameArr[0]}, 1))[1]]"
+    agg_expr = "element_at(${colNameArr[0]}, 1)[map_keys(element_at(${colNameArr[0]}, 1))[1]]"
     select_nested_scala_element_at(agg_expr, table_names[7])
     groupby_or_orderby_element_at(true, table_names[7], agg_expr)
     groupby_or_orderby_element_at(false, table_names[7], agg_expr)
     // struct-struct
     // select element_at(column)
-    order_qt_select_struct "select struct_element(struct_element(${colNameArr[0]}, 1), 1), struct_element(struct_element(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_struct "select element_at(element_at(${colNameArr[0]}, 1), 1), element_at(element_at(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
-    order_qt_select_struct "select struct_element(struct_element(${colNameArr[0]}, 1), 1), struct_element(struct_element(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_struct "select element_at(element_at(${colNameArr[0]}, 1), 1), element_at(element_at(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where groupby|orderby column will meet exception
     groupby_or_orderby_exception(true, table_names[8], colNameArr[0])
     groupby_or_orderby_exception(false, table_names[8], colNameArr[0])
     // select * from table where groupby|orderby element_at(column)
-    agg_expr = "struct_element(struct_element(${colNameArr[0]}, 1), 1)"
+    agg_expr = "element_at(element_at(${colNameArr[0]}, 1), 1)"
     groupby_or_orderby_element_at(true, table_names[8], agg_expr)
     groupby_or_orderby_element_at(false, table_names[8],agg_expr)
 

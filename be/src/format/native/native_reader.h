@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -51,6 +52,10 @@ public:
     NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                  const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state);
 
+    NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                 const TFileRangeDesc& range, std::shared_ptr<io::IOContext> io_ctx_holder,
+                 RuntimeState* state);
+
     ~NativeReader() override;
 
     // Initialize underlying file reader and any format specific state.
@@ -80,6 +85,7 @@ private:
 
     io::FileReaderSPtr _file_reader;
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
     RuntimeState* _state = nullptr;
 
     bool _eof = false;

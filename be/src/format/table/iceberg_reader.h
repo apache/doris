@@ -76,6 +76,14 @@ public:
             : IcebergReaderMixin<ParquetReader>(kv_cache, profile, params, range, batch_size, ctz,
                                                 io_ctx, state, meta_cache) {}
 
+    IcebergParquetReader(ShardedKVCache* kv_cache, RuntimeProfile* profile,
+                         const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                         size_t batch_size, const cctz::time_zone* ctz,
+                         std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                         FileMetaCache* meta_cache)
+            : IcebergReaderMixin<ParquetReader>(kv_cache, profile, params, range, batch_size, ctz,
+                                                std::move(io_ctx_holder), state, meta_cache) {}
+
     void set_delete_rows() final {
         // Call ParquetReader's set_delete_rows(const vector<int64_t>*)
         ParquetReader::set_delete_rows(_iceberg_delete_rows);
@@ -112,6 +120,13 @@ public:
                      FileMetaCache* meta_cache)
             : IcebergReaderMixin<OrcReader>(kv_cache, profile, state, params, range, batch_size,
                                             ctz, io_ctx, meta_cache) {}
+
+    IcebergOrcReader(ShardedKVCache* kv_cache, RuntimeProfile* profile, RuntimeState* state,
+                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     size_t batch_size, const std::string& ctz,
+                     std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache)
+            : IcebergReaderMixin<OrcReader>(kv_cache, profile, state, params, range, batch_size,
+                                            ctz, std::move(io_ctx_holder), meta_cache) {}
 
     void set_delete_rows() final {
         // Call OrcReader's set_position_delete_rowids

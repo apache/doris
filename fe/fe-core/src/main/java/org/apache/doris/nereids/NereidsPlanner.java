@@ -419,7 +419,35 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true).collect());
+        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
+        // Read the preload result produced by the collect-phase rule before taking internal table locks.
+        ExternalMetadataPreloadResult preloadResult = statementContext.getExternalMetadataPreloadResult()
+                .orElse(ExternalMetadataPreloadResult.skipped(
+                        statementContext.getExternalTablePreloadCandidateCount(), "preload rule did not run"));
+        // Record preload timing in the query profile as a dedicated planner sub-stage.
+        if (statementContext.getConnectContext().getExecutor() != null && preloadResult.isExecuted()) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .addNereidsPreloadExternalMetadataTime(preloadResult.getElapsedTimeMs());
+        }
+        // Keep a concise debug summary for the entire preload phase.
+        if (LOG.isDebugEnabled()) {
+            if (preloadResult.isExecuted()) {
+                LOG.debug("{} preloaded external metadata for {} of {} candidate tables in {} ms",
+                        statementContext.getConnectContext().getQueryIdentifier(),
+                        preloadResult.getPreloadedTableCount(),
+                        preloadResult.getCandidateTableCount(),
+                        preloadResult.getElapsedTimeMs());
+            } else {
+                LOG.debug("{} skip external metadata preload before lock: {} [candidateTableCount={}]",
+                        statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getSkipReason(),
+                        preloadResult.getCandidateTableCount());
+            }
+        }
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            // Track only the actual lock() call here so the dedicated preload stage is not double counted.
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsLockTableStartTime(TimeUtils.getStartTimeMs());
+        }
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
         NereidsTracer.logImportantTime("EndCollectAndLockTables");

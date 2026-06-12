@@ -511,7 +511,7 @@ message TabletSchemaPB {
     optional bool is_dynamic_schema = 19 [default=false]; // deprecated
     reserved 20; // deprecated is_partial_update
     reserved 21; // deprecated partial_update_input_columns
-    optional bool enable_single_replica_compaction = 22 [default=false];
+    reserved 22; // deprecated enable_single_replica_compaction
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
@@ -563,7 +563,7 @@ message TabletSchemaCloudPB {
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
     reserved 20; // deprecated is_partial_update
     reserved 21; // deprecated partial_update_input_columns
-    optional bool enable_single_replica_compaction = 22 [default=false];
+    reserved 22; // deprecated enable_single_replica_compaction
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
@@ -618,6 +618,7 @@ enum StorageMediumPB {
 enum BinaryPlainEncodingTypePB {
     BINARY_PLAIN_ENCODING_V1 = 1;
     BINARY_PLAIN_ENCODING_V2 = 2;
+    BINARY_PLAIN_ENCODING_V3 = 3;
 }
 
 message S3StorageParamPB {

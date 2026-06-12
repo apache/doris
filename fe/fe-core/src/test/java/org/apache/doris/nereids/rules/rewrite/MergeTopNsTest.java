@@ -70,7 +70,25 @@ class MergeTopNsTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new MergeTopNs())
                 .matches(
-                        logicalTopN(logicalOlapScan()).when(topN -> topN.getLimit() == 10 && topN.getOffset() == 4)
+                        logicalTopN(logicalOlapScan()).when(topN -> topN.getLimit() == 9 && topN.getOffset() == 4)
+                );
+    }
+
+    @Test
+    void testParentOffsetReducesChildLimit() {
+        // DORIS-26301: when the parent (upper) TopN has a non-zero offset, the merged limit must be
+        // clamped by (childLimit - parentOffset); otherwise rows beyond the child's limit leak through.
+        // child : ORDER BY k LIMIT 5           (limit=5, offset=0) -> yields 5 rows
+        // parent: ORDER BY k LIMIT 3 OFFSET 4  (limit=3, offset=4) -> skips 4, only 1 row remains
+        // merged: offset = 4, limit = min(3, max(5 - 4, 0)) = 1
+        LogicalPlan plan = new LogicalPlanBuilder(score)
+                .topN(5, 0, ImmutableList.of(0))
+                .topN(3, 4, ImmutableList.of(0))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new MergeTopNs())
+                .matches(
+                        logicalTopN(logicalOlapScan()).when(topN -> topN.getLimit() == 1 && topN.getOffset() == 4)
                 );
     }
 

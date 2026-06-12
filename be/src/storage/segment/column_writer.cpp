@@ -503,10 +503,12 @@ Status ScalarColumnWriter::init() {
     PageBuilderOptions opts;
     opts.data_page_size = _opts.data_page_size;
     opts.dict_page_size = _opts.dict_page_size;
+    // V3 segments store the dictionary word page (and the dict-overflow fallback plain page)
+    // with the V3 binary plain layout; pre-V3 segments keep V1.
     opts.dict_binary_plain_encoding =
             (_opts.storage_format == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3)
-                    ? BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                    : BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+                    ? PLAIN_ENCODING_V3
+                    : PLAIN_ENCODING;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported("Failed to create page builder for type {} and encoding {}",

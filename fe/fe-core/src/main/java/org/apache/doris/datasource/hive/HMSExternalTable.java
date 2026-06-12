@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -249,7 +250,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
-            remoteTable = loadHiveTable();
+            long startTime = System.currentTimeMillis();
+            try {
+                remoteTable = loadHiveTable();
+            } finally {
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                if (summaryProfile != null) {
+                    summaryProfile.addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+                }
+            }
             if (remoteTable == null) {
                 throw new IllegalArgumentException("Hms table not exists, table: " + getNameWithFullQualifiers());
             } else {
@@ -429,6 +438,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean supportInternalPartitionPruned() {
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+    }
+
+    @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        // HMSExternalTable may represent Hive, Hudi, or Iceberg tables.
+        // Only snapshot-aware table types should preload latest snapshot metadata.
+        return getDlaType() == DLAType.HUDI || getDlaType() == DLAType.ICEBERG;
     }
 
     @Override
@@ -1281,11 +1302,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public HiveExternalMetaCache.HivePartitionValues getHivePartitionValues(Optional<MvccSnapshot> snapshot) {
+        long startTime = System.currentTimeMillis();
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .hive(getCatalog().getId());
         try {
             List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-            return cache.getPartitionValues(this, partitionColumnTypes);
+            HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                    partitionColumnTypes);
+            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+            if (summaryProfile != null) {
+                summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+            }
+            return partitionValues;
         } catch (Exception e) {
             if (e.getMessage().contains(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY)) {
                 LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
@@ -1294,7 +1322,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByEngine(
                         getCatalog().getId(), getMetaCacheEngine(), getDbName(), getName());
                 List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-                return cache.getPartitionValues(this, partitionColumnTypes);
+                HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                        partitionColumnTypes);
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                if (summaryProfile != null) {
+                    summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+                }
+                return partitionValues;
             } else {
                 throw e;
             }

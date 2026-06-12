@@ -27,7 +27,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
@@ -446,7 +445,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                         key.getPartitionValues(), directoryLister, table);
                 for (int i = 0; i < result.getValuesSize(); i++) {
                     if (HIVE_DEFAULT_PARTITION.equals(result.getPartitionValues().get(i))) {
-                        result.getPartitionValues().set(i, FeConstants.null_string);
+                        result.getPartitionValues().set(i, null);
                     }
                 }
 

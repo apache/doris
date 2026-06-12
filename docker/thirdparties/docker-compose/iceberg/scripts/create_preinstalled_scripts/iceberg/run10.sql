@@ -8,7 +8,7 @@ CREATE TABLE sc_drop_add_orc (
 )
 USING iceberg
 PARTITIONED BY (id)
-TBLPROPERTIES ('format'='orc');
+TBLPROPERTIES ('write.format.default' = 'orc');
 
 INSERT INTO sc_drop_add_orc VALUES (1, 'Alice', 25);
 INSERT INTO sc_drop_add_orc VALUES (2, 'Bob', 30);
@@ -32,7 +32,7 @@ CREATE TABLE sc_drop_add_parquet (
 )
 USING iceberg
 PARTITIONED BY (id)
-TBLPROPERTIES ('format'='parquet');
+TBLPROPERTIES ('write.format.default' = 'parquet');
 
 INSERT INTO sc_drop_add_parquet VALUES (1, 'Alice', 25);
 INSERT INTO sc_drop_add_parquet VALUES (2, 'Bob', 30);

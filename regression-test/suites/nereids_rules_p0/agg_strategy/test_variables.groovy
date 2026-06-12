@@ -16,6 +16,7 @@
 // under the License.
 
 suite("agg_strategy_variable") {
+    sql "set parallel_pipeline_task_num=2"
     sql "SET ignore_shape_nodes='PhysicalProject'"
     sql "set enable_parallel_result_sink=false"
     sql "set global enable_auto_analyze=false"

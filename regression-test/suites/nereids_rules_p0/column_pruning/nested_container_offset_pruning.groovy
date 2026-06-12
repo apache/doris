@@ -47,8 +47,8 @@ suite("nested_container_offset_pruning") {
     // itself is STRUCT.
     order_qt_struct_root_arr_mixed """
         SELECT id,
-               cardinality(struct_element(s, 'arr')),
-               struct_element(element_at(struct_element(s, 'arr'), 1), 'int_field')
+               cardinality(element_at(s, 'arr')),
+               element_at(element_at(element_at(s, 'arr'), 1), 'int_field')
         FROM nested_container_offset_pruning_tbl ORDER BY id
     """
 
@@ -57,15 +57,15 @@ suite("nested_container_offset_pruning") {
     // and drop only the redundant value-side OFFSET path under the nested map container.
     order_qt_struct_root_map_mixed """
         SELECT id,
-               length(element_at(struct_element(s, 'm'), 'a')),
-               element_at(map_values(struct_element(s, 'm')), 1)
+               length(element_at(element_at(s, 'm'), 'a')),
+               element_at(map_values(element_at(s, 'm')), 1)
         FROM nested_container_offset_pruning_tbl ORDER BY id
     """
 
     explain {
         sql """
-            SELECT cardinality(struct_element(s, 'arr')),
-                   struct_element(element_at(struct_element(s, 'arr'), 1), 'int_field')
+            SELECT cardinality(element_at(s, 'arr')),
+                   element_at(element_at(element_at(s, 'arr'), 1), 'int_field')
             FROM nested_container_offset_pruning_tbl
         """
         contains "s.arr.*.int_field"
@@ -74,8 +74,8 @@ suite("nested_container_offset_pruning") {
 
     explain {
         sql """
-            SELECT length(element_at(struct_element(s, 'm'), 'a')),
-                   element_at(map_values(struct_element(s, 'm')), 1)
+            SELECT length(element_at(element_at(s, 'm'), 'a')),
+                   element_at(map_values(element_at(s, 'm')), 1)
             FROM nested_container_offset_pruning_tbl
         """
         contains "s.m.KEYS"

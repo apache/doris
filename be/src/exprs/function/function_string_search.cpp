@@ -353,10 +353,8 @@ public:
 
                 if (num == part_number) {
                     if (offset == -1) {
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(str.data),
-                                                  (size_t)pre_offset},
-                                i, res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view {str.data, (size_t)pre_offset},
+                                                    i, res_chars, res_offsets);
                     } else {
                         StringOP::push_value_string(
                                 std::string_view {str_str.substr(
@@ -457,10 +455,8 @@ public:
                     }
 
                     if (num == part_number) {
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(str.data),
-                                                  (size_t)offset},
-                                i, res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view {str.data, (size_t)offset}, i,
+                                                    res_chars, res_offsets);
                     } else {
                         StringOP::push_value_string(std::string_view(str.data, str.size), i,
                                                     res_chars, res_offsets);
@@ -493,10 +489,8 @@ public:
                     }
 
                     if (num == part_number) {
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(str.data),
-                                                  (size_t)offset},
-                                i, res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view {str.data, (size_t)offset}, i,
+                                                    res_chars, res_offsets);
                     } else {
                         StringOP::push_value_string(std::string_view(str.data, str.size), i,
                                                     res_chars, res_offsets);
@@ -511,11 +505,9 @@ public:
                 auto substr = str_str;
 
                 // Use pre-created StringRef for constant delimiters
-                StringRef delimiter_str =
-                        const_delimiter_ref
-                                ? const_delimiter_ref.value()
-                                : StringRef(reinterpret_cast<const char*>(delimiter.data),
-                                            delimiter.size);
+                StringRef delimiter_str = const_delimiter_ref
+                                                  ? const_delimiter_ref.value()
+                                                  : StringRef(delimiter.data, delimiter.size);
 
                 while (num <= neg_part_number && offset >= 0) {
                     offset = (int)substr.rfind(delimiter_str, offset);

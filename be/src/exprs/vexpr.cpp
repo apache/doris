@@ -164,6 +164,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
         break;
     }
+    case TYPE_VARBINARY: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(data, &node));
+        break;
+    }
     case TYPE_IPV4: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(data, &node));
         break;
