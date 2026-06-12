@@ -33,6 +33,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -1540,7 +1541,7 @@ public class IcebergUtils {
         // For NULL value, create a minimum partition for it.
         if (value == null) {
             Type columnType = partitionColumns.get(0).getType();
-            String literalString = LiteralExprUtils.normalizePartitionValueString("0000-01-01", columnType);
+            String literalString = PartitionExprUtil.normalizePartitionValueString("0000-01-01", columnType);
             PartitionKey nullLowKey = PartitionKey.createPartitionKey(
                     Lists.newArrayList(new PartitionValue(
                             LiteralExprUtils.createLiteral(literalString, columnType))),
@@ -1584,8 +1585,8 @@ public class IcebergUtils {
         if (c.getType().isDate() || c.getType().isDateV2()) {
             formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         }
-        String lowerLiteral = LiteralExprUtils.normalizePartitionValueString(lower.format(formatter), c.getType());
-        String upperLiteral = LiteralExprUtils.normalizePartitionValueString(upper.format(formatter), c.getType());
+        String lowerLiteral = PartitionExprUtil.normalizePartitionValueString(lower.format(formatter), c.getType());
+        String upperLiteral = PartitionExprUtil.normalizePartitionValueString(upper.format(formatter), c.getType());
         PartitionValue lowerValue = new PartitionValue(
                 LiteralExprUtils.createLiteral(lowerLiteral, c.getType()));
         PartitionValue upperValue = new PartitionValue(
@@ -1754,7 +1755,7 @@ public class IcebergUtils {
             Types.NestedField col = icebergTable.schema().findField(field.sourceId());
             for (Column c : schema) {
                 if (c.getName().equalsIgnoreCase(col.name())) {
-                    // For partition column, if it is string type, change it to varchar(65535)
+                    // For partition column, if it is string type, change it to varchar(65533)
                     // to be same as doris managed table.
                     // This is to avoid some unexpected behavior such as different partition pruning result
                     // between doris managed table and external table.

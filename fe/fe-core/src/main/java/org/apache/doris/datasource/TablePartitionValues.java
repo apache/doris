@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
@@ -167,7 +168,7 @@ public class TablePartitionValues {
                     continue;
                 }
                 try {
-                    partitionValue = LiteralExprUtils.normalizePartitionValueString(partitionValue, types.get(i));
+                    partitionValue = PartitionExprUtil.normalizePartitionValueString(partitionValue, types.get(i));
                     values.add(new PartitionValue(LiteralExprUtils.createLiteral(partitionValue, types.get(i))));
                 } catch (AnalysisException e) {
                     throw new CacheException("failed to convert partition %s to list partition",

@@ -840,7 +840,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             // Do not use "getColumn()", which will cause dead loop
             for (Column column : schema) {
                 if (partitionKey.equalsIgnoreCase(column.getName())) {
-                    // For partition column, if it is string type, change it to varchar(65535)
+                    // For partition column, if it is string type, change it to varchar(65533)
                     // to be same as doris managed table.
                     // This is to avoid some unexpected behavior such as different partition pruning result
                     // between doris managed table and external table.

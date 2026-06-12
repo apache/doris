@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -209,7 +210,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             String literalValue = formatPartitionDateTime(startTime,
                         partitionKeyDesc.getLowerValues().get(0).getStringValue());
             Type dataType = partitionKeyDesc.getLowerValues().get(0).getValue().getType();
-            literalValue = LiteralExprUtils.normalizePartitionValueString(literalValue, dataType);
+            literalValue = PartitionExprUtil.normalizePartitionValueString(literalValue, dataType);
             PartitionValue lowerPartitionValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(literalValue, dataType));
             switch (this.timeUnitType) {
@@ -250,7 +251,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             literalValue = formatPartitionDateTime(startTime,
                             partitionKeyDesc.getUpperValues().get(0).getStringValue());
             dataType = partitionKeyDesc.getUpperValues().get(0).getValue().getType();
-            literalValue = LiteralExprUtils.normalizePartitionValueString(literalValue, dataType);
+            literalValue = PartitionExprUtil.normalizePartitionValueString(literalValue, dataType);
             PartitionValue upperPartitionValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(literalValue, dataType));
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
@@ -428,6 +429,11 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         return (length == 25 || (length >= 27 && length <= 32)) && hasTimeZoneSuffix(dateTimeStr);
     }
 
+    // hasTimeZoneSuffix detects +HH:MM style offsets but won't match named timezones (Asia/Shanghai)
+    // or abbreviated zones (UTC). By the time values reach MultiPartitionDesc,
+    // they have already been canonicalized to UTC+offset form via
+    // PartitionDefinition.strictTypedPartitionExpression() → TimestampTzLiteral.fromSessionTimeZone(),
+    // so this is safe in practice
     private static boolean hasTimeZoneSuffix(String dateTimeStr) {
         return dateTimeStr.length() >= 6
                 && (dateTimeStr.charAt(dateTimeStr.length() - 6) == '+'
@@ -465,10 +471,14 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     }
 
     private static String stripTimeZone(String dateTimeStr) {
+        Preconditions.checkArgument(hasTimeZoneSuffix(dateTimeStr),
+                String.format("%s doesn't have timezone", dateTimeStr));
         return dateTimeStr.substring(0, dateTimeStr.length() - 6);
     }
 
     private static String timeZoneSuffix(String dateTimeStr) {
+        Preconditions.checkArgument(hasTimeZoneSuffix(dateTimeStr),
+                String.format("%s doesn't have timezone", dateTimeStr));
         return dateTimeStr.substring(dateTimeStr.length() - 6);
     }
 

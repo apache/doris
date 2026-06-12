@@ -28,7 +28,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.AutoBucketCalculator;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.base.Objects;
@@ -288,6 +294,26 @@ public class PartitionExprUtil {
             }
         }
         return sb.toString();
+    }
+
+    public static String normalizePartitionValueString(String value, Type type) throws AnalysisException {
+        DataType dataType = DataType.fromCatalogType(type);
+        if (dataType.isDateTimeType()) {
+            return new DateTimeLiteral(value).checkedCastTo(dataType).toString();
+        } else if (dataType.isDateTimeV2Type()) {
+            return new DateTimeV2Literal(value).checkedCastTo(dataType).toString();
+        } else if (dataType.isTimeStampTzType()) {
+            return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) dataType, value).checkedCastTo(dataType)
+                    .toString();
+        } else if (dataType.isCharType() || dataType.isVarcharType()) {
+            CharacterType characterType = (CharacterType) dataType;
+            if (characterType.isLengthSet() && value.length() > characterType.getLen()) {
+                throw new AnalysisException(String.format(
+                        "Partition value %s's length exceeds type length: %d > %d for %s",
+                        value, value.length(), characterType.getLen(), dataType));
+            }
+        }
+        return value;
     }
 
     public class FunctionIntervalInfo {

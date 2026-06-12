@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -320,7 +321,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 values.add(new PartitionValue(NullLiteral.create(types.get(i)), true, partitionValue));
             } else {
                 try {
-                    partitionValue = LiteralExprUtils.normalizePartitionValueString(partitionValue, types.get(i));
+                    partitionValue = PartitionExprUtil.normalizePartitionValueString(partitionValue, types.get(i));
                     values.add(new PartitionValue(LiteralExprUtils.createLiteral(partitionValue, types.get(i))));
                 } catch (AnalysisException e) {
                     throw new CacheException("failed to create partition %s to list partition in catalog %s",

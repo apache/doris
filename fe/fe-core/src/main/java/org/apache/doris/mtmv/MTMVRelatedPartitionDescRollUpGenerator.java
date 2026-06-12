@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
@@ -117,7 +118,7 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
     private List<List<PartitionValue>> getPartitionValues(Set<String> strings, Type type) throws AnalysisException {
         List<List<PartitionValue>> inValues = Lists.newArrayList();
         for (String value : strings) {
-            value = LiteralExprUtils.normalizePartitionValueString(value, type);
+            value = PartitionExprUtil.normalizePartitionValueString(value, type);
             inValues.add(Lists.newArrayList(new PartitionValue(LiteralExprUtils.createLiteral(value, type))));
         }
         return inValues;

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
@@ -213,7 +214,7 @@ public class PaimonUtil {
             // NULL  will in partition 'null'
             // "NULL" will in partition 'NULL'
             // values.add(new PartitionValue(partitionValue, "null".equals(partitionValue)));
-            partitionValue = LiteralExprUtils.normalizePartitionValueString(partitionValue, types.get(i));
+            partitionValue = PartitionExprUtil.normalizePartitionValueString(partitionValue, types.get(i));
             values.add(new PartitionValue(LiteralExprUtils.createLiteral(partitionValue, types.get(i))));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true, partitionValues);

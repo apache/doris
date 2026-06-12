@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RandomDistributionDesc;
@@ -308,10 +309,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             try {
                 prevBorder = DynamicPartitionUtil.getPartitionRangeString(
                         dynamicPartitionProperty, now, idx, partitionFormat);
-                prevBorder = LiteralExprUtils.normalizePartitionValueString(prevBorder, partitionColumn.getType());
+                prevBorder = PartitionExprUtil.normalizePartitionValueString(prevBorder, partitionColumn.getType());
                 nextBorder = DynamicPartitionUtil.getPartitionRangeString(
                         dynamicPartitionProperty, now, idx + 1, partitionFormat);
-                nextBorder = LiteralExprUtils.normalizePartitionValueString(nextBorder, partitionColumn.getType());
+                nextBorder = PartitionExprUtil.normalizePartitionValueString(nextBorder, partitionColumn.getType());
                 lowerValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(prevBorder, partitionColumn.getType()));
                 upperValue = new PartitionValue(
@@ -495,10 +496,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
         try {
-            lowerBorderOfReservedHistory = LiteralExprUtils.normalizePartitionValueString(
+            lowerBorderOfReservedHistory = PartitionExprUtil.normalizePartitionValueString(
                     lowerBorderOfReservedHistory,
                     partitionColumn.getType());
-            upperBorderOfReservedHistory = LiteralExprUtils.normalizePartitionValueString(
+            upperBorderOfReservedHistory = PartitionExprUtil.normalizePartitionValueString(
                     upperBorderOfReservedHistory,
                     partitionColumn.getType());
             PartitionValue lowerBorderPartitionValue = new PartitionValue(
@@ -545,9 +546,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
         Range<PartitionKey> reservePartitionKeyRange;
         try {
-            lowerBorder = LiteralExprUtils.normalizePartitionValueString(lowerBorder,
+            lowerBorder = PartitionExprUtil.normalizePartitionValueString(lowerBorder,
                     partitionColumn.getType());
-            limitBorder = LiteralExprUtils.normalizePartitionValueString(limitBorder,
+            limitBorder = PartitionExprUtil.normalizePartitionValueString(limitBorder,
                     partitionColumn.getType());
             PartitionValue lowerPartitionValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(lowerBorder, partitionColumn.getType()));
@@ -649,7 +650,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         PartitionKey currentTimeKey;
         try {
-            currentTimeStr = LiteralExprUtils.normalizePartitionValueString(currentTimeStr,
+            currentTimeStr = PartitionExprUtil.normalizePartitionValueString(currentTimeStr,
                     partitionColumn.getType());
             PartitionValue currentTimeValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(currentTimeStr, partitionColumn.getType()));

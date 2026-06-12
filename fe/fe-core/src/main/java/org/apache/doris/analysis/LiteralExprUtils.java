@@ -20,17 +20,12 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeStampTzType;
-import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 public class LiteralExprUtils {
 
@@ -106,22 +101,31 @@ public class LiteralExprUtils {
     }
 
     private static LiteralExpr createDecimalLiteral(String value, Type type) throws AnalysisException {
-        Preconditions.checkArgument(type instanceof ScalarType);
+        Preconditions.checkArgument(type instanceof ScalarType,
+                String.format("%s's type %s is not ScalarType", value, type));
         ScalarType scalarType = (ScalarType) type;
         BigDecimal decimalValue;
         try {
             decimalValue = new BigDecimal(value);
         } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid floating-point literal: " + value, e);
+            throw new AnalysisException("Invalid decimal literal: " + value, e);
         }
-        decimalValue = decimalValue.setScale(scalarType.getScalarScale(), RoundingMode.HALF_UP);
+        // Do not silently round partition boundary values. If a user specifies
+        // VALUES LESS THAN ('10.005') on a DECIMAL(10,2) column, the rounded
+        // boundary (10.01) might not be what they intended.
+        if (decimalValue.scale() > scalarType.getScalarScale()) {
+            throw new AnalysisException(String.format(
+                    "Partition value %s has scale %d which exceeds column scale %d for type %s",
+                    value, decimalValue.scale(), scalarType.getScalarScale(), type));
+        }
         DecimalLiteral literalExpr = new DecimalLiteral(decimalValue, type);
         literalExpr.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
         return literalExpr;
     }
 
     private static LiteralExpr createTimestampTzLiteral(String value, Type type) throws AnalysisException {
-        Preconditions.checkArgument(type instanceof ScalarType && type.isTimeStampTz());
+        Preconditions.checkArgument(type instanceof ScalarType && type.isTimeStampTz(),
+                String.format("%s's type %s is not TimeStampTz type", value, type));
         try {
             int scale = ((ScalarType) type).getScalarScale();
             return TimestampTzLiteral.fromSessionTimeZone(TimeStampTzType.of(scale), value).toLegacyLiteral();
@@ -158,25 +162,5 @@ public class LiteralExprUtils {
     public static PlaceHolderExpr createPlaceHolderExpr(String value, Type type) throws AnalysisException {
         Preconditions.checkArgument(!type.equals(Type.INVALID));
         return new PlaceHolderExpr(LiteralExprUtils.createLiteral(value, type));
-    }
-
-    public static String normalizePartitionValueString(String value, Type type) throws AnalysisException {
-        DataType dataType = DataType.fromCatalogType(type);
-        if (dataType.isDateTimeType()) {
-            return new DateTimeLiteral(value).checkedCastTo(dataType).toString();
-        } else if (dataType.isDateTimeV2Type()) {
-            return new DateTimeV2Literal(value).checkedCastTo(dataType).toString();
-        } else if (dataType.isTimeStampTzType()) {
-            return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) dataType, value).checkedCastTo(dataType)
-                    .toString();
-        } else if (dataType.isCharType() || dataType.isVarcharType()) {
-            CharacterType characterType = (CharacterType) dataType;
-            if (characterType.isLengthSet() && value.length() > characterType.getLen()) {
-                throw new AnalysisException(String.format(
-                        "Partition value %s's length exceeds type length: %d > %d for %s",
-                        value, value.length(), characterType.getLen(), dataType));
-            }
-        }
-        return value;
     }
 }

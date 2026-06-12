@@ -138,7 +138,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         DateTimeV2Literal beginTime = dateTrunc(
                 partitionKeyDesc.getLowerValues().get(0).getValue().getStringValue(),
                 Optional.empty(), false);
-        String literalValue = LiteralExprUtils
+        String literalValue = PartitionExprUtil
                 .normalizePartitionValueString(dateTimeToStr(beginTime, partitionColumnType), partitionColumnType);
         PartitionValue lowerValue = new PartitionValue(
                 LiteralExprUtils.createLiteral(literalValue, partitionColumnType));
@@ -162,7 +162,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                             endTruncTime));
         }
         DateTimeV2Literal endTime = dateIncrement(beginTruncTime);
-        String literalValue = LiteralExprUtils
+        String literalValue = PartitionExprUtil
                 .normalizePartitionValueString(dateTimeToStr(endTime, partitionColumnType), partitionColumnType);
         return new PartitionValue(
             LiteralExprUtils.createLiteral(literalValue, partitionColumnType));
