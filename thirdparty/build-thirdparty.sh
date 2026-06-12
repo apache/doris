@@ -2031,6 +2031,7 @@ build_paimon_cpp() {
     "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
         -G "${GENERATOR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DPAIMON_BUILD_SHARED=OFF \
         -DPAIMON_BUILD_STATIC=ON \

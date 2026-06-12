@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c26a726..4a13f14 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -32,7 +32,9 @@ endif()
+ if (CYGWIN)
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
+ else()
+-  set(CMAKE_CXX_STANDARD 11)
++  if(NOT DEFINED CMAKE_CXX_STANDARD)
++    set(CMAKE_CXX_STANDARD 11)
++  endif()
+   set(CMAKE_CXX_STANDARD_REQUIRED ON)
+   set(CMAKE_CXX_EXTENSIONS OFF)
+ endif()
