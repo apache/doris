@@ -39,10 +39,12 @@
 #include "common/config.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/field_infos_writer.h"
+#include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/fulltext_writer.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
 #include "storage/index/inverted/spimi/segment_merger.h"
 #include "storage/index/inverted/spimi/spill_manager.h"
+#include "storage/index/inverted/spimi/term_enum.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -195,8 +197,10 @@ void AppendRange(SpimiPostingBuffer& buf, const Vocab& v, int32_t lo, int32_t hi
 }
 
 // 直写单 flush（无 spill）：与 SpimiIndexWriter::EmitDirect 同参（V4、
-// omit_norms=true、inline_small_terms=true）。
-EmitResult EmitDirectSegment(const Vocab& v, int32_t total_docs, bool omit) {
+// omit_norms=true、inline_small_terms=true）。is_v4=false 镜像生产非 V4
+//（shadow/debug）路径取 kIndexVersionV0（EmitSegment 内部以 use_windowed
+// 门控，V0 段保持 -4 外置、整 term PFOR/ZSTD 信封）。
+EmitResult EmitDirectSegment(const Vocab& v, int32_t total_docs, bool omit, bool is_v4 = true) {
     SpimiPostingBuffer buf(omit);
     AppendRange(buf, v, 0, total_docs);
     MemoryByteOutput tis, tii, frq, prx, fnm, nrm, seg_n, seg_gen;
@@ -208,8 +212,9 @@ EmitResult EmitDirectSegment(const Vocab& v, int32_t total_docs, bool omit) {
                            .nrm = &nrm,
                            .segments_n = &seg_n,
                            .segments_gen = &seg_gen};
-    SpimiFulltextWriter::EmitSegment(buf, sink, "_0", "content", total_docs,
-                                     FieldInfosWriter::kIndexVersionV4, omit,
+    const int32_t index_version =
+            is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV0;
+    SpimiFulltextWriter::EmitSegment(buf, sink, "_0", "content", total_docs, index_version, omit,
                                      /*omit_norms=*/true, /*out_byte_counts=*/nullptr,
                                      /*inline_small_terms=*/true);
     return {tis.bytes(), tii.bytes(), frq.bytes(), prx.bytes()};
@@ -217,8 +222,14 @@ EmitResult EmitDirectSegment(const Vocab& v, int32_t total_docs, bool omit) {
 
 // k 份连续 doc 区间 → k 个 spill（SpillManager 真落盘，V4+omit lockstep）
 // → LoadSpill → SegmentMerger::Merge。与 SpimiIndexWriter::EmitMerged 同参。
-EmitResult EmitMergedSegment(const Vocab& v, int32_t total_docs, bool omit, int k) {
-    SpillManager mgr("content", /*is_v4=*/true, /*tmp_dir=*/"",
+// is_v4=false 时 spill 以 kIndexVersionV1 写出、归并输出 kIndexVersionV0
+//（镜像生产 SpillManager / EmitMerged 的非 V4 取值）。
+// saw_zstd_envelope 非空时回报「至少一个输入 spill 含整 term kCodeModeZstd
+// 信封」（外置非 slim term 的 .frq 首字节 == 0x80）—— 供 V1 信封金标准断言
+// 该分支确实被喂到。
+EmitResult EmitMergedSegment(const Vocab& v, int32_t total_docs, bool omit, int k,
+                             bool is_v4 = true, bool* saw_zstd_envelope = nullptr) {
+    SpillManager mgr("content", is_v4, /*tmp_dir=*/"",
                      /*omit_term_freq_and_positions=*/omit);
     SpimiPostingBuffer buf(omit);
     for (int j = 0; j < k; ++j) {
@@ -237,6 +248,21 @@ EmitResult EmitMergedSegment(const Vocab& v, int32_t total_docs, bool omit, int 
         EXPECT_TRUE(mgr.LoadSpill(i, in).ok());
         inputs.push_back(std::move(in));
     }
+    if (saw_zstd_envelope != nullptr) {
+        *saw_zstd_envelope = false;
+        for (const auto& in : inputs) {
+            TermEnum e(in.tis_bytes);
+            while (e.Next()) {
+                const TermInfo& info = e.Current().info;
+                if (!info.inlined && !info.is_slim &&
+                    static_cast<size_t>(info.freq_pointer) < in.frq_bytes.size() &&
+                    in.frq_bytes[static_cast<size_t>(info.freq_pointer)] ==
+                            FreqProxEncoder::kCodeModeZstd) {
+                    *saw_zstd_envelope = true;
+                }
+            }
+        }
+    }
     MemoryByteOutput tis, tii, frq, prx, fnm, nrm, seg_n, seg_gen;
     SpimiSegmentSink sink {.tis = &tis,
                            .tii = &tii,
@@ -246,8 +272,10 @@ EmitResult EmitMergedSegment(const Vocab& v, int32_t total_docs, bool omit, int 
                            .nrm = &nrm,
                            .segments_n = &seg_n,
                            .segments_gen = &seg_gen};
-    SegmentMerger::Merge(inputs, sink, "_0", "content", total_docs,
-                         FieldInfosWriter::kIndexVersionV4, omit, /*omit_norms=*/true);
+    const int32_t index_version =
+            is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV0;
+    SegmentMerger::Merge(inputs, sink, "_0", "content", total_docs, index_version, omit,
+                         /*omit_norms=*/true);
     return {tis.bytes(), tii.bytes(), frq.bytes(), prx.bytes()};
 }
 
@@ -297,6 +325,11 @@ TEST(SpimiMergeByteIdentityGolden, MergeByteIdentityGolden) {
             {"docsonly_k7", true, false, 7, 697336412412448313ULL},
             {"frqzstd_direct", false, true, 0, 2422315138705886935ULL},
             {"frqzstd_k2", false, true, 2, 2422315138705886935ULL},
+            // 收尾补强（审查 G1-a）：frq_zstd=ON 补 k=7（窗级 kWinZstd ×
+            // 高路数重切）与 DOCS_ONLY（omit 下 .frq 窗仍受 frq_zstd 影响）。
+            {"frqzstd_k7", false, true, 7, 2422315138705886935ULL},
+            {"frqzstd_docsonly_direct", true, true, 0, 15110323713027440716ULL},
+            {"frqzstd_docsonly_k2", true, true, 2, 15110323713027440716ULL},
     };
     const Vocab vocab = BuildVocab();
     const int32_t total_docs = TotalDocCount(vocab);
@@ -313,6 +346,43 @@ TEST(SpimiMergeByteIdentityGolden, MergeByteIdentityGolden) {
                 << "byte-identity broken for " << c.name
                 << " — merged/direct .tis/.tii/.frq/.prx bytes changed. If this change is "
                    "INTENTIONAL (format moved), update the golden to the printed value.";
+    }
+}
+
+// 收尾补强（审查 G1-b）：V1 整 term kCodeModeZstd 信封作为归并输入的字节
+// 金标准。V4 生产不可达该信封（生产唯一构造点恒 is_v4=true；V4 spill 以
+// kIndexVersionV4 写出，df>=512 走 windowed 路径不经 FlushFrqBlock 的信封
+// 分支，df<512 slim 永不 ZSTD；且信封还需非默认 frq_zstd_enable=true），但
+// merge 的 DecodeFlat 格式上接受它（shadow/debug is_v4=false 理论可达），
+// 故以金标准钉死：V1 spill k=2 时 win_5000 的 df_i=2500 >= 512，必然写出
+// 整 term PFOR+kCodeModeZstd 信封（下方对输入 spill 的 .frq 首字节显式断言，
+// 杜绝「金标准存在但分支未真正进入」），归并输出（version V0，镜像生产
+// EmitMerged 非 V4 取值）必须与同数据 V0 直写逐字节相同。
+TEST(SpimiMergeByteIdentityGolden, LegacyV1WholeTermZstdEnvelopeGolden) {
+    ScopedSpimiConfigPin pin(/*frq_zstd=*/true);
+    const Vocab vocab = BuildVocab();
+    const int32_t total_docs = TotalDocCount(vocab);
+    const EmitResult direct = EmitDirectSegment(vocab, total_docs, /*omit=*/false, /*is_v4=*/false);
+    bool saw_zstd_envelope = false;
+    const EmitResult merged = EmitMergedSegment(vocab, total_docs, /*omit=*/false, /*k=*/2,
+                                                /*is_v4=*/false, &saw_zstd_envelope);
+    // 前提断言：归并输入确实含 V1 整 term kCodeModeZstd 信封。
+    EXPECT_TRUE(saw_zstd_envelope)
+            << "V1 spill 输入未产生整 term kCodeModeZstd 信封 —— 本金标准未覆盖目标分支";
+    // 强金标准：四流逐字节相同 + digest 字面量 pin（防双路径同步漂移）。
+    EXPECT_EQ(direct.tis, merged.tis) << "V1 envelope merge .tis";
+    EXPECT_EQ(direct.tii, merged.tii) << "V1 envelope merge .tii";
+    EXPECT_EQ(direct.frq, merged.frq) << "V1 envelope merge .frq";
+    EXPECT_EQ(direct.prx, merged.prx) << "V1 envelope merge .prx";
+    constexpr uint64_t kLegacyGolden = 14661402543875904047ULL;
+    for (const EmitResult* r : {&direct, &merged}) {
+        const uint64_t got = ChainDigest(*r);
+        std::cout << "[GOLDEN] legacy_v1_frqzstd = " << got << "ULL"
+                  << "  (tis=" << r->tis.size() << " tii=" << r->tii.size()
+                  << " frq=" << r->frq.size() << " prx=" << r->prx.size() << ")" << std::endl;
+        EXPECT_EQ(got, kLegacyGolden)
+                << "byte-identity broken for legacy_v1_frqzstd. If this change is INTENTIONAL "
+                   "(format moved), update the golden to the printed value.";
     }
 }
 

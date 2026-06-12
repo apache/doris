@@ -25,11 +25,14 @@
 #include <filesystem>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/spimi/segment_merger.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
 #include "storage/index/inverted/spimi/term_dict_writer.h"
 
@@ -104,18 +107,28 @@ constexpr const char* kV4SegmentFiles[] = {"_0.tis", "_0.tii", "_0.frq",
                                            "_0.prx", "_0.fnm", "segments_1"};
 
 // 直写（无 spill）基线：AppendBodyDocs[1, docs] 的 V4 段全部落盘文件字节。
-std::vector<std::vector<uint8_t>> DirectV4Baseline(int docs) {
+// omit=true 为 DOCS_ONLY 基线（.prx 合法为空，其余文件仍须非空）。
+std::vector<std::vector<uint8_t>> DirectV4Baseline(int docs, bool omit = false) {
     TmpFSDirectory tmp("spimi_residual_inmem_baseline");
-    SpimiIndexWriter writer("body", /*is_v4=*/true);
+    SpimiIndexWriter writer("body", /*is_v4=*/true, omit);
     AppendBodyDocs(writer, 1, docs);
     EXPECT_EQ(writer.spill_manager()->TotalSpillsCreated(), 0);
     SpimiFinishConfig config;
     config.is_v4 = true;
+    config.omit_term_freq_and_positions = omit;
     config.field_name_utf8 = "body";
     config.doc_count = docs + 1;
     writer.Finish(tmp.dir.get(), config);
     std::vector<std::vector<uint8_t>> files;
     for (const char* f : kV4SegmentFiles) {
+        // DOCS_ONLY 的 .prx 是合法的 0 字节文件，openInput 拒绝空文件，改走
+        // 文件系统断言（占位空 vector 保持与 kV4SegmentFiles 的下标对齐）。
+        if (omit && std::string_view(f) == "_0.prx") {
+            EXPECT_EQ(std::filesystem::file_size(tmp.path / f), 0U)
+                    << "DOCS_ONLY baseline .prx 必须为 0 字节";
+            files.emplace_back();
+            continue;
+        }
         files.push_back(SlurpDirFile(tmp.dir.get(), f));
         EXPECT_FALSE(files.back().empty()) << "baseline " << f;
     }
@@ -610,6 +623,145 @@ TEST(SpimiIndexWriterTest, FinishPureDirectWriteNeverSpills) {
     for (const char* f : kV4SegmentFiles) {
         EXPECT_FALSE(SlurpDirFile(tmp.dir.get(), f).empty()) << f;
     }
+}
+
+// --- 收尾补强（审查 G3-b）：单 spill + 空残余经 Finish 的字节金标准 ---
+//
+// 生产可达形态：恰一次 FlushPending 落成唯一 spill、残余 buffer 恰好为空 →
+// EmitMerged 恰好一路文件游标输入 → MergeSingleInput 经 CopyWholeStream 的
+// 文件分块分支整段拷贝（SpillFileByteSource::BorrowStable 恒 nullptr →
+// ReadInto 分块循环）。此前该分支零用例：golden 的 k=1 走 LoadSpill 内存
+// Input（BorrowStable 零拷贝快路）；SpillCadence 的 "single" 是 1 spill +
+// 非空残余 = 实际 k=2 归并。MergeStats 钉死路径归属。
+TEST(SpimiIndexWriterTest, FinishSingleSpillEmptyResidualByteIdentity) {
+    constexpr int kDocs = 600;
+    const auto baseline = DirectV4Baseline(kDocs);
+
+    TmpFSDirectory tmp("spimi_single_spill_empty_residual");
+    SpimiIndexWriter writer("body", /*is_v4=*/true);
+    AppendBodyDocs(writer, 1, kDocs);
+    writer.FlushPending(/*doc_count=*/kDocs + 1); // 唯一 spill；残余清空
+    ASSERT_EQ(writer.buffer()->RecordCount(), 0U);
+    ASSERT_EQ(writer.spill_manager()->TotalSpillsCreated(), 1);
+
+    SegmentMerger::ResetStats();
+    SpimiFinishConfig config;
+    config.is_v4 = true;
+    config.field_name_utf8 = "body";
+    config.doc_count = kDocs + 1;
+    writer.Finish(tmp.dir.get(), config);
+
+    // 路径钉死：恰好一次 MergeSingleInput（k=1 整段字节拷贝），零 term 级
+    // 拼接/重编 —— 证明本用例真的命中文件游标 × CopyWholeStream 分块分支。
+    EXPECT_EQ(SegmentMerger::Stats().single_input_segments, 1);
+    EXPECT_EQ(SegmentMerger::Stats().slim_concat_terms, 0);
+    EXPECT_EQ(SegmentMerger::Stats().reencode_terms, 0);
+    EXPECT_EQ(writer.spill_manager()->TotalSpillsCreated(), 1);
+
+    size_t i = 0;
+    for (const char* f : kV4SegmentFiles) {
+        EXPECT_TRUE(SlurpDirFile(tmp.dir.get(), f) == baseline[i])
+                << "单 spill 空残余归并与直写基线在 " << f << " 上字节不一致";
+        ++i;
+    }
+}
+
+// 同上的 DOCS_ONLY 口径：omit 下 spill .prx 为零长流，MergeSingleInput 对它
+// 的 CopyWholeStream 是 no-op（total<=0 直接返回），输出 .prx 同为空；.fnm
+// 以 has_prox=false 重建。两侧 .prx 都空 + 其余文件逐字节相同。
+TEST(SpimiIndexWriterTest, FinishSingleSpillEmptyResidualDocsOnly) {
+    constexpr int kDocs = 600;
+    const auto baseline = DirectV4Baseline(kDocs, /*omit=*/true);
+
+    TmpFSDirectory tmp("spimi_single_spill_docsonly");
+    SpimiIndexWriter writer("body", /*is_v4=*/true, /*omit_term_freq_and_positions=*/true);
+    AppendBodyDocs(writer, 1, kDocs);
+    writer.FlushPending(/*doc_count=*/kDocs + 1);
+    ASSERT_EQ(writer.buffer()->RecordCount(), 0U);
+    ASSERT_EQ(writer.spill_manager()->TotalSpillsCreated(), 1);
+
+    SegmentMerger::ResetStats();
+    SpimiFinishConfig config;
+    config.is_v4 = true;
+    config.omit_term_freq_and_positions = true;
+    config.field_name_utf8 = "body";
+    config.doc_count = kDocs + 1;
+    writer.Finish(tmp.dir.get(), config);
+
+    EXPECT_EQ(SegmentMerger::Stats().single_input_segments, 1);
+    size_t i = 0;
+    for (const char* f : kV4SegmentFiles) {
+        // 两侧 .prx 均为 0 字节（openInput 拒绝空文件，走文件系统断言）。
+        if (std::string_view(f) == "_0.prx") {
+            EXPECT_EQ(std::filesystem::file_size(tmp.path / f), 0U)
+                    << "DOCS_ONLY 归并输出 .prx 必须为 0 字节";
+            EXPECT_TRUE(baseline[i].empty());
+            ++i;
+            continue;
+        }
+        EXPECT_TRUE(SlurpDirFile(tmp.dir.get(), f) == baseline[i])
+                << "DOCS_ONLY 单 spill 归并与直写基线在 " << f << " 上字节不一致";
+        ++i;
+    }
+}
+
+// --- 收尾补强（审查 G3-a）：截断 spill tmp 文件 → Finish 干净抛错 ---
+
+namespace {
+
+// RAII pin：spill tmp 基目录指到测试私有目录（ResolveBaseTmpDir 的第一优先
+// 级），使测试能定位并破坏 spill tmp 文件。
+struct SpillPathConfigPin {
+    std::string saved;
+    explicit SpillPathConfigPin(const std::string& p)
+            : saved(config::inverted_index_spimi_spill_path) {
+        config::inverted_index_spimi_spill_path = p;
+    }
+    ~SpillPathConfigPin() { config::inverted_index_spimi_spill_path = saved; }
+};
+
+} // namespace
+
+// 截断 spill .frq（物理截到 3 字节，SpillManager 记录的逻辑长度不变）→
+// k=2 归并首个外置 term 读 .frq 时 SpillFileByteSource::Refill 在逻辑长度内
+// 读到物理 EOF（got==0）→ SPIMI corrupt（doris::Exception<INVERTED_INDEX_
+// FILE_CORRUPTED>），经 Finish 的 try/catch + FINALLY_CLOSE（8 流不泄漏）+
+// CleanupSpillFiles 收口后重抛 —— 干净报错而非越界读/挂死（ASAN 下同时
+// 验证无泄漏）。此前文件源的 corrupt 分支（byte_source.cpp 短读/越读）零
+// 直接测试。
+TEST(SpimiIndexWriterTest, FinishTruncatedSpillFileThrowsCorrupt) {
+    const auto spill_base = std::filesystem::temp_directory_path() / "spimi_truncated_spill_base";
+    std::filesystem::remove_all(spill_base);
+    std::filesystem::create_directories(spill_base);
+    SpillPathConfigPin pin(spill_base.string());
+
+    TmpFSDirectory tmp("spimi_truncated_spill_out");
+    SpimiIndexWriter writer("body", /*is_v4=*/true);
+    AppendBodyDocs(writer, 1, 300);
+    writer.FlushPending(/*doc_count=*/301);
+    AppendBodyDocs(writer, 301, 600);
+    writer.FlushPending(/*doc_count=*/601);
+    ASSERT_EQ(writer.spill_manager()->TotalSpillsCreated(), 2);
+
+    // 定位第一个 spill 的 .frq（hot term df=300/spill > 256B 内联阈值必外置，
+    // 故非空）并截断。
+    std::filesystem::path frq;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(spill_base)) {
+        if (e.is_regular_file() && e.path().filename() == "_spill_0.frq") {
+            frq = e.path();
+        }
+    }
+    ASSERT_FALSE(frq.empty()) << "未找到 _spill_0.frq spill tmp 文件";
+    ASSERT_GT(std::filesystem::file_size(frq), 3U);
+    std::filesystem::resize_file(frq, 3);
+
+    SpimiFinishConfig config;
+    config.is_v4 = true;
+    config.field_name_utf8 = "body";
+    config.doc_count = 601;
+    EXPECT_THROW(writer.Finish(tmp.dir.get(), config), doris::Exception);
+
+    std::filesystem::remove_all(spill_base);
 }
 
 TEST(SpimiIndexWriterTest, BudgetFallsBackOnInvalidConfig) {
