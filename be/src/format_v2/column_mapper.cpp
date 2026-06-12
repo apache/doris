@@ -42,9 +42,9 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vtopn_pred.h"
+#include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/file_reader.h"
-#include "format_v2/column_mapper_nested.h"
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
@@ -281,9 +281,9 @@ struct RewriteContext {
 static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
                                       const FileSlotRewriteInfo& rewrite_info,
                                       RewriteContext* rewrite_context) {
-    auto ref = VSlotRef::create_shared(slot_ref.slot_id(),
-                                           cast_set<int>(rewrite_info.block_position), -1,
-                                           rewrite_info.file_type, rewrite_info.file_column_name);
+    auto ref =
+            VSlotRef::create_shared(slot_ref.slot_id(), cast_set<int>(rewrite_info.block_position),
+                                    -1, rewrite_info.file_type, rewrite_info.file_column_name);
     rewrite_context->add_created_expr(ref);
     return ref;
 }
@@ -761,11 +761,8 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
-static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
-static constexpr int32_t ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID = 2147483539;
 
-static TableVirtualColumnType row_lineage_virtual_column_type_by_name(
-        const std::string& column_name) {
+static TableVirtualColumnType row_lineage_virtual_column_type(const std::string& column_name) {
     if (column_name == ROW_LINEAGE_ROW_ID) {
         return TableVirtualColumnType::ROW_ID;
     }
@@ -773,21 +770,6 @@ static TableVirtualColumnType row_lineage_virtual_column_type_by_name(
         return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
     }
     return TableVirtualColumnType::INVALID;
-}
-
-static TableVirtualColumnType row_lineage_virtual_column_type(
-        const ColumnDefinition& table_column, TableColumnMappingMode mode) {
-    if (mode == TableColumnMappingMode::BY_FIELD_ID && table_column.has_identifier_field_id()) {
-        const auto field_id = table_column.get_identifier_field_id();
-        if (field_id == ROW_LINEAGE_ROW_ID_FIELD_ID) {
-            return TableVirtualColumnType::ROW_ID;
-        }
-        if (field_id == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID) {
-            return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
-        }
-        return TableVirtualColumnType::INVALID;
-    }
-    return row_lineage_virtual_column_type_by_name(table_column.name);
 }
 
 // Returns true when the current file type is not the exact nested type the scan should expose.
@@ -1101,8 +1083,8 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
 
     auto expr = Cast::create_shared(mapping->table_type);
     expr->add_child(VSlotRef::create_shared(cast_set<int>(block_position.value()),
-                                                cast_set<int>(block_position.value()), -1,
-                                                mapping->file_type, mapping->file_column_name));
+                                            cast_set<int>(block_position.value()), -1,
+                                            mapping->file_type, mapping->file_column_name));
     mapping->projection = VExprContext::create_shared(expr);
 }
 
@@ -1216,12 +1198,12 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
-    const auto row_lineage_type = row_lineage_virtual_column_type(table_column, _options.mode);
+    const auto row_lineage_type = row_lineage_virtual_column_type(table_column.name);
     if (const auto* partition_value = find_partition_value(table_column, _partition_values);
         table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
         _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
-                                       mapping->table_type, *partition_value)));
+                                               mapping->table_type, *partition_value)));
     } else if (_options.mode == TableColumnMappingMode::BY_INDEX &&
                !table_column.is_partition_key && table_column.has_identifier_field_id()) {
         // BY_INDEX interprets ColumnDefinition::identifier as physical file position.
@@ -1281,8 +1263,8 @@ Status TableColumnMapper::_create_hidden_filter_mapping(const ColumnDefinition& 
     // Predicate-only slot refs carry the table name/type but do not carry the table-format field
     // id used by BY_FIELD_ID or the file position used by BY_INDEX. Use a name fallback only for
     // hidden filter localization; projected columns still obey the requested mapping mode.
-    const auto* file_field = matcher_for_mode(TableColumnMappingMode::BY_NAME)
-                                     .find(table_column, _file_schema);
+    const auto* file_field =
+            matcher_for_mode(TableColumnMappingMode::BY_NAME).find(table_column, _file_schema);
     if (file_field == nullptr) {
         return status;
     }
@@ -1454,8 +1436,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                                            RuntimeState* runtime_state) {
     FilterProjectionMap filter_projections;
     auto filter_mappings = _filter_visible_mappings();
-    RETURN_IF_ERROR(build_filter_projection_map(table_filters, filter_mappings,
-                                                &filter_projections));
+    RETURN_IF_ERROR(
+            build_filter_projection_map(table_filters, filter_mappings, &filter_projections));
     for (const auto& table_filter : table_filters) {
         for (const auto& global_index : table_filter.global_indices) {
             auto* mapping = _find_filter_mapping(global_index);

@@ -197,18 +197,18 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionKeepsFileChildOrder) {
 }
 
 VExprSPtr table_int32_slot_ref(int slot_id, int column_id, const std::string& column_name) {
-    return VSlotRef::create_shared(slot_id, column_id, slot_id,
-                                       std::make_shared<DataTypeInt32>(), column_name);
+    return VSlotRef::create_shared(slot_id, column_id, slot_id, std::make_shared<DataTypeInt32>(),
+                                   column_name);
 }
 
 VExprSPtr table_int32_literal(int32_t value) {
     return VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
-                                       Field::create_field<TYPE_INT>(value));
+                                   Field::create_field<TYPE_INT>(value));
 }
 
 VExprSPtr table_int64_literal(int64_t value) {
     return VLiteral::create_shared(std::make_shared<DataTypeInt64>(),
-                                       Field::create_field<TYPE_BIGINT>(value));
+                                   Field::create_field<TYPE_BIGINT>(value));
 }
 
 TExprNode table_function_node(const std::string& function_name, const DataTypePtr& return_type,
@@ -276,8 +276,8 @@ VExprSPtr table_nullable_int64_binary_predicate(const std::string& function_name
     auto expr = table_function_expr(function_name, std::make_shared<DataTypeUInt8>(),
                                     {nullable_int64_type, int64_type}, TExprNodeType::BINARY_PRED,
                                     opcode);
-    expr->add_child(VSlotRef::create_shared(slot_id, column_id, slot_id, nullable_int64_type,
-                                                column_name));
+    expr->add_child(
+            VSlotRef::create_shared(slot_id, column_id, slot_id, nullable_int64_type, column_name));
     expr->add_child(table_int64_literal(value));
     return expr;
 }
@@ -2656,8 +2656,8 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({1}));
     ASSERT_EQ(file_request.conjuncts.size(), 1);
-    const auto* localized_slot = assert_cast<const VSlotRef*>(
-            file_request.conjuncts[0]->root()->children()[0].get());
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(file_request.conjuncts[0]->root()->children()[0].get());
     EXPECT_EQ(localized_slot->slot_id(), 0);
     EXPECT_EQ(localized_slot->column_id(), 1);
 }
