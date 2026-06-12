@@ -581,9 +581,13 @@ public class GsonUtils {
             .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName())
             .registerSubtype(AzureFileSystem.class, AzureFileSystem.class.getSimpleName());
 
+    // streaming dispatch avoids materializing the whole job as a JsonElement DOM tree:
+    // a single backup/restore job journal entry can be tens of MB and its DOM costs
+    // dozens of times more transient heap than the serialized bytes
     private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
             jobBackupTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
+                    .withStreamingDispatch()
                     .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
                     .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName())
                     .registerSubtype(CloudRestoreJob.class, CloudRestoreJob.class.getSimpleName());
