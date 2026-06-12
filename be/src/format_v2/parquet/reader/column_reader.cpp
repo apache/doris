@@ -407,9 +407,7 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
         }
         for (const auto& child_projection : projection->children) {
             if (child_projection.local_id() == key_schema.local_id) {
-                return Status::NotSupported(
-                        "Parquet MAP projection for column {} does not support key child",
-                        column_schema.name);
+                continue;
             }
             if (child_projection.local_id() != value_schema.local_id) {
                 return Status::InvalidArgument(

@@ -218,8 +218,16 @@ public:
     // but it must not interpret table-format semantics such as Iceberg name mapping,
     // default/generated columns, or partition columns. File-format physical wrappers should be
     // normalized away before exposing this schema; for example, Parquet MAP is exposed as key/value
-    // children rather than key_value/entry. This method can only be called after init()
-    // successfully, but does not require open() to be called.
+    // children rather than key_value/entry.
+    //
+    // Doris plans external-table scan types as nullable, including all nested children of complex
+    // types. This protects Doris from illegal or inconsistent values produced by external systems.
+    // Therefore every ColumnDefinition::type returned here must be nullable. Complex types must
+    // also expose nullable child types recursively, even if the physical file marks those fields as
+    // required.
+    //
+    // This method can only be called after init() successfully, but does not require open() to be
+    // called.
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
 
     // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.

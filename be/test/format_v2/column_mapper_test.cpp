@@ -402,15 +402,19 @@ TEST(ColumnMapperSchemaProjectionTest, ProjectsMapValueStructLeaf) {
     auto map = map_col("m", 100, {key, value}, str(), value_type, 9);
 
     LocalColumnIndex projection = LocalColumnIndex::partial_local(9);
+    projection.children.push_back(LocalColumnIndex::local(0));
     auto value_projection = LocalColumnIndex::partial_local(1);
     value_projection.children.push_back(LocalColumnIndex::local(1));
     projection.children.push_back(std::move(value_projection));
 
     ColumnDefinition projected;
     ASSERT_TRUE(project_column_definition(map, projection, &projected).ok());
-    ASSERT_EQ(projected.children.size(), 1);
-    ASSERT_EQ(projected.children[0].children.size(), 1);
-    EXPECT_EQ(projected.children[0].children[0].name, "b");
+    ASSERT_EQ(projected.children.size(), 2);
+    EXPECT_EQ(projected.children[0].name, "key");
+    EXPECT_TRUE(projected.children[0].children.empty());
+    EXPECT_EQ(projected.children[1].name, "value");
+    ASSERT_EQ(projected.children[1].children.size(), 1);
+    EXPECT_EQ(projected.children[1].children[0].name, "b");
 
     const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(projected.type).get());
     const auto* projected_value =
@@ -419,7 +423,7 @@ TEST(ColumnMapperSchemaProjectionTest, ProjectsMapValueStructLeaf) {
     EXPECT_EQ(projected_value->get_element_name(0), "b");
 }
 
-TEST(ColumnMapperSchemaProjectionTest, RejectsMapKeyProjection) {
+TEST(ColumnMapperSchemaProjectionTest, RejectsMapKeyOnlyProjection) {
     auto key = field_id_col("key", 1, str(), 0);
     auto value = field_id_col("value", 2, i32(), 1);
     auto map = map_col("m", 100, {key, value}, str(), i32(), 9);
@@ -430,7 +434,7 @@ TEST(ColumnMapperSchemaProjectionTest, RejectsMapKeyProjection) {
     ColumnDefinition projected;
     const auto status = project_column_definition(map, projection, &projected);
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("does not support key child projection"), std::string::npos);
+    EXPECT_NE(status.to_string().find("contains no value child"), std::string::npos);
 }
 
 TEST(ColumnMapperSchemaProjectionTest, RejectsInvalidProjectionChildIdWithFieldName) {

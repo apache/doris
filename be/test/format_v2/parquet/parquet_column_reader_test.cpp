@@ -2393,7 +2393,7 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
     EXPECT_EQ(b_data.get_data_at(3).to_string(), "me");
 }
 
-TEST_F(ParquetColumnReaderTest, RejectMapKeyProjection) {
+TEST_F(ParquetColumnReaderTest, AllowsMapKeyWithValueProjection) {
     const auto field_idx = find_field_idx("nullable_map_int_struct_col");
     ASSERT_LT(field_idx, _fields.size());
     const auto& map_schema = *_fields[field_idx];
@@ -2408,8 +2408,25 @@ TEST_F(ParquetColumnReaderTest, RejectMapKeyProjection) {
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
     std::unique_ptr<ParquetColumnReader> reader;
     const auto st = factory.create(map_schema, &projection, &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(reader, nullptr);
+}
+
+TEST_F(ParquetColumnReaderTest, RejectMapKeyOnlyProjection) {
+    const auto field_idx = find_field_idx("nullable_map_int_struct_col");
+    ASSERT_LT(field_idx, _fields.size());
+    const auto& map_schema = *_fields[field_idx];
+    ASSERT_EQ(map_schema.children.size(), 2);
+    const auto& key_schema = *map_schema.children[0];
+
+    auto projection = format::LocalColumnIndex::partial_local(map_schema.local_id);
+    projection.children.push_back(format::LocalColumnIndex::local(key_schema.local_id));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    const auto st = factory.create(map_schema, &projection, &reader);
     ASSERT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("does not support key child"), std::string::npos);
+    EXPECT_NE(st.to_string().find("contains no value"), std::string::npos);
 }
 
 TEST_F(ParquetColumnReaderTest, ReadProjectedStructListChildOnly) {

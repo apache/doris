@@ -741,6 +741,8 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
+static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
+static constexpr int32_t ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID = 2147483539;
 
 static TableVirtualColumnType row_lineage_virtual_column_type(const std::string& column_name) {
     if (column_name == ROW_LINEAGE_ROW_ID) {
@@ -748,6 +750,33 @@ static TableVirtualColumnType row_lineage_virtual_column_type(const std::string&
     }
     if (column_name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
         return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+    }
+    return TableVirtualColumnType::INVALID;
+}
+
+static TableVirtualColumnType row_lineage_virtual_column_type_by_field_id(
+        const ColumnDefinition& column) {
+    if (!column.has_identifier_field_id()) {
+        return TableVirtualColumnType::INVALID;
+    }
+    switch (column.get_identifier_field_id()) {
+    case ROW_LINEAGE_ROW_ID_FIELD_ID:
+        return TableVirtualColumnType::ROW_ID;
+    case ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID:
+        return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+    default:
+        return TableVirtualColumnType::INVALID;
+    }
+}
+
+static TableVirtualColumnType row_lineage_virtual_column_type(const ColumnDefinition& column,
+                                                             TableColumnMappingMode mode) {
+    switch (mode) {
+    case TableColumnMappingMode::BY_FIELD_ID:
+        return row_lineage_virtual_column_type_by_field_id(column);
+    case TableColumnMappingMode::BY_NAME:
+    case TableColumnMappingMode::BY_INDEX:
+        return row_lineage_virtual_column_type(column.name);
     }
     return TableVirtualColumnType::INVALID;
 }
@@ -781,6 +810,31 @@ static bool needs_projected_file_type_rebuild(const ColumnMapping& mapping) {
         }
     }
     return false;
+}
+
+static const ColumnDefinition* find_file_child_for_mapping(
+        const ColumnDefinition& table_child, const ColumnDefinition& file_parent,
+        TableColumnMappingMode mode) {
+    const auto file_parent_type = remove_nullable(file_parent.type)->get_primitive_type();
+    switch (file_parent_type) {
+    case TYPE_ARRAY:
+        DORIS_CHECK(file_parent.children.size() == 1);
+        return &file_parent.children[0];
+    case TYPE_MAP:
+        DORIS_CHECK(file_parent.children.size() == 2);
+        if (table_child.name == "key") {
+            return &file_parent.children[0];
+        }
+        if (table_child.name == "value") {
+            return &file_parent.children[1];
+        }
+        if (table_child.local_id == 0 || table_child.local_id == 1) {
+            return &file_parent.children[table_child.local_id];
+        }
+        return nullptr;
+    default:
+        return matcher_for_mode(mode).find(table_child, file_parent.children);
+    }
 }
 
 static bool has_projected_file_children(const ColumnMapping& mapping) {
@@ -1161,7 +1215,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
-    const auto row_lineage_type = row_lineage_virtual_column_type(table_column.name);
+    const auto row_lineage_type = row_lineage_virtual_column_type(table_column, _options.mode);
     if (const auto* partition_value = find_partition_value(table_column, _partition_values);
         table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
@@ -1518,7 +1572,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
         DORIS_CHECK(is_complex_type(mapping->file_type->get_primitive_type()));
         for (const auto& table_child : table_column.children) {
             const auto* file_child =
-                    matcher_for_mode(_options.mode).find(table_child, file_field.children);
+                    find_file_child_for_mapping(table_child, file_field, _options.mode);
             if (file_child == nullptr) {
                 ColumnMapping child_mapping;
                 child_mapping.table_column_name = table_child.name;

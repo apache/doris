@@ -72,11 +72,10 @@ Status rebuild_semantic_projected_type(const DataTypePtr& original_type,
             // Partial MAP projection only prunes the value subtree. The key stream must remain
             // complete because it defines entry existence and offsets when materializing ColumnMap;
             // the projected DataTypeMap also preserves the original key type instead of rebuilding
-            // it from children.
+            // it from children. If a caller includes key in the semantic child list, ignore it
+            // here; the presence of a value child still decides the projected value shape.
             if (child.file_local_id() == 0 || child.name == "key") {
-                return Status::NotSupported(
-                        "MAP projection for type {} does not support key child projection",
-                        original_type->get_name());
+                continue;
             }
             if (child.file_local_id() == 1 || child.name == "value") {
                 value_type = child.type;

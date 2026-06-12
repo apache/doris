@@ -27,6 +27,7 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_nullable.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_scan.h"
@@ -89,7 +90,9 @@ void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_sc
     }
     field->local_id = column_schema.local_id;
     field->name = column_schema.name;
-    field->type = column_schema.type;
+    field->type = column_schema.type != nullptr && !column_schema.type->is_nullable()
+                          ? make_nullable(column_schema.type)
+                          : column_schema.type;
     field->children.clear();
     field->children.reserve(column_schema.children.size());
     for (const auto& child : column_schema.children) {
