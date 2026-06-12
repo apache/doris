@@ -1248,6 +1248,31 @@ public:
                 column->insert_data("one", 3);
                 column->insert_data("two", 3);
                 file_block->replace_by_position(block_position.value(), std::move(column));
+            } else if (file_column_id == LocalColumnId(2)) {
+                auto country_values = ColumnString::create();
+                country_values->insert_data("USA", 3);
+                country_values->insert_data("UK", 2);
+                auto country_null_map = ColumnUInt8::create();
+                country_null_map->insert_value(0);
+                country_null_map->insert_value(0);
+                auto country_column = ColumnNullable::create(std::move(country_values),
+                                                             std::move(country_null_map));
+
+                auto city_column = ColumnString::create();
+                city_column->insert_data("New York", 8);
+                city_column->insert_data("London", 6);
+
+                MutableColumns struct_children;
+                struct_children.push_back(std::move(country_column));
+                struct_children.push_back(std::move(city_column));
+                auto struct_column = ColumnStruct::create(std::move(struct_children));
+
+                auto root_null_map = ColumnUInt8::create();
+                root_null_map->insert_value(0);
+                root_null_map->insert_value(0);
+                auto nullable_struct =
+                        ColumnNullable::create(std::move(struct_column), std::move(root_null_map));
+                file_block->replace_by_position(block_position.value(), std::move(nullable_struct));
             } else {
                 return Status::InvalidArgument("Unexpected fake file column id {}",
                                                file_column_id.value());
@@ -1352,6 +1377,70 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
+}
+
+TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    const auto file_struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, string_type}, Strings {"country", "city"}));
+    auto file_struct_column = make_file_column(2, "struct_column", file_struct_type);
+    file_struct_column.children = {make_file_column(0, "country", string_type),
+                                   make_file_column(1, "city", string_type)};
+    std::vector<ColumnDefinition> file_schema = {file_struct_column};
+
+    const auto table_struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_string_type, nullable_string_type}, Strings {"country", "city"}));
+    auto country_child = make_table_column(0, "country", nullable_string_type);
+    auto city_child = make_table_column(1, "city", nullable_string_type);
+    auto table_struct_column = make_table_column(2, "struct_column", table_struct_type);
+    table_struct_column.children = {country_child, city_child};
+    std::vector<ColumnDefinition> projected_columns = {table_struct_column};
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(eos);
+    ASSERT_TRUE(block.check_type_and_column().ok()) << block.dump_structure();
+
+    const auto& result_nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& struct_result =
+            assert_cast<const ColumnStruct&>(result_nullable.get_nested_column());
+    ASSERT_EQ(struct_result.get_columns().size(), 2);
+    const auto& country_column = assert_cast<const ColumnNullable&>(struct_result.get_column(0));
+    const auto& city_column = assert_cast<const ColumnNullable&>(struct_result.get_column(1));
+    const auto& country_values =
+            assert_cast<const ColumnString&>(country_column.get_nested_column());
+    const auto& city_values = assert_cast<const ColumnString&>(city_column.get_nested_column());
+    ASSERT_EQ(city_column.size(), 2);
+    EXPECT_FALSE(city_column.is_null_at(0));
+    EXPECT_FALSE(city_column.is_null_at(1));
+    EXPECT_EQ(country_values.get_data_at(0).to_string(), "USA");
+    EXPECT_EQ(country_values.get_data_at(1).to_string(), "UK");
+    EXPECT_EQ(city_values.get_data_at(0).to_string(), "New York");
+    EXPECT_EQ(city_values.get_data_at(1).to_string(), "London");
 }
 
 TEST(TableReaderTest, ReopenSplitAfterClose) {

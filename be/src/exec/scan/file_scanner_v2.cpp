@@ -137,6 +137,14 @@ format::ColumnDefinition* find_or_add_child(format::ColumnDefinition* parent, in
     return &parent->children.back();
 }
 
+void inherit_schema_metadata(format::ColumnDefinition* column,
+                             const format::ColumnDefinition* schema_column) {
+    if (column == nullptr || schema_column == nullptr) {
+        return;
+    }
+    column->name_mapping = schema_column->name_mapping;
+}
+
 const format::ColumnDefinition* find_schema_child_by_path(
         const format::ColumnDefinition* schema_column, const std::string& child_path) {
     if (schema_column == nullptr) {
@@ -167,6 +175,17 @@ int32_t schema_field_id(const format::ColumnDefinition* schema_column) {
         return -1;
     }
     return schema_column->get_identifier_field_id();
+}
+
+int32_t schema_field_id_or(const format::ColumnDefinition* schema_column, int32_t fallback) {
+    const auto field_id = schema_field_id(schema_column);
+    return field_id >= 0 ? field_id : fallback;
+}
+
+std::string schema_field_name_or(const format::ColumnDefinition* schema_column,
+                                 std::string fallback) {
+    return schema_column == nullptr || schema_column->name.empty() ? std::move(fallback)
+                                                                  : schema_column->name;
 }
 
 struct AccessPathNode {
@@ -208,6 +227,85 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                               const std::string& path,
                                               const format::ColumnDefinition* schema_column);
 
+// Expand a full complex-column projection into table-schema children when the table format provides
+// an external/current schema. Without this, `SELECT complex_col` or `SELECT *` leaves
+// ColumnDefinition::children empty, so ColumnMapper treats the root complex column as a scalar
+// mapping and later tries to cast the old file shape to the current table shape directly.
+//
+// Examples:
+//   - STRUCT country/city projected from an old file STRUCT country/population/location should
+//     create children country and city, so city can be materialized as missing/default.
+//   - ARRAY<STRUCT<item, quantity>> should create the array element wrapper and then the element
+//     struct children item and quantity.
+//   - MAP<STRING, STRUCT<full_name, age>> should create the entries wrapper with key/value, then
+//     expand the value struct children full_name and age.
+Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
+                                             const DataTypePtr& type, const std::string& path,
+                                             const format::ColumnDefinition* schema_column) {
+    DORIS_CHECK(column != nullptr);
+    if (schema_column == nullptr || schema_column->children.empty()) {
+        return Status::OK();
+    }
+
+    const auto nested_type = remove_nullable(type);
+    AccessPathNode project_all;
+    project_all.project_all = true;
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*nested_type);
+        for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
+            const auto field_name = struct_type.get_element_name(field_idx);
+            const auto* schema_child = find_schema_child_by_path(schema_column, field_name);
+            auto* child = find_or_add_child(
+                    column, schema_field_id_or(schema_child, cast_set<int32_t>(field_idx)),
+                    schema_field_name_or(schema_child, field_name),
+                    struct_type.get_element(field_idx));
+            inherit_schema_metadata(child, schema_child);
+            RETURN_IF_ERROR(build_nested_children_from_access_node(
+                    child, child->type, project_all, path + "." + child->name, schema_child));
+        }
+        return Status::OK();
+    }
+    case TYPE_ARRAY: {
+        const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
+        const auto* element_schema = &schema_column->children[0];
+        auto* child = find_or_add_child(
+                column, schema_field_id_or(element_schema, 0),
+                schema_field_name_or(element_schema, "element"), array_type.get_nested_type());
+        inherit_schema_metadata(child, element_schema);
+        return build_nested_children_from_access_node(child, child->type, project_all,
+                                                      path + ".*", element_schema);
+    }
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        const auto* key_schema = &schema_column->children[0];
+        const auto* value_schema =
+                schema_column->children.size() > 1 ? &schema_column->children[1] : nullptr;
+        DataTypes entry_child_types {map_type.get_key_type(), map_type.get_value_type()};
+        Strings entry_child_names {"key", "value"};
+        auto entry_type = std::make_shared<DataTypeStruct>(entry_child_types, entry_child_names);
+        auto* entry_child = find_or_add_child(column, 0, "entries", entry_type);
+        auto* key_child = find_or_add_child(
+                entry_child, schema_field_id_or(key_schema, 0),
+                schema_field_name_or(key_schema, "key"), map_type.get_key_type());
+        inherit_schema_metadata(key_child, key_schema);
+        RETURN_IF_ERROR(build_nested_children_from_access_node(key_child, key_child->type,
+                                                               project_all, path + ".KEYS",
+                                                               key_schema));
+        auto* value_child = find_or_add_child(
+                entry_child, schema_field_id_or(value_schema, 1),
+                schema_field_name_or(value_schema, "value"), map_type.get_value_type());
+        inherit_schema_metadata(value_child, value_schema);
+        RETURN_IF_ERROR(build_nested_children_from_access_node(value_child, value_child->type,
+                                                               project_all, path + ".VALUES",
+                                                               value_schema));
+        return Status::OK();
+    }
+    default:
+        return Status::OK();
+    }
+}
+
 Status build_struct_children_from_access_node(format::ColumnDefinition* column,
                                               const DataTypeStruct& struct_type,
                                               const AccessPathNode& node, const std::string& path,
@@ -245,6 +343,7 @@ Status build_struct_children_from_access_node(format::ColumnDefinition* column,
         // the table child identifier. BY_NAME mapping should instead keep a string identifier and
         // let TableColumnMapper resolve the file-local child id from the Parquet schema.
         auto* child = find_or_add_child(column, field_id, field_name, field_type);
+        inherit_schema_metadata(child, schema_child);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
                 child, child->type, child_node, path + "." + child_path, schema_child));
     }
@@ -321,12 +420,19 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
                                        ? &schema_column->children[1]
                                        : nullptr;
     if (need_key) {
-        auto* key_child = find_or_add_child(entry_child, 0, "key", map_type.get_key_type());
+        auto* key_child =
+                find_or_add_child(entry_child, schema_field_id_or(key_schema, 0),
+                                  schema_field_name_or(key_schema, "key"), map_type.get_key_type());
+        inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(key_child, key_child->type, key_node,
                                                                path + ".KEYS", key_schema));
     }
     if (need_value) {
-        auto* value_child = find_or_add_child(entry_child, 1, "value", map_type.get_value_type());
+        auto* value_child =
+                find_or_add_child(entry_child, schema_field_id_or(value_schema, 1),
+                                  schema_field_name_or(value_schema, "value"),
+                                  map_type.get_value_type());
+        inherit_schema_metadata(value_child, value_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
                 value_child, value_child->type, value_node, path + ".VALUES", value_schema));
     }
@@ -339,8 +445,7 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                               const format::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
     if (node.project_all || node.children.empty()) {
-        // If project_all is true or there is no specific child path, we need to project all children of the complex type.
-        return Status::OK();
+        return build_all_nested_children_from_schema(column, type, path, schema_column);
     }
 
     const auto nested_type = remove_nullable(type);
@@ -355,10 +460,14 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                         path, column->name);
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
-        auto* child = find_or_add_child(column, 0, "element", array_type.get_nested_type());
         const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
                                              ? &schema_column->children[0]
                                              : nullptr;
+        auto* child =
+                find_or_add_child(column, schema_field_id_or(element_schema, 0),
+                                  schema_field_name_or(element_schema, "element"),
+                                  array_type.get_nested_type());
+        inherit_schema_metadata(child, element_schema);
         return build_nested_children_from_access_node(child, child->type, node.children.at("*"),
                                                       path + ".*", element_schema);
     }
