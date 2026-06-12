@@ -159,7 +159,7 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException {
+    public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException, JobException {
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
         Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
 
@@ -175,11 +175,11 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsManualPartitionsIncompleteRefreshSnapshot()
-            throws AnalysisException {
+            throws AnalysisException, JobException {
         Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
 
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
-                false, null);
+        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
+                RefreshMode.PARTITIONS, false, null);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
 
