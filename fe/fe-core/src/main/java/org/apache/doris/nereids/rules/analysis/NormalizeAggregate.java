@@ -301,16 +301,25 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             if (!missingSlotsInAggregate.isEmpty()) {
                 if (SqlModeHelper.hasOnlyFullGroupBy()) {
                     // Under only_full_group_by, a non-aggregated output expression is allowed only when it
-                    // is constant for every input row (a uniform slot). This matches MySQL, which accepts
-                    // such expressions by functional dependency, e.g.
+                    // has a single value for every input row of the aggregate. This matches MySQL, which
+                    // accepts such expressions by functional dependency, e.g.
                     //   SELECT a AS b, b AS c FROM (SELECT 1 AS a, 2 AS b) t GROUP BY b, c
-                    // here 'a' is a constant column of the derived table. Non-constant missing slots are
-                    // still rejected. The constant ones fall through to the any_value() wrapping below
-                    // (any_value of a constant is that constant), so the result stays unambiguous.
+                    // where 'a' is a constant column of the derived table.
+                    //
+                    // Two guards keep this relaxation correct:
+                    // 1. isUniformAndNotNull (not plain isUniform): a uniform slot may come from the nullable
+                    //    side of an outer join (see DataTrait.addUniformSlotForOuterJoinNullableSide), where it
+                    //    holds the uniform value on matched rows but NULL on unmatched rows of the same group,
+                    //    so any_value() would be ambiguous.
+                    // 2. no constant group-by key: a constant key is removed by eliminateGroupByConstant below
+                    //    and the all-constant aggregate is later collapsed, which does not preserve the
+                    //    any_value() aliases we would add here. In that case keep the original rejection (this
+                    //    matches the behavior before this relaxation).
+                    boolean hasConstantGroupByKey = groupingByExprs.stream().anyMatch(Expression::isConstant);
                     DataTrait childTrait = aggregate.child().getLogicalProperties().getTrait();
                     List<String> invalidMissingSlots = new ArrayList<>();
                     for (Slot slot : missingSlotsInAggregate) {
-                        if (!childTrait.isUniform(slot)) {
+                        if (hasConstantGroupByKey || !childTrait.isUniformAndNotNull(slot)) {
                             invalidMissingSlots.add("'" + slot.getName() + "'");
                         }
                     }
@@ -359,8 +368,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         LogicalAggregate<?> newAggregate =
                 aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutputBuilder.build(), bottomPlan);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
+        // Use the current aggregate output (newAggregate already contains any any_value aliases added for
+        // missing constant slots above), not the stale normalizedAggOutput snapshot, so constant group-key
+        // elimination does not drop those aliases and leave dangling references in upperProjects.
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
-                normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects, newAggregate);
+                normalizedGroupExprs, newAggregate.getOutputExpressions(), bottomProjects, aggregate,
+                upperProjects, newAggregate);
 
         if (!having.isPresent()) {
             return project;

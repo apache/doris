@@ -22,16 +22,10 @@ suite("test_group_by_constant_output") {
     // The output alias 'b' collides with the derived-table column 'b', so under only_full_group_by the
     // column 'b' is grouped and the constant column 'a' is left ungrouped. Because 'a' is constant for
     // every input row it is accepted (MySQL functional-dependency behavior), and the query returns (1, 2).
-    def r1 = sql "SELECT a as b, b as c FROM (SELECT 1 as a, 2 as b) t1 GROUP BY b, c"
-    assertEquals(1, r1.size())
-    assertEquals(1, (r1[0][0] as int))
-    assertEquals(2, (r1[0][1] as int))
+    qt_const_alias_collision "SELECT a as b, b as c FROM (SELECT 1 as a, 2 as b) t1 GROUP BY b, c"
 
     // A constant column not present in GROUP BY is allowed even though it is neither grouped nor aggregated.
-    def r2 = sql "SELECT a, b FROM (SELECT 1 as a, 2 as b) t1 GROUP BY a"
-    assertEquals(1, r2.size())
-    assertEquals(1, (r2[0][0] as int))
-    assertEquals(2, (r2[0][1] as int))
+    qt_const_not_in_groupby "SELECT a, b FROM (SELECT 1 as a, 2 as b) t1 GROUP BY a"
 
     // The same shape over a real table leaves a non-constant column ungrouped, which is still rejected
     // (matching MySQL, where only constant / functionally-dependent columns are allowed).
@@ -46,6 +40,4 @@ suite("test_group_by_constant_output") {
         sql "SELECT a as b, b as c FROM test_gb_const_t GROUP BY b, c"
         exception "must appear in the GROUP BY"
     }
-
-    sql "DROP TABLE IF EXISTS test_gb_const_t"
 }

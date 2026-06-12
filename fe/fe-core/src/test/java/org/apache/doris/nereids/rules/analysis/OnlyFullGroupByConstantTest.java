@@ -25,9 +25,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Under only_full_group_by, a non-aggregated select expression that is constant for every input row
- * (a uniform slot) is allowed, matching MySQL functional-dependency behavior. Non-constant
- * non-aggregated expressions are still rejected.
+ * Under only_full_group_by, a non-aggregated select expression that has a single value for every input
+ * row (uniform and not null) is allowed, matching MySQL functional-dependency behavior. Non-constant
+ * expressions, and uniform-but-nullable expressions from the nullable side of an outer join, are rejected.
  */
 public class OnlyFullGroupByConstantTest extends TestWithFeService {
     @Override
@@ -37,6 +37,9 @@ public class OnlyFullGroupByConstantTest extends TestWithFeService {
         // columns 'a','b' deliberately collide with the output aliases used below
         createTable("CREATE TABLE test.t_ab (a INT, b INT) ENGINE=OLAP\n"
                 + "DUPLICATE KEY(a) DISTRIBUTED BY HASH(a) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1');");
+        createTable("CREATE TABLE test.t_v (k INT, v INT) ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1');");
     }
 
@@ -53,6 +56,19 @@ public class OnlyFullGroupByConstantTest extends TestWithFeService {
         // 'b' is constant and not grouped -> allowed even though it is neither grouped nor aggregated
         Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
                 .analyze("SELECT a, b FROM (SELECT 1 as a, 2 as b) t1 GROUP BY a"));
+    }
+
+    @Test
+    public void constantGroupKeyStillRejected() {
+        // a constant group-by key ('g') is eliminated and the all-constant aggregate is later collapsed,
+        // which would not preserve any_value() aliases. The relaxation is skipped in that case, so the
+        // query keeps the original rejection (same behavior as before this change) rather than producing
+        // a dangling plan.
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT a, b FROM (SELECT 1 as a, 2 as b) t1 GROUP BY 'g'"));
+        Assertions.assertTrue(ex.getMessage().contains("must appear in the GROUP BY"),
+                "unexpected message: " + ex.getMessage());
     }
 
     @Test
@@ -73,5 +89,17 @@ public class OnlyFullGroupByConstantTest extends TestWithFeService {
                         "SELECT x.a, x.k, x.b2 FROM (SELECT a, 1 as k, b as b2 FROM test.t_ab) x GROUP BY x.b2"));
         Assertions.assertTrue(ex.getMessage().contains("'a'"), "should report 'a': " + ex.getMessage());
         Assertions.assertFalse(ex.getMessage().contains("'k'"), "should NOT report constant 'k': " + ex.getMessage());
+    }
+
+    @Test
+    public void outerJoinNullableUniformRejected() {
+        // r.v is uniform (LIMIT 1) but propagated through the nullable side of a LEFT JOIN, so it is the
+        // uniform value on matched rows and NULL on unmatched rows of the same group -> must stay rejected.
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT r.v FROM (SELECT 1 AS g, 1 AS k UNION ALL SELECT 1 AS g, 2 AS k) l "
+                                + "LEFT JOIN (SELECT k, v FROM test.t_v LIMIT 1) r ON l.k = r.k GROUP BY l.g"));
+        Assertions.assertTrue(ex.getMessage().contains("must appear in the GROUP BY"),
+                "unexpected message: " + ex.getMessage());
     }
 }
