@@ -34,9 +34,17 @@
 namespace doris {
 class HybridSetBase;
 class RuntimeState;
+class TExprNode;
 } // namespace doris
 
 namespace doris::expr_zonemap {
+
+struct InZonemapMaterializedSet {
+    bool contains_null = false;
+    std::vector<Field> values;
+    Field min_value;
+    Field max_value;
+};
 
 struct SlotLiteral {
     int slot_index;
@@ -47,6 +55,12 @@ struct SlotLiteral {
 };
 
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
+
+TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
+                                                  int precision, int scale);
+
+Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataTypePtr& data_type,
+                                                 InZonemapMaterializedSet* result);
 
 inline bool field_types_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     return lhs == rhs || (is_string_type(lhs) && is_string_type(rhs));
@@ -100,14 +114,9 @@ bool range_stats_usable_for_zonemap(const segment_v2::ZoneMap& zone_map,
 ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
                                       bool is_null);
 
-bool can_eval_null_zonemap(const VExprSPtrs& arguments);
-
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
                                     bool is_not_in, const std::vector<Field>& values,
                                     const Field& min_value, const Field& max_value);
-
-bool can_eval_in_zonemap(const VExprSPtr& slot_expr, const std::vector<Field>& values,
-                         const Field& min_value, const Field& max_value);
 
 std::optional<int> single_slot_zonemap_index(const VExprContextSPtr& ctx);
 

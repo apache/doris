@@ -31,9 +31,9 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "exprs/expr_zonemap_filter.h"
+#include "exprs/function/in.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
-#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
 
@@ -83,7 +83,6 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (state->query_options().__isset.in_list_value_count_threshold) {
         _in_list_value_count_threshold = state->query_options().in_list_value_count_threshold;
     }
-    RETURN_IF_ERROR(_materialize_for_zonemap_filter());
     return Status::OK();
 }
 
@@ -100,6 +99,9 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
 
     _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
                                         [](const VExprSPtr& expr) { return expr->is_constant(); });
+    if (scope == FunctionContext::FRAGMENT_LOCAL && _is_args_all_constant) {
+        RETURN_IF_ERROR(_materialize_for_zonemap_filter(context));
+    }
     _open_finished = true;
     return Status::OK();
 }
@@ -114,37 +116,36 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VInPredicate::_materialize_for_zonemap_filter() {
+Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     _seg_filter_values.clear();
     _seg_filter_contains_null = false;
     _zonemap_materialized = false;
     if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
         return Status::OK();
     }
-    for (int i = 1; i < _children.size(); ++i) {
-        auto literal = std::dynamic_pointer_cast<VLiteral>(_children[i]);
-        if (literal == nullptr) {
-            return Status::OK();
-        }
-        Field field;
-        literal->get_column_ptr()->get(0, field);
-        if (field.is_null()) {
-            _seg_filter_contains_null = true;
-            continue;
-        }
-        DORIS_CHECK(expr_zonemap::data_types_compatible(_children[0]->data_type(),
-                                                        literal->get_data_type()))
-                << "slot type: " << _children[0]->data_type()->get_name()
-                << ", literal type: " << literal->get_data_type()->get_name();
-        _seg_filter_values.emplace_back(std::move(field));
-    }
-    if (_seg_filter_values.empty()) {
-        _zonemap_materialized = true;
+
+    const auto data_type = remove_nullable(_children[0]->data_type());
+    DORIS_CHECK(data_type != nullptr);
+    if (is_complex_type(data_type->get_primitive_type())) {
         return Status::OK();
     }
-    auto minmax = std::ranges::minmax_element(_seg_filter_values, expr_zonemap::field_less);
-    _seg_filter_min = *minmax.min;
-    _seg_filter_max = *minmax.max;
+
+    DORIS_CHECK(context != nullptr);
+    auto* fn_ctx = context->fn_context(_fn_context_index);
+    DORIS_CHECK(fn_ctx != nullptr);
+    auto* in_state =
+            reinterpret_cast<InState*>(fn_ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    DORIS_CHECK(in_state != nullptr);
+    DORIS_CHECK(in_state->use_set);
+    DORIS_CHECK(in_state->hybrid_set != nullptr);
+
+    expr_zonemap::InZonemapMaterializedSet materialized;
+    RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(
+            *in_state->hybrid_set, data_type, &materialized));
+    _seg_filter_contains_null = materialized.contains_null;
+    _seg_filter_values = std::move(materialized.values);
+    _seg_filter_min = std::move(materialized.min_value);
+    _seg_filter_max = std::move(materialized.max_value);
     _zonemap_materialized = true;
     return Status::OK();
 }
@@ -158,9 +159,7 @@ ZoneMapFilterResult VInPredicate::evaluate_zonemap_filter(const ZoneMapEvalConte
 }
 
 bool VInPredicate::can_evaluate_zonemap_filter() const {
-    return _zonemap_materialized &&
-           expr_zonemap::can_eval_in_zonemap(get_child(0), _seg_filter_values, _seg_filter_min,
-                                             _seg_filter_max);
+    return _zonemap_materialized && std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
 }
 
 Status VInPredicate::execute_column_impl(VExprContext* context, const Block* block,

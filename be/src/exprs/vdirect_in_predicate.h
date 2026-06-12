@@ -17,13 +17,12 @@
 
 #pragma once
 
-#include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/field.h"
-#include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/hybrid_set.h"
@@ -53,7 +52,6 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
-        RETURN_IF_ERROR(_materialize_for_zonemap_filter());
         _prepare_finished = true;
         return Status::OK();
     }
@@ -62,6 +60,7 @@ public:
                 FunctionContext::FunctionStateScope scope) override {
         DCHECK(_prepare_finished);
         RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        RETURN_IF_ERROR(_materialize_for_zonemap_filter());
         _open_finished = true;
         return Status::OK();
     }
@@ -88,8 +87,7 @@ public:
 
     bool can_evaluate_zonemap_filter() const override {
         return _zonemap_materialized &&
-               expr_zonemap::can_eval_in_zonemap(get_child(0), _seg_filter_values, _seg_filter_min,
-                                                 _seg_filter_max);
+               std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
     }
 
     bool get_slot_in_expr(VExprSPtr& new_root) const {
@@ -123,7 +121,7 @@ public:
                 DCHECK(iter->get_value() != nullptr);
                 const void* value = iter->get_value();
 
-                TExprNode node = _create_texpr_node_from_hybrid_set_value(
+                TExprNode node = expr_zonemap::create_texpr_node_from_hybrid_set_value(
                         value, slot_data_type->get_primitive_type(),
                         slot_data_type->get_precision(), slot_data_type->get_scale());
                 new_root->add_child(VLiteral::create_shared(node));
@@ -183,42 +181,14 @@ private:
         DORIS_CHECK(_filter != nullptr);
         auto& filter = *_filter;
         const auto& data_type = remove_nullable(get_child(0)->data_type());
-        _seg_filter_values.clear();
-        auto* iterator = filter.begin();
-        while (iterator->has_next()) {
-            const void* value = iterator->get_value();
-            if (value != nullptr) {
-                TExprNode literal_node = _create_texpr_node_from_hybrid_set_value(
-                        value, remove_nullable(data_type)->get_primitive_type(),
-                        remove_nullable(data_type)->get_precision(),
-                        remove_nullable(data_type)->get_scale());
-                auto literal = VLiteral::create_shared(literal_node);
-                Field field;
-                literal->get_column_ptr()->get(0, field);
-                _seg_filter_values.emplace_back(std::move(field));
-            }
-            iterator->next();
-        }
-        if (_seg_filter_values.empty()) {
-            _zonemap_materialized = true;
-            return Status::OK();
-        }
-        auto minmax = std::ranges::minmax_element(_seg_filter_values, expr_zonemap::field_less);
-        _seg_filter_min = *minmax.min;
-        _seg_filter_max = *minmax.max;
+        expr_zonemap::InZonemapMaterializedSet materialized;
+        RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(filter, data_type,
+                                                                                &materialized));
+        _seg_filter_values = std::move(materialized.values);
+        _seg_filter_min = std::move(materialized.min_value);
+        _seg_filter_max = std::move(materialized.max_value);
         _zonemap_materialized = true;
         return Status::OK();
-    }
-
-    static TExprNode _create_texpr_node_from_hybrid_set_value(const void* data,
-                                                              const PrimitiveType& type,
-                                                              int precision, int scale) {
-        if (is_string_type(type)) {
-            const auto* value = reinterpret_cast<const StringRef*>(data);
-            auto field = Field::create_field<TYPE_STRING>(String(value->data, value->size));
-            return create_texpr_node_from(field, type, precision, scale);
-        }
-        return create_texpr_node_from(data, type, precision, scale);
     }
 
     std::shared_ptr<HybridSetBase> _filter;

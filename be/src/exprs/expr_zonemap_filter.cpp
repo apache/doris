@@ -24,8 +24,8 @@
 #include "common/logging.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/string_ref.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -37,20 +37,8 @@ namespace {
 
 constexpr size_t kInZoneMapPointCheckThreshold = 64;
 
-VExprSPtr unwrap_identity_cast(const VExprSPtr& expr) {
-    if (expr->node_type() != TExprNodeType::CAST_EXPR || expr->get_num_children() != 1) {
-        return expr;
-    }
-    auto child = expr->get_child(0);
-    if (!remove_nullable(expr->data_type())->equals(*remove_nullable(child->data_type()))) {
-        return expr;
-    }
-    return unwrap_identity_cast(child);
-}
-
 std::optional<Field> field_from_literal_expr(const VExprSPtr& expr, DataTypePtr* literal_type) {
-    auto unwrapped = unwrap_identity_cast(expr);
-    auto literal = std::dynamic_pointer_cast<VLiteral>(unwrapped);
+    auto literal = std::dynamic_pointer_cast<VLiteral>(expr);
     if (literal == nullptr) {
         return std::nullopt;
     }
@@ -66,8 +54,7 @@ struct SlotExpr {
 };
 
 std::optional<SlotExpr> slot_from_expr(const VExprSPtr& expr) {
-    auto unwrapped = unwrap_identity_cast(expr);
-    auto slot = std::dynamic_pointer_cast<VSlotRef>(unwrapped);
+    auto slot = std::dynamic_pointer_cast<VSlotRef>(expr);
     if (slot == nullptr) {
         return std::nullopt;
     }
@@ -79,6 +66,51 @@ bool value_in_range(const Field& value, const Field& min_value, const Field& max
 }
 
 } // namespace
+
+TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
+                                                  int precision, int scale) {
+    if (is_string_type(type)) {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        auto field = Field::create_field<TYPE_STRING>(String(value->data, value->size));
+        return create_texpr_node_from(field, type, precision, scale);
+    }
+    return create_texpr_node_from(data, type, precision, scale);
+}
+
+Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataTypePtr& data_type,
+                                                 InZonemapMaterializedSet* result) {
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(data_type != nullptr);
+    const auto value_type = remove_nullable(data_type);
+    DORIS_CHECK(value_type != nullptr);
+
+    result->contains_null = set.contain_null();
+    result->values.clear();
+    result->min_value = Field();
+    result->max_value = Field();
+
+    auto* iterator = set.begin();
+    while (iterator->has_next()) {
+        const void* value = iterator->get_value();
+        if (value != nullptr) {
+            TExprNode literal_node = create_texpr_node_from_hybrid_set_value(
+                    value, value_type->get_primitive_type(), value_type->get_precision(),
+                    value_type->get_scale());
+            auto literal = VLiteral::create_shared(literal_node);
+            Field field;
+            literal->get_column_ptr()->get(0, field);
+            result->values.emplace_back(std::move(field));
+        }
+        iterator->next();
+    }
+
+    if (!result->values.empty()) {
+        auto minmax = std::ranges::minmax_element(result->values, expr_zonemap::field_less);
+        result->min_value = *minmax.min;
+        result->max_value = *minmax.max;
+    }
+    return Status::OK();
+}
 
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
     if (args.size() != 2) {
@@ -143,13 +175,6 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
     return zone_map.has_not_null ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
 }
 
-bool can_eval_null_zonemap(const VExprSPtrs& arguments) {
-    if (arguments.size() != 1) {
-        return false;
-    }
-    return slot_from_expr(arguments[0]).has_value();
-}
-
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
                                     bool is_not_in, const std::vector<Field>& values,
                                     const Field& min_value, const Field& max_value) {
@@ -209,11 +234,6 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
         }
     }
     return ZoneMapFilterResult::kNoMatch;
-}
-
-bool can_eval_in_zonemap(const VExprSPtr& slot_expr, const std::vector<Field>&, const Field&,
-                         const Field&) {
-    return slot_from_expr(slot_expr).has_value();
 }
 
 std::optional<int> single_slot_zonemap_index(const VExprContextSPtr& ctx) {

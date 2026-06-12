@@ -66,7 +66,7 @@ public:
     uint64_t get_digest(uint64_t seed) const override { return 0; }
 
 private:
-    Status _materialize_for_zonemap_filter();
+    Status _materialize_for_zonemap_filter(VExprContext* context);
 
     FunctionBasePtr _function;
     std::string _expr_name;

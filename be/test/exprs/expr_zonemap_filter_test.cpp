@@ -35,6 +35,7 @@
 #include "exprs/function/functions_comparison.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -475,7 +476,6 @@ TEST(ExprZonemapFilterTest, CharZonemapUsesTrimmedLogicalBounds) {
     auto in_value = Field::create_field<TYPE_STRING>("gamma");
     std::vector<Field> values {in_value};
     auto in_ctx = make_context(zone_map, char_type);
-    EXPECT_TRUE(expr_zonemap::can_eval_in_zonemap(slot, values, in_value, in_value));
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, in_value, in_value));
 }
@@ -505,19 +505,6 @@ TEST(ExprZonemapFilterTest, InZonemapUsesPointChecksUnderThreshold) {
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               expr_zonemap::eval_in_zonemap(ctx, slot, false, values, int_field(1), int_field(30)));
     EXPECT_EQ(1, ctx.stats.in_zonemap_point_check_count);
-}
-
-TEST(ExprZonemapFilterTest, InZonemapCanEvaluateUsesShapeOnly) {
-    auto type = int_type();
-    auto slot = make_slot(0, type);
-    auto string_value = Field::create_field<TYPE_STRING>("15");
-    std::vector<Field> values {string_value};
-
-    EXPECT_TRUE(expr_zonemap::can_eval_in_zonemap(slot, values, string_value, string_value));
-
-    auto string_type = std::make_shared<DataTypeString>();
-    auto string_slot = make_slot(0, string_type);
-    EXPECT_TRUE(expr_zonemap::can_eval_in_zonemap(string_slot, values, string_value, string_value));
 }
 
 TEST(ExprZonemapFilterTest, InZonemapHandlesEmptyListAndNotInSingleValueRange) {
@@ -560,13 +547,24 @@ TEST(ExprZonemapFilterTest, UnsupportedSingleSlotExprDoesNotAdvertiseZonemapCapa
 
 TEST(ExprZonemapFilterTest, VInPredicateMaterializesZonemapValues) {
     auto type = int_type();
-    auto slot = make_slot(0, type);
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    auto thrift_desc_tbl = make_k2_scan_desc_tbl();
+    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, thrift_desc_tbl, &desc_tbl).ok());
+
+    RuntimeState runtime_state;
+    runtime_state.set_desc_tbl(desc_tbl);
+    RowDescriptor row_desc(runtime_state.desc_tbl(), {0});
 
     auto in_predicate = std::make_shared<VInPredicate>(make_in_predicate_node(false, 3));
-    in_predicate->add_child(slot);
+    auto in_slot = make_slot(0, type);
+    std::static_pointer_cast<VSlotRef>(in_slot)->set_slot_id(0);
+    in_predicate->add_child(in_slot);
     in_predicate->add_child(make_int_literal(1));
     in_predicate->add_child(make_int_literal(30));
-    ASSERT_TRUE(in_predicate->_materialize_for_zonemap_filter().ok());
+    VExprContext in_context(in_predicate);
+    ASSERT_TRUE(in_context.prepare(&runtime_state, row_desc).ok());
+    ASSERT_TRUE(in_context.open(&runtime_state).ok());
 
     auto ctx = make_context(make_int_zonemap(10, 20), type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch, in_predicate->evaluate_zonemap_filter(ctx));
@@ -575,10 +573,14 @@ TEST(ExprZonemapFilterTest, VInPredicateMaterializesZonemapValues) {
     EXPECT_EQ(int_field(30), in_predicate->_seg_filter_max);
 
     auto not_in_with_null = std::make_shared<VInPredicate>(make_in_predicate_node(true, 3));
-    not_in_with_null->add_child(slot);
+    auto not_in_slot = make_slot(0, type);
+    std::static_pointer_cast<VSlotRef>(not_in_slot)->set_slot_id(0);
+    not_in_with_null->add_child(not_in_slot);
     not_in_with_null->add_child(make_int_literal(10));
     not_in_with_null->add_child(make_null_int_literal());
-    ASSERT_TRUE(not_in_with_null->_materialize_for_zonemap_filter().ok());
+    VExprContext not_in_context(not_in_with_null);
+    ASSERT_TRUE(not_in_context.prepare(&runtime_state, row_desc).ok());
+    ASSERT_TRUE(not_in_context.open(&runtime_state).ok());
 
     auto may_match_ctx = make_context(make_int_zonemap(11, 11), type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
@@ -634,6 +636,40 @@ TEST(ExprZonemapFilterTest, DirectInPredicateSkipsMaterializationWhenSetTypeDiff
     EXPECT_FALSE(direct_in_expr._zonemap_materialized);
     VExprSPtr in_expr;
     EXPECT_FALSE(direct_in_expr.get_slot_in_expr(in_expr));
+}
+
+TEST(ExprZonemapFilterTest, RuntimeFilterExprNullAwareZonemapKeepsZonesWithNull) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_INT, true));
+    int32_t low_value = 1;
+    int32_t high_value = 30;
+    filter->insert(&low_value);
+    filter->insert(&high_value);
+
+    auto direct_in_expr =
+            std::make_shared<VDirectInPredicate>(make_in_predicate_node(false, 1), filter);
+    direct_in_expr->add_child(slot);
+    ASSERT_TRUE(direct_in_expr->_materialize_for_zonemap_filter().ok());
+
+    auto runtime_filter = RuntimeFilterExpr::create_shared(make_in_predicate_node(false, 1),
+                                                           direct_in_expr, 0.0, true, 7);
+    EXPECT_TRUE(runtime_filter->can_evaluate_zonemap_filter());
+
+    auto no_null_ctx = make_context(make_int_zonemap(10, 20), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, runtime_filter->evaluate_zonemap_filter(no_null_ctx));
+
+    auto with_null_zonemap = make_int_zonemap(10, 20);
+    with_null_zonemap.has_null = true;
+    auto with_null_ctx = make_context(std::move(with_null_zonemap), type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              runtime_filter->evaluate_zonemap_filter(with_null_ctx));
+
+    segment_v2::ZoneMap only_null_zonemap;
+    only_null_zonemap.has_null = true;
+    auto only_null_ctx = make_context(std::move(only_null_zonemap), type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              runtime_filter->evaluate_zonemap_filter(only_null_ctx));
 }
 
 TEST(ExprZonemapFilterTest, CompoundPredicateEvaluatesChildrenForZonemap) {

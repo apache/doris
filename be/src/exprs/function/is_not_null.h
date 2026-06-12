@@ -39,6 +39,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
+#include "exprs/vslot_ref.h"
 
 namespace doris {
 class FunctionContext;
@@ -68,7 +69,7 @@ public:
     }
 
     bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
-        return expr_zonemap::can_eval_null_zonemap(arguments);
+        return std::dynamic_pointer_cast<VSlotRef>(arguments[0]) != nullptr;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
