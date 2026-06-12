@@ -107,6 +107,23 @@ inline void StoreLittleEndianU32(uint8_t* p, uint32_t v) {
     std::memcpy(p, &v, sizeof(v));
 }
 
+// Big-endian first-8-byte prefix of a term, left-aligned so the resulting
+// u64 orders identically to a full lexicographic (unsigned-byte) compare:
+// shorter terms zero-pad their low bytes, and any prefix tie falls back to a
+// full ArenaTermAt compare. Lets the per-term sort below skip the double
+// ArenaTermAt + memcmp on the common case where two terms already differ
+// within their first 8 bytes. The sort order (hence emitted bytes) is
+// unchanged — only the comparison cost drops.
+inline uint64_t PrefixKey8(std::string_view t) {
+    uint64_t k = 0;
+    const size_t n = t.size() < 8 ? t.size() : 8;
+    for (size_t i = 0; i < n; ++i) {
+        k = (k << 8) | static_cast<uint8_t>(t[i]);
+    }
+    k <<= (8U - n) * 8U;
+    return k;
+}
+
 // Per-process random seed for the keyed FNV-1a hash. Combined with a
 // per-instance counter at construction, this defeats attacker
 // pre-computation of hash collisions across writers (un-keyed FNV-1a
@@ -694,15 +711,29 @@ void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
         // Enumerate every (text_ref, term_id) pair directly from `_term_states`
         // (dense, indexed by term_id; `.text_ref` is the arena offset). This
         // replaced an iteration over the removed `_text_ref_to_term_id` map.
-        std::vector<std::pair<uint32_t, uint32_t>> term_text_to_id; // (text_ref, term_id)
+        // (prefix_key, text_ref, term_id). The u64 prefix key resolves the vast
+        // majority of sort comparisons with one integer compare instead of two
+        // ArenaTermAt() lookups + a memcmp; only a first-8-byte tie falls back
+        // to the full arena compare. Precomputing the key is O(T) ArenaTermAt
+        // calls, repaid by the O(T log T) sort.
+        struct TermSortEntry {
+            uint64_t key;
+            uint32_t text_ref;
+            uint32_t term_id;
+        };
+        std::vector<TermSortEntry> term_text_to_id;
         term_text_to_id.reserve(_term_states.size());
         for (uint32_t term_id = 0; term_id < _term_states.size(); ++term_id) {
-            term_text_to_id.emplace_back(_term_states[term_id].text_ref, term_id);
+            const uint32_t text_ref = _term_states[term_id].text_ref;
+            term_text_to_id.push_back({PrefixKey8(ArenaTermAt(text_ref)), text_ref, term_id});
         }
         if (can_skip_global_sort) {
             std::sort(term_text_to_id.begin(), term_text_to_id.end(),
-                      [this](const auto& a, const auto& b) {
-                          return ArenaTermAt(a.first) < ArenaTermAt(b.first);
+                      [this](const TermSortEntry& a, const TermSortEntry& b) {
+                          if (a.key != b.key) {
+                              return a.key < b.key;
+                          }
+                          return ArenaTermAt(a.text_ref) < ArenaTermAt(b.text_ref);
                       });
             if (allow_direct_emit) {
                 // Direct-emit: keep the per-term arrays alive and hand the
@@ -710,8 +741,8 @@ void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
                 // `_records` materialization entirely (the dominant
                 // finish-time peak: 12 B/occ on top of the 8 B/occ arrays).
                 _sorted_compact_terms.reserve(term_text_to_id.size());
-                for (const auto& [text_ref, term_id] : term_text_to_id) {
-                    _sorted_compact_terms.push_back(CompactTermRef {text_ref, term_id});
+                for (const auto& e : term_text_to_id) {
+                    _sorted_compact_terms.push_back(CompactTermRef {e.text_ref, e.term_id});
                 }
                 // The intern slot tables are now dead: this terminal direct-emit
                 // path hands the segment writer _sorted_compact_terms + the
@@ -730,8 +761,8 @@ void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
         // Decode each term's StreamVByte streams back into flat records.
         _records.clear();
         _records.reserve(_total_occurrences);
-        for (const auto& [text_ref, term_id] : term_text_to_id) {
-            DecodeTermToRecords(term_id);
+        for (const auto& e : term_text_to_id) {
+            DecodeTermToRecords(e.term_id);
         }
         _term_states.clear();
         _term_states.shrink_to_fit();

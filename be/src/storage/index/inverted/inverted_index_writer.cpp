@@ -548,6 +548,13 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                 const int64_t kSpimiMinSpillBytes = config::inverted_index_spimi_min_spill_mem_mb
                                                     << 20;
                 const auto* v = (Slice*)values;
+                // Hot path: fetch the posting buffer once. AppendToken/Saturated
+                // are thin facade forwarders living in a separate TU (BE builds
+                // without LTO), so calling the buffer directly drops a cross-TU
+                // call per token — Saturated() then inlines to a single load from
+                // posting_buffer.h, and Append() loses its facade trampoline.
+                auto* const spimi_buf = _spimi_writer->buffer();
+                DCHECK(spimi_buf != nullptr);
                 for (size_t i = 0; i < count; ++i) {
                     if ((!_should_analyzer && v->get_size() > _ignore_above) ||
                         (_should_analyzer && v->empty())) {
@@ -596,9 +603,9 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                             // analyzer contract when term_len > 0 — no
                             // defensive guard.
                             if (term_len > 0) {
-                                _spimi_writer->AppendToken(std::string_view(term_buf, term_len),
-                                                           static_cast<uint32_t>(_rid),
-                                                           static_cast<uint32_t>(pos));
+                                spimi_buf->Append(std::string_view(term_buf, term_len),
+                                                  static_cast<uint32_t>(_rid),
+                                                  static_cast<uint32_t>(pos));
                                 // Mid-row saturation check. The buffer's
                                 // `Append` is silently no-op once
                                 // saturated; without polling here the
@@ -607,7 +614,7 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                                 // boundary poll catches it. Throw inside
                                 // the try so the existing catch records
                                 // context + calls close_on_error.
-                                if (_spimi_writer->Saturated()) [[unlikely]] {
+                                if (spimi_buf->Saturated()) [[unlikely]] {
                                     _CLTHROWA(CL_ERR_IO,
                                               "V4 SPIMI buffer saturated mid-row: "
                                               "subsequent tokens would be dropped");
@@ -618,8 +625,8 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                         // Non-analyzed (keyword) string: append whole
                         // value at position 0 — same semantics CLucene's
                         // setValue(char*, len) produces.
-                        _spimi_writer->AppendToken(std::string_view(v->get_data(), v->get_size()),
-                                                   static_cast<uint32_t>(_rid), 0);
+                        spimi_buf->Append(std::string_view(v->get_data(), v->get_size()),
+                                          static_cast<uint32_t>(_rid), 0);
                     }
                     // Poll saturation after each row's worth of Appends.
                     // The buffer's `Append` is void / silent on
@@ -629,7 +636,7 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                     // ultimately fails. Shadow mode (V1/V2/V3) keeps the
                     // existing silent-drop behaviour: CLucene is the
                     // primary, the shadow buffer is best-effort.
-                    if (_spimi_writer->Saturated()) [[unlikely]] {
+                    if (spimi_buf->Saturated()) [[unlikely]] {
                         return Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
                                 "V4 SPIMI buffer saturated mid-batch for field {}: subsequent "
                                 "tokens "

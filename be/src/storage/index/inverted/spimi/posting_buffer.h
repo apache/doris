@@ -549,13 +549,37 @@ private:
     // (verifying the per-instance hash-seed behaviour). Keep it accessible.
 public:
     [[gnu::always_inline]] inline uint64_t HashTerm(std::string_view term) const {
-        constexpr uint64_t kPrime = 1099511628211ULL;
-        uint64_t h = _hash_seed;
-        for (unsigned char c : term) {
-            h ^= static_cast<uint64_t>(c);
-            h *= kPrime;
+        // 8-byte-at-a-time keyed hash (rapidhash-style mum mix). Replaces a
+        // per-byte FNV-1a: ~3-6x fewer dependent multiplies for typical
+        // 6-15 byte terms (Intern is 16-22% of V4 wall-clock). The per-instance
+        // _hash_seed seeds the initial state and is folded by every mum step
+        // (C5 DoS resistance); the result stays fully deterministic (same
+        // seed+input => same hash). This hash only indexes the in-memory slot
+        // table — term_id assignment order never reaches the on-disk bytes
+        // (terms are emitted in lexicographic arena order), so output is
+        // byte-identical regardless of which hash drives interning.
+        auto mum = [](uint64_t a, uint64_t b) -> uint64_t {
+            const __uint128_t r = static_cast<__uint128_t>(a) * b;
+            return static_cast<uint64_t>(r) ^ static_cast<uint64_t>(r >> 64);
+        };
+        constexpr uint64_t k0 = 0xFF51AFD7ED558CCDULL;
+        constexpr uint64_t k1 = 0xC4CEB9FE1A85EC53ULL;
+        const char* p = term.data();
+        size_t len = term.size();
+        uint64_t h = _hash_seed ^ (static_cast<uint64_t>(len) * 0x9E3779B97F4A7C15ULL);
+        while (len >= 8) {
+            uint64_t k = 0;
+            std::memcpy(&k, p, 8);
+            h = mum(h ^ k, k0);
+            p += 8;
+            len -= 8;
         }
-        return h;
+        if (len != 0) {
+            uint64_t k = 0;
+            std::memcpy(&k, p, len);
+            h = mum(h ^ k, k1);
+        }
+        return mum(h, k0);
     }
 
 private:
