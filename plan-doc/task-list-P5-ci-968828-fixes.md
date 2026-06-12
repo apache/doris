@@ -8,14 +8,16 @@ Decisions (2026-06-13): RC-3 + RC-5 → self-contained bundling. Sequence → co
 - [x] RC-6 — DESC Key parity (mapFields ConnectorColumn isKey=true + UT)  [3 tests, MAJOR]
 - [x] RC-7 — Sys-table schema-cache (override getSchemaCacheValue in PluginDrivenSysExternalTable)  [3 tests, MAJOR]
 
-## After (self-contained, direction signed off; gate on docker paimon suite)
-- [ ] RC-3 — S3A AWS-SDK static collision (bundle AWS SDK S3 modules into plugin, child-first)  [4 tests, BLOCKER]
-- [ ] RC-4 — OSS JindoOssFileSystem split  [2 tests, BLOCKER] — MOVED here: not a clean pom add. jindo-sdk
-      (com.aliyun.jindodata, has JindoOssFileSystem) is NOT cleanly maven-available at runtime ver 6.8.2
-      (only stale 6.7.7 in .m2; runtime jar is deployed via the jindofs build, not maven). paimon-jindo
-      gives a NATIVE JindoFileIO/JindoLoader but its HadoopCompliantFileIO may still hit the cast. Needs
-      focused investigation + docker validation, same gate as RC-3/RC-5.
-- [ ] RC-5 — HMS metastore-client reflection split (self-contained version-matched HMS client closure)  [1 test, BLOCKER]
+## Self-contained (committed; runtime behavior gated on docker paimon suite enablePaimonTest=true)
+- [x] RC-3 — S3A AWS-SDK static collision: bundle software.amazon.awssdk:s3 + apache-client child-first
+      (`b5205c41531`). Verified: plugin zip's sdk-core contains its own ExecutionAttribute. Docker-gate: S3 read + STS/assumed-role; plugin uses unpatched SdkDefaultClientBuilder.
+- [x] RC-5 — HMS metastore-client reflection split: bundle org.apache.hive:hive-metastore:2.3.7 child-first
+      with exclusions (`7841830809b`). Verified: 5 getProxy(HiveConf) overloads, 0 fastutil, no hadoop-2.7.2.
+      Docker-gate: thrift 0.9.3-vs-host-0.16.0 wire skew (real metastore handshake); DLF ProxyMetaStoreClient still uncovered.
+- [x] RC-4 — OSS JindoOssFileSystem split: build.sh copies thirdparty jindofs jars into the paimon plugin
+      lib so JindoOssFileSystem loads child-first (`e881247857d`). Maven route is unbuildable (jindo bound
+      to undeclared jindodata repo; ver skew 6.7.7/6.9.1/6.10.4). Docker-gate: jindo-core native single-load
+      (UnsatisfiedLinkError if a concurrent non-paimon path also loads jindo from fe/lib/jindofs).
 
 ## Out of scope (flag to owners; no code on this branch)
 - [ ] RC-8 — hive CTAS strict-mode stale test expectation (hive/auto-partition owner)
