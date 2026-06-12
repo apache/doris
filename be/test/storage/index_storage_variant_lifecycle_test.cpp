@@ -238,15 +238,6 @@ TEST_F(IndexStorageVariantLifecycleTest, BuildAndDropVariantPathIndexAfterExisti
     EXPECT_EQ(before_build->stats.rows_inverted_index_filtered, 0);
     expect_inverted_index_not_attempted(before_build.value());
 
-    auto missing_before = std::find_if(
-            before_build->stats.index_probe_events.begin(),
-            before_build->stats.index_probe_events.end(), [](const auto& e) {
-                return e.state == IndexProbeState::NOT_ATTEMPTED &&
-                       e.reason == IndexFallbackReason::MISSING_INDEX && e.column_uid == 2 &&
-                       e.variant_path.has_value() && e.variant_path.value() == "b";
-            });
-    ASSERT_NE(missing_before, before_build->stats.index_probe_events.end());
-
     const auto path_index = IndexSpec::field_pattern_index(20004, "idx_v_b_built", 2, "b");
     auto built_rowsets = build_inverted_indexes({path_index});
     ASSERT_TRUE(built_rowsets.has_value()) << built_rowsets.error();
@@ -280,15 +271,6 @@ TEST_F(IndexStorageVariantLifecycleTest, BuildAndDropVariantPathIndexAfterExisti
     EXPECT_EQ(after_drop->rows_read, 2);
     EXPECT_EQ(after_drop->stats.rows_inverted_index_filtered, 0);
     expect_inverted_index_not_attempted(after_drop.value());
-
-    auto missing_after = std::find_if(
-            after_drop->stats.index_probe_events.begin(),
-            after_drop->stats.index_probe_events.end(), [](const auto& e) {
-                return e.state == IndexProbeState::NOT_ATTEMPTED &&
-                       e.reason == IndexFallbackReason::MISSING_INDEX && e.column_uid == 2 &&
-                       e.variant_path.has_value() && e.variant_path.value() == "b";
-            });
-    ASSERT_NE(missing_after, after_drop->stats.index_probe_events.end());
 }
 
 TEST_F(IndexStorageVariantLifecycleTest,
@@ -426,15 +408,6 @@ TEST_F(IndexStorageVariantLifecycleTest, DropOneVariantPathIndexKeepsSiblingPath
     EXPECT_EQ(b_after_drop->rows_read, 2);
     EXPECT_EQ(b_after_drop->stats.rows_inverted_index_filtered, 0);
     expect_inverted_index_not_attempted(b_after_drop.value());
-
-    auto missing_b = std::find_if(b_after_drop->stats.index_probe_events.begin(),
-                                  b_after_drop->stats.index_probe_events.end(), [](const auto& e) {
-                                      return e.state == IndexProbeState::NOT_ATTEMPTED &&
-                                             e.reason == IndexFallbackReason::MISSING_INDEX &&
-                                             e.column_uid == 2 && e.variant_path.has_value() &&
-                                             e.variant_path.value() == "b";
-                                  });
-    ASSERT_NE(missing_b, b_after_drop->stats.index_probe_events.end());
 
     auto c_after_drop = read_rowsets(reloaded_dropped_rowsets.value(), c_read_options);
     ASSERT_TRUE(c_after_drop.has_value()) << c_after_drop.error();

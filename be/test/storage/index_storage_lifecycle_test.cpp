@@ -279,14 +279,6 @@ TEST_F(IndexStorageLifecycleTest, TextIndexDisabledRecordsNotAttempted) {
     EXPECT_EQ(read_result->rows_read, 2);
     EXPECT_EQ(read_result->stats.rows_inverted_index_filtered, 0);
     expect_inverted_index_not_attempted(read_result.value());
-
-    auto event = std::find_if(read_result->stats.index_probe_events.begin(),
-                              read_result->stats.index_probe_events.end(), [](const auto& e) {
-                                  return e.state == IndexProbeState::NOT_ATTEMPTED &&
-                                         e.reason == IndexFallbackReason::QUERY_DISABLED &&
-                                         e.column_uid == 2 && e.index_id == -1;
-                              });
-    ASSERT_NE(event, read_result->stats.index_probe_events.end());
 }
 
 TEST_F(IndexStorageLifecycleTest, TextPredicateWithoutIndexRecordsNotAttempted) {
@@ -308,14 +300,6 @@ TEST_F(IndexStorageLifecycleTest, TextPredicateWithoutIndexRecordsNotAttempted) 
     EXPECT_EQ(read_result->rows_read, 1);
     EXPECT_EQ(read_result->stats.rows_inverted_index_filtered, 0);
     expect_inverted_index_not_attempted(read_result.value());
-
-    auto event = std::find_if(read_result->stats.index_probe_events.begin(),
-                              read_result->stats.index_probe_events.end(), [](const auto& e) {
-                                  return e.state == IndexProbeState::NOT_ATTEMPTED &&
-                                         e.reason == IndexFallbackReason::MISSING_INDEX &&
-                                         e.column_uid == 2;
-                              });
-    ASSERT_NE(event, read_result->stats.index_probe_events.end());
 }
 
 TEST_F(IndexStorageLifecycleTest, DropTextIndexRecordsNotAttempted) {
@@ -354,14 +338,6 @@ TEST_F(IndexStorageLifecycleTest, DropTextIndexRecordsNotAttempted) {
     EXPECT_EQ(after_drop->rows_read, 1);
     EXPECT_EQ(after_drop->stats.rows_inverted_index_filtered, 0);
     expect_inverted_index_not_attempted(after_drop.value());
-
-    auto event = std::find_if(after_drop->stats.index_probe_events.begin(),
-                              after_drop->stats.index_probe_events.end(), [](const auto& e) {
-                                  return e.state == IndexProbeState::NOT_ATTEMPTED &&
-                                         e.reason == IndexFallbackReason::MISSING_INDEX &&
-                                         e.column_uid == 2;
-                              });
-    ASSERT_NE(event, after_drop->stats.index_probe_events.end());
 }
 
 TEST_F(IndexStorageLifecycleTest, BuildTextIndexAfterExistingRowsUsesNewIndex) {

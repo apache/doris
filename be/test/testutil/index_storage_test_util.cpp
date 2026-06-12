@@ -1007,9 +1007,6 @@ void expect_inverted_index_not_attempted(const IndexReadResult& result) {
             << ", inverted_index_query_timer=" << result.stats.inverted_index_query_timer
             << ", inverted_index_lookup_timer=" << result.stats.inverted_index_lookup_timer
             << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count;
-    EXPECT_TRUE(std::any_of(
-            result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
-            [](const auto& event) { return event.state == IndexProbeState::NOT_ATTEMPTED; }));
 }
 
 bool index_probe_matches(const IndexProbeEvent& event, const IndexProbeExpectation& expectation) {

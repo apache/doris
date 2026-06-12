@@ -64,7 +64,6 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vliteral.h"
-#include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
@@ -235,20 +234,10 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
 
 namespace {
 
-IndexProbeSource index_probe_source_for_expr(const VExprContextSPtr& expr_ctx) {
-    if (expr_ctx != nullptr && dynamic_cast<VSearchExpr*>(expr_ctx->root().get()) != nullptr) {
-        return IndexProbeSource::SEARCH_FUNCTION;
-    }
-    return IndexProbeSource::EXPR_PUSHDOWN;
-}
-
-void record_index_probe_events_for_expr(
-        const IndexProbeRecorder& recorder,
-        const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
-                common_expr_to_slotref_map,
-        const VExprContextSPtr& expr_ctx, size_t first_read_probe, IndexProbeSource source,
-        IndexProbeState state, IndexFallbackReason reason, int64_t input_rows,
-        int64_t output_rows) {
+void record_expr_index_read_probes(const IndexProbeRecorder& recorder,
+                                   const VExprContextSPtr& expr_ctx, size_t first_read_probe,
+                                   IndexProbeState state, IndexFallbackReason reason,
+                                   int64_t input_rows, int64_t output_rows) {
     if (!recorder.enabled() || expr_ctx == nullptr) {
         return;
     }
@@ -257,19 +246,8 @@ void record_index_probe_events_for_expr(
     if (const auto& index_context = expr_ctx->get_index_context(); index_context != nullptr) {
         query_context = index_context->get_index_query_context();
     }
-    if (recorder.record_probes_since(query_context, first_read_probe, source, state, reason,
-                                     input_rows, output_rows)) {
-        return;
-    }
-
-    const auto slotref_map_it = common_expr_to_slotref_map.find(expr_ctx.get());
-    if (slotref_map_it == common_expr_to_slotref_map.end()) {
-        return;
-    }
-    for (const auto& [column_id, expr] : slotref_map_it->second) {
-        static_cast<void>(expr);
-        recorder.record(column_id, source, state, reason, input_rows, output_rows);
-    }
+    recorder.record_probes_since(query_context, first_read_probe, IndexProbeSource::EXPR_PUSHDOWN,
+                                 state, reason, input_rows, output_rows);
 }
 
 } // namespace
@@ -943,37 +921,19 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     }
 
     {
-        const IndexProbeRecorder probe_recorder(_opts.stats, _opts.tablet_schema.get(),
-                                                static_cast<int32_t>(segment_id()));
-        const bool should_collect_not_attempted =
-                probe_recorder.enabled() && !_col_predicates.empty();
-        const bool enable_inverted_index_query =
-                _opts.runtime_state != nullptr &&
-                _opts.runtime_state->query_options().enable_inverted_index_query;
-        if (_opts.runtime_state && (enable_inverted_index_query || should_collect_not_attempted) &&
-            (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty() ||
-             should_collect_not_attempted)) {
+        if (_opts.runtime_state &&
+            _opts.runtime_state->query_options().enable_inverted_index_query &&
+            (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
-            size_t input_rows = _row_bitmap.cardinality();
+            const size_t input_rows = _row_bitmap.cardinality();
             // Only apply column-level inverted index if we have iterators
-            if (enable_inverted_index_query && has_index_in_iterators()) {
+            if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
-            } else {
-                for (const auto& pred : _col_predicates) {
-                    probe_recorder.record(pred->column_id(), IndexProbeSource::COLUMN_PREDICATE,
-                                          IndexProbeState::NOT_ATTEMPTED,
-                                          enable_inverted_index_query
-                                                  ? IndexFallbackReason::MISSING_INDEX
-                                                  : IndexFallbackReason::QUERY_DISABLED,
-                                          input_rows, input_rows);
-                }
             }
             // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
             // This allows search expressions with variant subcolumns to be evaluated even when
             // the segment doesn't have all subcolumns
-            if (enable_inverted_index_query) {
-                RETURN_IF_ERROR(_apply_index_expr());
-            }
+            RETURN_IF_ERROR(_apply_index_expr());
             for (auto it = _common_expr_ctxs_push_down.begin();
                  it != _common_expr_ctxs_push_down.end();) {
                 if ((*it)->all_expr_inverted_index_evaluated()) {
@@ -1407,9 +1367,8 @@ Status SegmentIterator::_apply_index_expr() {
                 probe_recorder.enabled() ? static_cast<int64_t>(_row_bitmap.cardinality()) : 0;
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
-                record_index_probe_events_for_expr(
-                        probe_recorder, _common_expr_to_slotref_map, expr_ctx, first_read_probe,
-                        index_probe_source_for_expr(expr_ctx), IndexProbeState::FALLBACK,
+                record_expr_index_read_probes(
+                        probe_recorder, expr_ctx, first_read_probe, IndexProbeState::FALLBACK,
                         IndexProbeRecorder::fallback_reason(st, false), input_rows, input_rows);
                 continue;
             } else {
@@ -1431,10 +1390,9 @@ Status SegmentIterator::_apply_index_expr() {
                     output_rows = static_cast<int64_t>(output_bitmap.cardinality());
                 }
             }
-            record_index_probe_events_for_expr(
-                    probe_recorder, _common_expr_to_slotref_map, expr_ctx, first_read_probe,
-                    index_probe_source_for_expr(expr_ctx), IndexProbeState::APPLIED,
-                    IndexFallbackReason::NONE, input_rows, output_rows);
+            record_expr_index_read_probes(probe_recorder, expr_ctx, first_read_probe,
+                                          IndexProbeState::APPLIED, IndexFallbackReason::NONE,
+                                          input_rows, output_rows);
         }
     }
 
@@ -1451,9 +1409,8 @@ Status SegmentIterator::_apply_index_expr() {
                 probe_recorder.enabled() ? static_cast<int64_t>(_row_bitmap.cardinality()) : 0;
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
-                record_index_probe_events_for_expr(
-                        probe_recorder, _common_expr_to_slotref_map, expr_ctx, first_read_probe,
-                        index_probe_source_for_expr(expr_ctx), IndexProbeState::FALLBACK,
+                record_expr_index_read_probes(
+                        probe_recorder, expr_ctx, first_read_probe, IndexProbeState::FALLBACK,
                         IndexProbeRecorder::fallback_reason(st, false), input_rows, input_rows);
                 continue;
             } else {
@@ -1464,10 +1421,9 @@ Status SegmentIterator::_apply_index_expr() {
             }
         }
         if (expr_ctx->all_expr_inverted_index_evaluated()) {
-            record_index_probe_events_for_expr(
-                    probe_recorder, _common_expr_to_slotref_map, expr_ctx, first_read_probe,
-                    index_probe_source_for_expr(expr_ctx), IndexProbeState::APPLIED,
-                    IndexFallbackReason::NONE, input_rows, input_rows);
+            record_expr_index_read_probes(probe_recorder, expr_ctx, first_read_probe,
+                                          IndexProbeState::APPLIED, IndexFallbackReason::NONE,
+                                          input_rows, input_rows);
         }
     }
 
@@ -1564,20 +1520,6 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     const bool collect_index_probe_events = probe_recorder.enabled();
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
-        if (collect_index_probe_events) {
-            const auto rows = static_cast<int64_t>(_row_bitmap.cardinality());
-            const auto pred_column_id = pred->column_id();
-            IndexFallbackReason reason = IndexFallbackReason::NOT_SUPPORTED;
-            if (_opts.runtime_state != nullptr &&
-                !_opts.runtime_state->query_options().enable_inverted_index_query) {
-                reason = IndexFallbackReason::QUERY_DISABLED;
-            } else if (pred_column_id >= _index_iterators.size() ||
-                       _index_iterators[pred_column_id] == nullptr) {
-                reason = IndexFallbackReason::MISSING_INDEX;
-            }
-            probe_recorder.record(pred->column_id(), IndexProbeSource::COLUMN_PREDICATE,
-                                  IndexProbeState::NOT_ATTEMPTED, reason, rows, rows);
-        }
     } else {
         bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
@@ -1594,14 +1536,10 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
                 if (collect_index_probe_events) {
                     const auto reason =
                             IndexProbeRecorder::fallback_reason(res, need_remaining_after_evaluate);
-                    if (!probe_recorder.record_probes_since(_index_query_context, first_read_probe,
-                                                            IndexProbeSource::COLUMN_PREDICATE,
-                                                            IndexProbeState::FALLBACK, reason,
-                                                            input_rows, input_rows)) {
-                        probe_recorder.record(pred->column_id(), IndexProbeSource::COLUMN_PREDICATE,
-                                              IndexProbeState::FALLBACK, reason, input_rows,
-                                              input_rows);
-                    }
+                    probe_recorder.record_probes_since(_index_query_context, first_read_probe,
+                                                       IndexProbeSource::COLUMN_PREDICATE,
+                                                       IndexProbeState::FALLBACK, reason,
+                                                       input_rows, input_rows);
                 }
                 remaining_predicates.emplace_back(pred);
                 return Status::OK();
@@ -1619,14 +1557,9 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 
         if (collect_index_probe_events) {
             const auto output_rows = static_cast<int64_t>(_row_bitmap.cardinality());
-            if (!probe_recorder.record_probes_since(
-                        _index_query_context, first_read_probe, IndexProbeSource::COLUMN_PREDICATE,
-                        IndexProbeState::APPLIED, IndexFallbackReason::NONE, input_rows,
-                        output_rows)) {
-                probe_recorder.record(pred->column_id(), IndexProbeSource::COLUMN_PREDICATE,
-                                      IndexProbeState::APPLIED, IndexFallbackReason::NONE,
-                                      input_rows, output_rows);
-            }
+            probe_recorder.record_probes_since(
+                    _index_query_context, first_read_probe, IndexProbeSource::COLUMN_PREDICATE,
+                    IndexProbeState::APPLIED, IndexFallbackReason::NONE, input_rows, output_rows);
         }
 
         if (need_remaining_after_evaluate) {
