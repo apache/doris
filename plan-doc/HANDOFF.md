@@ -5,74 +5,74 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **逐一修复 paimon connector 第二轮 review 的问题（#1~#7 已完成 → 从 #8 起）**
+# 🎯 下一个 session 的任务 — **P2 全清；进入 P3 覆盖缺口核查（去查，非 fix）**
 
 第二轮 clean-room 对抗 review report：[`plan-doc/reviews/P5-paimon-rereview2-2026-06-11.md`](./reviews/P5-paimon-rereview2-2026-06-11.md)。
-👉 **任务清单（按优先级）：[`plan-doc/task-list-P5-rereview2-fixes.md`](./task-list-P5-rereview2-fixes.md)** —— 逐条含 finding 引用、连接器 `file:line`、legacy parity 锚、fix sketch、SPI 影响、测法。
+👉 **任务清单：[`plan-doc/task-list-P5-rereview2-fixes.md`](./task-list-P5-rereview2-fixes.md)** —— #1~#9 **全部完成**。
 
-## ✅ 已完成（P0 BLOCKER 全清 + P1 MAJOR #5/#6/#7 全清）
-- **#1 `FIX-URI-NORMALIZE`**（B-7DF/DV）`20b19d19dd8` —— native 数据文件 + DV 路径 scheme 归一化。新 SPI `ConnectorContext.normalizeStorageUri`。
-- **#2 `FIX-STATIC-CREDS-BE`**（B-9）`d23d5df9914` —— 静态 object-store 凭据→BE canonical `AWS_*`。新 SPI `ConnectorContext.getBackendStorageProperties`。
-- **#3 `FIX-SCHEMA-EVOLUTION`**（B-1a；M-10 deferred）`667f779af04` —— 连接器直建 thrift schema 字典（Design C，零新 SPI）。
-- **#4 `FIX-JDBC-DRIVER-URL`**（B-8a + B-8b）`2d15b1b7ed7` —— driver_url resolve+别名+CREATE-time 校验（纯连接器，零新 SPI；[D-050]/[DV-028]/[DV-029]）。
-- **#5 `FIX-MAPPING-FLAG-KEYS`**（M-crit）`9dcf6d1a9e5` —— 连接器读 canonical 点分 mapping-flag 键（纯连接器，零 SPI；paimon-only，hive/iceberg 登 [DV-030]）。
-- **#6 `FIX-KERBEROS-DOAS`**（M-8 + M-11）`2b1442fa57a` —— M-8 fe-core fs/jdbc authenticator 接线 + M-11 全 read RPC 包 `executeAuthenticated`（full legacy parity [D-052]/[D-053]；DLF 从句证伪 overstated；[DV-031]）。
-- **#7 `FIX-FORCE-JNI-SCANNER`**（M-1；本 session）`05132a42668` —— 见下。
+## ✅ 已完成（P0 BLOCKER + P1 MAJOR + P2 perf-parity 全清）
+- **#1 `FIX-URI-NORMALIZE`** `20b19d19dd8` · **#2 `FIX-STATIC-CREDS-BE`** `d23d5df9914` · **#3 `FIX-SCHEMA-EVOLUTION`** `667f779af04` · **#4 `FIX-JDBC-DRIVER-URL`** `2d15b1b7ed7`（P0 全清）
+- **#5 `FIX-MAPPING-FLAG-KEYS`** `9dcf6d1a9e5` · **#6 `FIX-KERBEROS-DOAS`** `2b1442fa57a` · **#7 `FIX-FORCE-JNI-SCANNER`** `05132a42768`（P1 全清）
+- **#8 `FIX-COUNT-PUSHDOWN`**（M-2）`525be03371c` —— 见下。
+- **#9 `FIX-NATIVE-SUBSPLIT`**（M-3）`2f5f467f53d` —— 见下。
 
-### #7 摘要（本 session）`FIX-FORCE-JNI-SCANNER` —— commit `05132a42668`
-- **根因**：翻闸连接器 split router 只读 NAME 派生的 `paimonHandle.isForceJni()`（binlog/audit_log 名钉），**从不**读 session var `force_jni_scanner` → ORC/Parquet 永走 native；legacy 的 JNI 逃生舱（`SET force_jni_scanner=true`，用于绕 native-reader bug 含 B2 schema-evolution 那类）静默丢失。连接器只移植 legacy 三 conjunct 中的两个（`PaimonScanNode.java:430`：`!forceJniScanner && !forceJniForSystemTable && supportNativeReader`），丢的 `!forceJniScanner` 即 M-1。
-- **修**（纯连接器、**零 SPI**、无 fe-core import、无 BE param —— legacy 也不序列化此 var）：
-  - 新 `isForceJniScannerEnabled(session)`：逐字镜像 `isCppReaderEnabled`，读 key `force_jni_scanner`（byte-identical to `SessionVariable.FORCE_JNI_SCANNER`，同 `VariableMgr.toMap` 通道）；null-guard，默认 false（legacy 默认）。
-  - **Site A**（correctness，`PaimonScanPlanProvider.java:295`）：`shouldUseNativeReader` 加显式 `forceJniScanner` 形参（1:1 镜像 legacy 三-boolean 闸），`planScan` 传 `isForceJniScannerEnabled(session)`。**handle 名钉是 OR-sibling，绝不替换**（binlog/audit_log 路由不变）。
-  - **Site B**（correctness-NEUTRAL，`:436`）：force-JNI 时抑制 native-only `paimon.schema_evolution` 字典（BE 仅在 native ORC/Parquet range 消费它，JNI/cpp reader 全忽略——核 `paimon_reader.cpp:51-54,188-191` / `file_scanner.cpp:1045-1058`）；对齐连接器自身注释契约。
-- **关键设计定夺（本 session，内部工程判断，无须用户签字）**：`shouldUseNativeReader` 用**显式 3rd 形参**而非 call-site OR——**推翻 workflow synthesizer 的 call-site-OR 建议，采 legacy-parity scout**。理由：`force_jni_scanner` 是与既有 `forceJni`（=`forceJniForSystemTable`）语义并列的**路由**输入（legacy `:430` 即两 sibling boolean 同闸），call-site OR 会让新维度只能经 helper 的**字符串解析**测，而那测**routing 逻辑变了也不会红**（违 Rule 9）；3rd 形参让 `shouldUseNativeReader(false, true, native-eligible)==JNI` 成 mutation-tested 事实。`cppReader=isCppReaderEnabled(session)`（序列化格式 flag，非路由）不是正确类比。
-- **验证**：连接器模块 **250/0/0**（1 CI-gated live skip = `PaimonLiveConnectivityTest`）、import-gate 净、checkstyle 0；**fail-before 双向红**（neuter 丢 conjunct + helper return-false → 恰两新测红、其余 31 绿）。真 BE reader 选择 = **live-e2e only**（无离线 harness 驱动 BE reader 选择）。设计 [`P5-fix-FORCE-JNI-SCANNER-design.md`](./tasks/designs/P5-fix-FORCE-JNI-SCANNER-design.md)。
-- **Site B 测覆盖诚实声明**（Rule 12）：emit-suppression **无专属离线 red 测**——`buildSchemaEvolutionParam` 需真 `FileStoreTable`+`SchemaManager`，离线 harness 只有 `FakePaimonTable`（恒返空字典），故撤 Site B 闸不会红任何离线测。Site B 由：① 共享 `isForceJniScannerEnabled` helper 测（其唯一变量项）② BE-源 correctness-neutral 证据 ③ CI-gated live-e2e 覆盖。
+### #8 摘要 `FIX-COUNT-PUSHDOWN` — commit `525be03371c`（[D-054]/[DV-032]/[RFC §25 E15]）
+- **根因**：翻闸 plugin paimon `COUNT(*)` 结果正确但慢。recon（`wf_1ce48c93-325`）：emit 缝（`PaimonScanRange.Builder.rowCount`→`paimon.row_count`→`setTableLevelRowCount`）+ COUNT 枚举→BE（`toThrift:90`/`PhysicalPlanTranslator:873`）**已建全**；唯缺**信号+计算**——`mergedRowCount()` 是 SDK-only（连接器算），COUNT 信号 `getPushDownAggNoGroupingOp()==COUNT` 只在 fe-core 节点、无人读 → 每 split 发 `-1` → BE 物化全行去 count。
+- **⚠️ 非纯连接器（更正动手前 framing）**：信号须过 SPI。**用户签字 proceed + SPI 改 + collapse-to-one**。修=3 文件：SPI `ConnectorScanPlanProvider` +1 default 7-arg `planScan(...,boolean countPushdown)`（委托 6-arg，其余连接器 no-op，[E15]）；fe-core `PluginDrivenScanNode.getSplits` 读 agg-op 传入；连接器 `planScanInternal` count 短路第一臂 + `isCountPushdownSplit` + `buildCountRange`（**collapse-to-one**=legacy `<=10000` 路径普遍化）。legacy `>10000` 并行 trim 有意丢=[DV-032]。
+- **review `wf_6ead7c2c-b58`**：1 MAJOR（单-split 测 degenerate）已修→2-partition 非对称(2+3=5)fixture 钉 collapse+sum；2 MINOR 驳回。守门：连接器 252/0/0、fe-core compile+checkstyle 0、fail-before 恰 2 新测红。
 
-## 🔜 下一个 session：从 **#8 `FIX-COUNT-PUSHDOWN`** 起 —— ⚠️ **P2 严重度有争议，动手前先问用户定 scope**
-> ⚠️ **先拿当前代码复核 finding**（review 只读，行号已漂移；#7 改过 `PaimonScanPlanProvider`，#3/#4/#6 亦改过 scan provider/metadata）。
+### #9 摘要 `FIX-NATIVE-SUBSPLIT` — commit `2f5f467f53d`（[D-055]/[DV-033]，纯连接器零 SPI/零 fe-core）
+- **根因**：大 native ORC/Parquet 文件得一个 scanner（无文件内并行）；连接器每 RawFile 发整文件 range，legacy 经 `FileSplitter.splitFile` 切。recon（`wf_ad764bf6-1c9`）：真 gap（ORC/Parquet PLAIN 可切）；**DV×sub-split 安全**（DV rowid 全局行位、BE 部分 range 仍报全局位、`_kv_cache` 按 path+offset 共享、iceberg 同机制→**同一 DV 附每个 sub-range 不 re-base**）；**纯连接器**（切分 math 5 session var via VariableMgr.toMap、连接器禁 import FileSplitter）。
+- **修=1 连接器文件**：2 纯静态 `computeFileSplitOffsets`（逐字移植含 **`>1.1D` 尾吸收 guard**）+ `determineTargetSplitSize`（移植 determineTargetFileSplitSize+applyMaxFileSplitNumLimit，省 isBatchMode→0）+ `sessionLong`/lazy `resolveTargetSplitSize` + native 臂 `buildNativeRanges` 内层 loop + `buildNativeRange(+start,+length)`。**count-pushdown splittable 闸**：非 count-eligible 的 native split 在 count pushdown 下保**整文件**（target=0，legacy `splittable=!applyCountPushdown` parity）。
+- **review `wf_4ac7479d-39d`**：2 confirmed 已修（① MINOR count-pushdown sub-split parity gap+假注释→加 count-pushdown 整文件闸；② MAJOR 缺 DV-on-every-sub-range 测→抽 `buildNativeRanges` + 测）；2 驳回。守门：连接器 258/0/0、checkstyle 0、import-gate 净、fail-before 3 splitting 测红 + DV-only-first 测红。split-weight 调度 nicety 不移植（pre-existing）=[DV-033]。
 
-**#8 `FIX-COUNT-PUSHDOWN`（M-2，round-2=MAJOR / round-1=MINOR，perf-parity）**：
-- **根因**：`COUNT(*)` 下推对该 node **仍 ENABLED**（`PhysicalPlanTranslator.java:873`），但连接器**从不**算 `mergedRowCount` 也不 emit `paimon.row_count` → `table_level_row_count=-1` → BE 回退（`paimon_jni_reader.cpp:104`、`file_scanner.cpp:1298-1326`）**物化 merge 后全行**去 count（PK 表 merge/delete 尤贵）。**结果正确，仅性能回归。**
-- **连接器**：`PaimonScanPlanProvider.java:186-296`（无 count 分支）。**legacy**：`source/PaimonScanNode.java:396,421-429,483-495,303-308`（`applyCountPushdown` + `dataSplit.mergedRowCount()`，在 native/JNI 闸**之前**短路）。
-- **#9 `FIX-NATIVE-SUBSPLIT`（M-3，同 perf-parity）**：一个 split/RawFile，大 ORC/Parquet 单 scanner；`PaimonScanPlanProvider.java:263-286` vs `source/PaimonScanNode.java:434-465`（`determineTargetFileSplitSize`+`fileSplitter.splitFile`）。
-- ⚠️ **#8/#9 都是结果正确、仅 perf/并行** → **动手前用 `AskUserQuestion` 找用户定 scope**（accept-or-defer；defer 则登 `deviations-log.md`，**勿**默认实现）。这与 #7（明确 MAJOR、无歧义、直接修）不同。
+## 🔜 下一个 session：**P3 覆盖缺口核查（"去查"，非 fix；查出真分歧才转 FIX）**
+task-list §P3（completeness critic 标本轮未追）：
+1. **VERIFY `FIX-HMS-CONFRES`**：round-2 未复测 `hive.config.resources`/hive-site.xml 下流到 BE-facing scan props（round-1 MAJOR 的修）。确认到达 `getScanNodeProperties`（HMS/DLF）。
+2. **TRACE DDL 写路径 parity**：`PaimonConnectorMetadata.{createTable,dropTable,createDatabase,dropDatabase}`(`:683-797`) vs legacy `PaimonMetadataOps`；branch/tag DDL 写；IF-(NOT-)EXISTS 短路、editlog/cache-refresh 序、error-code parity。
+3. **TRACE ANALYZE/列统计**：`ExternalAnalysisTask`/`getColumnStatistic` parity（fetchRowCount 已核实忠实）。
+4. **CHECK split-count 计账**（`SqlBlockRuleMgr` 限额、batch-mode）—— 现 #9 已落 sub-split，复核 split 计数喂 SqlBlockRuleMgr 是否仍对（[[catalog-spi-plugindriven-explain-override-gap]] 提过 split-count 须 startSplit+getSplits 两路设）。
+5. **跨连接器 follow-up**（[DV-028]/[DV-030]/[DV-031]）—— hudi/iceberg 同根因缝，将来批量 close（非本轮）。
 
-每条遵循项目既定 per-fix 流程（`step-by-step-fix` skill）：1) 设计 doc → `plan-doc/tasks/designs/P5-fix-<ID>-design.md`；2) **先拿当前代码复核 finding**；3) 实现（minimal、surgical、**连接器禁 import fe-core**）；4) build+UT（绝对 `-f`、**`-am`** 必带、读 surefire XML + `MVN_EXIT`、加 fail-before/pass-after UT）；5) **独立 commit**；6) SPI 改动登 `01-spi-extensions-rfc.md`、用户签字入 `decisions-log.md`、偏差入 `deviations-log.md`、同步 task-list。
+⚠️ **P3 是「去查」不是「去改」**：查出真分歧 → AskUserQuestion 定是否转 FIX；否则记录「已核实 parity」即可。
+> P4 MINOR/NIT（review §5）：一次性 cleanup；唯一真实数据边 = partition null-sentinel（`__HIVE_DEFAULT_PARTITION__`/`\N` 字面值被当 NULL）。
+
+每条遵循 per-fix 流程（`step-by-step-fix` skill）：设计 doc → 先拿当前代码复核 finding → 实现（连接器禁 import fe-core）→ build+UT（绝对 `-f`、**`-am`** 必带、读 surefire XML + `MVN_EXIT`、fail-before/pass-after）→ 独立 commit → SPI 改登 RFC + 用户签字入 decisions-log + 偏差入 deviations-log + 同步 task-list。
 
 ## 📋 优先级总览（详见 task-list）
 
 | 层 | 条目 | 说明 |
 |---|---|---|
-| **P0 BLOCKER（挡 commit）** | ✅1.URI-NORMALIZE · ✅2.STATIC-CREDS-BE · ✅3.SCHEMA-EVOLUTION · ✅4.JDBC-DRIVER-URL | **全清** |
-| **P1 MAJOR（修或显式接受）** | ✅5.`FIX-MAPPING-FLAG-KEYS` · ✅6.`FIX-KERBEROS-DOAS` · ✅7.`FIX-FORCE-JNI-SCANNER` | **全清**。#7 纯连接器零 SPI，3rd-param 推翻 synthesizer call-site-OR（Rule 9），Site B correctness-neutral。 |
-| **P2 严重度有争议（perf；R1=MINOR）** | ⬜8.`FIX-COUNT-PUSHDOWN`(M-2) · ⬜9.`FIX-NATIVE-SUBSPLIT`(M-3) | 结果正确仅性能/并行。**动手前先 `AskUserQuestion` 定 scope**（accept-or-defer，defer 则登 `deviations-log`）。 |
-| **P3 覆盖缺口（去查）** | 复验 `FIX-HMS-CONFRES` · DDL 写路径 parity · ANALYZE/列统计 · split-count 计账 · 跨连接器 follow-up（[DV-028]/[DV-030]/[DV-031]） | critic 标本轮未追；查出真分歧才转 FIX。 |
-| **P4 MINOR/NIT** | 见 review §5 | 一次性 cleanup；唯一真实数据边 = partition null-sentinel（`__HIVE_DEFAULT_PARTITION__`/`\N` 字面值被当 NULL）。 |
+| **P0 BLOCKER** | ✅1·✅2·✅3·✅4 | **全清** |
+| **P1 MAJOR** | ✅5·✅6·✅7 | **全清** |
+| **P2 perf-parity** | ✅8.`FIX-COUNT-PUSHDOWN` · ✅9.`FIX-NATIVE-SUBSPLIT` | **全清**（#8 SPI+collapse-to-one；#9 纯连接器 sub-split）。各经 4-scout recon + 对抗 review，均揪出真 finding 已修。 |
+| **P3 覆盖缺口（去查）** | ⬜ FIX-HMS-CONFRES 复验 · DDL 写 parity · ANALYZE · split-count 计账 · 跨连接器 follow-up | **下一个 session 起**。查出真分歧才转 FIX。 |
+| **P4 MINOR/NIT** | 见 review §5 | 一次性 cleanup；partition null-sentinel 是唯一真实数据边。 |
 
 ---
 
 # 📦 仓库状态
-- **HEAD = 本 checkpoint commit**（更新 task-list #7 进度+hash、HANDOFF）。其父 = `05132a42668`（`fix: FIX-FORCE-JNI-SCANNER`，本 session #7）。该 fix commit = 连接器(1 main+1 test)+设计 doc（3 文件，无 regression-conf/scratch/HANDOFF）。
-- ⚠️ **`regression-test/conf/regression-conf.groovy` 仍 modified-未 commit 且含明文 Aliyun key** —— 任何 commit 前继续 path-whitelist，**严禁 `git add -A`**。`regression-conf.groovy.bak` 同理排除。
+- **HEAD = `2f5f467f53d`**（`fix: FIX-NATIVE-SUBSPLIT` #9）。其父 = `525be03371c`（#8 COUNT-PUSHDOWN）。**注意**：本 session 未单独打 `docs: checkpoint` commit——#8/#9 的 task-list/decisions/deviations/RFC/HANDOFF 已**折入各自 fix commit**（#9 fix commit 含 HANDOFF 外的全部 doc + #8 hash finalize）。本 HANDOFF 更新**未 commit**（下个 session 或现在可单独 `docs:` 提）。
+- ⚠️ **`regression-test/conf/regression-conf.groovy` 仍 modified-未 commit 且含明文 Aliyun key** —— commit 前继续 path-whitelist，**严禁 `git add -A`**。`regression-conf.groovy.bak` 同理排除。
 - scratch 仍未 commit（`.audit-scratch/` `conf.cmy/` `META-INF/`）。
-- 当前分支 `catalog-spi-07-paimon`（非 `master`）→ 在此 commit 修复 OK。
+- 当前分支 `catalog-spi-07-paimon`（非 `master`）。
 - **legacy `datasource/paimon/*` 仍在树内**（B8 删除未做）→ 每个 fix 都能 side-by-side diff 做 parity。
-- 迁移链：…→`9dcf6d1a9e5`(#5)→`2b1442fa57a`(#6 KERBEROS-DOAS)→`05132a42668`(#7 FORCE-JNI-SCANNER)→本 checkpoint(HEAD)。
+- 迁移链：…→`05132a42768`(#7)→`525be03371c`(#8 COUNT-PUSHDOWN)→`2f5f467f53d`(#9 NATIVE-SUBSPLIT, HEAD)。
 
 ## ⚠️ Commit 须知（任何 `git add` 前必读）
 - **硬前置**：scrub `regression-test/conf/regression-conf.groovy`（明文 Aliyun key）+ 清 scratch（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。**path-whitelist `git add`，严禁 `git add -A`。**
 - 每个 fix 独立 commit；message = `fix: <ID>` + 根因 + 解法 + 测试，末尾带 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。
-- 改 fe-core/SPI 的 fix：commit 须含连接器 + fe-core 两侧 + 测试。#7 纯连接器，单侧。
+- 改 fe-core/SPI 的 fix：commit 须含连接器 + fe-core 两侧 + 测试（#8 即如此：SPI api + fe-core + 连接器）。#9 纯连接器单侧。
 
 ## ⚙️ 操作须知（复用）
-- maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> **-am** -Dmaven.build.cache.enabled=false -DfailIfNoTests=false`；验证读 surefire XML + `MVN_EXIT`（[[doris-build-verify-gotchas]]）。**`-am` 必带**。`-pl :fe-connector-paimon -am` **不重编 fe-core**；改 fe-core 须单独 `-pl :fe-core -am`。**checkstyle**：连接器模块可单独 `mvn -pl :fe-connector-paimon checkstyle:check`（#7 已用，exit 0 即净）；fe-core checkstyle 绑在其 `test` build（neuter 须 checkstyle-clean）。
+- maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> **-am** -Dmaven.build.cache.enabled=false -DfailIfNoTests=false`；验证读 surefire XML + `MVN_EXIT`（[[doris-build-verify-gotchas]]）。**`-am` 必带**（漏则报 `could not resolve fe-connector ${revision}` 假错）。改 fe-core 须单独 `-pl :fe-core -am`。**checkstyle**：连接器 `mvn -pl :fe-connector-paimon checkstyle:check`（exit 0 即净）；fe-core `mvn -pl :fe-core checkstyle:check`。
 - 连接器禁 import fe-core：`bash tools/check-connector-imports.sh`（仅允许 `org.apache.doris.{thrift,connector,extension,filesystem}`）。
 - cwd 跨 Bash 调用持久，`cd` 破相对路径 → 一律绝对路径。
-- 测试优先 runnable FE **单测**（连接器 harness：`RecordingConnectorContext`/`RecordingPaimonCatalogOps`/`FakePaimonTable`/`PaimonScanPlanProviderTest`；离线**无 FileStoreTable**——`FakePaimonTable.newReadBuilder()` 抛、`buildSchemaEvolutionParam` 返空，故 native-path/schema-dict emit 的正向路径不可离线驱动，纯静态 seam（`shouldUseNativeReader`/`isForceJniScannerEnabled`）才可测）；live-e2e CI-gated → 注明 gated，勿谎称跑过。
+- 测试优先 runnable FE 单测（harness：`RecordingConnectorContext`/`RecordingPaimonCatalogOps`/`FakePaimonTable`/`PaimonScanPlanProviderTest`）。**关键**：`FakePaimonTable.newReadBuilder()` 抛 → 纯静态 seam（`shouldUseNativeReader`/`isForceJniScannerEnabled`/`isCountPushdownSplit`/`computeFileSplitOffsets`/`determineTargetSplitSize`/`buildNativeRanges`）才离线可测；但**真 `DataSplit` 可经 `buildRealDataSplit`/inline FileSystemCatalog 离线构造**（#8/#9 end-to-end 测即用之：PK 表 count、append-only 表 sub-split）。live-e2e CI-gated → 注明 gated，勿谎称跑过。
 
 ## 🧠 给下一个 agent 的 meta
-- **#7 验证的高价值模式（再次奏效）**：finding → **4-scout + 对抗 synthesizer workflow 独立复核**（sites / legacy-parity / session-plumbing / BE+test-safety）→ 设计 → 实现 → **fail-before 实测**（neuter conjunct+helper、跑测、双向红）→ pass-after。**本次关键：复核 synthesizer 自身的判断**——synthesizer 选 call-site-OR（求最小 churn），但 legacy-parity scout 选 3rd-param（求 routing 可 mutation-test）；我**站 scout 推翻 synthesizer**（Rule 9：测须能在 routing 逻辑变时红）。教训=**别盲从 synthesizer，交叉核其理由**。
-- **改 fe-core handle/scan 流前，先 grep 全 `metadata.getTableHandle` / scan-node 调用方**（历史教训）。#7 纯连接器无此风险。
-- **#8/#9 = P2 perf-parity，severity 有争议 → 动手前先 `AskUserQuestion` 定 scope**（与 #7 无歧义直接修不同）。accept→修；defer→登 `deviations-log` 勿默认实现。
-- **跨连接器 follow-up 累积**：[DV-028]（#4 CREATE-time-only 校验）+ [DV-030]（#5 mapping-flag 键）+ [DV-031]（#6 read-vs-DDL doAs + 翻闸-authenticator-wiring）—— 三者同属「新连接器读法/翻闸 vs fe-core 既有约定」类缝，hudi/iceberg 同样复发，将来批量 close。#7 无新增 DV（full parity，Site B 是连接器自有非 legacy 偏差）。
+- **#8/#9 验证的高价值模式（再次奏效）**：finding → **多-scout recon workflow + 对抗 synthesizer**（决定 pure-connector vs needs-SPI、DV 安全性等 gating 问题）→ 设计 doc → 实现 → **fail-before 实测**（neuter helper、双向红）→ pass-after → **独立 commit 前再跑对抗 review workflow**。**两次 review 都揪出真 finding**：#8 review 抓出我自己的测 degenerate（单-split fixture 让 collapse/sum 断言失效）；#9 review 抓出 count-pushdown sub-split parity gap（我设计 doc 的假"无 interaction"声明）+ 缺 DV-on-every-sub-range 测。**教训：commit 前的对抗 review 对 test-rigor + 自身设计假设的证伪价值极高，勿跳过。**
+- **#8 关键定夺**：连接器无法见 agg-op（per-query planner 输出非 session var）→ 必须过 SPI（否决 session-channel hack）；collapse-to-one = legacy `<=10000` 普遍化。
+- **#9 关键定夺**：DV×sub-split 安全（全局行位）；count-pushdown 下 native split 保整文件（legacy `splittable=!applyCountPushdown`）；纯静态 math seam 可离线 mutation-test，真 DataSplit 经 inline FileSystemCatalog 可离线 end-to-end。
+- **P3 是核查不是改**：先拿当前代码复核（行号已大漂移，#3/#4/#6/#7/#8/#9 都改过 scan provider / metadata），查出真分歧再 AskUserQuestion 定 scope。
+- **跨连接器 follow-up 累积**：[DV-028]/[DV-030]/[DV-031]（read 法/翻闸 vs fe-core 约定）+ [DV-032]（count collapse parallel-trim）+ [DV-033]（native split-weight nicety）—— hudi/iceberg full-adopter 同复发，将来批量 close。
