@@ -510,11 +510,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                                                     status);
                             }
                             break;
-                        case TExprNodeType::BITMAP_PRED:
-                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(context, root, slot,
-                                                                         slot_predicates, &pdt),
-                                                status);
-                            break;
                         case TExprNodeType::BLOOM_PRED:
                             RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(context, root, slot,
                                                                         slot_predicates, &pdt),
