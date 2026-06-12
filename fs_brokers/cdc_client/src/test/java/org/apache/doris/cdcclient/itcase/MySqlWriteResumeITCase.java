@@ -119,6 +119,42 @@ class MySqlWriteResumeITCase {
         }
     }
 
+    @Test
+    void snapshotToBinlogBoundaryRowIsNotSwallowed() throws Exception {
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                jobId,
+                                MYSQL.getHost(),
+                                MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                ROOT_USER,
+                                ROOT_PASSWORD,
+                                database,
+                                "t_user",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
+
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
+            harness.writeSnapshot(splits);
+            int afterSnapshot = mock.loadedRecords().size();
+
+            // Lands in the gap between snapshot completion and the first binlog window — exactly the
+            // position startOffset=minOffsetFinishSplits can swallow.
+            insert(3, "carol");
+
+            harness.enterBinlog(splits);
+            if (idsSince(mock, afterSnapshot).stream().noneMatch(id -> id == 3)) {
+                harness.continueBinlog(1, Duration.ofSeconds(30));
+            }
+
+            List<Integer> gap = idsSince(mock, afterSnapshot);
+            // gap row reaches the binlog phase, and the snapshot rows are not re-read there.
+            assertThat(gap).contains(3);
+            assertThat(gap).doesNotContain(1, 2);
+        }
+    }
+
     private List<Integer> ids(List<String> records) throws Exception {
         List<Integer> result = new ArrayList<>();
         for (String record : records) {
@@ -126,6 +162,11 @@ class MySqlWriteResumeITCase {
             result.add(node.get("id").asInt());
         }
         return result;
+    }
+
+    private List<Integer> idsSince(MockDorisServer mock, int from) throws Exception {
+        List<String> all = mock.loadedRecords();
+        return ids(all.subList(from, all.size()));
     }
 
     private void insert(int id, String name) throws Exception {
