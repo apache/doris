@@ -80,7 +80,17 @@ instead of `"jni"` (and reconsider the `PaimonScanRange.Builder` default `:244`)
 **Open (non-blocking)**: BE routing — whether a JNI-tagged split ever reaches the cpp reader vs the JNI
 reader; fix is correctness-improving regardless.
 
-## ▶ FIX-3 — `FIX-INCR-SCAN-RESET` (P2-1, MAJOR; was NIT in rereview2) — restore parity
+## ✅ FIX-3 — `FIX-INCR-SCAN-RESET` (P2-1, MAJOR) — **DONE** (commit `f08bc22b9bd`)
+> Design + red-team (DESIGN-SOUND, `wf_ffd11631-ed2`): `FIX-INCR-SCAN-RESET-design.md`;
+> `FIX-INCR-SCAN-RESET-summary.md`. **Option 2**: keep `validate()` null-free (shared
+> `ConnectorMvccSnapshot` SPI stays null-free); reapply the two null resets at the single `Table.copy`
+> chokepoint via new `PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions)`, called in
+> `PaimonScanPlanProvider.resolveScanTable` (covers BOTH callers). paimon `copyInternal` consumes null as
+> `options.remove(k)`. Gated on `incremental-between`/`-timestamp` presence (no false positive on a real
+> snapshot/tag pin); strict legacy parity (only `scan.snapshot-id` + `scan.mode`). The empirically-verified
+> failure mode was a **hard throw** at `copy()` (not just silent wrong rows). Verified: connector
+> 20/44/37 green; **real-table test proven fail-before/pass-after** (neuter → `IllegalArgumentException`);
+> checkstyle 0; import-gate clean. Live @incr E2E CI-gated. **Next: FIX-4.**
 **Root cause**: `PaimonIncrementalScanParams.java:222-265` deliberately strips legacy's defensive
 null-reset (`PAIMON_SCAN_SNAPSHOT_ID=null`, `PAIMON_SCAN_MODE=null`). On a table that **persists**
 `scan.*` options, the freshly-loaded base table inherits them and they're not reset before the
