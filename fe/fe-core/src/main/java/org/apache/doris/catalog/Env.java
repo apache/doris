@@ -4949,12 +4949,18 @@ public class Env {
             } else {
                 throw new RuntimeException("Unexpected plugin table type: " + table.getClass().getSimpleName());
             }
-            // Connectors that surface table properties (e.g. paimon coreOptions: path / file.format)
-            // render LOCATION + PROPERTIES for SHOW CREATE TABLE parity (D-046). Connectors that do
-            // NOT (e.g. MaxCompute) return an empty map and stay comment-only — no empty LOCATION ''
-            // / PROPERTIES () lines, preserving their pre-existing DDL.
+            // Render LOCATION + PROPERTIES for SHOW CREATE TABLE parity (D-046) ONLY for the paimon
+            // engine type — the single plugin-driven connector whose legacy DDL carried them.
+            // FIX-SHOWCREATE-PLUGIN-PROPS: gating only on a non-empty property map wrongly rendered
+            // LOCATION '' + PROPERTIES(...) for JDBC/ES/Trino plugin tables (whose getTableProperties()
+            // returns non-empty connection props, including credentials), diverging from their legacy
+            // comment-only DDL (ENGINE=...;) and leaking the JDBC password. Other connectors
+            // (MaxCompute) already stay comment-only via an empty map; the engine-type gate is the
+            // extension point when hive/iceberg/hudi later migrate to plugin-driven and need LOCATION.
+            boolean rendersLocationProperties = TableType.PAIMON_EXTERNAL_TABLE.name()
+                    .equals(pluginExternalTable.getEngineTableTypeName());
             Map<String, String> properties = pluginExternalTable.getTableProperties();
-            if (!properties.isEmpty()) {
+            if (rendersLocationProperties && !properties.isEmpty()) {
                 sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
                 sb.append("\nPROPERTIES (");
                 Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
