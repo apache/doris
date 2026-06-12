@@ -536,6 +536,41 @@ void FreqProxEncoder::FlushProxRaw(const uint8_t* data, size_t n) {
     }
 }
 
+FreqProxEncoder::FinishedTerm FreqProxEncoder::EmitWindowedTermPreDecoded(
+        int32_t doc_freq, const std::vector<uint32_t>& doc_deltas,
+        const std::vector<uint32_t>& freqs, const std::vector<uint8_t>& pos_vint,
+        const std::vector<uint32_t>& pos_offsets) {
+    DCHECK(!_term_open) << "EmitWindowedTermPreDecoded with an open term";
+    DCHECK(!_omit_tfap) << "windowed pre-decoded emit is phrase-on only";
+    DCHECK(_windowed_capable) << "windowed pre-decoded emit on a non-windowed encoder";
+    DCHECK_GE(doc_freq, _skip_interval) << "pre-decoded emit is for windowed terms only";
+    DCHECK_EQ(doc_deltas.size(), static_cast<size_t>(doc_freq));
+    DCHECK_EQ(freqs.size(), static_cast<size_t>(doc_freq));
+    DCHECK_EQ(pos_offsets.size(), static_cast<size_t>(doc_freq));
+    if (_inline_capable) {
+        // Fresh per-term block sinks, exactly like StartTerm.
+        _stage_frq.Clear();
+        _stage_prx.Clear();
+    }
+    FinishedTerm out;
+    // Same pointer capture StartTerm performs; same TermInfo shape
+    // FinishTermWindowed produces (per-window skip table replaces the legacy
+    // skip tail, so skip_offset is 0; windowed terms carry a codec byte, never
+    // slim).
+    out.info.doc_freq = doc_freq;
+    out.info.freq_pointer = _frq_real->FilePointer();
+    out.info.prox_pointer = _prx_out->FilePointer();
+    out.info.skip_offset = 0;
+    out.info.is_slim = false;
+    // freqs doubles as the per-doc position-count vector, exactly like
+    // FinishTermWindowed's call.
+    WindowFrameEncoder::Encode(doc_deltas, freqs, pos_vint, freqs, /*has_prox=*/true, _cctx,
+                               _frq_sink, _prx_sink, &pos_offsets);
+    out.frq = &_stage_frq.bytes();
+    out.prx = &_stage_prx.bytes();
+    return out;
+}
+
 FreqProxEncoder::FinishedTerm FreqProxEncoder::EmitSlimTermPreEncoded(
         int32_t doc_freq, const std::vector<uint8_t>& frq_block,
         const std::vector<uint8_t>& prx_raw) {

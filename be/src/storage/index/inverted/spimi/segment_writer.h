@@ -113,10 +113,19 @@ private:
     // Mirrors the encoder's slim gate (df < skip_interval) for the chain-copy
     // fast path in EmitFromCompactDirect.
     int32_t _skip_interval;
+    // Mirrors the encoder's windowed capability (V4) for the windowed
+    // pre-decoded fast path.
+    bool _use_windowed;
     // Reused chain-copy scratch for the slim fast path (cleared per term,
-    // capacity retained across the whole emit).
+    // capacity retained across the whole emit). _slim_prx_scratch doubles as
+    // the windowed fast path's whole-term pos_vint buffer.
     std::vector<uint8_t> _slim_frq_scratch;
     std::vector<uint8_t> _slim_prx_scratch;
+    // Windowed pre-decoded fast-path scratch: per-doc deltas / freqs / pos
+    // byte offsets.
+    std::vector<uint32_t> _win_dd_scratch;
+    std::vector<uint32_t> _win_fq_scratch;
+    std::vector<uint32_t> _win_off_scratch;
     // DOCS_ONLY (support_phrase=false). Captured from the ctor's
     // omit_term_freq_and_positions arg (also forwarded to _encoder). When true,
     // the buffer omitted the prox slice chain, so EmitFromCompactDirect must NOT

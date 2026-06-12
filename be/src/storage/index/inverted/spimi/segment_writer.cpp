@@ -30,6 +30,7 @@ SegmentWriter::SegmentWriter(ByteOutput* tis_out, ByteOutput* tii_out, ByteOutpu
           _inline_small_terms(inline_small_terms),
           _inline_threshold(inline_threshold),
           _skip_interval(skip_interval),
+          _use_windowed(use_windowed),
           _omit_tfap(omit_term_freq_and_positions),
           _dict(tis_out, tii_out, index_interval, skip_interval, inline_small_terms),
           _encoder(frq_out, prx_out, skip_interval, max_skip_levels, omit_term_freq_and_positions,
@@ -211,6 +212,61 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
             } else {
                 // Non-inline mode: the block already went straight to the real
                 // outputs; just record the external .tis entry.
+                _dict.Add(field_number, term_text, ft.info);
+            }
+            ++_term_count;
+            ++emitted;
+            continue;
+        }
+
+        // WINDOWED fast path (V4 phrase-on, df >= skip_interval): the prox
+        // chain's within-doc position deltas are byte-identical to what the
+        // replay's AddPosition would rebuild into the windowed position
+        // buffer, so copy the whole chain once instead of decoding and
+        // re-encoding every occurrence. The docCode chain is decoded into the
+        // per-doc delta/freq vectors (df entries — cheap relative to
+        // occurrences), and each doc's position byte offset is found by
+        // skipping freq VInt ends in the copied buffer (a byte scan, no value
+        // decode). Gated on the buffer being phrase-on (the chain must carry
+        // positions) — the omit-writer-over-phrase-buffer mixed combination
+        // never reaches here (_omit_tfap is false on this branch).
+        if (!_omit_tfap && !buffer.OmitTfap() && _use_windowed &&
+            st.doc_count >= static_cast<uint32_t>(_skip_interval)) {
+            const uint32_t dc = st.doc_count;
+            _win_dd_scratch.clear();
+            _win_fq_scratch.clear();
+            _win_off_scratch.clear();
+            _slim_prx_scratch.clear();
+            ByteSliceReader(buffer.Pool(), st.pos_start, st.pos_end)
+                    .AppendRemainingTo(_slim_prx_scratch);
+            ByteSliceReader code_reader(buffer.Pool(), st.doc_start, st.doc_end);
+            const uint8_t* pv = _slim_prx_scratch.data();
+            size_t pos_byte = 0;
+            for (uint32_t k = 0; k < dc; ++k) {
+                const uint64_t code = code_reader.ReadVInt64();
+                const auto delta = static_cast<uint32_t>(code >> 1U);
+                const uint32_t freq = (code & 1U) ? 1U : code_reader.ReadVInt();
+                _win_dd_scratch.push_back(delta);
+                _win_fq_scratch.push_back(freq);
+                _win_off_scratch.push_back(static_cast<uint32_t>(pos_byte));
+                for (uint32_t f = 0; f < freq; ++f) {
+                    // Skip one position VInt: continuation bytes then the
+                    // terminator.
+                    while ((pv[pos_byte] & 0x80U) != 0) {
+                        ++pos_byte;
+                    }
+                    ++pos_byte;
+                }
+            }
+            DCHECK_EQ(pos_byte, _slim_prx_scratch.size())
+                    << "prox chain length must match the per-doc freq walk";
+            const FreqProxEncoder::FinishedTerm ft = _encoder.EmitWindowedTermPreDecoded(
+                    static_cast<int32_t>(dc), _win_dd_scratch, _win_fq_scratch, _slim_prx_scratch,
+                    _win_off_scratch);
+            const std::string_view term_text = buffer.TermAt(term.text_ref);
+            if (_inline_small_terms) {
+                AddStagedTerm(field_number, term_text, ft);
+            } else {
                 _dict.Add(field_number, term_text, ft.info);
             }
             ++_term_count;
