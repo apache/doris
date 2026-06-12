@@ -42,22 +42,25 @@ namespace {
 //
 // Safe when the single input's encoding matches the output format:
 //   - doc_offset is 0 (always true for the first/only input)
-//   - omit_term_freq_and_positions is false: the Merge() dispatch only routes
-//     position-bearing spills here. A phrase-off field's spills are written
-//     omit=true (lockstep with the final segment) and take the decode/re-encode
-//     path instead, so the byte-copy never sees an omit-mismatched input.
 //   - omit_norms is true (spill always omits norms)
-// This covers the V4 (pure SPIMI) path.
+// The spill's omit_term_freq_and_positions flag moves in lockstep with the
+// final segment (SpillManager passes the field's flag to EmitSegment), so the
+// spill .frq/.prx are already in exactly the format this output advertises —
+// whether positions are present (.prx populated, has_prox=true) or omitted
+// (.prx empty, has_prox=false). The byte-copy is correct for BOTH: it copies
+// the .prx verbatim (empty in omit mode) and rebuilds .fnm with
+// has_prox = !omit. This covers the V4 (pure SPIMI) path including DOCS_ONLY.
 int64_t MergeSingleInput(const SegmentMerger::Input& input, const SpimiSegmentSink& sink,
                          const std::string& segment_name, const std::string& field_name,
                          int32_t total_doc_count, int32_t index_version,
                          bool omit_term_freq_and_positions, bool omit_norms) {
-    // The byte-copy is only valid when the single input's on-disk
-    // encoding matches these output flags (positions present, norms
-    // omitted).  The dispatch guard in Merge() enforces this; the
-    // DCHECK makes the coupling crash-loud in debug for any future
-    // caller that bypasses the guard.
-    DCHECK(omit_norms && !omit_term_freq_and_positions);
+    // The byte-copy is valid when the single input's on-disk encoding matches
+    // the output flags. The spill is written in lockstep with these flags, so
+    // only omit_norms must hold here; both positions-present and omit work (the
+    // .prx is copied verbatim and .fnm is rebuilt with has_prox = !omit). The
+    // dispatch guard in Merge() enforces this; the DCHECK makes it crash-loud
+    // in debug for any future caller that bypasses the guard.
+    DCHECK(omit_norms);
 
     // Copy all posting bytes directly — no decode/re-encode cycle.
     // The single input's doc_offset is 0, so TermInfo pointers in
@@ -146,14 +149,15 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         return 0;
     }
 
-    // Single-input fast path: when there is exactly one input and the output
-    // format matches the spill format (positions present and norms omitted),
-    // copy posting bytes directly and rebuild only metadata. This eliminates the
-    // decode/re-encode cycle for the common case where the buffer was flushed
-    // exactly once before finish. The !omit guard keeps it to phrase-on fields:
-    // a phrase-off field's single spill (omit=true, lockstep with the output)
-    // falls through to the decode/re-encode merge below, which honors omit.
-    if (inputs.size() == 1 && !omit_term_freq_and_positions && omit_norms) {
+    // Single-input fast path: when there is exactly one input and norms are
+    // omitted (always true for V4 spills), copy posting bytes directly and
+    // rebuild only metadata, eliminating the decode/re-encode cycle for the
+    // common case where the buffer was flushed exactly once before finish. The
+    // spill's omit_term_freq_and_positions flag is in lockstep with the output,
+    // so both phrase-on (positions present) AND DOCS_ONLY (omit, empty .prx)
+    // single spills byte-copy correctly — MergeSingleInput copies the .prx
+    // verbatim and rebuilds .fnm with has_prox = !omit.
+    if (inputs.size() == 1 && omit_norms) {
         return MergeSingleInput(inputs[0], sink, segment_name, field_name, total_doc_count,
                                 index_version, omit_term_freq_and_positions, omit_norms);
     }

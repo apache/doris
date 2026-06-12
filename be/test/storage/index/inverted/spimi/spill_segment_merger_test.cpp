@@ -837,11 +837,13 @@ TEST(SegmentMergerTest, SlowPathReEncodesHighFreqTermAsPfor) {
     }
 }
 
-TEST(SegmentMergerTest, SingleInputSlowPathWhenOmitTermFreqAndPositions) {
-    // omit_term_freq_and_positions=true fails the fast-path guard
-    // (!omit_tfap is false), so a single input routes through the slow
-    // path even though there is nothing to merge. The input is emitted
-    // without positions so its encoding matches the merge output flags.
+TEST(SegmentMergerTest, SingleInputFastPathWhenOmitTermFreqAndPositions) {
+    // A DOCS_ONLY (omit_term_freq_and_positions=true) single spill takes the
+    // byte-copy fast path: the spill is written omit=true in lockstep with the
+    // output, so its .frq (doc-only) and empty .prx already match the output
+    // format. MergeSingleInput copies them verbatim and rebuilds .fnm with
+    // has_prox=false — no decode/re-encode. Asserted byte-identical to the spill
+    // input below.
     SpimiPostingBuffer buf;
     buf.Append("alpha", 0, 0);
     buf.Append("beta", 1, 0);
@@ -852,6 +854,12 @@ TEST(SegmentMergerTest, SingleInputSlowPathWhenOmitTermFreqAndPositions) {
                           /*omit_term_freq_and_positions=*/true,
                           /*omit_norms=*/true);
     EXPECT_EQ(result.term_count, 2);
+
+    // Fast path copies posting bytes verbatim from the single input.
+    EXPECT_EQ(result.tis_bytes, input.tis_bytes) << "fast path must byte-copy .tis";
+    EXPECT_EQ(result.frq_bytes, input.frq_bytes) << "fast path must byte-copy .frq";
+    EXPECT_TRUE(input.prx_bytes.empty()) << "DOCS_ONLY spill must not encode positions";
+    EXPECT_TRUE(result.prx_bytes.empty()) << "DOCS_ONLY output must have empty .prx";
 
     auto terms = ReadAllTerms(result.tis_bytes);
     ASSERT_EQ(terms.size(), 2U);
