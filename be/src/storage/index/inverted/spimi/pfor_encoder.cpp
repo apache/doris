@@ -161,7 +161,7 @@ bool select_patch(const uint32_t* values, size_t count, uint8_t plain_width,
 
 } // namespace
 
-size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, ByteOutput* out,
+size_t SpimiPforEncoder::EncodeBlock(const uint32_t* values, size_t count, ByteOutput* out,
                                      bool allow_patch) {
     DCHECK(out != nullptr);
     DCHECK_LE(count, kBlockSize);
@@ -218,9 +218,8 @@ size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, ByteOutput*
 std::vector<uint8_t> SpimiPforEncoder::EncodeBlockToBytes(const std::vector<uint32_t>& values,
                                                           bool allow_patch) {
     MemoryByteOutput out;
-    std::vector<uint32_t> scratch = values;
-    if (!scratch.empty()) {
-        (void)EncodeBlock(scratch.data(), scratch.size(), &out, allow_patch);
+    if (!values.empty()) {
+        (void)EncodeBlock(values.data(), values.size(), &out, allow_patch);
     }
     return out.bytes();
 }

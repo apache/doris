@@ -855,16 +855,33 @@ void SpimiPostingBuffer::Sort(bool allow_direct_emit) {
                   });
         return;
     }
-    std::vector<uint32_t> sorted_text_refs;
-    sorted_text_refs.reserve(_term_count);
+    // Same 8-byte-prefix-key trick as the compact-mode term sort above: most
+    // comparisons resolve on one integer compare; only a first-8-byte tie pays
+    // the double ArenaTermAt + memcmp. Sort order (hence emitted bytes) is
+    // unchanged.
+    struct RefKey {
+        uint64_t key;
+        uint32_t text_ref;
+    };
+    std::vector<RefKey> keyed_refs;
+    keyed_refs.reserve(_term_count);
     for (uint32_t entry : _slots) {
         if (entry != kEmpty) {
-            sorted_text_refs.push_back(entry);
+            keyed_refs.push_back({PrefixKey8(ArenaTermAt(entry)), entry});
         }
     }
-    DCHECK_EQ(sorted_text_refs.size(), _term_count);
-    std::sort(sorted_text_refs.begin(), sorted_text_refs.end(),
-              [this](uint32_t a, uint32_t b) { return ArenaTermAt(a) < ArenaTermAt(b); });
+    DCHECK_EQ(keyed_refs.size(), _term_count);
+    std::sort(keyed_refs.begin(), keyed_refs.end(), [this](const RefKey& a, const RefKey& b) {
+        if (a.key != b.key) {
+            return a.key < b.key;
+        }
+        return ArenaTermAt(a.text_ref) < ArenaTermAt(b.text_ref);
+    });
+    std::vector<uint32_t> sorted_text_refs;
+    sorted_text_refs.reserve(keyed_refs.size());
+    for (const RefKey& rk : keyed_refs) {
+        sorted_text_refs.push_back(rk.text_ref);
+    }
 
     // text_ref → lex rank. text_refs are sparse arena offsets, but
     // each Intern() call produces a *unique* text_ref bounded by

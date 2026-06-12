@@ -92,13 +92,12 @@ size_t EncodePforPart(const std::vector<uint32_t>& vals, size_t off, size_t coun
         void WriteBytes(const uint8_t* b, size_t len) override { v->insert(v->end(), b, b + len); }
         int64_t FilePointer() const override { return static_cast<int64_t>(v->size()); }
     } vo(&out);
-    std::vector<uint32_t> scratch;
+    // EncodeBlock is read-only over `values`, so feed it slices of `vals`
+    // directly — no per-128-value scratch copy.
     size_t i = 0;
     while (i < count) {
         const size_t n = std::min(static_cast<size_t>(SpimiPforEncoder::kBlockSize), count - i);
-        scratch.assign(vals.begin() + static_cast<std::ptrdiff_t>(off + i),
-                       vals.begin() + static_cast<std::ptrdiff_t>(off + i + n));
-        SpimiPforEncoder::EncodeBlock(scratch.data(), scratch.size(), &vo, allow_patch);
+        SpimiPforEncoder::EncodeBlock(vals.data() + off + i, n, &vo, allow_patch);
         i += n;
     }
     return out.size() - start;

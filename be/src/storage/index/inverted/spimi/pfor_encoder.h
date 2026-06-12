@@ -103,11 +103,13 @@ public:
 
     // Encodes `values[0..count)` into `out`. `count` must be
     // ≤ kBlockSize. The value count is NOT stored in the block — the
-    // decoder is told `count` out-of-band. `values` may be modified (the
-    // encoder may use it as scratch). When `allow_patch` is true AND a
-    // patched encoding is strictly smaller, emits the patched form (0x80
-    // set); otherwise emits the plain block. Returns bytes written.
-    static size_t EncodeBlock(uint32_t* values, size_t count, ByteOutput* out,
+    // decoder is told `count` out-of-band. `values` is read-only (all
+    // scratch lives in stack buffers), so callers can pass slices of
+    // their staging arrays directly with no per-block copy. When
+    // `allow_patch` is true AND a patched encoding is strictly smaller,
+    // emits the patched form (0x80 set); otherwise emits the plain
+    // block. Returns bytes written.
+    static size_t EncodeBlock(const uint32_t* values, size_t count, ByteOutput* out,
                               bool allow_patch = false);
 
     // Test seam: encodes into a vector (bypasses ByteOutput). The
