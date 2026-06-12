@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
@@ -134,6 +135,20 @@ public class IndexDefinitionTest {
         def.checkColumn(
                 new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
                 KeysType.DUP_KEYS, false, null);
+    }
+
+    @Test
+    void testNgramBFIndexOnlySingleColumn() {
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1", "col2"),
+                "NGRAM_BF", null, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, def::validate);
+        Assertions.assertEquals("NGRAM_BF index can only apply to a single column.", exception.getMessage());
+    }
+
+    @Test
+    void testNgramBFBuildIndexValidateWithoutColumns() {
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", null, IndexType.NGRAM_BF);
+        Assertions.assertDoesNotThrow(def::validate);
     }
 
     @Test
