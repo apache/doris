@@ -85,7 +85,7 @@ DecodedTimeUnit decoded_time_unit(ParquetTimeUnit time_unit) {
 }
 
 Status read_decoded_field(const ParquetColumnSchema& column_schema, DecodedColumnView view,
-                          Field* field) {
+                          Field* field, const cctz::time_zone* timezone) {
     DORIS_CHECK(column_schema.type != nullptr);
     DORIS_CHECK(field != nullptr);
     constexpr uint8_t not_null = 0;
@@ -95,46 +95,51 @@ Status read_decoded_field(const ParquetColumnSchema& column_schema, DecodedColum
     view.decimal_precision = column_schema.type_descriptor.decimal_precision;
     view.decimal_scale = column_schema.type_descriptor.decimal_scale;
     view.fixed_length = column_schema.type_descriptor.fixed_length;
+    view.timestamp_is_adjusted_to_utc = column_schema.type_descriptor.timestamp_is_adjusted_to_utc;
+    view.timezone = timezone;
     return column_schema.type->get_serde()->read_field_from_decoded_value(*column_schema.type,
                                                                           field, view);
 }
 
 template <typename NativeType>
 bool set_decoded_field(const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
-                       const NativeType& value, Field* field) {
+                       const NativeType& value, Field* field, const cctz::time_zone* timezone) {
     DecodedColumnView view;
     view.value_kind = value_kind;
     view.values = reinterpret_cast<const uint8_t*>(&value);
-    return read_decoded_field(column_schema, view, field).ok();
+    return read_decoded_field(column_schema, view, field, timezone).ok();
 }
 
 template <typename ParquetDType>
 bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistics,
                          const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
-                         ParquetColumnStatistics* column_statistics) {
+                         ParquetColumnStatistics* column_statistics,
+                         const cctz::time_zone* timezone) {
     auto typed_statistics =
             std::static_pointer_cast<::parquet::TypedStatistics<ParquetDType>>(statistics);
     if (!set_decoded_field(column_schema, value_kind, typed_statistics->min(),
-                           &column_statistics->min_value) ||
+                           &column_statistics->min_value, timezone) ||
         !set_decoded_field(column_schema, value_kind, typed_statistics->max(),
-                           &column_statistics->max_value)) {
+                           &column_statistics->max_value, timezone)) {
         return false;
     }
     return true;
 }
 
 bool set_decoded_binary_field(const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
-                              const StringRef& value, Field* field) {
+                              const StringRef& value, Field* field,
+                              const cctz::time_zone* timezone) {
     std::vector<StringRef> binary_values {value};
     DecodedColumnView view;
     view.value_kind = value_kind;
     view.binary_values = &binary_values;
-    return read_decoded_field(column_schema, view, field).ok();
+    return read_decoded_field(column_schema, view, field, timezone).ok();
 }
 
 bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics,
                         const ParquetColumnSchema& column_schema,
-                        ParquetColumnStatistics* column_statistics) {
+                        ParquetColumnStatistics* column_statistics,
+                        const cctz::time_zone* timezone) {
     switch (statistics->physical_type()) {
     case ::parquet::Type::BYTE_ARRAY: {
         auto typed_statistics =
@@ -144,10 +149,10 @@ bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics
         const auto max = ::parquet::ByteArrayToString(typed_statistics->max());
         if (!set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
                                       StringRef(min.data(), min.size()),
-                                      &column_statistics->min_value) ||
+                                      &column_statistics->min_value, timezone) ||
             !set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
                                       StringRef(max.data(), max.size()),
-                                      &column_statistics->max_value)) {
+                                      &column_statistics->max_value, timezone)) {
             return false;
         }
         return true;
@@ -166,10 +171,10 @@ bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics
                               type_length);
         if (!set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
                                       StringRef(min.data(), min.size()),
-                                      &column_statistics->min_value) ||
+                                      &column_statistics->min_value, timezone) ||
             !set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
                                       StringRef(max.data(), max.size()),
-                                      &column_statistics->max_value)) {
+                                      &column_statistics->max_value, timezone)) {
             return false;
         }
         return true;
@@ -587,7 +592,8 @@ const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
 
 ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         const ParquetColumnSchema& column_schema,
-        const std::shared_ptr<::parquet::Statistics>& statistics) {
+        const std::shared_ptr<::parquet::Statistics>& statistics,
+        const cctz::time_zone* timezone) {
     ParquetColumnStatistics result;
     if (statistics == nullptr) {
         return result;
@@ -604,29 +610,29 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
     switch (statistics->physical_type()) {
     case ::parquet::Type::BOOLEAN:
         result.has_min_max = set_decoded_min_max<::parquet::BooleanType>(
-                statistics, column_schema, DecodedValueKind::BOOL, &result);
+                statistics, column_schema, DecodedValueKind::BOOL, &result, timezone);
         return result;
     case ::parquet::Type::INT32:
         result.has_min_max = set_decoded_min_max<::parquet::Int32Type>(
                 statistics, column_schema, decoded_value_kind(column_schema.type_descriptor),
-                &result);
+                &result, timezone);
         return result;
     case ::parquet::Type::INT64:
         result.has_min_max = set_decoded_min_max<::parquet::Int64Type>(
                 statistics, column_schema, decoded_value_kind(column_schema.type_descriptor),
-                &result);
+                &result, timezone);
         return result;
     case ::parquet::Type::FLOAT:
         result.has_min_max = set_decoded_min_max<::parquet::FloatType>(
-                statistics, column_schema, DecodedValueKind::FLOAT, &result);
+                statistics, column_schema, DecodedValueKind::FLOAT, &result, timezone);
         return result;
     case ::parquet::Type::DOUBLE:
         result.has_min_max = set_decoded_min_max<::parquet::DoubleType>(
-                statistics, column_schema, DecodedValueKind::DOUBLE, &result);
+                statistics, column_schema, DecodedValueKind::DOUBLE, &result, timezone);
         return result;
     case ::parquet::Type::BYTE_ARRAY:
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        result.has_min_max = set_string_min_max(statistics, column_schema, &result);
+        result.has_min_max = set_string_min_max(statistics, column_schema, &result, timezone);
         return result;
     default:
         return result;
@@ -657,7 +663,8 @@ bool ParquetStatisticsUtils::CheckStatistics(const format::FileColumnPredicateFi
 ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
         const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
         int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-        const format::FileColumnPredicateFilter& column_filter) {
+        const format::FileColumnPredicateFilter& column_filter,
+        const cctz::time_zone* timezone) {
     if (column_filter.predicates.empty()) {
         return ParquetRowGroupPruneReason::NONE;
     }
@@ -671,7 +678,8 @@ ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
         return ParquetRowGroupPruneReason::NONE;
     }
     if (CheckStatistics(column_filter,
-                        TransformColumnStatistics(*column_schema, column_chunk->statistics()))) {
+                        TransformColumnStatistics(*column_schema, column_chunk->statistics(),
+                                                  timezone))) {
         return ParquetRowGroupPruneReason::STATISTICS;
     }
     if (!supports_dictionary_pruning(*column_schema, *column_chunk, column_filter) ||
@@ -694,16 +702,18 @@ ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
 bool ParquetStatisticsUtils::RowGroupExcludes(
         const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
         int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-        const format::FileColumnPredicateFilter& column_filter) {
-    return RowGroupPruneReason(row_group, file_reader, row_group_idx, schema, column_filter) !=
-           ParquetRowGroupPruneReason::NONE;
+        const format::FileColumnPredicateFilter& column_filter,
+        const cctz::time_zone* timezone) {
+    return RowGroupPruneReason(row_group, file_reader, row_group_idx, schema, column_filter,
+                               timezone) != ParquetRowGroupPruneReason::NONE;
 }
 
 Status ParquetStatisticsUtils::SelectRowGroups(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        bool enable_bloom_filter, ParquetPruningStats* pruning_stats) {
+        bool enable_bloom_filter, ParquetPruningStats* pruning_stats,
+        const cctz::time_zone* timezone) {
     int64_t row_group_filter_time_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &row_group_filter_time_sink
                                               : &pruning_stats->row_group_filter_time);
@@ -736,7 +746,7 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         }
         for (const auto& column_filter : request.column_predicate_filters) {
             const auto prune_reason = RowGroupPruneReason(*row_group, file_reader, row_group_idx,
-                                                          file_schema, column_filter);
+                                                          file_schema, column_filter, timezone);
             auto effective_prune_reason = prune_reason;
             if (effective_prune_reason == ParquetRowGroupPruneReason::NONE && enable_bloom_filter) {
                 effective_prune_reason =
@@ -805,10 +815,11 @@ Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        bool enable_bloom_filter, ParquetPruningStats* pruning_stats) {
+        bool enable_bloom_filter, ParquetPruningStats* pruning_stats,
+        const cctz::time_zone* timezone) {
     return ParquetStatisticsUtils::SelectRowGroups(metadata, file_reader, file_schema, request,
                                                    selected_row_groups, enable_bloom_filter,
-                                                   pruning_stats);
+                                                   pruning_stats, timezone);
 }
 
 namespace {
@@ -817,7 +828,8 @@ template <typename ParquetDType>
 bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
                               const ParquetColumnSchema& column_schema, size_t page_idx,
                               DecodedValueKind value_kind,
-                              ParquetColumnStatistics* page_statistics) {
+                              ParquetColumnStatistics* page_statistics,
+                              const cctz::time_zone* timezone) {
     const auto typed_index =
             std::static_pointer_cast<::parquet::TypedColumnIndex<ParquetDType>>(column_index);
     if (page_idx >= typed_index->min_values().size() ||
@@ -825,9 +837,9 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
         return false;
     }
     if (!set_decoded_field(column_schema, value_kind, typed_index->min_values()[page_idx],
-                           &page_statistics->min_value) ||
+                           &page_statistics->min_value, timezone) ||
         !set_decoded_field(column_schema, value_kind, typed_index->max_values()[page_idx],
-                           &page_statistics->max_value)) {
+                           &page_statistics->max_value, timezone)) {
         return false;
     }
     page_statistics->has_min_max = true;
@@ -836,7 +848,8 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
 
 bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
                              const ParquetColumnSchema& column_schema, size_t page_idx,
-                             ParquetColumnStatistics* page_statistics) {
+                             ParquetColumnStatistics* page_statistics,
+                             const cctz::time_zone* timezone) {
     switch (column_schema.descriptor->physical_type()) {
     case ::parquet::Type::BYTE_ARRAY: {
         const auto typed_index =
@@ -849,10 +862,10 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
         const auto max = ::parquet::ByteArrayToString(typed_index->max_values()[page_idx]);
         if (!set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
                                       StringRef(min.data(), min.size()),
-                                      &page_statistics->min_value) ||
+                                      &page_statistics->min_value, timezone) ||
             !set_decoded_binary_field(column_schema, DecodedValueKind::BINARY,
                                       StringRef(max.data(), max.size()),
-                                      &page_statistics->max_value)) {
+                                      &page_statistics->max_value, timezone)) {
             return false;
         }
         page_statistics->has_min_max = true;
@@ -876,10 +889,10 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
                 type_length);
         if (!set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
                                       StringRef(min.data(), min.size()),
-                                      &page_statistics->min_value) ||
+                                      &page_statistics->min_value, timezone) ||
             !set_decoded_binary_field(column_schema, DecodedValueKind::FIXED_BINARY,
                                       StringRef(max.data(), max.size()),
-                                      &page_statistics->max_value)) {
+                                      &page_statistics->max_value, timezone)) {
             return false;
         }
         page_statistics->has_min_max = true;
@@ -892,29 +905,34 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
 
 bool set_page_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
                       const ParquetColumnSchema& column_schema, size_t page_idx,
-                      ParquetColumnStatistics* page_statistics) {
+                      ParquetColumnStatistics* page_statistics,
+                      const cctz::time_zone* timezone) {
     DORIS_CHECK(column_schema.type != nullptr);
     switch (column_schema.descriptor->physical_type()) {
     case ::parquet::Type::BOOLEAN:
         return set_page_decoded_min_max<::parquet::BooleanType>(
-                column_index, column_schema, page_idx, DecodedValueKind::BOOL, page_statistics);
+                column_index, column_schema, page_idx, DecodedValueKind::BOOL, page_statistics,
+                timezone);
     case ::parquet::Type::INT32:
         return set_page_decoded_min_max<::parquet::Int32Type>(
                 column_index, column_schema, page_idx,
-                decoded_value_kind(column_schema.type_descriptor), page_statistics);
+                decoded_value_kind(column_schema.type_descriptor), page_statistics, timezone);
     case ::parquet::Type::INT64:
         return set_page_decoded_min_max<::parquet::Int64Type>(
                 column_index, column_schema, page_idx,
-                decoded_value_kind(column_schema.type_descriptor), page_statistics);
+                decoded_value_kind(column_schema.type_descriptor), page_statistics, timezone);
     case ::parquet::Type::FLOAT:
         return set_page_decoded_min_max<::parquet::FloatType>(
-                column_index, column_schema, page_idx, DecodedValueKind::FLOAT, page_statistics);
+                column_index, column_schema, page_idx, DecodedValueKind::FLOAT, page_statistics,
+                timezone);
     case ::parquet::Type::DOUBLE:
         return set_page_decoded_min_max<::parquet::DoubleType>(
-                column_index, column_schema, page_idx, DecodedValueKind::DOUBLE, page_statistics);
+                column_index, column_schema, page_idx, DecodedValueKind::DOUBLE, page_statistics,
+                timezone);
     case ::parquet::Type::BYTE_ARRAY:
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        return set_page_string_min_max(column_index, column_schema, page_idx, page_statistics);
+        return set_page_string_min_max(column_index, column_schema, page_idx, page_statistics,
+                                       timezone);
     default:
         return false;
     }
@@ -922,7 +940,8 @@ bool set_page_min_max(const std::shared_ptr<::parquet::ColumnIndex>& column_inde
 
 bool build_page_statistics(const std::shared_ptr<::parquet::ColumnIndex>& column_index,
                            const ParquetColumnSchema& column_schema, size_t page_idx,
-                           ParquetColumnStatistics* page_statistics) {
+                           ParquetColumnStatistics* page_statistics,
+                           const cctz::time_zone* timezone) {
     DORIS_CHECK(page_statistics != nullptr);
     *page_statistics = ParquetColumnStatistics {};
 
@@ -938,7 +957,7 @@ bool build_page_statistics(const std::shared_ptr<::parquet::ColumnIndex>& column
     if (!page_statistics->has_not_null) {
         return true;
     }
-    return set_page_min_max(column_index, column_schema, page_idx, page_statistics);
+    return set_page_min_max(column_index, column_schema, page_idx, page_statistics, timezone);
 }
 
 std::vector<RowRange> intersect_ranges(const std::vector<RowRange>& left,
@@ -1003,7 +1022,8 @@ void append_row_range(const RowRange& range, std::vector<RowRange>* ranges) {
 bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndexReader>& row_group,
                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                               const format::FileColumnPredicateFilter& column_filter,
-                              int64_t row_group_rows, std::vector<RowRange>* ranges) {
+                              int64_t row_group_rows, std::vector<RowRange>* ranges,
+                              const cctz::time_zone* timezone) {
     if (column_filter.predicates.empty()) {
         return false;
     }
@@ -1032,7 +1052,8 @@ bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndex
     const auto page_count = offset_index->page_locations().size();
     for (size_t page_idx = 0; page_idx < page_count; ++page_idx) {
         ParquetColumnStatistics page_statistics;
-        if (!build_page_statistics(column_index, *column_schema, page_idx, &page_statistics)) {
+        if (!build_page_statistics(column_index, *column_schema, page_idx, &page_statistics,
+                                   timezone)) {
             ranges->clear();
             return false;
         }
@@ -1188,7 +1209,7 @@ Status select_row_group_ranges_by_page_index(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
         std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
-        ParquetPruningStats* pruning_stats) {
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
     int64_t page_index_filter_time_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &page_index_filter_time_sink
                                               : &pruning_stats->page_index_filter_time);
@@ -1234,7 +1255,7 @@ Status select_row_group_ranges_by_page_index(
     for (const auto& column_filter : request.column_predicate_filters) {
         std::vector<RowRange> filter_ranges;
         if (!select_ranges_for_filter(row_group_index_reader, file_schema, column_filter,
-                                      row_group_rows, &filter_ranges)) {
+                                      row_group_rows, &filter_ranges, timezone)) {
             continue;
         }
         *selected_ranges = intersect_ranges(*selected_ranges, filter_ranges);

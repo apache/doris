@@ -80,15 +80,15 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                                const format::FileScanRequest& request,
                                const ParquetScanRange& scan_range, bool enable_bloom_filter,
-                               RowGroupScanPlan* plan) {
+                               RowGroupScanPlan* plan, const cctz::time_zone* timezone) {
     DORIS_CHECK(plan != nullptr);
     plan->row_groups.clear();
     plan->pruning_stats = ParquetPruningStats {};
 
     std::vector<int> statistics_selected_row_groups;
-    RETURN_IF_ERROR(select_row_groups_by_statistics(metadata, file_reader, file_schema, request,
-                                                    &statistics_selected_row_groups,
-                                                    enable_bloom_filter, &plan->pruning_stats));
+    RETURN_IF_ERROR(select_row_groups_by_statistics(
+            metadata, file_reader, file_schema, request, &statistics_selected_row_groups,
+            enable_bloom_filter, &plan->pruning_stats, timezone));
 
     std::vector<int64_t> row_group_first_rows(metadata.num_row_groups());
     int64_t next_row_group_first_row = 0;
@@ -124,7 +124,7 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
         RETURN_IF_ERROR(select_row_group_ranges_by_page_index(
                 file_reader, file_schema, request, row_group_idx, row_group_rows,
                 &row_group_plan.selected_ranges, &row_group_plan.page_skip_plans,
-                &plan->pruning_stats));
+                &plan->pruning_stats, timezone));
         if (row_group_plan.selected_ranges.empty()) {
             continue;
         }
