@@ -73,6 +73,13 @@ public:
 
     // not need support bitmap filter get_digest
     uint64_t get_digest(uint64_t seed) const override { return 0; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto cloned = VBitmapPredicate::create_shared(clone_texpr_node());
+        cloned->set_filter(_filter);
+        *cloned_expr = std::move(cloned);
+        return Status::OK();
+    }
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,

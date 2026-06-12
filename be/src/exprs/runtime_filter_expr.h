@@ -80,6 +80,7 @@ public:
     }
 
     VExprSPtr get_impl() const override { return _impl; }
+    Status clone_node(VExprSPtr* cloned_expr) const override;
 
     void attach_profile_counter(std::shared_ptr<RuntimeProfile::Counter> rf_input_rows,
                                 std::shared_ptr<RuntimeProfile::Counter> rf_filter_rows,
