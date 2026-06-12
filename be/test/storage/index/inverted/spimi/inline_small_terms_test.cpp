@@ -500,12 +500,14 @@ TEST(InlineSmallTermsTest, OmitTfapInlineTerm) {
 // The merge inputs are non-inlined spill-style segments; the merged output
 // inlines small terms. Query results match a single-segment external build.
 TEST(InlineSmallTermsTest, MergerInlineOutputMatchesExternal) {
-    // Two inputs with disjoint doc ranges but overlapping terms. Doc ids start
-    // at 1 (windowed format requires the first doc id >= 1). in0 covers docs
-    // {1,2} (doc_count 3); in1 covers docs {1,2} (doc_count 3) and is offset by
-    // in0's doc_count (3) in the merge, so its docs become {4,5}.
+    // Two inputs carved from the SAME absolute doc-id stream (the production
+    // spill contract: every input carries GLOBAL doc ids, the merge
+    // concatenates verbatim — no per-segment offset). Doc ids start at 1
+    // (windowed format requires the first doc id >= 1). in0 covers docs {1,2};
+    // in1 continues the stream at docs {4,5}. doc_count is the CUMULATIVE
+    // count at each spill (metadata only).
     std::vector<Post> in0 = {{"alpha", 1, 0}, {"alpha", 2, 2}, {"beta", 1, 1}};
-    std::vector<Post> in1 = {{"alpha", 1, 3}, {"gamma", 2, 0}};
+    std::vector<Post> in1 = {{"alpha", 4, 3}, {"gamma", 5, 0}};
 
     auto build_input = [](const std::vector<Post>& posts, int32_t doc_count) {
         SegmentMerger::Input input;
@@ -534,7 +536,7 @@ TEST(InlineSmallTermsTest, MergerInlineOutputMatchesExternal) {
 
     std::vector<SegmentMerger::Input> inputs;
     inputs.push_back(build_input(in0, 3));
-    inputs.push_back(build_input(in1, 3));
+    inputs.push_back(build_input(in1, 6));
 
     // Merge into an inline-enabled V4 output.
     MemoryByteOutput tis, tii, frq, prx, fnm, segn, segg;
@@ -557,8 +559,8 @@ TEST(InlineSmallTermsTest, MergerInlineOutputMatchesExternal) {
     EXPECT_EQ(fmt, TermDictWriter::kFormatInline);
 
     // Query the merged output and compare against an independent reference
-    // build (all docs in one external segment with the expected global doc ids:
-    // input1's docs are offset by input0's doc_count == 2).
+    // build (all docs in one external segment with the same global doc ids the
+    // inputs already carried).
     std::vector<FieldInfoEntry> fis = {
             {.name = "body", .is_indexed = true, .omit_norms = true, .has_prox = true}};
     std::vector<std::wstring> fnw = {L"body"};
@@ -591,14 +593,13 @@ TEST(InlineSmallTermsTest, MergerInlineOutputMatchesExternal) {
         return out;
     };
 
-    // Reference: build a single external segment with merged global doc ids
-    // (input1 docs offset by input0's doc_count == 3).
+    // Reference: build a single external segment with the same global doc ids.
     std::vector<Post> ref_offset = {
             {"alpha", 1, 0}, // input0 doc1
             {"alpha", 2, 2}, // input0 doc2
-            {"alpha", 4, 3}, // input1 doc1 + offset 3
+            {"alpha", 4, 3}, // input1 doc4
             {"beta", 1, 1},  // input0 doc1
-            {"gamma", 5, 0}, // input1 doc2 + offset 3
+            {"gamma", 5, 0}, // input1 doc5
     };
     Segment ref;
     ref.Write(ref_offset, /*inline_small=*/false, /*threshold=*/0);
