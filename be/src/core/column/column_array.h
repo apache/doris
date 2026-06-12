@@ -32,7 +32,9 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/column/subcolumn_nullability.h"
 #include "core/cow.h"
 #include "core/field.h"
 #include "core/string_ref.h"
@@ -66,23 +68,24 @@ static constexpr size_t max_array_size_as_field = 1000000;
   * In memory, it is represented as one column of a nested type, whose size is equal to the sum of the sizes of all arrays,
   *  and as an array of offsets in it, which allows you to get each element.
   */
-class ColumnArray final : public COWHelper<IColumn, ColumnArray> {
+template <SubcolumnNullability nullability>
+class ColumnArrayImpl final : public COWHelper<IColumn, ColumnArrayImpl<nullability>> {
 private:
-    friend class COWHelper<IColumn, ColumnArray>;
+    friend class COWHelper<IColumn, ColumnArrayImpl<nullability>>;
 
     /** Create an array column with specified values and offsets. */
-    ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column);
+    ColumnArrayImpl(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column);
 
     /** Create an empty column of arrays with the type of values as in the column `nested_column` */
-    explicit ColumnArray(MutableColumnPtr&& nested_column);
+    explicit ColumnArrayImpl(MutableColumnPtr&& nested_column);
 
     /** Create an array column with shared (possibly non-exclusive) nested column and offsets. */
     struct SharedTag {};
-    ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column);
+    ColumnArrayImpl(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column);
 
-    ColumnArray(const ColumnArray&) = default;
+    ColumnArrayImpl(const ColumnArrayImpl&) = default;
 
-    ColumnArray() = default;
+    ColumnArrayImpl() = default;
 
 public:
     // offsets of array is 64bit wise
@@ -100,7 +103,11 @@ public:
     /** Create a column from immutable/shared subcolumns without cloning them.
       * Call IColumn::mutate before modifying the returned column tree.
       */
-    using Base = COWHelper<IColumn, ColumnArray>;
+    using Base = COWHelper<IColumn, ColumnArrayImpl<nullability>>;
+    using ColumnCallback = IColumn::ColumnCallback;
+    using Filter = IColumn::Filter;
+    using MutablePtr = typename Base::MutablePtr;
+    using Permutation = IColumn::Permutation;
 
     static MutablePtr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
         // Construct with shared columns preserved (no cloning), as create(ColumnPtr) is designed
@@ -201,7 +208,7 @@ public:
 
     const Offsets64& ALWAYS_INLINE get_offsets() const { return offsets->get_data(); }
 
-    bool has_equal_offsets(const ColumnArray& other) const;
+    bool has_equal_offsets(const ColumnArrayImpl& other) const;
 
     const ColumnPtr& get_data_ptr() const { return data; }
     ColumnPtr& get_data_ptr() { return data; }
@@ -245,13 +252,18 @@ public:
     }
 
     size_t get_number_of_dimensions() const {
-        const auto* nested_array = check_and_get_column<ColumnArray>(*data);
-        if (!nested_array) {
-            return 1;
+        const auto nested_data = remove_nullable(data);
+        if (const auto* nested_array =
+                    check_and_get_column<ColumnArrayImpl<SubcolumnNullability::Nullable>>(
+                            *nested_data)) {
+            return 1 + nested_array->get_number_of_dimensions();
         }
-        return 1 +
-               nested_array
-                       ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
+        if (const auto* nested_array =
+                    check_and_get_column<ColumnArrayImpl<SubcolumnNullability::NotNullable>>(
+                            *nested_data)) {
+            return 1 + nested_array->get_number_of_dimensions();
+        }
+        return 1;
     }
 
     void erase(size_t start, size_t length) override;
@@ -271,5 +283,8 @@ private:
     IColumn::WrappedPtr data;
     ColumnOffsets::WrappedPtr offsets;
 };
+
+using ColumnArray = ColumnArrayImpl<SubcolumnNullability::Nullable>;
+using ColumnArrayNotNull = ColumnArrayImpl<SubcolumnNullability::NotNullable>;
 
 } // namespace doris

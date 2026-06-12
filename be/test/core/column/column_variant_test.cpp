@@ -2132,7 +2132,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
         StringRef prefix_ref(pat.get_path());
         std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
         const auto& sparse_data_map =
-                assert_cast<const ColumnMap&>(*mutable_ptr->get_sparse_column());
+                assert_cast<const ColumnMapNotNull&>(*mutable_ptr->get_sparse_column());
         const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
         const auto& src_sparse_data_paths =
                 assert_cast<const ColumnString&>(sparse_data_map.get_keys());
@@ -3162,8 +3162,8 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         // v:  {"k": [1,2,3]} ==》 [{"k": 1}, {"k": 2}, {"k": 3}]
         //     {"k": []} => [{}] vs  {"k": null} -> [null]
         //     {"k": [4]} => [{"k": 4}]
-        auto col_arr =
-                ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
+        auto col_arr = ColumnArray::create(make_nullable(ColumnInt64::create()),
+                                           ColumnArray::ColumnOffsets::create());
         //        Array array1 = {1, 2, 3};
         //        Array array2 = {4};
         //        col_arr->insert(array1);
@@ -3179,8 +3179,8 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
         MutableColumnPtr flattend_column = col_arr->get_data_ptr()->assert_mutable();
-        DataTypePtr flattend_type = DataTypeFactory::instance().create_data_type(
-                FieldType::OLAP_FIELD_TYPE_BIGINT, 0, 0);
+        DataTypePtr flattend_type = make_nullable(DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_BIGINT, 0, 0));
         // add sub path without parent prefix
         PathInData sub_path("k");
         nested_object_ptr->add_sub_column(sub_path, std::move(flattend_column),

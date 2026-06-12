@@ -31,6 +31,32 @@
 
 namespace doris {
 class Arena;
+namespace {
+template <typename MapColumn>
+void write_map_column_to_string(const MapColumn& map_column, size_t row_num, BufferWritable& bw,
+                                const DataTypeSerDeSPtr& key_serde,
+                                const DataTypeSerDeSPtr& value_serde,
+                                const DataTypeSerDe::FormatOptions& options) {
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    bw.write("{", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        key_serde->to_string(nested_keys_column, i, bw, options);
+        bw.write(":", 1);
+        value_serde->to_string(nested_values_column, i, bw, options);
+    }
+    bw.write("}", 1);
+}
+} // namespace
+
 Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                   int64_t end_idx, BufferWritable& bw,
                                                   FormatOptions& options) const {
@@ -612,24 +638,12 @@ Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, i
 }
 void DataTypeMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                  const FormatOptions& options) const {
-    const auto& map_column = assert_cast<const ColumnMap&>(column);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
-
-    size_t offset = offsets[row_num - 1];
-    size_t next_offset = offsets[row_num];
-
-    const IColumn& nested_keys_column = map_column.get_keys();
-    const IColumn& nested_values_column = map_column.get_values();
-    bw.write("{", 1);
-    for (size_t i = offset; i < next_offset; ++i) {
-        if (i != offset) {
-            bw.write(", ", 2);
-        }
-        key_serde->to_string(nested_keys_column, i, bw, options);
-        bw.write(":", 1);
-        value_serde->to_string(nested_values_column, i, bw, options);
+    if (const auto* map_column = check_and_get_column<ColumnMap>(&column)) {
+        write_map_column_to_string(*map_column, row_num, bw, key_serde, value_serde, options);
+    } else {
+        write_map_column_to_string(assert_cast<const ColumnMapNotNull&>(column), row_num, bw,
+                                   key_serde, value_serde, options);
     }
-    bw.write("}", 1);
 }
 
 bool DataTypeMapSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,

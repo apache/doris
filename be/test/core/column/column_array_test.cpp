@@ -20,6 +20,8 @@
 #include <gtest/gtest.h>
 
 #include "core/column/column.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/column/common_column_test.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
@@ -607,10 +609,13 @@ TEST_F(ColumnArrayTest, ColumnStringFuncsTest) {
 
 //////////////////////// special function from column_array.h ////////////////////////
 TEST_F(ColumnArrayTest, SharedCreateValidatesOffsetsAndDataSize) {
-    auto data_mut = ColumnInt32::create();
-    data_mut->insert_value(1);
-    data_mut->insert_value(2);
-    ColumnPtr data = std::move(data_mut);
+    auto data_values_mut = ColumnInt32::create();
+    data_values_mut->insert_value(1);
+    data_values_mut->insert_value(2);
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(0);
+    ColumnPtr data = ColumnNullable::create(std::move(data_values_mut), std::move(null_map_mut));
 
     EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data); });
 
@@ -628,6 +633,71 @@ TEST_F(ColumnArrayTest, SharedCreateValidatesOffsetsAndDataSize) {
     auto array_column = ColumnArray::create(data, good_offsets);
     EXPECT_EQ(array_column->get_data_ptr().get(), data.get());
     EXPECT_EQ(array_column->get_offsets_ptr().get(), good_offsets.get());
+}
+
+TEST_F(ColumnArrayTest, ConstFilterAllowsSharedSubcolumns) {
+    auto data_values_mut = ColumnInt32::create();
+    data_values_mut->insert_value(1);
+    data_values_mut->insert_value(2);
+    data_values_mut->insert_value(3);
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(0);
+    ColumnPtr data = ColumnNullable::create(std::move(data_values_mut), std::move(null_map_mut));
+    ColumnPtr data_alias = data;
+
+    auto offsets_mut = ColumnArray::ColumnOffsets::create();
+    offsets_mut->get_data().push_back(2);
+    offsets_mut->get_data().push_back(3);
+    ColumnPtr offsets = std::move(offsets_mut);
+    ColumnPtr offsets_alias = offsets;
+
+    auto array_column = ColumnArray::create(data, offsets);
+    IColumn::Filter filter;
+    filter.push_back(0);
+    filter.push_back(1);
+
+    ColumnPtr filtered;
+    ASSERT_NO_THROW({ filtered = array_column->filter(filter, 1); });
+
+    const auto& filtered_array = assert_cast<const ColumnArray&>(*filtered);
+    EXPECT_EQ(filtered_array.size(), 1);
+    EXPECT_EQ(filtered_array.get_offsets()[0], 1);
+    EXPECT_EQ(filtered_array.get_data().size(), 1);
+    EXPECT_EQ(data_alias->size(), 3);
+    EXPECT_EQ(offsets_alias->size(), 2);
+}
+
+TEST_F(ColumnArrayTest, SharedCreateRejectsNestedConst) {
+    auto data_values_mut = ColumnInt32::create();
+    data_values_mut->insert_value(1);
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    ColumnPtr data = ColumnNullable::create(std::move(data_values_mut), std::move(null_map_mut));
+
+    auto offsets_mut = ColumnArray::ColumnOffsets::create();
+    offsets_mut->get_data().push_back(1);
+    ColumnPtr offsets = std::move(offsets_mut);
+
+    EXPECT_NO_THROW({ auto array_column = ColumnArray::create(data, offsets); });
+
+    ColumnPtr const_data = ColumnConst::create(data, 1);
+    EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(const_data, offsets); });
+
+    ColumnPtr const_offsets = ColumnConst::create(offsets, 1);
+    EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data, const_offsets); });
+}
+
+TEST_F(ColumnArrayTest, CreateChecksNestedNullability) {
+    auto nullable_data = [] {
+        return ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
+    };
+
+    EXPECT_NO_THROW({ auto array_column = ColumnArray::create(nullable_data()); });
+    EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(ColumnInt32::create()); });
+    EXPECT_NO_THROW({ auto array_column = ColumnArrayNotNull::create(ColumnInt32::create()); });
+    EXPECT_ANY_THROW({ auto array_column = ColumnArrayNotNull::create(nullable_data()); });
 }
 
 TEST_F(ColumnArrayTest, CreateArrayTest) {
@@ -863,7 +933,9 @@ TEST_F(ColumnArrayTest, String64ArrayTest) {
     for (auto& v : vals) {
         str64_column->insert_data(v.data(), v.size());
     }
-    auto str64_array_column = ColumnArray::create(std::move(str64_column), std::move(off_column));
+    auto str64_array_column = ColumnArray::create(
+            ColumnNullable::create(std::move(str64_column), ColumnUInt8::create(vals.size(), 0)),
+            std::move(off_column));
     EXPECT_EQ(str64_array_column->size(), offs.size() - 1);
     for (size_t i = 0; i < str64_array_column->size(); ++i) {
         auto v = str64_array_column->operator[](i).get<TYPE_ARRAY>();
@@ -874,7 +946,8 @@ TEST_F(ColumnArrayTest, String64ArrayTest) {
     }
     // test insert ColumnArray<ColumnStr<uint64_t>> into ColumnArray<ColumnStr<uint32_t>>
     auto str32_column = ColumnString::create();
-    auto str32_array_column = ColumnArray::create(std::move(str32_column));
+    auto str32_array_column = ColumnArray::create(
+            ColumnNullable::create(std::move(str32_column), ColumnUInt8::create()));
     std::vector<uint32_t> indices;
     indices.push_back(0);
     indices.push_back(1);
@@ -909,7 +982,9 @@ TEST_F(ColumnArrayTest, IntArrayPermuteTest) {
     for (auto& v : vals) {
         data_column->insert_data((const char*)(&v), 0);
     }
-    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto array_column = ColumnArray::create(
+            ColumnNullable::create(std::move(data_column), ColumnUInt8::create(vals.size(), 0)),
+            std::move(off_column));
 
     IColumn::Permutation perm = {3, 2, 1, 0};
     // return array column: [[5,6],[4]];
@@ -923,7 +998,7 @@ TEST_F(ColumnArrayTest, IntArrayPermuteTest) {
     }
     // check data
     std::vector<int32_t> data = {5, 6, 4};
-    auto data_col = arr_col->get_data_ptr();
+    auto data_col = assert_cast<const ColumnNullable&>(arr_col->get_data()).get_nested_column_ptr();
     ASSERT_EQ(data_col->size(), data.size());
     for (size_t i = 0; i < data_col->size(); ++i) {
         auto element = data_col->get_data_at(i);
@@ -941,7 +1016,7 @@ TEST_F(ColumnArrayTest, IntArrayPermuteTest) {
     }
     // check data
     std::vector<int32_t> data2 = {5, 6, 4, 1, 2, 3};
-    data_col = arr_col->get_data_ptr();
+    data_col = assert_cast<const ColumnNullable&>(arr_col->get_data()).get_nested_column_ptr();
     ASSERT_EQ(data_col->size(), data2.size());
     for (size_t i = 0; i < data_col->size(); ++i) {
         auto element = data_col->get_data_at(i);

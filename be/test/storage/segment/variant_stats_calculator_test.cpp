@@ -116,7 +116,7 @@ protected:
         offsets->insert_value(0);
         offsets->insert_value(2);
 
-        return ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+        return ColumnMapNotNull::create(std::move(keys), std::move(values), std::move(offsets));
     }
 
     TabletSchemaSPtr _tablet_schema;

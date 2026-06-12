@@ -30,6 +30,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/cow.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -141,7 +142,8 @@ public:
         col_dcm->insert_value(4.56);
         col_dcm->insert_value(7.89);
 
-        col_arr = ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
+        col_arr = ColumnArray::create(make_nullable(ColumnInt64::create()),
+                                      ColumnArray::ColumnOffsets::create());
         Array array1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
                         Field::create_field<TYPE_BIGINT>(3)};
         Array array2 = {Field::create_field<TYPE_BIGINT>(4)};
@@ -149,7 +151,8 @@ public:
         col_arr->insert(Field::create_field<TYPE_ARRAY>(Array()));
         col_arr->insert(Field::create_field<TYPE_ARRAY>(array2));
 
-        col_map = ColumnMap::create(ColumnString::create(), ColumnInt64::create(),
+        col_map = ColumnMap::create(make_nullable(ColumnString::create()),
+                                    make_nullable(ColumnInt64::create()),
                                     ColumnArray::ColumnOffsets::create());
         Array k1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
                     Field::create_field<TYPE_STRING>("c")};

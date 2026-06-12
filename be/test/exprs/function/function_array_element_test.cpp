@@ -148,7 +148,7 @@ static ColumnPtr make_const_int32_array(std::vector<Int32> values, size_t appare
     }
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->insert_value(static_cast<Int64>(values.size()));
-    auto arr = ColumnArray::create(std::move(data_col), std::move(offsets));
+    auto arr = ColumnArray::create(make_nullable(std::move(data_col)), std::move(offsets));
     // element_at always produces Nullable, so use a non-null wrapper
     auto null_map = ColumnUInt8::create(1, 0 /*not null*/);
     auto nullable_arr = ColumnNullable::create(std::move(arr), std::move(null_map));
@@ -163,7 +163,7 @@ static ColumnPtr make_const_string_array(std::vector<std::string> values, size_t
     }
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->insert_value(static_cast<Int64>(values.size()));
-    auto arr = ColumnArray::create(std::move(data_col), std::move(offsets));
+    auto arr = ColumnArray::create(make_nullable(std::move(data_col)), std::move(offsets));
     auto null_map = ColumnUInt8::create(1, 0);
     auto nullable_arr = ColumnNullable::create(std::move(arr), std::move(null_map));
     return ColumnConst::create(std::move(nullable_arr), apparent_size);
@@ -196,8 +196,8 @@ TEST(function_array_element_test, element_at_const_int32_array_varying_index) {
     // Expected:    [10, 20, 30, NG, 30, 10, NG, NG]   (NG = NULL)
     constexpr size_t N = 8;
 
-    auto arr_type =
-            make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+    auto arr_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
     auto const_arr = make_const_int32_array({10, 20, 30}, N);
 
     auto idx_data = ColumnInt32::create();
@@ -240,7 +240,8 @@ TEST(function_array_element_test, element_at_const_null_array) {
     auto inner_data = ColumnInt32::create();
     auto inner_offsets = ColumnArray::ColumnOffsets::create();
     inner_offsets->insert_value(0);
-    auto inner_arr = ColumnArray::create(std::move(inner_data), std::move(inner_offsets));
+    auto inner_arr =
+            ColumnArray::create(make_nullable(std::move(inner_data)), std::move(inner_offsets));
     auto null_map = ColumnUInt8::create(1, 1 /*null*/);
     auto nullable_arr = ColumnNullable::create(std::move(inner_arr), std::move(null_map));
     ColumnPtr const_arr = ColumnConst::create(std::move(nullable_arr), N);

@@ -97,25 +97,33 @@ void check_empty_array_data_without_offsets(const IColumn& nested_column) {
     }
 }
 
+template <SubcolumnNullability nullability>
+void check_array_data_nullability(const IColumn& nested_column) {
+    if constexpr (nullability == SubcolumnNullability::Nullable) {
+        if (!nested_column.is_nullable()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "nested_column must be nullable, but got {}",
+                                   nested_column.get_name());
+        }
+    } else {
+        if (nested_column.is_nullable()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "nested_column must be not nullable, but got {}",
+                                   nested_column.get_name());
+        }
+    }
+}
+
 } // namespace
 
-ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
+template <SubcolumnNullability nullability>
+ColumnArrayImpl<nullability>::ColumnArrayImpl(MutableColumnPtr&& nested_column,
+                                              MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)) {
     static_cast<ColumnOffsets::Ptr&>(offsets) =
             assert_mutable_array_offsets(std::move(offsets_column));
-    // TODO(lihangyu) : we need to check the nullable attribute of array's data column.
-    // but currently ColumnMap<ColumnString, ColumnString> is used to store sparse data of variant type,
-    // so I temporarily disable this check.
-    // #ifndef BE_TEST
-    //     // This is a known problem.
-    //     // We often do not consider the nullable attribute of array's data column in beut.
-    //     // Considering that beut is just a test, it will not be checked at present, but this problem needs to be considered in the future.
-    //     if (!data->is_nullable() && check_nullable) {
-    //         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-    //                                "nested_column must be nullable, but got {}", data->get_name());
-    //     }
-    // #endif
-    check_const_only_in_top_level();
+    check_array_data_nullability<nullability>(*data);
+    this->check_const_only_in_top_level();
     validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
                            *static_cast<const ColumnOffsets::Ptr&>(offsets));
 
@@ -125,26 +133,35 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
       */
 }
 
-ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
+template <SubcolumnNullability nullability>
+ColumnArrayImpl<nullability>::ColumnArrayImpl(MutableColumnPtr&& nested_column)
+        : data(std::move(nested_column)) {
     data = data->convert_to_full_column_if_const();
+    check_array_data_nullability<nullability>(*data);
     check_empty_array_data_without_offsets(*data);
     static_cast<ColumnOffsets::Ptr&>(offsets) = ColumnOffsets::create();
 }
 
-ColumnArray::ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column) {
+template <SubcolumnNullability nullability>
+ColumnArrayImpl<nullability>::ColumnArrayImpl(SharedTag, ColumnPtr nested_column,
+                                              ColumnPtr offsets_column) {
+    check_column_not_const(*nested_column);
+    check_column_not_const(*offsets_column);
     static_cast<IColumn::Ptr&>(data) = std::move(nested_column);
     static_cast<ColumnOffsets::Ptr&>(offsets) = check_array_offsets_column_ptr(offsets_column);
-    check_const_only_in_top_level();
+    check_array_data_nullability<nullability>(*static_cast<const IColumn::Ptr&>(data));
     validate_array_offsets(*static_cast<const IColumn::Ptr&>(data),
                            *static_cast<const ColumnOffsets::Ptr&>(offsets));
 }
 
-std::string ColumnArray::get_name() const {
+template <SubcolumnNullability nullability>
+std::string ColumnArrayImpl<nullability>::get_name() const {
     return "Array(" + get_data().get_name() + ")";
 }
 
-MutableColumnPtr ColumnArray::clone_resized(size_t to_size) const {
-    auto res = ColumnArray::create(get_data().clone_empty());
+template <SubcolumnNullability nullability>
+MutableColumnPtr ColumnArrayImpl<nullability>::clone_resized(size_t to_size) const {
+    auto res = ColumnArrayImpl::create(get_data().clone_empty());
 
     if (to_size == 0) return res;
     size_t from_size = size();
@@ -169,11 +186,13 @@ MutableColumnPtr ColumnArray::clone_resized(size_t to_size) const {
     return res;
 }
 
-size_t ColumnArray::size() const {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::size() const {
     return get_offsets().size();
 }
 
-Field ColumnArray::operator[](size_t n) const {
+template <SubcolumnNullability nullability>
+Field ColumnArrayImpl<nullability>::operator[](size_t n) const {
     size_t offset = offset_at(n);
     size_t size = size_at(n);
 
@@ -190,7 +209,8 @@ Field ColumnArray::operator[](size_t n) const {
     return Field::create_field<TYPE_ARRAY>(res);
 }
 
-void ColumnArray::get(size_t n, Field& res) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::get(size_t n, Field& res) const {
     size_t offset = offset_at(n);
     size_t size = size_at(n);
 
@@ -206,12 +226,14 @@ void ColumnArray::get(size_t n, Field& res) const {
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
 }
 
-bool ColumnArray::is_default_at(size_t n) const {
+template <SubcolumnNullability nullability>
+bool ColumnArrayImpl<nullability>::is_default_at(size_t n) const {
     const auto& offsets_data = get_offsets();
     return offsets_data[n] == offsets_data[static_cast<ssize_t>(n) - 1];
 }
 
-size_t ColumnArray::serialize_size_at(size_t row) const {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::serialize_size_at(size_t row) const {
     size_t array_size = size_at(row);
     size_t offset = offset_at(row);
 
@@ -224,7 +246,8 @@ size_t ColumnArray::serialize_size_at(size_t row) const {
     return sz + sizeof(size_t);
 }
 
-size_t ColumnArray::serialize_impl(char* pos, const size_t row) const {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::serialize_impl(char* pos, const size_t row) const {
     size_t array_size = size_at(row);
     size_t offset = offset_at(row);
 
@@ -240,17 +263,19 @@ size_t ColumnArray::serialize_impl(char* pos, const size_t row) const {
     return sz;
 }
 
-StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
-                                                  char const*& begin) const {
+template <SubcolumnNullability nullability>
+StringRef ColumnArrayImpl<nullability>::serialize_value_into_arena(size_t n, Arena& arena,
+                                                                   char const*& begin) const {
     char* pos = arena.alloc_continue(serialize_size_at(n), begin);
     return {pos, serialize_impl(pos, n)};
 }
 
+template <SubcolumnNullability nullability>
 template <bool positive>
-struct ColumnArray::less {
-    const ColumnArray& parent;
+struct ColumnArrayImpl<nullability>::less {
+    const ColumnArrayImpl& parent;
     const int nan_direction_hint;
-    explicit less(const ColumnArray& parent_, int nan_direction_hint_)
+    explicit less(const ColumnArrayImpl& parent_, int nan_direction_hint_)
             : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
         size_t lhs_size = parent.size_at(lhs);
@@ -275,8 +300,15 @@ struct ColumnArray::less {
     }
 };
 
-void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                  HybridSorter& sorter, IColumn::Permutation& res) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::get_permutation(bool reverse, size_t limit,
+                                                   int nan_direction_hint, HybridSorter& sorter,
+                                                   IColumn::Permutation& res) const {
+    if constexpr (nullability == SubcolumnNullability::NotNullable) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnArrayNotNull does not support get_permutation");
+    }
+
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -284,21 +316,36 @@ void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_
     }
 
     if (reverse) {
-        sorter.sort(res.begin(), res.end(), ColumnArray::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(),
+                    ColumnArrayImpl::less<false>(*this, nan_direction_hint));
     } else {
-        sorter.sort(res.begin(), res.end(), ColumnArray::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnArrayImpl::less<true>(*this, nan_direction_hint));
     }
 }
 
-void ColumnArray::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
-                              IColumn::Permutation& perms, EqualRange& range,
-                              bool last_column) const {
-    sorter->sort_column(static_cast<const ColumnArray&>(*this), flags, perms, range, last_column);
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                               IColumn::Permutation& perms, EqualRange& range,
+                                               bool last_column) const {
+    if constexpr (nullability == SubcolumnNullability::Nullable) {
+        sorter->sort_column(static_cast<const ColumnArray&>(*this), flags, perms, range,
+                            last_column);
+    } else {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnArrayNotNull does not support sort_column");
+    }
 }
 
-int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
+template <SubcolumnNullability nullability>
+int ColumnArrayImpl<nullability>::compare_at(size_t n, size_t m, const IColumn& rhs_,
+                                             int nan_direction_hint) const {
+    if constexpr (nullability == SubcolumnNullability::NotNullable) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnArrayNotNull does not support compare_at");
+    }
+
     // since column type is complex, we can't use this function
-    const auto& rhs = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(rhs_);
+    const auto& rhs = assert_cast<const ColumnArrayImpl&, TypeCheckOnRelease::DISABLE>(rhs_);
 
     size_t lhs_size = size_at(n);
     size_t rhs_size = rhs.size_at(m);
@@ -316,7 +363,8 @@ int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_dir
     return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
 }
 
-size_t ColumnArray::get_max_row_byte_size() const {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::get_max_row_byte_size() const {
     size_t max_size = 0;
     size_t num_rows = size();
     auto sz = data->get_max_row_byte_size();
@@ -327,7 +375,8 @@ size_t ColumnArray::get_max_row_byte_size() const {
     return sizeof(size_t) + max_size;
 }
 
-void ColumnArray::serialize(StringRef* keys, size_t num_rows) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
@@ -335,7 +384,8 @@ void ColumnArray::serialize(StringRef* keys, size_t num_rows) const {
     }
 }
 
-size_t ColumnArray::deserialize_impl(const char* pos) {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::deserialize_impl(const char* pos) {
     size_t sz = 0;
     size_t array_size = unaligned_load<size_t>(pos);
     sz += sizeof(size_t);
@@ -346,7 +396,8 @@ size_t ColumnArray::deserialize_impl(const char* pos) {
     return sz;
 }
 
-void ColumnArray::deserialize(StringRef* keys, const size_t num_rows) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
@@ -354,11 +405,13 @@ void ColumnArray::deserialize(StringRef* keys, const size_t num_rows) {
     }
 }
 
-const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos) {
+template <SubcolumnNullability nullability>
+const char* ColumnArrayImpl<nullability>::deserialize_and_insert_from_arena(const char* pos) {
     return pos + deserialize_impl(pos);
 }
 
-void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::update_hash_with_value(size_t n, SipHash& hash) const {
     size_t array_size = size_at(n);
     size_t offset = offset_at(n);
 
@@ -366,8 +419,9 @@ void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 // for every array row calculate xxHash
-void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
-                                           const uint8_t* __restrict null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::update_xxHash_with_value(
+        size_t start, size_t end, uint64_t& hash, const uint8_t* __restrict null_data) const {
     auto& offsets_column = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
@@ -397,8 +451,9 @@ void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& h
 }
 
 // for every array row calculate crcHash
-void ColumnArray::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
-                                        const uint8_t* __restrict null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::update_crc_with_value(
+        size_t start, size_t end, uint32_t& hash, const uint8_t* __restrict null_data) const {
     auto& offsets_column = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
@@ -427,8 +482,9 @@ void ColumnArray::update_crc_with_value(size_t start, size_t end, uint32_t& hash
     }
 }
 
-void ColumnArray::update_hashes_with_value(uint64_t* __restrict hashes,
-                                           const uint8_t* __restrict null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::update_hashes_with_value(
+        uint64_t* __restrict hashes, const uint8_t* __restrict null_data) const {
     auto s = size();
     if (null_data) {
         for (size_t i = 0; i < s; ++i) {
@@ -443,9 +499,10 @@ void ColumnArray::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
-                                         uint32_t rows, uint32_t offset,
-                                         const uint8_t* __restrict null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::update_crcs_with_value(
+        uint32_t* __restrict hash, PrimitiveType type, uint32_t rows, uint32_t offset,
+        const uint8_t* __restrict null_data) const {
     auto s = rows;
     DCHECK(s == size());
 
@@ -463,8 +520,9 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
     }
 }
 
-void ColumnArray::update_crc32c_batch(uint32_t* __restrict hashes,
-                                      const uint8_t* __restrict null_map) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                                       const uint8_t* __restrict null_map) const {
     auto s = size();
     if (null_map) {
         for (size_t i = 0; i < s; ++i) {
@@ -479,8 +537,9 @@ void ColumnArray::update_crc32c_batch(uint32_t* __restrict hashes,
     }
 }
 
-void ColumnArray::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
-                                       const uint8_t* __restrict null_map) const {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                                        const uint8_t* __restrict null_map) const {
     const auto& offsets_column = get_offsets();
     if (null_map) {
         for (size_t i = start; i < end; ++i) {
@@ -507,7 +566,8 @@ void ColumnArray::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
     }
 }
 
-void ColumnArray::insert(const Field& x) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_ARRAY);
     if (x.is_null()) {
         get_data().insert(Field::create_field<TYPE_NULL>(Null()));
@@ -522,9 +582,10 @@ void ColumnArray::insert(const Field& x) {
     }
 }
 
-void ColumnArray::insert_from(const IColumn& src_, size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::insert_from(const IColumn& src_, size_t n) {
     DCHECK_LT(n, src_.size());
-    const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
+    const ColumnArrayImpl& src = assert_cast<const ColumnArrayImpl&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
 
@@ -539,14 +600,16 @@ void ColumnArray::insert_from(const IColumn& src_, size_t n) {
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnArray::insert_default() {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::insert_default() {
     /// NOTE 1: We can use back() even if the array is empty (due to zero -1th element in PODArray).
     /// NOTE 2: We cannot use reference in push_back, because reference get invalidated if array is reallocated.
     auto last_offset = get_offsets().back();
     get_offsets().push_back(last_offset);
 }
 
-void ColumnArray::pop_back(size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::pop_back(size_t n) {
     auto& offsets_data = get_offsets();
     DCHECK(n <= offsets_data.size()) << " n:" << n << " with offsets size: " << offsets_data.size();
     size_t nested_n = offsets_data.back() - offset_at(offsets_data.size() - n);
@@ -554,35 +617,41 @@ void ColumnArray::pop_back(size_t n) {
     offsets_data.resize_assume_reserved(offsets_data.size() - n);
 }
 
-void ColumnArray::reserve(size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::reserve(size_t n) {
     get_offsets().reserve(n);
     get_data().reserve(
             n); /// The average size of arrays is not taken into account here. Or it is considered to be no more than 1.
 }
 
 //please check you real need size in data column, because it's maybe need greater size when data is string column
-void ColumnArray::resize(size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
     // make new size of data column
     get_data().resize(get_offsets().back());
 }
 
-size_t ColumnArray::byte_size() const {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::byte_size() const {
     return get_data().byte_size() + get_offsets().size() * sizeof(get_offsets()[0]);
 }
 
-size_t ColumnArray::allocated_bytes() const {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::allocated_bytes() const {
     return get_data().allocated_bytes() + get_offsets().allocated_bytes();
 }
 
-bool ColumnArray::has_enough_capacity(const IColumn& src) const {
-    const auto& src_concrete = assert_cast<const ColumnArray&>(src);
+template <SubcolumnNullability nullability>
+bool ColumnArrayImpl<nullability>::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnArrayImpl&>(src);
     return get_data().has_enough_capacity(src_concrete.get_data()) &&
            get_offsets_column().has_enough_capacity(src_concrete.get_offsets_column());
 }
 
-bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
+template <SubcolumnNullability nullability>
+bool ColumnArrayImpl<nullability>::has_equal_offsets(const ColumnArrayImpl& other) const {
     const Offsets64& offsets1 = get_offsets();
     const Offsets64& offsets2 = other.get_offsets();
     return offsets1.size() == offsets2.size() &&
@@ -590,10 +659,12 @@ bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
             0 == memcmp(offsets1.data(), offsets2.data(), sizeof(offsets1[0]) * offsets1.size()));
 }
 
-void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t length) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::insert_range_from(const IColumn& src, size_t start,
+                                                     size_t length) {
     if (length == 0) return;
 
-    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
+    const ColumnArrayImpl& src_concrete = assert_cast<const ColumnArrayImpl&>(src);
 
     if (start + length > src_concrete.get_offsets().size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -624,9 +695,10 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
     }
 }
 
-void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
-                                                    size_t length) {
-    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::insert_range_from_ignore_overflow(const IColumn& src,
+                                                                     size_t start, size_t length) {
+    const ColumnArrayImpl& src_concrete = assert_cast<const ColumnArrayImpl&>(src);
 
     if (start + length > src_concrete.get_offsets().size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -885,13 +957,15 @@ ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t re
     return filter_generic_return_new(filt, result_size_hint, data, offsets);
 }
 
-ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
+template <SubcolumnNullability nullability>
+ColumnPtr ColumnArrayImpl<nullability>::filter(const Filter& filt, ssize_t result_size_hint) const {
     // return empty
     if (this->empty()) {
-        return ColumnArray::create(data);
+        return ColumnArrayImpl::create(data);
     }
 
-    if (const auto* nullable_data_column = check_and_get_column<ColumnNullable>(*data)) {
+    if constexpr (nullability == SubcolumnNullability::Nullable) {
+        const auto* nullable_data_column = assert_cast<const ColumnNullable*>(data.get());
         auto res_null_map = ColumnUInt8::create();
         // filter null map
         filter_arrays_impl_only_data(nullable_data_column->get_null_map_data(), get_offsets(),
@@ -902,7 +976,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, src_data, src_offsets);
 
-        return ColumnArray::create(
+        return ColumnArrayImpl::create(
                 ColumnNullable::create(array_of_nested.data, std::move(res_null_map)),
                 array_of_nested.offsets);
     } else {
@@ -910,7 +984,7 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
         const auto* src_offsets = offsets.get();
         auto array_of_nested =
                 filter_return_new_dispatch(filt, result_size_hint, data, src_offsets);
-        return ColumnArray::create(array_of_nested.data, std::move(array_of_nested.offsets));
+        return ColumnArrayImpl::create(array_of_nested.data, std::move(array_of_nested.offsets));
     }
 }
 
@@ -949,12 +1023,14 @@ size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
     return filter_generic_inplace(filter, src_data, src_offsets);
 }
 
-size_t ColumnArray::filter(const Filter& filter) {
+template <SubcolumnNullability nullability>
+size_t ColumnArrayImpl<nullability>::filter(const Filter& filter) {
     if (this->empty()) {
         return 0;
     }
 
-    if (auto* nullable_data_column = check_and_get_column<ColumnNullable>(data.get())) {
+    if constexpr (nullability == SubcolumnNullability::Nullable) {
+        auto* nullable_data_column = assert_cast<ColumnNullable*>(data.get());
         const auto result_size = filter_arrays_impl_only_data(
                 nullable_data_column->get_null_map_data(), get_offsets(), filter);
 
@@ -970,20 +1046,26 @@ size_t ColumnArray::filter(const Filter& filter) {
     }
 }
 
-void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                      const uint32_t* indices_end) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::insert_indices_from(const IColumn& src,
+                                                       const uint32_t* indices_begin,
+                                                       const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
-        ColumnArray::insert_from(src, *x);
+        ColumnArrayImpl::insert_from(src, *x);
     }
 }
 
-void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t length) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::insert_many_from(const IColumn& src, size_t position,
+                                                    size_t length) {
     for (auto x = 0; x != length; ++x) {
-        ColumnArray::insert_from(src, position);
+        ColumnArrayImpl::insert_from(src, position);
     }
 }
 
-MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
+template <SubcolumnNullability nullability>
+MutableColumnPtr ColumnArrayImpl<nullability>::permute(const Permutation& perm,
+                                                       size_t limit) const {
     size_t size = offsets->size();
     if (limit == 0) {
         limit = size;
@@ -996,10 +1078,10 @@ MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) con
         __builtin_unreachable();
     }
     if (limit == 0) {
-        return ColumnArray::create(data);
+        return ColumnArrayImpl::create(data);
     }
 
-    auto res = ColumnArray::create(data->clone_empty());
+    auto res = ColumnArrayImpl::create(data->clone_empty());
     auto& res_offsets = res->get_offsets();
     res_offsets.resize(limit);
 
@@ -1018,7 +1100,8 @@ MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) con
     return res;
 }
 
-void ColumnArray::erase(size_t start, size_t length) {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::erase(size_t start, size_t length) {
     if (start >= size() || length == 0) {
         return;
     }
@@ -1036,8 +1119,12 @@ void ColumnArray::erase(size_t start, size_t length) {
     }
 }
 
-void ColumnArray::replace_float_special_values() {
+template <SubcolumnNullability nullability>
+void ColumnArrayImpl<nullability>::replace_float_special_values() {
     get_data().replace_float_special_values();
 }
+
+template class ColumnArrayImpl<SubcolumnNullability::Nullable>;
+template class ColumnArrayImpl<SubcolumnNullability::NotNullable>;
 
 } // namespace doris

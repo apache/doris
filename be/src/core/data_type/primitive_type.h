@@ -26,6 +26,7 @@
 #include <string>
 
 #include "common/cast_set.h"
+#include "core/column/subcolumn_nullability.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/decimal12.h"
 #include "core/string_view.h"
@@ -40,7 +41,10 @@ namespace doris {
 template <typename T>
 class ColumnStr;
 class IColumnDummy;
-class ColumnMap;
+template <SubcolumnNullability nullability>
+class ColumnMapImpl;
+using ColumnMap = ColumnMapImpl<SubcolumnNullability::Nullable>;
+using ColumnMapNotNull = ColumnMapImpl<SubcolumnNullability::NotNullable>;
 class ColumnVariant;
 class ColumnStruct;
 class ColumnVarbinary;
@@ -126,7 +130,10 @@ using ColumnDecimal64 = ColumnDecimal<TYPE_DECIMAL64>;
 using ColumnDecimal128V2 = ColumnDecimal<TYPE_DECIMALV2>;
 using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
 using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
-class ColumnArray;
+template <SubcolumnNullability nullability>
+class ColumnArrayImpl;
+using ColumnArray = ColumnArrayImpl<SubcolumnNullability::Nullable>;
+using ColumnArrayNotNull = ColumnArrayImpl<SubcolumnNullability::NotNullable>;
 
 class DecimalV2Value;
 

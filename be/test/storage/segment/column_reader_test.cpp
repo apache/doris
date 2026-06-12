@@ -29,6 +29,9 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "io/fs/file_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/mock/mock_segment.h"
@@ -288,8 +291,8 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     map_iter.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
 
     // prepare an empty ColumnMap as destination
-    auto keys = ColumnInt32::create();
-    auto values = ColumnInt32::create();
+    auto keys = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
+    auto values = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
     auto offsets = ColumnArray::ColumnOffsets::create();
     auto column_map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
     MutableColumnPtr dst = std::move(column_map);

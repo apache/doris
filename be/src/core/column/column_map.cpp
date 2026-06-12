@@ -41,6 +41,9 @@
 class SipHash;
 
 namespace doris {
+
+using Offset64 = IColumn::Offset64;
+
 namespace {
 
 const ColumnMap::COffsets& check_map_offsets_column(const IColumn& offsets_column) {
@@ -87,38 +90,87 @@ void validate_map_columns(const IColumn& keys, const IColumn& values, const ICol
     }
 }
 
+template <SubcolumnNullability nullability>
+void check_map_subcolumns_nullability(const IColumn& keys, const IColumn& values) {
+    if constexpr (nullability == SubcolumnNullability::Nullable) {
+        if (!keys.is_nullable() || !values.is_nullable()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "map keys and values must be nullable, but got {}, {}",
+                                   keys.get_name(), values.get_name());
+        }
+    } else {
+        if (keys.is_nullable() || values.is_nullable()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "map keys and values must be not nullable, but got {}, {}",
+                                   keys.get_name(), values.get_name());
+        }
+    }
+}
+
+Status deduplicate_plain_map_values(IColumn::WrappedPtr& values_column, bool recursive) {
+    auto values_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
+    auto& values_map = assert_cast<ColumnMap&>(*values_mut);
+    RETURN_IF_ERROR(values_map.deduplicate_keys(recursive));
+    static_cast<IColumn::Ptr&>(values_column) = std::move(values_mut);
+    return Status::OK();
+}
+
+Status deduplicate_nullable_map_values(IColumn::WrappedPtr& values_column, bool recursive) {
+    auto values_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
+    auto& nullable_values_mut = assert_cast<ColumnNullable&>(*values_mut);
+    auto nested_values_mut = IColumn::mutate(
+            static_cast<const ColumnNullable&>(nullable_values_mut).get_nested_column_ptr());
+    auto& nested_values_map = assert_cast<ColumnMap&>(*nested_values_mut);
+    RETURN_IF_ERROR(nested_values_map.deduplicate_keys(recursive));
+    ColumnPtr nested_values_ptr = std::move(nested_values_mut);
+    nullable_values_mut.change_nested_column(nested_values_ptr);
+    static_cast<IColumn::Ptr&>(values_column) = std::move(values_mut);
+    return Status::OK();
+}
+
 } // namespace
 
 /** A column of map values.
   */
-std::string ColumnMap::get_name() const {
+template <SubcolumnNullability nullability>
+std::string ColumnMapImpl<nullability>::get_name() const {
     return "Map(" + keys_column->get_name() + ", " + values_column->get_name() + ")";
 }
 
-ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets)
+template <SubcolumnNullability nullability>
+ColumnMapImpl<nullability>::ColumnMapImpl(MutableColumnPtr&& keys, MutableColumnPtr&& values,
+                                          MutableColumnPtr&& offsets)
         : keys_column(std::move(keys)),
           values_column(std::move(values)),
           offsets_column(assert_mutable_map_offsets(std::move(offsets))) {
-    check_const_only_in_top_level();
+    check_map_subcolumns_nullability<nullability>(*keys_column, *values_column);
+    this->check_const_only_in_top_level();
     validate_map_columns(*static_cast<const IColumn::Ptr&>(keys_column),
                          *static_cast<const IColumn::Ptr&>(values_column),
                          *static_cast<const COffsets::Ptr&>(offsets_column));
 }
 
-ColumnMap::ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets) {
+template <SubcolumnNullability nullability>
+ColumnMapImpl<nullability>::ColumnMapImpl(SharedTag, ColumnPtr keys, ColumnPtr values,
+                                          ColumnPtr offsets) {
+    check_column_not_const(*keys);
+    check_column_not_const(*values);
+    check_column_not_const(*offsets);
     static_cast<IColumn::Ptr&>(keys_column) = std::move(keys);
     static_cast<IColumn::Ptr&>(values_column) = std::move(values);
     static_cast<COffsets::Ptr&>(offsets_column) = check_map_offsets_column_ptr(offsets);
-    check_const_only_in_top_level();
+    check_map_subcolumns_nullability<nullability>(*static_cast<const IColumn::Ptr&>(keys_column),
+                                                  *static_cast<const IColumn::Ptr&>(values_column));
     validate_map_columns(*static_cast<const IColumn::Ptr&>(keys_column),
                          *static_cast<const IColumn::Ptr&>(values_column),
                          *static_cast<const COffsets::Ptr&>(offsets_column));
 }
 
 // todo. here to resize every row map
-MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
-    auto res = ColumnMap::create(get_keys().clone_empty(), get_values().clone_empty(),
-                                 COffsets::create());
+template <SubcolumnNullability nullability>
+MutableColumnPtr ColumnMapImpl<nullability>::clone_resized(size_t to_size) const {
+    auto res = ColumnMapImpl::create(get_keys().clone_empty(), get_values().clone_empty(),
+                                     COffsets::create());
     if (to_size == 0) {
         return res;
     }
@@ -147,7 +199,8 @@ MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
 }
 
 // to support field functions
-Field ColumnMap::operator[](size_t n) const {
+template <SubcolumnNullability nullability>
+Field ColumnMapImpl<nullability>::operator[](size_t n) const {
     size_t start_offset = offset_at(n);
     size_t element_size = size_at(n);
 
@@ -170,11 +223,13 @@ Field ColumnMap::operator[](size_t n) const {
 }
 
 // here to compare to below
-void ColumnMap::get(size_t n, Field& res) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::get(size_t n, Field& res) const {
     res = operator[](n);
 }
 
-void ColumnMap::insert(const Field& x) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_MAP);
     const auto& map = x.get<TYPE_MAP>();
     CHECK_EQ(map.size(), 2);
@@ -190,12 +245,14 @@ void ColumnMap::insert(const Field& x) {
     get_offsets().push_back(get_offsets().back() + element_size);
 }
 
-void ColumnMap::insert_default() {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::insert_default() {
     auto last_offset = get_offsets().back();
     get_offsets().push_back(last_offset);
 }
 
-void ColumnMap::pop_back(size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::pop_back(size_t n) {
     auto& offsets_data = get_offsets();
     DCHECK(n <= offsets_data.size());
     size_t elems_size = offsets_data.back() - offset_at(offsets_data.size() - n);
@@ -209,45 +266,45 @@ void ColumnMap::pop_back(size_t n) {
     offsets_data.resize_assume_reserved(offsets_data.size() - n);
 }
 
-void ColumnMap::insert_from(const IColumn& src_, size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::insert_from(const IColumn& src_, size_t n) {
     DCHECK(n < src_.size());
-    const ColumnMap& src = assert_cast<const ColumnMap&>(src_);
+    const ColumnMapImpl& src = assert_cast<const ColumnMapImpl&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
 
-    if ((!get_keys().is_nullable() && src.get_keys().is_nullable()) ||
-        (!get_values().is_nullable() && src.get_values().is_nullable())) {
-        DCHECK(false);
-    } else if ((get_keys().is_nullable() && !src.get_keys().is_nullable()) ||
-               (get_values().is_nullable() && !src.get_values().is_nullable())) {
-        DCHECK(false);
-    } else {
-        keys_column->insert_range_from(src.get_keys(), offset, size);
-        values_column->insert_range_from(src.get_values(), offset, size);
-    }
+    keys_column->insert_range_from(src.get_keys(), offset, size);
+    values_column->insert_range_from(src.get_values(), offset, size);
 
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                    const uint32_t* indices_end) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::insert_indices_from(const IColumn& src,
+                                                     const uint32_t* indices_begin,
+                                                     const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
-        ColumnMap::insert_from(src, *x);
+        ColumnMapImpl::insert_from(src, *x);
     }
 }
 
-void ColumnMap::insert_many_from(const IColumn& src, size_t position, size_t length) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::insert_many_from(const IColumn& src, size_t position,
+                                                  size_t length) {
     for (auto x = 0; x != length; ++x) {
-        ColumnMap::insert_from(src, position);
+        ColumnMapImpl::insert_from(src, position);
     }
 }
 
-StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
+template <SubcolumnNullability nullability>
+StringRef ColumnMapImpl<nullability>::serialize_value_into_arena(size_t n, Arena& arena,
+                                                                 char const*& begin) const {
     char* pos = arena.alloc_continue(serialize_size_at(n), begin);
     return {pos, serialize_impl(pos, n)};
 }
 
-size_t ColumnMap::serialize_impl(char* pos, const size_t row) const {
+template <SubcolumnNullability nullability>
+size_t ColumnMapImpl<nullability>::serialize_impl(char* pos, const size_t row) const {
     size_t array_size = size_at(row);
     size_t offset = offset_at(row);
 
@@ -265,7 +322,8 @@ size_t ColumnMap::serialize_impl(char* pos, const size_t row) const {
     return sz;
 }
 
-size_t ColumnMap::serialize_size_at(size_t row) const {
+template <SubcolumnNullability nullability>
+size_t ColumnMapImpl<nullability>::serialize_size_at(size_t row) const {
     size_t array_size = size_at(row);
     size_t offset = offset_at(row);
 
@@ -282,7 +340,8 @@ size_t ColumnMap::serialize_size_at(size_t row) const {
     return sz + sizeof(size_t);
 }
 
-size_t ColumnMap::deserialize_impl(const char* pos) {
+template <SubcolumnNullability nullability>
+size_t ColumnMapImpl<nullability>::deserialize_impl(const char* pos) {
     size_t sz = 0;
     size_t array_size = unaligned_load<size_t>(pos);
     sz += sizeof(array_size);
@@ -299,12 +358,20 @@ size_t ColumnMap::deserialize_impl(const char* pos) {
     return sz;
 }
 
-const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
+template <SubcolumnNullability nullability>
+const char* ColumnMapImpl<nullability>::deserialize_and_insert_from_arena(const char* pos) {
     return pos + deserialize_impl(pos);
 }
 
-int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
-    const auto& rhs = assert_cast<const ColumnMap&, TypeCheckOnRelease::DISABLE>(rhs_);
+template <SubcolumnNullability nullability>
+int ColumnMapImpl<nullability>::compare_at(size_t n, size_t m, const IColumn& rhs_,
+                                           int nan_direction_hint) const {
+    if constexpr (nullability == SubcolumnNullability::NotNullable) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnMapNotNull does not support compare_at");
+    }
+
+    const auto& rhs = assert_cast<const ColumnMapImpl&, TypeCheckOnRelease::DISABLE>(rhs_);
 
     size_t lhs_size = size_at(n);
     size_t rhs_size = rhs.size_at(m);
@@ -332,7 +399,8 @@ int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direc
     return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
 }
 
-void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::update_hash_with_value(size_t n, SipHash& hash) const {
     size_t kv_size = size_at(n);
     size_t offset = offset_at(n);
 
@@ -343,8 +411,9 @@ void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
-void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
-                                         const uint8_t* __restrict null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::update_xxHash_with_value(
+        size_t start, size_t end, uint64_t& hash, const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
@@ -374,8 +443,9 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
-                                      const uint8_t* __restrict null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                                       const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
@@ -404,7 +474,9 @@ void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
     }
 }
 
-void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::update_hashes_with_value(uint64_t* hashes,
+                                                          const uint8_t* null_data) const {
     size_t s = size();
     if (null_data) {
         for (size_t i = 0; i < s; ++i) {
@@ -420,8 +492,11 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
     }
 }
 
-void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
-                                       uint32_t offset, const uint8_t* __restrict null_data) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::update_crcs_with_value(uint32_t* __restrict hash,
+                                                        PrimitiveType type, uint32_t rows,
+                                                        uint32_t offset,
+                                                        const uint8_t* __restrict null_data) const {
     auto s = rows;
     DCHECK(s == size());
 
@@ -439,8 +514,9 @@ void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType 
     }
 }
 
-void ColumnMap::update_crc32c_batch(uint32_t* __restrict hashes,
-                                    const uint8_t* __restrict null_map) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                                     const uint8_t* __restrict null_map) const {
     auto s = size();
     if (null_map) {
         for (size_t i = 0; i < s; ++i) {
@@ -455,8 +531,9 @@ void ColumnMap::update_crc32c_batch(uint32_t* __restrict hashes,
     }
 }
 
-void ColumnMap::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
-                                     const uint8_t* __restrict null_map) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                                      const uint8_t* __restrict null_map) const {
     const auto& offsets = get_offsets();
     if (null_map) {
         for (size_t i = start; i < end; ++i) {
@@ -483,12 +560,14 @@ void ColumnMap::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
     }
 }
 
-void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t length) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::insert_range_from(const IColumn& src, size_t start,
+                                                   size_t length) {
     if (length == 0) {
         return;
     }
 
-    const ColumnMap& src_concrete = assert_cast<const ColumnMap&>(src);
+    const ColumnMapImpl& src_concrete = assert_cast<const ColumnMapImpl&>(src);
 
     if (start + length > src_concrete.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -521,8 +600,10 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
     }
 }
 
-void ColumnMap::insert_range_from_ignore_overflow(const IColumn& src, size_t start, size_t length) {
-    const ColumnMap& src_concrete = assert_cast<const ColumnMap&>(src);
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                                   size_t length) {
+    const ColumnMapImpl& src_concrete = assert_cast<const ColumnMapImpl&>(src);
 
     if (start + length > src_concrete.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -557,19 +638,24 @@ void ColumnMap::insert_range_from_ignore_overflow(const IColumn& src, size_t sta
     }
 }
 
-ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const {
-    auto k_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(keys_column),
-                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
+template <SubcolumnNullability nullability>
+ColumnPtr ColumnMapImpl<nullability>::filter(const Filter& filt, ssize_t result_size_hint) const {
+    auto k_arr = ColumnArrayImpl<nullability>::create(
+                         static_cast<const IColumn::Ptr&>(keys_column),
+                         static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->filter(filt, result_size_hint);
-    auto v_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(values_column),
-                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
+    auto v_arr = ColumnArrayImpl<nullability>::create(
+                         static_cast<const IColumn::Ptr&>(values_column),
+                         static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->filter(filt, result_size_hint);
-    return ColumnMap::create(assert_cast<const ColumnArray&>(*k_arr).get_data_ptr(),
-                             assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
-                             assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
+    return ColumnMapImpl::create(
+            assert_cast<const ColumnArrayImpl<nullability>&>(*k_arr).get_data_ptr(),
+            assert_cast<const ColumnArrayImpl<nullability>&>(*v_arr).get_data_ptr(),
+            assert_cast<const ColumnArrayImpl<nullability>&>(*k_arr).get_offsets_ptr());
 }
 
-size_t ColumnMap::filter(const Filter& filter) {
+template <SubcolumnNullability nullability>
+size_t ColumnMapImpl<nullability>::filter(const Filter& filter) {
     // Move subcolumns out of this ColumnMap to get exclusive ownership, then write back.
     auto keys_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(keys_column)));
     auto offsets_mut = IColumn::mutate(std::move(get_offsets_ptr()));
@@ -577,9 +663,9 @@ size_t ColumnMap::filter(const Filter& filter) {
     // Clone offsets for values (both keys and values share the same offsets structure)
     MutableColumnPtr copied_off = offsets_mut->clone_empty();
     copied_off->insert_range_from(*offsets_mut, 0, offsets_mut->size());
-    auto k_arr = ColumnArray::create(std::move(keys_mut), std::move(offsets_mut));
+    auto k_arr = ColumnArrayImpl<nullability>::create(std::move(keys_mut), std::move(offsets_mut));
     k_arr->filter(filter);
-    auto v_arr = ColumnArray::create(std::move(values_mut), std::move(copied_off));
+    auto v_arr = ColumnArrayImpl<nullability>::create(std::move(values_mut), std::move(copied_off));
     v_arr->filter(filter);
     // Put filtered subcolumns back
     static_cast<IColumn::Ptr&>(keys_column) = k_arr->get_data_ptr();
@@ -590,46 +676,43 @@ size_t ColumnMap::filter(const Filter& filter) {
     return static_cast<const COffsets::Ptr&>(offsets_column)->size();
 }
 
-MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
-    auto k_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(keys_column),
-                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
+template <SubcolumnNullability nullability>
+MutableColumnPtr ColumnMapImpl<nullability>::permute(const Permutation& perm, size_t limit) const {
+    auto k_arr = ColumnArrayImpl<nullability>::create(
+                         static_cast<const IColumn::Ptr&>(keys_column),
+                         static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->permute(perm, limit);
-    auto v_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(values_column),
-                                     static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
+    auto v_arr = ColumnArrayImpl<nullability>::create(
+                         static_cast<const IColumn::Ptr&>(values_column),
+                         static_cast<const IColumn::Ptr&>(get_offsets_ptr()))
                          ->permute(perm, limit);
 
-    return ColumnMap::create(assert_cast<const ColumnArray&>(*k_arr).get_data_ptr(),
-                             assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
-                             assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
+    return ColumnMapImpl::create(
+            assert_cast<const ColumnArrayImpl<nullability>&>(*k_arr).get_data_ptr(),
+            assert_cast<const ColumnArrayImpl<nullability>&>(*v_arr).get_data_ptr(),
+            assert_cast<const ColumnArrayImpl<nullability>&>(*k_arr).get_offsets_ptr());
 }
 
-Status ColumnMap::deduplicate_keys(bool recursive) {
+template <SubcolumnNullability nullability>
+Status ColumnMapImpl<nullability>::deduplicate_keys(bool recursive) {
+    if constexpr (nullability == SubcolumnNullability::NotNullable) {
+        return Status::InternalError("ColumnMapNotNull does not support deduplicate_keys");
+    }
+
     const IColumn& ck = *static_cast<const IColumn::Ptr&>(keys_column);
-    const auto& offsets = static_cast<const ColumnMap*>(this)->get_offsets();
+    const auto& offsets = static_cast<const ColumnMapImpl*>(this)->get_offsets();
     const auto inner_rows = ck.size();
     const auto rows = offsets.size();
 
     if (recursive) {
         const auto& values_ptr = static_cast<const IColumn::Ptr&>(values_column);
         if (const auto* nullable_values = check_and_get_column<ColumnNullable>(values_ptr.get())) {
-            if (check_and_get_column<ColumnMap>(nullable_values->get_nested_column_ptr().get())) {
-                auto values_mut =
-                        IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
-                auto& nullable_values_mut = assert_cast<ColumnNullable&>(*values_mut);
-                auto nested_values_mut =
-                        IColumn::mutate(static_cast<const ColumnNullable&>(nullable_values_mut)
-                                                .get_nested_column_ptr());
-                auto& nested_values_map = assert_cast<ColumnMap&>(*nested_values_mut);
-                RETURN_IF_ERROR(nested_values_map.deduplicate_keys(recursive));
-                ColumnPtr nested_values_ptr = std::move(nested_values_mut);
-                nullable_values_mut.change_nested_column(nested_values_ptr);
-                static_cast<IColumn::Ptr&>(values_column) = std::move(values_mut);
+            const auto* nested_values = nullable_values->get_nested_column_ptr().get();
+            if (check_and_get_column<ColumnMap>(nested_values)) {
+                RETURN_IF_ERROR(deduplicate_nullable_map_values(values_column, recursive));
             }
         } else if (check_and_get_column<ColumnMap>(values_ptr.get())) {
-            auto values_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
-            auto& values_map = assert_cast<ColumnMap&>(*values_mut);
-            RETURN_IF_ERROR(values_map.deduplicate_keys(recursive));
-            static_cast<IColumn::Ptr&>(values_column) = std::move(values_mut);
+            RETURN_IF_ERROR(deduplicate_plain_map_values(values_column, recursive));
         }
     }
 
@@ -710,13 +793,15 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
     return Status::OK();
 }
 
-void ColumnMap::reserve(size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);
     values_column->reserve(n);
 }
 
-void ColumnMap::resize(size_t n) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
     // make new size of data column
@@ -724,30 +809,35 @@ void ColumnMap::resize(size_t n) {
     get_values().resize(get_offsets().back());
 }
 
-size_t ColumnMap::byte_size() const {
+template <SubcolumnNullability nullability>
+size_t ColumnMapImpl<nullability>::byte_size() const {
     return keys_column->byte_size() + values_column->byte_size() + offsets_column->byte_size();
     ;
 }
 
-size_t ColumnMap::allocated_bytes() const {
+template <SubcolumnNullability nullability>
+size_t ColumnMapImpl<nullability>::allocated_bytes() const {
     return keys_column->allocated_bytes() + values_column->allocated_bytes() +
            get_offsets().allocated_bytes();
 }
 
-bool ColumnMap::has_enough_capacity(const IColumn& src) const {
-    const auto& src_concrete = assert_cast<const ColumnMap&>(src);
+template <SubcolumnNullability nullability>
+bool ColumnMapImpl<nullability>::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnMapImpl&>(src);
     return keys_column->has_enough_capacity(*src_concrete.keys_column) &&
            values_column->has_enough_capacity(*src_concrete.values_column) &&
            offsets_column->has_enough_capacity(*src_concrete.offsets_column);
 }
 
-ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
-    return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
-                             values_column->convert_to_full_column_if_const(),
-                             offsets_column->convert_to_full_column_if_const());
+template <SubcolumnNullability nullability>
+ColumnPtr ColumnMapImpl<nullability>::convert_to_full_column_if_const() const {
+    return ColumnMapImpl::create(keys_column->convert_to_full_column_if_const(),
+                                 values_column->convert_to_full_column_if_const(),
+                                 offsets_column->convert_to_full_column_if_const());
 }
 
-void ColumnMap::erase(size_t start, size_t length) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::erase(size_t start, size_t length) {
     if (start >= size() || length == 0) {
         return;
     }
@@ -767,11 +857,12 @@ void ColumnMap::erase(size_t start, size_t length) {
     }
 }
 
+template <SubcolumnNullability nullability>
 template <bool positive>
-struct ColumnMap::less {
-    const ColumnMap& parent;
+struct ColumnMapImpl<nullability>::less {
+    const ColumnMapImpl& parent;
     const int nan_direction_hint;
-    explicit less(const ColumnMap& parent_, int nan_direction_hint_)
+    explicit less(const ColumnMapImpl& parent_, int nan_direction_hint_)
             : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
         size_t lhs_size = parent.size_at(lhs);
@@ -803,8 +894,15 @@ struct ColumnMap::less {
     }
 };
 
-void ColumnMap::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                HybridSorter& sorter, IColumn::Permutation& res) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                                                 HybridSorter& sorter,
+                                                 IColumn::Permutation& res) const {
+    if constexpr (nullability == SubcolumnNullability::NotNullable) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnMapNotNull does not support get_permutation");
+    }
+
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -812,19 +910,26 @@ void ColumnMap::get_permutation(bool reverse, size_t limit, int nan_direction_hi
     }
 
     if (reverse) {
-        sorter.sort(res.begin(), res.end(), ColumnMap::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnMapImpl::less<false>(*this, nan_direction_hint));
     } else {
-        sorter.sort(res.begin(), res.end(), ColumnMap::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnMapImpl::less<true>(*this, nan_direction_hint));
     }
 }
 
-void ColumnMap::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
-                            IColumn::Permutation& perms, EqualRange& range,
-                            bool last_column) const {
-    sorter->sort_column(static_cast<const ColumnMap&>(*this), flags, perms, range, last_column);
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                             IColumn::Permutation& perms, EqualRange& range,
+                                             bool last_column) const {
+    if constexpr (nullability == SubcolumnNullability::Nullable) {
+        sorter->sort_column(static_cast<const ColumnMap&>(*this), flags, perms, range, last_column);
+    } else {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnMapNotNull does not support sort_column");
+    }
 }
 
-void ColumnMap::serialize(StringRef* keys, size_t num_rows) const {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
@@ -832,7 +937,8 @@ void ColumnMap::serialize(StringRef* keys, size_t num_rows) const {
     }
 }
 
-void ColumnMap::deserialize(StringRef* keys, const size_t num_rows) {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
@@ -840,7 +946,8 @@ void ColumnMap::deserialize(StringRef* keys, const size_t num_rows) {
     }
 }
 
-size_t ColumnMap::get_max_row_byte_size() const {
+template <SubcolumnNullability nullability>
+size_t ColumnMapImpl<nullability>::get_max_row_byte_size() const {
     size_t max_size = 0;
     size_t num_rows = size();
     auto max_xz = keys_column->get_max_row_byte_size() + values_column->get_max_row_byte_size();
@@ -851,9 +958,13 @@ size_t ColumnMap::get_max_row_byte_size() const {
     return sizeof(size_t) + max_size;
 }
 
-void ColumnMap::replace_float_special_values() {
+template <SubcolumnNullability nullability>
+void ColumnMapImpl<nullability>::replace_float_special_values() {
     keys_column->replace_float_special_values();
     values_column->replace_float_special_values();
 }
+
+template class ColumnMapImpl<SubcolumnNullability::Nullable>;
+template class ColumnMapImpl<SubcolumnNullability::NotNullable>;
 
 } // namespace doris

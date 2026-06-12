@@ -42,20 +42,24 @@ template <PrimitiveType ElementType>
 ColumnPtr create_array_column(const FloatRows& rows) {
     using NestedColumnType = typename PrimitiveTypeTraits<ElementType>::ColumnType;
     auto data = NestedColumnType::create();
+    auto null_map = ColumnUInt8::create();
     auto offsets = ColumnArray::ColumnOffsets::create();
 
     auto& data_values = data->get_data();
+    auto& null_map_values = null_map->get_data();
     auto& offset_values = offsets->get_data();
     size_t offset = 0;
     for (const auto& row : rows) {
         for (const auto value : row) {
             data_values.push_back(static_cast<typename NestedColumnType::value_type>(value));
+            null_map_values.push_back(0);
         }
         offset += row.size();
         offset_values.push_back(offset);
     }
 
-    return ColumnArray::create(std::move(data), std::move(offsets));
+    return ColumnArray::create(ColumnNullable::create(std::move(data), std::move(null_map)),
+                               std::move(offsets));
 }
 
 DataTypePtr array_nullable_float_type() {
@@ -65,7 +69,7 @@ DataTypePtr array_nullable_float_type() {
 template <PrimitiveType ElementType>
 DataTypePtr array_type() {
     return std::make_shared<DataTypeArray>(
-            std::make_shared<typename PrimitiveTypeTraits<ElementType>::DataType>());
+            make_nullable(std::make_shared<typename PrimitiveTypeTraits<ElementType>::DataType>()));
 }
 
 template <PrimitiveType ElementType>

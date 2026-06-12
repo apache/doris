@@ -220,4 +220,34 @@ TEST_F(ColumnMapTest, MapTypeTest2erase) {
     }
 }
 
+TEST_F(ColumnMapTest, SharedCreateRejectsNestedConst) {
+    auto key_values_mut = ColumnString::create();
+    key_values_mut->insert_data("k", 1);
+    auto key_null_map_mut = ColumnUInt8::create();
+    key_null_map_mut->insert_value(0);
+    ColumnPtr keys = ColumnNullable::create(std::move(key_values_mut), std::move(key_null_map_mut));
+
+    auto value_values_mut = ColumnInt64::create();
+    value_values_mut->insert_value(1);
+    auto value_null_map_mut = ColumnUInt8::create();
+    value_null_map_mut->insert_value(0);
+    ColumnPtr values =
+            ColumnNullable::create(std::move(value_values_mut), std::move(value_null_map_mut));
+
+    auto offsets_mut = ColumnMap::COffsets::create();
+    offsets_mut->get_data().push_back(1);
+    ColumnPtr offsets = std::move(offsets_mut);
+
+    EXPECT_NO_THROW({ auto map_column = ColumnMap::create(keys, values, offsets); });
+
+    ColumnPtr const_keys = ColumnConst::create(keys, 1);
+    EXPECT_ANY_THROW({ auto map_column = ColumnMap::create(const_keys, values, offsets); });
+
+    ColumnPtr const_values = ColumnConst::create(values, 1);
+    EXPECT_ANY_THROW({ auto map_column = ColumnMap::create(keys, const_values, offsets); });
+
+    ColumnPtr const_offsets = ColumnConst::create(offsets, 1);
+    EXPECT_ANY_THROW({ auto map_column = ColumnMap::create(keys, values, const_offsets); });
+}
+
 } // namespace doris

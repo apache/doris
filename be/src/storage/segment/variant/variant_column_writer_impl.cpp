@@ -858,7 +858,7 @@ Status build_sparse_column_from_doc_values(
         const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,
         size_t num_rows, MutableColumnPtr* result) {
     auto sparse_column = ColumnVariant::create_binary_column_fn();
-    auto& sparse_map = assert_cast<ColumnMap&>(*sparse_column);
+    auto& sparse_map = assert_cast<ColumnMapNotNull&>(*sparse_column);
     auto& sparse_keys = assert_cast<ColumnString&>(sparse_map.get_keys());
     auto& sparse_values = assert_cast<ColumnString&>(sparse_map.get_values());
     auto& sparse_offsets = sparse_map.get_offsets();
@@ -1101,18 +1101,18 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(const ColumnVariant& src,
 
     std::vector<MutableColumnPtr> tmp_maps(bucket_num);
     for (int b = 0; b < bucket_num; ++b) {
-        tmp_maps[b] = ColumnMap::create(ColumnString::create(), ColumnString::create(),
-                                        ColumnArray::ColumnOffsets::create());
+        tmp_maps[b] = ColumnMapNotNull::create(ColumnString::create(), ColumnString::create(),
+                                               ColumnArray::ColumnOffsets::create());
     }
     for (int b = 0; b < bucket_num; ++b) {
-        auto& m = assert_cast<ColumnMap&>(*tmp_maps[b]);
+        auto& m = assert_cast<ColumnMapNotNull&>(*tmp_maps[b]);
         m.get_offsets().reserve(num_rows);
     }
     std::vector<ColumnString*> bucket_keys(bucket_num);
     std::vector<ColumnString*> bucket_values(bucket_num);
     std::vector<ColumnArray::Offsets64*> bucket_offsets(bucket_num);
     for (int b = 0; b < bucket_num; ++b) {
-        auto& m = assert_cast<ColumnMap&>(*tmp_maps[b]);
+        auto& m = assert_cast<ColumnMapNotNull&>(*tmp_maps[b]);
         bucket_keys[b] = &assert_cast<ColumnString&>(m.get_keys());
         bucket_values[b] = &assert_cast<ColumnString&>(m.get_values());
         bucket_offsets[b] = &m.get_offsets();
@@ -1213,14 +1213,14 @@ Status VariantDocWriter::_write_doc_value_column(const TabletColumn& parent_colu
     std::vector<MutableColumnPtr> tmp_maps(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
         tmp_maps[b] = ColumnVariant::create_binary_column_fn();
-        auto& map_col = assert_cast<ColumnMap&>(*tmp_maps[b]);
+        auto& map_col = assert_cast<ColumnMapNotNull&>(*tmp_maps[b]);
         map_col.get_offsets().reserve(num_rows);
     }
     std::vector<ColumnString*> bucket_keys(_bucket_num);
     std::vector<ColumnString*> bucket_values(_bucket_num);
     std::vector<ColumnArray::Offsets64*> bucket_offsets(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
-        auto& m = assert_cast<ColumnMap&>(*tmp_maps[b]);
+        auto& m = assert_cast<ColumnMapNotNull&>(*tmp_maps[b]);
         bucket_keys[b] = &assert_cast<ColumnString&>(m.get_keys());
         bucket_values[b] = &assert_cast<ColumnString&>(m.get_values());
         bucket_offsets[b] = &m.get_offsets();

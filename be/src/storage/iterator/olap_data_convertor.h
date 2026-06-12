@@ -54,8 +54,6 @@ class TabletSchema;
 class TabletColumn;
 
 class Block;
-class ColumnArray;
-class ColumnMap;
 class DataTypeMap;
 template <PrimitiveType T>
 class ColumnDecimal;
@@ -512,7 +510,8 @@ private:
         }
 
     private:
-        Status convert_to_olap(const ColumnMap* column_map);
+        template <SubcolumnNullability nullability>
+        Status convert_to_olap(const ColumnMapImpl<nullability>* column_map);
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;
         std::vector<const void*> _results;

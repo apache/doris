@@ -1375,8 +1375,8 @@ void VariantCompactionUtil::calculate_variant_stats(const IColumn& encoded_spars
                                                     segment_v2::VariantStatisticsPB* stats,
                                                     size_t max_sparse_column_statistics_size,
                                                     size_t row_pos, size_t num_rows) {
-    // Cast input column to ColumnMap type since sparse column is stored as a map
-    const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
+    // Sparse binary column stores path/value pairs as a not-null map.
+    const auto& map_column = assert_cast<const ColumnMapNotNull&>(encoded_sparse_column);
 
     // Get the keys column which contains the paths as strings
     const auto& sparse_data_paths =

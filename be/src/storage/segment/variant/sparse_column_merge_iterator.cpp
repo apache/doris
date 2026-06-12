@@ -84,7 +84,7 @@ void SparseColumnMergeIterator::_process_data_without_sparse_column(MutableColum
     } else {
         // merge subcolumns to sparse column
         // Otherwise insert required src dense columns into sparse column.
-        auto& map_column = assert_cast<ColumnMap&>(*dst);
+        auto& map_column = assert_cast<ColumnMapNotNull&>(*dst);
         auto& sparse_column_keys = assert_cast<ColumnString&>(map_column.get_keys());
         auto& sparse_column_values = assert_cast<ColumnString&>(map_column.get_values());
         auto& sparse_column_offsets = map_column.get_offsets();
@@ -101,13 +101,13 @@ void SparseColumnMergeIterator::_process_data_without_sparse_column(MutableColum
 }
 
 void SparseColumnMergeIterator::_merge_to(MutableColumnPtr& dst) {
-    auto& column_map = assert_cast<ColumnMap&>(*dst);
+    auto& column_map = assert_cast<ColumnMapNotNull&>(*dst);
     auto& dst_sparse_column_paths = assert_cast<ColumnString&>(column_map.get_keys());
     auto& dst_sparse_column_values = assert_cast<ColumnString&>(column_map.get_values());
     auto& dst_sparse_column_offsets = column_map.get_offsets();
 
     const auto& src_column_map =
-            assert_cast<const ColumnMap&>(*_sparse_column_cache->binary_column);
+            assert_cast<const ColumnMapNotNull&>(*_sparse_column_cache->binary_column);
     const auto& src_sparse_column_paths =
             assert_cast<const ColumnString&>(*src_column_map.get_keys_ptr());
     const auto& src_sparse_column_values =

@@ -275,7 +275,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
 
 TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     auto sparse_column = ColumnVariant::create_binary_column_fn();
-    auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
+    auto& column_map = assert_cast<ColumnMapNotNull&>(*sparse_column);
     // auto& key = assert_cast<ColumnString&>(column_map.get_keys());
     auto& value = assert_cast<ColumnString&>(column_map.get_values());
     // auto& offsets = column_map.get_offsets();

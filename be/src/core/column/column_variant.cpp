@@ -1827,7 +1827,8 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
         }
     }
 
-    const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
+    const auto& doc_value_column_map =
+            assert_cast<const ColumnMapNotNull&>(*serialized_doc_value_column);
     // doc snapshot column is not empty
     if (doc_value_column_map.get_offsets()[nrow - 1] != doc_value_column_map.get_offsets()[nrow]) {
         return false;
@@ -1837,7 +1838,7 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
 
 void ColumnVariant::serialize_from_doc_value_to_json_format(int64_t row_num, BufferWritable& output,
                                                             bool* is_null) const {
-    const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
+    const auto& column_map = assert_cast<const ColumnMapNotNull&>(*serialized_doc_value_column);
     const auto& doc_value_data_offsets = column_map.get_offsets();
     size_t doc_value_data_offset = doc_value_data_offsets[static_cast<ssize_t>(row_num) - 1];
     size_t doc_value_data_end = doc_value_data_offsets[static_cast<ssize_t>(row_num)];
@@ -1906,14 +1907,15 @@ void ColumnVariant::serialize_one_row_to_json_format(
         subcolumns.get_root()->data.serialize_text_json(row_num, output, options);
         return;
     }
-    const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
+    const auto& doc_value_column_map =
+            assert_cast<const ColumnMapNotNull&>(*serialized_doc_value_column);
     // if doc snapshot column is not empty, we should serialize from doc snapshot column first
     if (doc_value_column_map.get_offsets()[row_num] != 0) {
         serialize_from_doc_value_to_json_format(row_num, output, is_null);
         return;
     }
 
-    const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+    const auto& column_map = assert_cast<const ColumnMapNotNull&>(*serialized_sparse_column);
     const auto& sparse_data_offsets = column_map.get_offsets();
     const auto [sparse_data_paths, sparse_data_values] = get_sparse_data_paths_and_values();
     size_t sparse_data_offset = sparse_data_offsets[static_cast<ssize_t>(row_num) - 1];
@@ -2768,7 +2770,7 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
                                                       StringRef path,
                                                       const ColumnPtr& sparse_data_column,
                                                       size_t start, size_t end) {
-    const auto& sparse_data_map = assert_cast<const ColumnMap&>(*sparse_data_column);
+    const auto& sparse_data_map = assert_cast<const ColumnMapNotNull&>(*sparse_data_column);
     const auto& sparse_data_offsets = sparse_data_map.get_offsets();
     size_t first_offset = sparse_data_offsets[static_cast<ssize_t>(start) - 1];
     size_t last_offset = sparse_data_offsets[static_cast<ssize_t>(end) - 1];

@@ -32,6 +32,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
@@ -42,6 +43,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "storage/olap_common.h"
@@ -171,10 +173,14 @@ TEST_F(DataTypeMapSerDeTest, ArrowMemNotAligned) {
     EXPECT_EQ(values_address % 4, 1);
 
     // 5.Test read_column_from_arrow
-    auto ser_col = ColumnMap::create(ColumnString::create(), ColumnString::create(),
-                                     ColumnOffset64::create());
+    auto ser_col =
+            ColumnMap::create(ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+                              ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+                              ColumnOffset64::create());
     cctz::time_zone tz;
-    auto serde_map = std::make_shared<DataTypeMapSerDe>(serde_str_key, serde_str_value);
+    auto serde_map = std::make_shared<DataTypeMapSerDe>(
+            std::make_shared<DataTypeNullableSerDe>(serde_str_key),
+            std::make_shared<DataTypeNullableSerDe>(serde_str_value));
     auto st = serde_map->read_column_from_arrow(*ser_col, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
 }

@@ -89,6 +89,35 @@ inline bool read_as_string(PrimitiveType type) {
            type == PrimitiveType::TYPE_BITMAP || type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT;
 }
 
+ColumnMap::COffsets::Ptr& map_offsets_ptr(IColumn& column) {
+    if (auto* column_map = check_and_get_column<ColumnMap>(&column)) {
+        return column_map->get_offsets_ptr();
+    }
+    return assert_cast<ColumnMapNotNull&>(column).get_offsets_ptr();
+}
+
+ColumnPtr& map_keys_ptr(IColumn& column) {
+    if (auto* column_map = check_and_get_column<ColumnMap>(&column)) {
+        return column_map->get_keys_ptr();
+    }
+    return assert_cast<ColumnMapNotNull&>(column).get_keys_ptr();
+}
+
+ColumnPtr& map_values_ptr(IColumn& column) {
+    if (auto* column_map = check_and_get_column<ColumnMap>(&column)) {
+        return column_map->get_values_ptr();
+    }
+    return assert_cast<ColumnMapNotNull&>(column).get_values_ptr();
+}
+
+void insert_many_map_defaults(IColumn& column, size_t length) {
+    if (auto* column_map = check_and_get_column<ColumnMap>(&column)) {
+        column_map->insert_many_defaults(length);
+        return;
+    }
+    assert_cast<ColumnMapNotNull&>(column).insert_many_defaults(length);
+}
+
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
                                   std::shared_ptr<ColumnReader>* reader) {
@@ -987,22 +1016,20 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
         }
         DCHECK(num_read == *n);
         // fill nested ColumnMap with empty (zero-element) maps
-        auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
-                nullable_col.get_nested_column());
-        column_map.insert_many_defaults(num_read);
+        insert_many_map_defaults(nullable_col.get_nested_column(), num_read);
         *has_null = true;
         return Status::OK();
     }
 
-    auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
-    auto column_offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
+    IColumn& column_map =
+            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst;
+    auto column_offsets_ptr = IColumn::mutate(std::move(map_offsets_ptr(column_map)));
     Defer defer_offsets {[&] {
         auto typed_column_offsets_ptr = ColumnMap::COffsets::cast_to_column_mutptr(
                 assert_cast<ColumnMap::COffsets*, TypeCheckOnRelease::DISABLE>(
                         column_offsets_ptr.get()));
         column_offsets_ptr = nullptr;
-        column_map.get_offsets_ptr() = std::move(typed_column_offsets_ptr);
+        map_offsets_ptr(column_map) = std::move(typed_column_offsets_ptr);
     }};
     bool offsets_has_null = false;
     ssize_t start = column_offsets_ptr->size();
@@ -1017,10 +1044,10 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
 
     if (num_items > 0) {
-        auto key_ptr = IColumn::mutate(std::move(column_map.get_keys_ptr()));
-        auto val_ptr = IColumn::mutate(std::move(column_map.get_values_ptr()));
-        Defer defer_keys {[&] { column_map.get_keys_ptr() = std::move(key_ptr); }};
-        Defer defer_values {[&] { column_map.get_values_ptr() = std::move(val_ptr); }};
+        auto key_ptr = IColumn::mutate(std::move(map_keys_ptr(column_map)));
+        auto val_ptr = IColumn::mutate(std::move(map_values_ptr(column_map)));
+        Defer defer_keys {[&] { map_keys_ptr(column_map) = std::move(key_ptr); }};
+        Defer defer_values {[&] { map_values_ptr(column_map) = std::move(val_ptr); }};
         if (read_offset_only()) {
             // OFFSET_ONLY mode: skip reading actual key/value data, fill with defaults
             key_ptr->insert_many_defaults(num_items);
@@ -1077,24 +1104,22 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
             null_map_ptr->insert_many_vals(0, count);
         }
         // fill nested ColumnMap with empty (zero-element) maps
-        auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
-                nullable_col.get_nested_column());
-        column_map.insert_many_defaults(count);
+        insert_many_map_defaults(nullable_col.get_nested_column(), count);
         return Status::OK();
     }
 
     if (count == 0) {
         return Status::OK();
     }
-    // resolve ColumnMap and nullable wrapper
-    auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
-    auto offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
+    // resolve map column and nullable wrapper
+    IColumn& column_map =
+            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst;
+    auto offsets_ptr = IColumn::mutate(std::move(map_offsets_ptr(column_map)));
     Defer defer_offsets {[&] {
         auto typed_offsets_ptr = ColumnMap::COffsets::cast_to_column_mutptr(
                 assert_cast<ColumnMap::COffsets*, TypeCheckOnRelease::DISABLE>(offsets_ptr.get()));
         offsets_ptr = nullptr;
-        column_map.get_offsets_ptr() = std::move(typed_offsets_ptr);
+        map_offsets_ptr(column_map) = std::move(typed_offsets_ptr);
     }};
     auto& offsets = static_cast<ColumnArray::ColumnOffsets&>(*offsets_ptr);
     size_t base = offsets.get_data().empty() ? 0 : offsets.get_data().back();
@@ -1179,10 +1204,10 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     }
 
     // 6. read key/value elements for non-empty sizes
-    auto keys_ptr = IColumn::mutate(std::move(column_map.get_keys_ptr()));
-    auto vals_ptr = IColumn::mutate(std::move(column_map.get_values_ptr()));
-    Defer defer_keys {[&] { column_map.get_keys_ptr() = std::move(keys_ptr); }};
-    Defer defer_values {[&] { column_map.get_values_ptr() = std::move(vals_ptr); }};
+    auto keys_ptr = IColumn::mutate(std::move(map_keys_ptr(column_map)));
+    auto vals_ptr = IColumn::mutate(std::move(map_values_ptr(column_map)));
+    Defer defer_keys {[&] { map_keys_ptr(column_map) = std::move(keys_ptr); }};
+    Defer defer_values {[&] { map_values_ptr(column_map) = std::move(vals_ptr); }};
 
     size_t this_run = sizes[0];
     auto start_idx = starts_data[0];

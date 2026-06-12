@@ -25,6 +25,7 @@
 #include <cstdint>
 
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
@@ -35,8 +36,11 @@
 
 namespace doris {
 TEST(ColumnMapTest2, StringKeyTest) {
-    auto col_map_str64 = ColumnMap(ColumnString64::create(), ColumnInt64::create(),
-                                   ColumnArray::ColumnOffsets::create());
+    auto col_map_str64_holder = ColumnMap::create(
+            ColumnNullable::create(ColumnString64::create(), ColumnUInt8::create()),
+            ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
+            ColumnArray::ColumnOffsets::create());
+    auto& col_map_str64 = *col_map_str64_holder;
     Array k1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
                 Field::create_field<TYPE_STRING>("c")};
     Array v1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
@@ -69,8 +73,11 @@ TEST(ColumnMapTest2, StringKeyTest) {
     }
 
     // test insert ColumnMap<ColumnStr<uint64_t>, Column> into ColumnMap<ColumnStr<uint32_t>, Column>
-    auto col_map_str32 = ColumnMap(ColumnString::create(), ColumnInt64::create(),
-                                   ColumnArray::ColumnOffsets::create());
+    auto col_map_str32_holder =
+            ColumnMap::create(ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+                              ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
+                              ColumnArray::ColumnOffsets::create());
+    auto& col_map_str32 = *col_map_str32_holder;
     std::vector<uint32_t> indices;
     indices.push_back(0);
     indices.push_back(2);
@@ -104,9 +111,11 @@ TEST(ColumnMapTest2, StringKeyTest) {
 };
 
 TEST(ColumnMapTest2, StringKeyTestDuplicatedKeys) {
-    auto col_map_str = ColumnMap(
+    auto col_map_str_holder = ColumnMap::create(
             ColumnNullable::create(ColumnString::create(), ColumnVector<TYPE_BOOLEAN>::create()),
-            ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+            ColumnNullable::create(ColumnInt32::create(), ColumnVector<TYPE_BOOLEAN>::create()),
+            ColumnArray::ColumnOffsets::create());
+    auto& col_map_str = *col_map_str_holder;
     Array k1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
                 Field::create_field<TYPE_STRING>("c"), Field::create_field<TYPE_STRING>("a"),
                 Field::create_field<TYPE_STRING>("b"), Field::create_field<TYPE_STRING>("c")};
@@ -175,7 +184,8 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeys) {
 
     auto& nullable_keys = assert_cast<ColumnNullable&>(keys);
     auto& string_keys = assert_cast<ColumnString&>(nullable_keys.get_nested_column());
-    auto& int_values = assert_cast<ColumnInt32&>(values);
+    auto& nullable_values = assert_cast<ColumnNullable&>(values);
+    auto& int_values = assert_cast<ColumnInt32&>(nullable_values.get_nested_column());
 
     ASSERT_EQ(offsets.size(), 4);
     ASSERT_EQ(offsets[0], 3);
@@ -221,10 +231,16 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeys) {
 };
 
 TEST(ColumnMapTest2, StringKeyTestDuplicatedKeysNestedMap) {
-    auto col_map_str = ColumnMap(ColumnString::create(),
-                                 ColumnMap::create(ColumnString::create(), ColumnInt32::create(),
-                                                   ColumnArray::ColumnOffsets::create()),
-                                 ColumnArray::ColumnOffsets::create());
+    auto col_map_str_holder = ColumnMap::create(
+            ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+            ColumnNullable::create(
+                    ColumnMap::create(
+                            ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+                            ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create()),
+                            ColumnArray::ColumnOffsets::create()),
+                    ColumnUInt8::create()),
+            ColumnArray::ColumnOffsets::create());
+    auto& col_map_str = *col_map_str_holder;
 
     Map inner_map;
     {
@@ -306,8 +322,10 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeysNestedMap) {
     ASSERT_EQ(keys.size(), values.size());
 
     auto& offsets = col_map_str.get_offsets();
-    auto& string_keys = assert_cast<ColumnString&>(keys);
-    auto& map_values = assert_cast<ColumnMap&>(values);
+    auto& string_keys =
+            assert_cast<ColumnString&>(assert_cast<ColumnNullable&>(keys).get_nested_column());
+    auto& map_values =
+            assert_cast<ColumnMap&>(assert_cast<ColumnNullable&>(values).get_nested_column());
 
     ASSERT_EQ(offsets.size(), 2);
     ASSERT_EQ(offsets[0], 1);
@@ -350,12 +368,12 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeysNestedMap) {
 TEST(ColumnMapTest2, SharedCreatePreservesImmutableSubcolumns) {
     auto keys_mut = ColumnString::create();
     keys_mut->insert_data("k", 1);
-    ColumnPtr keys = std::move(keys_mut);
+    ColumnPtr keys = ColumnNullable::create(std::move(keys_mut), ColumnUInt8::create(1, 0));
     ColumnPtr keys_alias = keys;
 
     auto values_mut = ColumnInt32::create();
     values_mut->insert_value(1);
-    ColumnPtr values = std::move(values_mut);
+    ColumnPtr values = ColumnNullable::create(std::move(values_mut), ColumnUInt8::create(1, 0));
     ColumnPtr values_alias = values;
 
     auto offsets_mut = ColumnArray::ColumnOffsets::create();
@@ -369,19 +387,46 @@ TEST(ColumnMapTest2, SharedCreatePreservesImmutableSubcolumns) {
     EXPECT_EQ(map_column->get_offsets_ptr().get(), offsets_alias.get());
 }
 
+TEST(ColumnMapTest2, CreateChecksSubcolumnNullability) {
+    auto nullable_string = [] {
+        return ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+    };
+    auto nullable_int = [] {
+        return ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
+    };
+    auto offsets = [] { return ColumnArray::ColumnOffsets::create(); };
+
+    EXPECT_NO_THROW(
+            { auto map_column = ColumnMap::create(nullable_string(), nullable_int(), offsets()); });
+    EXPECT_ANY_THROW({
+        auto map_column =
+                ColumnMap::create(ColumnString::create(), ColumnInt32::create(), offsets());
+    });
+    EXPECT_NO_THROW({
+        auto map_column =
+                ColumnMapNotNull::create(ColumnString::create(), ColumnInt32::create(), offsets());
+    });
+    EXPECT_ANY_THROW({
+        auto map_column = ColumnMapNotNull::create(nullable_string(), nullable_int(), offsets());
+    });
+    EXPECT_ANY_THROW({
+        auto map_column = ColumnMap::create(nullable_string(), ColumnInt32::create(), offsets());
+    });
+}
+
 TEST(ColumnMapTest2, ConstFilterAndPermuteKeepInputAliasesUntouched) {
     auto keys_mut = ColumnString::create();
     keys_mut->insert_data("a", 1);
     keys_mut->insert_data("b", 1);
     keys_mut->insert_data("c", 1);
-    ColumnPtr keys = std::move(keys_mut);
+    ColumnPtr keys = ColumnNullable::create(std::move(keys_mut), ColumnUInt8::create(3, 0));
     ColumnPtr keys_alias = keys;
 
     auto values_mut = ColumnInt32::create();
     values_mut->insert_value(1);
     values_mut->insert_value(2);
     values_mut->insert_value(3);
-    ColumnPtr values = std::move(values_mut);
+    ColumnPtr values = ColumnNullable::create(std::move(values_mut), ColumnUInt8::create(3, 0));
     ColumnPtr values_alias = values;
 
     auto offsets_mut = ColumnArray::ColumnOffsets::create();
@@ -399,7 +444,11 @@ TEST(ColumnMapTest2, ConstFilterAndPermuteKeepInputAliasesUntouched) {
     const auto& filtered_map = assert_cast<const ColumnMap&>(*filtered);
     EXPECT_EQ(filtered_map.size(), 1);
     EXPECT_EQ(filtered_map.get_keys().size(), 1);
-    EXPECT_EQ(assert_cast<const ColumnInt32&>(filtered_map.get_values()).get_element(0), 3);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(
+                      assert_cast<const ColumnNullable&>(filtered_map.get_values())
+                              .get_nested_column())
+                      .get_element(0),
+              3);
 
     IColumn::Permutation perm;
     perm.push_back(1);
@@ -416,8 +465,10 @@ TEST(ColumnMapTest2, ConstFilterAndPermuteKeepInputAliasesUntouched) {
 }
 
 TEST(ColumnMapTest2, DeduplicateNestedNullableMapValuesDetachesSharedValueColumn) {
-    auto inner_values = ColumnMap::create(ColumnString::create(), ColumnInt32::create(),
-                                          ColumnArray::ColumnOffsets::create());
+    auto inner_values =
+            ColumnMap::create(ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+                              ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create()),
+                              ColumnArray::ColumnOffsets::create());
     Map inner_map;
     inner_map.push_back(Field::create_field<TYPE_ARRAY>(
             Array {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("a")}));
@@ -435,7 +486,11 @@ TEST(ColumnMapTest2, DeduplicateNestedNullableMapValuesDetachesSharedValueColumn
 
     auto outer_keys_mut = ColumnString::create();
     outer_keys_mut->insert_data("outer", 5);
-    ColumnPtr outer_keys = std::move(outer_keys_mut);
+    ColumnPtr outer_keys_data = std::move(outer_keys_mut);
+    auto outer_key_null_map_mut = ColumnUInt8::create();
+    outer_key_null_map_mut->insert_value(0);
+    ColumnPtr outer_key_null_map = std::move(outer_key_null_map_mut);
+    ColumnPtr outer_keys = ColumnNullable::create(outer_keys_data, outer_key_null_map);
 
     auto outer_offsets_mut = ColumnArray::ColumnOffsets::create();
     outer_offsets_mut->get_data().push_back(1);
@@ -456,14 +511,24 @@ TEST(ColumnMapTest2, DeduplicateNestedNullableMapValuesDetachesSharedValueColumn
             assert_cast<const ColumnMap&>(outer_values_nullable.get_nested_column());
     EXPECT_EQ(deduplicated_inner_map.get_keys().size(), 1);
     EXPECT_EQ(deduplicated_inner_map.get_values().size(), 1);
-    EXPECT_EQ(deduplicated_inner_map.get_keys().get_data_at(0).to_string(), "a");
-    EXPECT_EQ(assert_cast<const ColumnInt32&>(deduplicated_inner_map.get_values()).get_element(0),
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(deduplicated_inner_map.get_keys())
+                      .get_nested_column()
+                      .get_data_at(0)
+                      .to_string(),
+              "a");
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(
+                      assert_cast<const ColumnNullable&>(deduplicated_inner_map.get_values())
+                              .get_nested_column())
+                      .get_element(0),
               2);
 }
 
 TEST(ColumnMapTest2, StringValueTest) {
-    auto col_map_str64 = ColumnMap(ColumnInt64::create(), ColumnString64::create(),
-                                   ColumnArray::ColumnOffsets::create());
+    auto col_map_str64_holder = ColumnMap::create(
+            ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
+            ColumnNullable::create(ColumnString64::create(), ColumnUInt8::create()),
+            ColumnArray::ColumnOffsets::create());
+    auto& col_map_str64 = *col_map_str64_holder;
     Array k1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
                 Field::create_field<TYPE_BIGINT>(3)};
     Array v1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
@@ -496,8 +561,11 @@ TEST(ColumnMapTest2, StringValueTest) {
     }
 
     // test insert ColumnMap<ColumnStr<uint64_t>, Column> into ColumnMap<ColumnStr<uint32_t>, Column>
-    auto col_map_str32 = ColumnMap(ColumnInt64::create(), ColumnString::create(),
-                                   ColumnArray::ColumnOffsets::create());
+    auto col_map_str32_holder =
+            ColumnMap::create(ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
+                              ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+                              ColumnArray::ColumnOffsets::create());
+    auto& col_map_str32 = *col_map_str32_holder;
     std::vector<uint32_t> indices;
     indices.push_back(0);
     indices.push_back(2);
