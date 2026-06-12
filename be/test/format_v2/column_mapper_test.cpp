@@ -1150,6 +1150,47 @@ TEST(ColumnMapperConstantTest, PartitionDefaultAndVirtualColumnsUseDedicatedBran
     EXPECT_EQ(mapper.mappings()[4].virtual_column_type, TableVirtualColumnType::ICEBERG_ROWID);
 }
 
+TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
+    auto row_id_column = name_col("_row_id", make_nullable(i64()));
+    auto sequence_column = name_col("_last_updated_sequence_number", make_nullable(i64()));
+    const std::vector<ColumnDefinition> table_schema = {row_id_column, sequence_column};
+    const std::vector<ColumnDefinition> file_schema = {
+            name_col("_row_id", make_nullable(i64()), 2147483540),
+            name_col("_last_updated_sequence_number", make_nullable(i64()), 2147483539),
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type, TableVirtualColumnType::ROW_ID);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type,
+              TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER);
+    EXPECT_EQ(mapper.mappings()[1].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    auto row_id_filter = binary_predicate(
+            TExprOpcode::EQ, table_slot(0, 0, make_nullable(i64()), "_row_id"),
+            literal(i64(), Field::create_field<TYPE_BIGINT>(1001)));
+    auto sequence_filter = binary_predicate(
+            TExprOpcode::EQ,
+            table_slot(1, 1, make_nullable(i64()), "_last_updated_sequence_number"),
+            literal(i64(), Field::create_field<TYPE_BIGINT>(77)));
+    TableFilter row_id_table_filter {.conjunct = VExprContext::create_shared(row_id_filter),
+                                     .global_indices = {GlobalIndex(0)}};
+    TableFilter sequence_table_filter {.conjunct = VExprContext::create_shared(sequence_filter),
+                                       .global_indices = {GlobalIndex(1)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({row_id_table_filter, sequence_table_filter}, {},
+                                           table_schema, &request)
+                        .ok());
+
+    EXPECT_TRUE(request.conjuncts.empty());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({2147483540, 2147483539}));
+}
+
 TEST(ColumnMapperConstantTest, PartitionAliasResolvesRenamedValue) {
     auto partition_column = name_col("current_dt", str());
     partition_column.name_mapping = {"legacy_dt"};
