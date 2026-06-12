@@ -323,15 +323,21 @@ Status ParallelScannerBuilder::_load() {
 std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReadSource&& read_source, io::FileCacheStatistics&& initial_file_cache_stats) {
-    OlapScanner::Params params {_state,
-                                _scanner_profile.get(),
-                                key_ranges,
-                                std::move(tablet),
-                                version,
-                                std::move(read_source),
-                                std::move(initial_file_cache_stats),
-                                _limit,
-                                _is_preaggregation};
+    OlapScanner::Params params {
+            .state = _state,
+            .profile = _scanner_profile.get(),
+            .key_ranges = key_ranges,
+            .tablet = std::move(tablet),
+            .version = version,
+            .read_source = std::move(read_source),
+            .initial_file_cache_stats = std::move(initial_file_cache_stats),
+            .limit = _limit,
+            .aggregation = _is_preaggregation,
+            .read_row_binlog = false,
+            .binlog_scan_type = TBinlogScanType::NONE,
+            .start_tso = std::nullopt,
+            .end_tso = std::nullopt,
+    };
     return OlapScanner::create_shared(_parent, std::move(params));
 }
 

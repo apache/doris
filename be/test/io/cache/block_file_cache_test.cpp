@@ -18,9 +18,10 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
+#include <butil/iobuf.h>
+
 #include <atomic>
 #include <future>
-#include <butil/iobuf.h>
 
 #include "io/cache/block_file_cache_test_common.h"
 #include "io/cache/shard_mem_cache.h"
