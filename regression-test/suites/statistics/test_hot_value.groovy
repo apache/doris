@@ -230,7 +230,7 @@ suite("test_hot_value") {
                         'ANALYZE_SKIP_LONG_STRING_COLUMN'
                     ) AS `__lc`
                 FROM
-                    `internal`.`test_hot_value`.`test1` TABLET(1781162157680)
+                    `internal`.`test_hot_value`.`test1`
                 limit
                     400
             ) as `t0`
