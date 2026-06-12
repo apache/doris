@@ -62,7 +62,6 @@ bool is_file_column_position_slot(const TFileScanSlotInfo& slot_info,
 } // namespace
 
 Status HiveReader::init(format::TableReadOptions&& options) {
-    const bool allow_missing_columns = options.allow_missing_columns;
     const format::FileFormat file_format = options.format;
     RETURN_IF_ERROR(format::TableReader::init(std::move(options)));
 
@@ -89,7 +88,6 @@ Status HiveReader::init(format::TableReadOptions&& options) {
 
     _mode = use_column_names ? format::TableColumnMappingMode::BY_NAME
                              : format::TableColumnMappingMode::BY_INDEX;
-    _mapper_options.allow_missing_columns = allow_missing_columns;
     return Status::OK();
 }
 

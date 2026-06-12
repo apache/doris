@@ -117,7 +117,6 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
-    const bool allow_missing_columns = true;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
 };

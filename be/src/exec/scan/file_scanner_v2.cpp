@@ -601,7 +601,6 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state->scanner_profile(),
-            .allow_missing_columns = false, // TODO
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
     }));
     return Status::OK();
