@@ -62,6 +62,15 @@ std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     return array;
 }
 
+template <typename ColumnType>
+const ColumnType& get_nullable_nested_column(const IColumn& column) {
+    // File-local schema exposed by the parquet reader follows Doris external-table semantics:
+    // nested STRUCT fields, LIST elements, and MAP keys/values are nullable even when the parquet
+    // field is required.
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+    return assert_cast<const ColumnType&>(nullable_column.get_nested_column());
+}
+
 class ParquetColumnReaderTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -1042,9 +1051,9 @@ protected:
                       const auto& struct_column = assert_cast<const ColumnStruct&>(column);
                       ASSERT_EQ(struct_column.get_columns().size(), 2);
                       const auto& a_values =
-                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                              get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
                       const auto& b_values =
-                              assert_cast<const ColumnString&>(struct_column.get_column(1));
+                              get_nullable_nested_column<ColumnString>(struct_column.get_column(1));
                       EXPECT_EQ(a_values.get_element(0), 101);
                       EXPECT_EQ(a_values.get_element(4), 105);
                       EXPECT_EQ(b_values.get_data_at(1).to_string(), "sb");
@@ -1071,7 +1080,7 @@ protected:
                               assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
                       ASSERT_EQ(struct_column.get_columns().size(), 2);
                       const auto& a_values =
-                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                              get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
                       const auto& b_values =
                               assert_cast<const ColumnNullable&>(struct_column.get_column(1));
                       const auto& b_nested =
@@ -1106,7 +1115,7 @@ protected:
                               assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
                       ASSERT_EQ(struct_column.get_columns().size(), 2);
                       const auto& a_values =
-                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                              get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
                       const auto& d_values =
                               assert_cast<const ColumnNullable&>(struct_column.get_column(1));
                       const auto& d_nested =
@@ -1141,7 +1150,7 @@ protected:
                               assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
                       ASSERT_EQ(struct_column.get_columns().size(), 2);
                       const auto& a_values =
-                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                              get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
                       EXPECT_EQ(a_values.get_element(0), 301);
                       EXPECT_EQ(a_values.get_element(2), 303);
                       EXPECT_EQ(a_values.get_element(3), 304);
@@ -1198,7 +1207,7 @@ protected:
                               assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
                       ASSERT_EQ(struct_column.get_columns().size(), 2);
                       const auto& a_values =
-                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                              get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
                       EXPECT_EQ(a_values.get_element(0), 401);
                       EXPECT_EQ(a_values.get_element(2), 403);
                       EXPECT_EQ(a_values.get_element(3), 404);
@@ -1220,7 +1229,7 @@ protected:
                       EXPECT_EQ(offsets[2], 2);
                       EXPECT_EQ(offsets[3], 2);
                       EXPECT_EQ(offsets[4], 3);
-                      const auto& keys = assert_cast<const ColumnInt32&>(kv_map.get_keys());
+                      const auto& keys = get_nullable_nested_column<ColumnInt32>(kv_map.get_keys());
                       const auto& values = assert_cast<const ColumnNullable&>(kv_map.get_values());
                       const auto& value_data =
                               assert_cast<const ColumnString&>(values.get_nested_column());
@@ -1285,7 +1294,8 @@ protected:
                       EXPECT_EQ(array_size_at(1), 1);
                       EXPECT_EQ(array_size_at(2), 3);
                       EXPECT_EQ(array_size_at(4), 2);
-                      const auto& values = assert_cast<const ColumnInt32&>(array_column.get_data());
+                      const auto& values =
+                              get_nullable_nested_column<ColumnInt32>(array_column.get_data());
                       ASSERT_EQ(values.size(), 9);
                       EXPECT_EQ(values.get_element(0), 1);
                       EXPECT_EQ(values.get_element(5), 6);
@@ -1374,7 +1384,7 @@ protected:
                       const auto& struct_column =
                               assert_cast<const ColumnStruct&>(elements.get_nested_column());
                       const auto& a_values =
-                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                              get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
                       const auto& b_values =
                               assert_cast<const ColumnNullable&>(struct_column.get_column(1));
                       const auto& b_data =
@@ -1474,9 +1484,10 @@ protected:
                       EXPECT_EQ(map_size_at(1), 1);
                       EXPECT_EQ(map_size_at(2), 3);
                       EXPECT_EQ(map_size_at(4), 2);
-                      const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                      const auto& keys =
+                              get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
                       const auto& values =
-                              assert_cast<const ColumnString&>(map_column.get_values());
+                              get_nullable_nested_column<ColumnString>(map_column.get_values());
                       ASSERT_EQ(keys.size(), 9);
                       ASSERT_EQ(values.size(), 9);
                       EXPECT_EQ(keys.get_element(0), 1);
@@ -1507,7 +1518,8 @@ protected:
                     EXPECT_EQ(offsets[2], 2);
                     EXPECT_EQ(offsets[3], 3);
                     EXPECT_EQ(offsets[4], 4);
-                    const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                    const auto& keys =
+                            get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
                     const auto& values =
                             assert_cast<const ColumnNullable&>(map_column.get_values());
                     const auto& value_data =
@@ -1572,13 +1584,14 @@ protected:
                       EXPECT_EQ(offsets[3], 3);
                       EXPECT_EQ(offsets[4], 4);
 
-                      const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                      const auto& keys =
+                              get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
                       const auto& values =
                               assert_cast<const ColumnNullable&>(map_column.get_values());
                       const auto& struct_column =
                               assert_cast<const ColumnStruct&>(values.get_nested_column());
                       const auto& a_values =
-                              assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+                              get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
                       const auto& b_values =
                               assert_cast<const ColumnNullable&>(struct_column.get_column(1));
                       const auto& b_data =
@@ -1625,7 +1638,8 @@ protected:
                     EXPECT_EQ(map_offsets[3], 4);
                     EXPECT_EQ(map_offsets[4], 5);
 
-                    const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                    const auto& keys =
+                            get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
                     ASSERT_EQ(keys.size(), 5);
                     EXPECT_EQ(keys.get_element(0), 201);
                     EXPECT_EQ(keys.get_element(1), 202);
@@ -1705,7 +1719,8 @@ protected:
                       EXPECT_EQ(map_offsets[2], 2);
                       EXPECT_EQ(map_offsets[3], 3);
                       EXPECT_EQ(map_offsets[4], 4);
-                      const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                      const auto& keys =
+                              get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
                       const auto& values =
                               assert_cast<const ColumnNullable&>(map_column.get_values());
                       const auto& value_data =
@@ -1722,66 +1737,67 @@ protected:
                   });
         auto nested_map_type =
                 arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), true));
-        add_field(
-                arrow::field(
-                        "nullable_map_int_map_int_string_col",
-                        arrow::map(arrow::int32(), arrow::field("value", nested_map_type, true)),
-                        true),
-                build_nullable_int_map_map_array(),
-                [](const ParquetColumnSchema& schema, const IColumn& column) {
-                    EXPECT_TRUE(schema.type->is_nullable());
-                    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
-                    ASSERT_EQ(nullable_column.size(), ROW_COUNT);
-                    EXPECT_FALSE(nullable_column.is_null_at(0));
-                    EXPECT_TRUE(nullable_column.is_null_at(1));
-                    EXPECT_FALSE(nullable_column.is_null_at(2));
-                    EXPECT_FALSE(nullable_column.is_null_at(3));
-                    EXPECT_FALSE(nullable_column.is_null_at(4));
+        add_field(arrow::field(
+                          "nullable_map_int_map_int_string_col",
+                          arrow::map(arrow::int32(), arrow::field("value", nested_map_type, true)),
+                          true),
+                  build_nullable_int_map_map_array(),
+                  [](const ParquetColumnSchema& schema, const IColumn& column) {
+                      EXPECT_TRUE(schema.type->is_nullable());
+                      const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+                      ASSERT_EQ(nullable_column.size(), ROW_COUNT);
+                      EXPECT_FALSE(nullable_column.is_null_at(0));
+                      EXPECT_TRUE(nullable_column.is_null_at(1));
+                      EXPECT_FALSE(nullable_column.is_null_at(2));
+                      EXPECT_FALSE(nullable_column.is_null_at(3));
+                      EXPECT_FALSE(nullable_column.is_null_at(4));
 
-                    const auto& outer_map =
-                            assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
-                    const auto& outer_offsets = outer_map.get_offsets();
-                    ASSERT_EQ(outer_offsets.size(), ROW_COUNT);
-                    EXPECT_EQ(outer_offsets[0], 2);
-                    EXPECT_EQ(outer_offsets[1], 2);
-                    EXPECT_EQ(outer_offsets[2], 2);
-                    EXPECT_EQ(outer_offsets[3], 4);
-                    EXPECT_EQ(outer_offsets[4], 4);
+                      const auto& outer_map =
+                              assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+                      const auto& outer_offsets = outer_map.get_offsets();
+                      ASSERT_EQ(outer_offsets.size(), ROW_COUNT);
+                      EXPECT_EQ(outer_offsets[0], 2);
+                      EXPECT_EQ(outer_offsets[1], 2);
+                      EXPECT_EQ(outer_offsets[2], 2);
+                      EXPECT_EQ(outer_offsets[3], 4);
+                      EXPECT_EQ(outer_offsets[4], 4);
 
-                    const auto& outer_keys = assert_cast<const ColumnInt32&>(outer_map.get_keys());
-                    ASSERT_EQ(outer_keys.size(), 4);
-                    EXPECT_EQ(outer_keys.get_element(0), 10);
-                    EXPECT_EQ(outer_keys.get_element(1), 20);
-                    EXPECT_EQ(outer_keys.get_element(2), 30);
-                    EXPECT_EQ(outer_keys.get_element(3), 40);
+                      const auto& outer_keys =
+                              get_nullable_nested_column<ColumnInt32>(outer_map.get_keys());
+                      ASSERT_EQ(outer_keys.size(), 4);
+                      EXPECT_EQ(outer_keys.get_element(0), 10);
+                      EXPECT_EQ(outer_keys.get_element(1), 20);
+                      EXPECT_EQ(outer_keys.get_element(2), 30);
+                      EXPECT_EQ(outer_keys.get_element(3), 40);
 
-                    const auto& inner_values =
-                            assert_cast<const ColumnNullable&>(outer_map.get_values());
-                    ASSERT_EQ(inner_values.size(), 4);
-                    EXPECT_FALSE(inner_values.is_null_at(0));
-                    EXPECT_FALSE(inner_values.is_null_at(1));
-                    EXPECT_TRUE(inner_values.is_null_at(2));
-                    EXPECT_FALSE(inner_values.is_null_at(3));
+                      const auto& inner_values =
+                              assert_cast<const ColumnNullable&>(outer_map.get_values());
+                      ASSERT_EQ(inner_values.size(), 4);
+                      EXPECT_FALSE(inner_values.is_null_at(0));
+                      EXPECT_FALSE(inner_values.is_null_at(1));
+                      EXPECT_TRUE(inner_values.is_null_at(2));
+                      EXPECT_FALSE(inner_values.is_null_at(3));
 
-                    const auto& inner_map =
-                            assert_cast<const ColumnMap&>(inner_values.get_nested_column());
-                    const auto& inner_offsets = inner_map.get_offsets();
-                    ASSERT_EQ(inner_offsets.size(), 4);
-                    EXPECT_EQ(inner_offsets[0], 1);
-                    EXPECT_EQ(inner_offsets[1], 1);
-                    EXPECT_EQ(inner_offsets[2], 1);
-                    EXPECT_EQ(inner_offsets[3], 2);
-                    const auto& inner_keys = assert_cast<const ColumnInt32&>(inner_map.get_keys());
-                    const auto& inner_strings =
-                            assert_cast<const ColumnNullable&>(inner_map.get_values());
-                    const auto& inner_string_data =
-                            assert_cast<const ColumnString&>(inner_strings.get_nested_column());
-                    ASSERT_EQ(inner_keys.size(), 2);
-                    EXPECT_EQ(inner_keys.get_element(0), 101);
-                    EXPECT_EQ(inner_keys.get_element(1), 401);
-                    EXPECT_EQ(inner_string_data.get_data_at(0).to_string(), "aa");
-                    EXPECT_TRUE(inner_strings.is_null_at(1));
-                });
+                      const auto& inner_map =
+                              assert_cast<const ColumnMap&>(inner_values.get_nested_column());
+                      const auto& inner_offsets = inner_map.get_offsets();
+                      ASSERT_EQ(inner_offsets.size(), 4);
+                      EXPECT_EQ(inner_offsets[0], 1);
+                      EXPECT_EQ(inner_offsets[1], 1);
+                      EXPECT_EQ(inner_offsets[2], 1);
+                      EXPECT_EQ(inner_offsets[3], 2);
+                      const auto& inner_keys =
+                              get_nullable_nested_column<ColumnInt32>(inner_map.get_keys());
+                      const auto& inner_strings =
+                              assert_cast<const ColumnNullable&>(inner_map.get_values());
+                      const auto& inner_string_data =
+                              assert_cast<const ColumnString&>(inner_strings.get_nested_column());
+                      ASSERT_EQ(inner_keys.size(), 2);
+                      EXPECT_EQ(inner_keys.get_element(0), 101);
+                      EXPECT_EQ(inner_keys.get_element(1), 401);
+                      EXPECT_EQ(inner_string_data.get_data_at(0).to_string(), "aa");
+                      EXPECT_TRUE(inner_strings.is_null_at(1));
+                  });
         auto deep_list_value_type = arrow::list(arrow::field("element", arrow::int32(), true));
         auto deep_list_map_type =
                 arrow::map(arrow::int32(), arrow::field("value", deep_list_value_type, true));
@@ -1839,7 +1855,8 @@ protected:
                       EXPECT_EQ(map_offsets[2], 2);
                       EXPECT_EQ(map_offsets[3], 2);
                       EXPECT_EQ(map_offsets[4], 4);
-                      const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+                      const auto& keys =
+                              get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
                       ASSERT_EQ(keys.size(), 4);
                       EXPECT_EQ(keys.get_element(0), 1);
                       EXPECT_EQ(keys.get_element(1), 2);
@@ -1899,7 +1916,8 @@ protected:
                     EXPECT_EQ(outer_offsets[2], 2);
                     EXPECT_EQ(outer_offsets[3], 4);
                     EXPECT_EQ(outer_offsets[4], 5);
-                    const auto& outer_keys = assert_cast<const ColumnInt32&>(outer_map.get_keys());
+                    const auto& outer_keys =
+                            get_nullable_nested_column<ColumnInt32>(outer_map.get_keys());
                     ASSERT_EQ(outer_keys.size(), 5);
                     EXPECT_EQ(outer_keys.get_element(0), 10);
                     EXPECT_EQ(outer_keys.get_element(1), 20);
@@ -1944,7 +1962,7 @@ protected:
                     EXPECT_EQ(inner_offsets[4], 3);
                     EXPECT_EQ(inner_offsets[5], 4);
                     const auto& inner_keys =
-                            assert_cast<const ColumnInt32&>(inner_map_column.get_keys());
+                            get_nullable_nested_column<ColumnInt32>(inner_map_column.get_keys());
                     ASSERT_EQ(inner_keys.size(), 4);
                     EXPECT_EQ(inner_keys.get_element(0), 1);
                     EXPECT_EQ(inner_keys.get_element(1), 2);
@@ -2212,7 +2230,7 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructChildren) {
     ASSERT_EQ(rows_read, ROW_COUNT);
     const auto& struct_column = assert_cast<const ColumnStruct&>(*column);
     ASSERT_EQ(struct_column.get_columns().size(), 1);
-    const auto& values = assert_cast<const ColumnString&>(struct_column.get_column(0));
+    const auto& values = get_nullable_nested_column<ColumnString>(struct_column.get_column(0));
     EXPECT_EQ(values.get_data_at(0).to_string(), "sa");
     EXPECT_EQ(values.get_data_at(4).to_string(), "se");
 }
@@ -2323,26 +2341,20 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
     ASSERT_LT(field_idx, _fields.size());
     const auto& map_schema = *_fields[field_idx];
     ASSERT_EQ(map_schema.name, "nullable_map_int_struct_col");
-    ASSERT_EQ(map_schema.children.size(), 1);
-    const auto& key_value_schema = *map_schema.children[0];
-    ASSERT_EQ(key_value_schema.children.size(), 2);
-    const auto& value_schema = *key_value_schema.children[1];
+    ASSERT_EQ(map_schema.children.size(), 2);
+    const auto& value_schema = *map_schema.children[1];
     ASSERT_EQ(value_schema.children.size(), 2);
 
     format::LocalColumnIndex projection;
     projection.index = map_schema.local_id;
     projection.project_all_children = false;
-    format::LocalColumnIndex entry_projection;
-    entry_projection.index = key_value_schema.local_id;
-    entry_projection.project_all_children = false;
     format::LocalColumnIndex value_projection;
     value_projection.index = value_schema.local_id;
     value_projection.project_all_children = false;
     format::LocalColumnIndex child_projection;
     child_projection.index = value_schema.children[1]->local_id;
     value_projection.children.push_back(std::move(child_projection));
-    entry_projection.children.push_back(std::move(value_projection));
-    projection.children.push_back(std::move(entry_projection));
+    projection.children.push_back(std::move(value_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
     std::unique_ptr<ParquetColumnReader> reader;
@@ -2364,7 +2376,7 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
 
     const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
     const auto& map_column = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
-    const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+    const auto& keys = get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
     const auto& values = assert_cast<const ColumnNullable&>(map_column.get_values());
     const auto& struct_column = assert_cast<const ColumnStruct&>(values.get_nested_column());
     ASSERT_EQ(struct_column.get_columns().size(), 1);
@@ -2379,6 +2391,25 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
     EXPECT_TRUE(b_values.is_null_at(1));
     EXPECT_TRUE(values.is_null_at(2));
     EXPECT_EQ(b_data.get_data_at(3).to_string(), "me");
+}
+
+TEST_F(ParquetColumnReaderTest, RejectMapKeyProjection) {
+    const auto field_idx = find_field_idx("nullable_map_int_struct_col");
+    ASSERT_LT(field_idx, _fields.size());
+    const auto& map_schema = *_fields[field_idx];
+    ASSERT_EQ(map_schema.children.size(), 2);
+    const auto& key_schema = *map_schema.children[0];
+    const auto& value_schema = *map_schema.children[1];
+
+    auto projection = format::LocalColumnIndex::partial_local(map_schema.local_id);
+    projection.children.push_back(format::LocalColumnIndex::local(key_schema.local_id));
+    projection.children.push_back(format::LocalColumnIndex::local(value_schema.local_id));
+
+    ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> reader;
+    const auto st = factory.create(map_schema, &projection, &reader);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("does not support key child"), std::string::npos);
 }
 
 TEST_F(ParquetColumnReaderTest, ReadProjectedStructListChildOnly) {
@@ -2553,7 +2584,7 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedStructMapChildOnly) {
     EXPECT_EQ(offsets[2], 2);
     EXPECT_EQ(offsets[3], 2);
     EXPECT_EQ(offsets[4], 3);
-    const auto& keys = assert_cast<const ColumnInt32&>(kv_map.get_keys());
+    const auto& keys = get_nullable_nested_column<ColumnInt32>(kv_map.get_keys());
     const auto& values = assert_cast<const ColumnNullable&>(kv_map.get_values());
     const auto& value_data = assert_cast<const ColumnString&>(values.get_nested_column());
     ASSERT_EQ(keys.size(), 3);
@@ -2698,7 +2729,7 @@ TEST_F(ParquetColumnReaderTest, SelectProjectedStructMapChildOnly) {
     EXPECT_EQ(offsets[0], 2);
     EXPECT_EQ(offsets[1], 2);
     EXPECT_EQ(offsets[2], 3);
-    const auto& keys = assert_cast<const ColumnInt32&>(kv_map.get_keys());
+    const auto& keys = get_nullable_nested_column<ColumnInt32>(kv_map.get_keys());
     ASSERT_EQ(keys.size(), 3);
     EXPECT_EQ(keys.get_element(0), 1);
     EXPECT_EQ(keys.get_element(1), 2);
@@ -2835,7 +2866,7 @@ TEST_F(ParquetColumnReaderTest, SelectStructListWithOverflow) {
     EXPECT_FALSE(nullable_column.is_null_at(2));
     const auto& struct_column =
             assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
-    const auto& a_values = assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+    const auto& a_values = get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
     EXPECT_EQ(a_values.get_element(0), 301);
     EXPECT_EQ(a_values.get_element(1), 304);
     EXPECT_EQ(a_values.get_element(2), 305);
@@ -2918,7 +2949,7 @@ TEST_F(ParquetColumnReaderTest, SelectStructMapWithOverflow) {
     EXPECT_FALSE(nullable_column.is_null_at(2));
     const auto& struct_column =
             assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
-    const auto& a_values = assert_cast<const ColumnInt32&>(struct_column.get_column(0));
+    const auto& a_values = get_nullable_nested_column<ColumnInt32>(struct_column.get_column(0));
     EXPECT_EQ(a_values.get_element(0), 401);
     EXPECT_EQ(a_values.get_element(1), 404);
     EXPECT_EQ(a_values.get_element(2), 405);
@@ -2933,7 +2964,7 @@ TEST_F(ParquetColumnReaderTest, SelectStructMapWithOverflow) {
     EXPECT_EQ(offsets[0], 2);
     EXPECT_EQ(offsets[1], 2);
     EXPECT_EQ(offsets[2], 3);
-    const auto& keys = assert_cast<const ColumnInt32&>(kv_map.get_keys());
+    const auto& keys = get_nullable_nested_column<ColumnInt32>(kv_map.get_keys());
     const auto& values = assert_cast<const ColumnNullable&>(kv_map.get_values());
     const auto& value_data = assert_cast<const ColumnString&>(values.get_nested_column());
     ASSERT_EQ(keys.size(), 3);
@@ -3372,7 +3403,7 @@ TEST_F(ParquetColumnReaderTest, SkipDeepListStructMapListThenRead) {
     EXPECT_EQ(map_offsets[0], 0);
     EXPECT_EQ(map_offsets[1], 0);
     EXPECT_EQ(map_offsets[2], 2);
-    const auto& keys = assert_cast<const ColumnInt32&>(map_column.get_keys());
+    const auto& keys = get_nullable_nested_column<ColumnInt32>(map_column.get_keys());
     ASSERT_EQ(keys.size(), 2);
     EXPECT_EQ(keys.get_element(0), 3);
     EXPECT_EQ(keys.get_element(1), 4);
@@ -3480,7 +3511,7 @@ TEST_F(ParquetColumnReaderTest, SkipDeepMapListMapThenRead) {
     EXPECT_EQ(outer_offsets[1], 0);
     EXPECT_EQ(outer_offsets[2], 2);
     EXPECT_EQ(outer_offsets[3], 3);
-    const auto& outer_keys = assert_cast<const ColumnInt32&>(outer_map.get_keys());
+    const auto& outer_keys = get_nullable_nested_column<ColumnInt32>(outer_map.get_keys());
     ASSERT_EQ(outer_keys.size(), 3);
     EXPECT_EQ(outer_keys.get_element(0), 30);
     EXPECT_EQ(outer_keys.get_element(1), 40);
@@ -3527,7 +3558,7 @@ TEST_F(ParquetColumnReaderTest, SelectDeepMapListMap) {
     EXPECT_EQ(outer_offsets[0], 2);
     EXPECT_EQ(outer_offsets[1], 4);
     EXPECT_EQ(outer_offsets[2], 5);
-    const auto& outer_keys = assert_cast<const ColumnInt32&>(outer_map.get_keys());
+    const auto& outer_keys = get_nullable_nested_column<ColumnInt32>(outer_map.get_keys());
     ASSERT_EQ(outer_keys.size(), 5);
     EXPECT_EQ(outer_keys.get_element(0), 10);
     EXPECT_EQ(outer_keys.get_element(1), 20);

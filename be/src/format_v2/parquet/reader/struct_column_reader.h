@@ -50,11 +50,8 @@ public:
     int64_t nested_levels_written() const override;
     bool is_or_has_repeated_child() const override;
 
-    size_t child_count() const { return _children.size(); }
-    ParquetColumnReader* child_reader(size_t child_idx) const { return _children[child_idx].get(); }
-    int child_output_index(size_t child_idx) const { return _child_output_indices[child_idx]; }
-
 private:
+    ParquetColumnReader* shape_source_reader() const;
     std::vector<std::unique_ptr<ParquetColumnReader>> _children;
     std::vector<int> _child_output_indices;
 };

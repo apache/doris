@@ -34,10 +34,10 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
-#include "exprs/vslot_ref.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
@@ -61,8 +61,7 @@ static std::string join_values_for_debug(const std::vector<T>& values) {
 
 static std::string iceberg_delete_file_debug_string(const TIcebergDeleteFileDesc& delete_file) {
     std::ostringstream out;
-    out << "TIcebergDeleteFileDesc{path="
-        << (delete_file.__isset.path ? delete_file.path : "null")
+    out << "TIcebergDeleteFileDesc{path=" << (delete_file.__isset.path ? delete_file.path : "null")
         << ", content=" << (delete_file.__isset.content ? delete_file.content : -1)
         << ", file_format="
         << (delete_file.__isset.file_format ? static_cast<int>(delete_file.file_format) : -1)
@@ -444,8 +443,8 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
             _append_file_scan_column(request, field_column_id, &request->predicate_columns);
             const auto block_position = request->local_positions.at(field_column_id).value();
             auto slot = VSlotRef::create_shared(cast_set<int>(block_position),
-                                                    cast_set<int>(block_position), -1,
-                                                    field_it->type, field_it->name);
+                                                cast_set<int>(block_position), -1, field_it->type,
+                                                field_it->name);
             if (field_it->type->equals(*filter.key_types[idx])) {
                 delete_predicate->add_child(std::move(slot));
             } else {

@@ -1408,17 +1408,11 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     value_field.name = "value";
     value_field.type = value_type;
     value_field.children = {a_field, b_field};
-    format::ColumnDefinition entry_field;
-    entry_field.identifier = Field::create_field<TYPE_INT>(0);
-    entry_field.name = "key_value";
-    entry_field.type = std::make_shared<DataTypeStruct>(DataTypes {key_type, value_type},
-                                                        Strings {"key", "value"});
-    entry_field.children = {key_field, value_field};
     format::ColumnDefinition map_field;
     map_field.identifier = Field::create_field<TYPE_INT>(0);
     map_field.name = "m";
     map_field.type = std::make_shared<DataTypeMap>(key_type, value_type);
-    map_field.children = {entry_field};
+    map_field.children = {key_field, value_field};
 
     format::ColumnDefinition table_value_child;
     table_value_child.identifier = Field::create_field<TYPE_INT>(103);
@@ -1429,17 +1423,11 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     table_value.name = "value";
     table_value.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_value.children = {table_value_child};
-    format::ColumnDefinition table_entry;
-    table_entry.identifier = Field::create_field<TYPE_INT>(101);
-    table_entry.name = "entries";
-    table_entry.type =
-            std::make_shared<DataTypeStruct>(DataTypes {table_value.type}, Strings {"value"});
-    table_entry.children = {table_value};
     format::ColumnDefinition table_column;
     table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "m";
     table_column.type = std::make_shared<DataTypeMap>(key_type, table_value.type);
-    table_column.children = {table_entry};
+    table_column.children = {table_value};
 
     format::TableColumnMapperOptions options;
     options.mode = format::TableColumnMappingMode::BY_NAME;
@@ -1456,11 +1444,9 @@ TEST(TableColumnMapperTest, CreatesComplexProjectionForMapValueStructChildren) {
     EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].index, 0);
+    EXPECT_EQ(projection.children[0].index, 1);
     ASSERT_EQ(projection.children[0].children.size(), 1);
     EXPECT_EQ(projection.children[0].children[0].index, 1);
-    ASSERT_EQ(projection.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(projection.children[0].children[0].children[0].index, 1);
 
     ASSERT_EQ(mapper.mappings().size(), 1);
     const auto* projected_type =
@@ -1551,17 +1537,11 @@ TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
     value_field.name = "value";
     value_field.type = full_value_type;
     value_field.children = {a_field, b_field};
-    format::ColumnDefinition entry_field;
-    entry_field.identifier = Field::create_field<TYPE_INT>(0);
-    entry_field.name = "entries";
-    entry_field.type = std::make_shared<DataTypeStruct>(DataTypes {key_type, full_value_type},
-                                                        Strings {"key", "value"});
-    entry_field.children = {key_field, value_field};
     format::ColumnDefinition map_field;
     map_field.identifier = Field::create_field<TYPE_INT>(0);
     map_field.name = "m";
     map_field.type = std::make_shared<DataTypeMap>(key_type, full_value_type);
-    map_field.children = {entry_field};
+    map_field.children = {key_field, value_field};
 
     format::ColumnDefinition table_value_child;
     table_value_child.identifier = Field::create_field<TYPE_INT>(103);
@@ -1572,26 +1552,18 @@ TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
     table_value.name = "value";
     table_value.type = std::make_shared<DataTypeStruct>(DataTypes {b_type}, Strings {"b"});
     table_value.children = {table_value_child};
-    format::ColumnDefinition table_entry;
-    table_entry.identifier = Field::create_field<TYPE_INT>(101);
-    table_entry.name = "entries";
-    table_entry.type =
-            std::make_shared<DataTypeStruct>(DataTypes {table_value.type}, Strings {"value"});
-    table_entry.children = {table_value};
     format::ColumnDefinition table_column;
     table_column.identifier = Field::create_field<TYPE_INT>(100);
     table_column.name = "m";
     table_column.type = std::make_shared<DataTypeMap>(key_type, table_value.type);
-    table_column.children = {table_entry};
+    table_column.children = {table_value};
 
     auto filter_expr = std::make_shared<TestFunctionExpr>(
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
-    auto full_entry_type = entry_field.type;
-    auto entries_expr = struct_element_expr(
+    auto value_expr = struct_element_expr(
             VSlotRef::create_shared(0, 0, -1,
                                     std::make_shared<DataTypeMap>(key_type, full_value_type), "m"),
-            full_entry_type, "entries");
-    auto value_expr = struct_element_expr(entries_expr, full_value_type, "value");
+            full_value_type, "value");
     filter_expr->add_child(struct_element_expr(value_expr, a_type, "a"));
     filter_expr->add_child(VLiteral::create_shared(a_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
@@ -1615,12 +1587,9 @@ TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
     EXPECT_EQ(projection.index, 0);
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].index, 0);
+    EXPECT_EQ(projection.children[0].index, 1);
     ASSERT_EQ(projection.children[0].children.size(), 1);
-    EXPECT_EQ(projection.children[0].children[0].index, 1);
-    ASSERT_EQ(projection.children[0].children[0].children.size(), 2);
-    EXPECT_EQ(projection.children[0].children[0].children[0].index, 1);
-    EXPECT_EQ(projection.children[0].children[0].children[1].index, 0);
+    EXPECT_EQ(projection.children[0].children[0].index, 0);
     EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
