@@ -528,16 +528,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         String serializedTable = encodeObjectToString(table);
         props.put("paimon.serialized_table", serializedTable);
 
-        // Serialized predicates for BE's JNI scanner
+        // Serialized predicates for BE's JNI scanner. ALWAYS emit, even for the no-filter / empty-predicate
+        // case: an empty list still serializes to a non-null base64 string, and PaimonJniScanner.getPredicates()
+        // deserializes this param UNCONDITIONALLY — omitting it makes the JNI reader NPE on deserialize(null)
+        // ("encodedStr is null"). Mirrors legacy PaimonScanNode.createScanRangeLocations, which always called
+        // setPaimonPredicate(encodeObjectToString(predicates)) regardless of whether predicates was empty.
+        List<org.apache.paimon.predicate.Predicate> predicates = Collections.emptyList();
         if (filter.isPresent()) {
             RowType rowType = table.rowType();
             PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
-            List<org.apache.paimon.predicate.Predicate> predicates = converter.convert(filter.get());
-            if (!predicates.isEmpty()) {
-                String serializedPredicate = encodeObjectToString(predicates);
-                props.put("paimon.predicate", serializedPredicate);
-            }
+            predicates = converter.convert(filter.get());
         }
+        props.put("paimon.predicate", encodeObjectToString(predicates));
 
         // Paimon JDBC metastore options for BE (if applicable)
         Map<String, String> backendOptions = getBackendPaimonOptions();

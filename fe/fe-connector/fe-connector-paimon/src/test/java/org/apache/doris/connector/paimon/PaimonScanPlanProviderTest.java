@@ -461,6 +461,50 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void getScanNodePropertiesAlwaysEmitsPredicateForNoFilterScan(@TempDir Path warehouse)
+            throws Exception {
+        // RC-2 (CI 968828): a paimon scan with NO pushed-down filter must STILL emit the paimon.predicate
+        // param. PaimonJniScanner.getPredicates() deserializes it UNCONDITIONALLY, so when the key is
+        // absent the JNI reader NPEs ("encodedStr is null") on every no-WHERE force_jni read. Legacy
+        // PaimonScanNode.createScanRangeLocations always serialized the (possibly empty) predicate list.
+        // MUTATION: re-gating props.put("paimon.predicate", ...) on filter.isPresent() && !isEmpty (the
+        // pre-fix behavior) -> the key is absent for a no-filter scan -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table base = catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(base);
+
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            Map<String, String> props = provider.getScanNodeProperties(
+                    null, handle, Collections.emptyList(), Optional.empty());
+
+            String encoded = props.get("paimon.predicate");
+            Assertions.assertNotNull(encoded,
+                    "a no-filter scan must still emit paimon.predicate (else the BE JNI reader NPEs on "
+                            + "deserialize(null) -> 'encodedStr is null')");
+            // Round-trips (same Base64 + paimon InstantiationUtil the BE PaimonUtils.deserialize uses) to
+            // an EMPTY predicate list, so ReadBuilder.withFilter(emptyList) applies no filter.
+            byte[] decoded = Base64.getDecoder().decode(encoded.getBytes(StandardCharsets.UTF_8));
+            Object obj = InstantiationUtil.deserializeObject(decoded, getClass().getClassLoader());
+            Assertions.assertTrue(obj instanceof List, "paimon.predicate must deserialize to a List");
+            Assertions.assertTrue(((List<?>) obj).isEmpty(),
+                    "a no-filter scan's predicate list must deserialize to empty (no filter applied)");
+        }
+    }
+
+    @Test
     public void resolveTableUsesTransientWithoutReload() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(

@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -134,6 +135,12 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private List<Predicate> getPredicates() {
+        // Backstop for a missing paimon_predicate param (scan with no pushed-down filter): a null here means
+        // "no filter", not an error. Guard the unconditional deserialize so the JNI reader never NPEs on
+        // deserialize(null) ("encodedStr is null"). The FE producer also always emits an (empty) predicate now.
+        if (paimonPredicate == null) {
+            return Collections.emptyList();
+        }
         List<Predicate> predicates = PaimonUtils.deserialize(paimonPredicate);
         if (LOG.isDebugEnabled()) {
             LOG.debug("predicates:{}", predicates);
