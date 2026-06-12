@@ -5,70 +5,67 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **FIX-4 `FIX-FECONF-STORAGE-PARITY`（FE-config FULL legacy parity）**
+# 🎯 下一个 session 的任务 — **B8 legacy 删除 + round-3 follow-ups（先 AskUserQuestion 定 scope）**
 
-第三轮 clean-room 对抗 review 转出 4 个 user-approved fix（[`task-list-P5-rereview3-fixes.md`](./task-list-P5-rereview3-fixes.md)）。
-**FIX-1 / FIX-2 / FIX-3 已完成并各自独立 commit**；剩 **FIX-4**。每步走 `step-by-step-fix` skill
-（design doc → impl → tests → **独立 commit**），design 前建议跑对抗 red-team（FIX-1/FIX-3 亲证有效）。
+**第三轮 clean-room 对抗 review 转出的 4 个 user-approved fix 已全部完成并各自 commit**
+（[`task-list-P5-rereview3-fixes.md`](./task-list-P5-rereview3-fixes.md)）。无剩余已批准 fix。
+下一步是清尾工作，**开工前先 `AskUserQuestion` 确认要做哪一项**（B8 删除是大动作）：
 
-## ✅ 已完成（本 session）
-- **FIX-3 `FIX-INCR-SCAN-RESET`（P2-1 MAJOR）— commit `f08bc22b9bd`**。@incr 不再因基表持久化的
-  stale `scan.snapshot-id`/`scan.mode` 而崩/丢行。**Option 2**：`validate()` 保持 null-free（共享
-  `ConnectorMvccSnapshot` SPI 不进 null）；两个 null reset 在唯一 `Table.copy` chokepoint
-  `PaimonScanPlanProvider.resolveScanTable` 经新 `PaimonIncrementalScanParams.applyResetsIfIncremental`
-  重新施加（覆盖 native + JNI 两 caller）。paimon `copyInternal` 把 null 当 `options.remove(k)`。
-  gate=`incremental-between`/`-timestamp` 存在性（真 snapshot/tag pin 原样放行）；严格 legacy parity
-  只 reset 两键。**实测失败态是 `copy()` 硬抛 `IllegalArgumentException`（非仅静默丢行）**；real-table 测
-  proven fail-before/pass-after。design red-team `wf_ffd11631-ed2`（DESIGN-SOUND）。
-  验证：连接器 20/44/37 绿；checkstyle 0；import-gate 干净。设计/总结见
-  `FIX-INCR-SCAN-RESET-design.md` + `-summary.md`。
+1. **B8 legacy 删除**（task-list Follow-ups + 第三轮报告 R-1…R-8）：legacy `fe/fe-core/.../datasource/paimon/*`
+   + `datasource/property/storage/{OSS,COS,OBS,S3,Minio}Properties`、`property/metastore/HMSBaseProperties` 等是
+   dead residue。**删除前提**：FIX-4 不再需要它们作 literal 复刻对照（现已 commit，对照完成 → 可删）。
+   **删除须保 load-bearing dispatch ordering**（`ShowPartitionsCommand:478-480`，R-4）。逐子树删 + 每删一批跑
+   fe-core 编译 + 连接器测 + 全量 regression-gated。
+2. **D-057 re-scope**（报告 §D.3）：deferred 的 `TablePartitionValues:162` prune-path sentinel residue **不影响
+   paimon**（MVCC override 绕过）。把 deferral re-scope 到 **非-MVCC** 插件连接器（maxcompute/es/jdbc）；
+   base-class DATE-epoch + HIVE_DEFAULT 路（P11-1/P11-2）是那边的隐患，非 paimon。
+3. **accepted-deviation 用户签字**（task-list「NOT in this fix scope」§）：~10 MINOR + ~12 NIT + C-1
+   observability + uncheckedFallbacks（REFRESH cache invalidation / partitions-TVF auth / split-plan RPC 在
+   `executeAuthenticated` 外 / `PluginDrivenExternalCatalog:140` 吞 authenticator-wiring 异常）。逐条让用户
+   accept-as-deviation 或转 fix。
 
-## 📋 待修清单（详见 task-list）
-4. **FIX-4 `FIX-FECONF-STORAGE-PARITY`**（cluster P8-1/2/3/4·P9-2/3，用户定 **FULL legacy parity**）—
-   `PaimonCatalogFactory.buildHadoopConfiguration` 从 raw props 重建 Configuration 不全（filesystem/jdbc/HMS
-   flavor → catalog/metadata 访问在缺失 backend 上失败）。**连接器 only（禁 import fe-core，literal 复刻
-   legacy 键逻辑，同既有 `applyCanonical*` 模式）**。拆 **4 独立 commit**（也可单 commit）：
-   - **4a `FIX-FECONF-OSS`**（P8-1/P8-3）：endpoint 缺省时由 region 推 `fs.oss.endpoint`
-     （`oss-<region>[-internal].aliyuncs.com`，ref legacy `OSSProperties.getOssEndpoint:277-279,314-326`）+ 补 OSS 的 S3A 键（`fs.s3.impl`/`fs.s3a.*`）。
-   - **4b `FIX-FECONF-S3`**（P8-2/P9-3）：由 `use_path_style`/`s3.path-style-access` 出 `fs.s3a.path.style.access` + conn/timeout 键（MinIO/path-style）。
-   - **4c `FIX-FECONF-COS-OBS`**（P9-2）：加 `cos.*`/`obs.*` alias 数组 + 出 COS 键（`fs.cosn.impl`/`fs.cosn.userinfo.secretId|secretKey`/`fs.cosn.bucket.region`，ref `COSProperties:174-182`）+ OBS 键（`fs.obs.impl`/`fs.AbstractFileSystem.obs.impl`/`fs.obs.access.key|secret.key`，ref `OBSProperties:194-204`）。
-   - **4d `FIX-FECONF-HMS-USER`**（P8-4）：`buildHmsHiveConf` 出 `hive.metastore.username` alias（映 `hadoop.username`）。
-   测试 `PaimonCatalogFactoryTest`：每 backend 一例（region-only OSS→`fs.oss.endpoint`；COS→`fs.cosn.*`；
-   OBS→`fs.obs.*`；S3 path-style；HMS username alias）。**Build：连接器 only**。
-
-## ⚠️ 关键结论（修复时参照，**勿当先验压制新发现**）
-- **P11-1（DATE-epoch prune）是假 BLOCKER**：paimon 走 `PluginDrivenMvccExternalTable.getNameToPartitionItems`
-  override（解析 rendered name），不走 base raw-epoch 路 → D-057 的「prune-路 paimon 残留」框定有误，
-  **B8 时 re-scope 到非-paimon 连接器**（task-list Follow-ups）。
-- 翻闸结构性 OK（R-1…R-8）。legacy `datasource/paimon/*` = dead residue，**B8 删除放最后**；FIX-4 期间仍需
-  legacy `*Properties`（`OSSProperties`/`COSProperties`/`OBSProperties`/`HMSBaseProperties`）作 literal 复刻对照。
+## ✅ 已完成（本 session）— **FIX-4 `FIX-FECONF-STORAGE-PARITY`（cluster P8-1..4·P9-2/3）— commit `f0210b51871`**
+- **连接器 only**（`PaimonCatalogFactory`，无 fe-core/SPI/BE）。FE-side Hadoop `Configuration`/`HiveConf` 重建
+  补齐到 legacy full parity：4a OSS endpoint-from-region（移入共享 OSS 块，删 DLF-local 死块）+ S3A base；
+  4b S3 path-style + 4 个 tuning 键（**per-backend 默认**：S3 `50/3000/1000` + `AWS_*` twins，OSS/COS/OBS
+  `100/10000/10000`）；4c 新 COS/OBS 块（**endpoint-PATTERN 检测** `myqcloud.com`/`myhuaweicloud.com` OR
+  scheme 键；S3A base + **无条件** `fs.cosn.*`/`fs.obs.*`；OBS native-vs-s3a by classpath）；**user-approved**
+  S3 endpoint-from-region；4d HMS username alias（`hadoop.username`，移到 storage overlay 之后避 passthrough
+  clobber）；**4e folded-in pre-existing MAJOR**：kerberos 块移到 overlay 之后（kerberized-HMS + simple-HDFS
+  否则被 clobber 成 `auth=simple`+`sasl=true` 坏 GSSAPI）。
+- **meta（本 session 亲证有效，下次照用）**：① **design red-team 在写码前**（`wf_a6385c61-669`，5 skeptic +
+  completeness critic）抓出三处会 ship-wrong 的 framing：tuning 默认非均一、COS/OBS 按 endpoint pattern 检测
+  非 scheme-key、`fs.cosn.*`/`fs.obs.*` 无条件发；② **impl verification 在写码后**（`wf_f90260cb-5e6`）逐键 diff
+  legacy（fidelity CLEAN）+ 揪出 4e pre-existing MAJOR；③ **测试钉真不变式**：username-priority + kerberos 两个
+  新测在旧 ordering 是 RED（抓出 raw `hadoop.*` passthrough clobber authoritative 设置）。
+- 验证：连接器 56/0/0 + 全模块绿；checkstyle 0；import-gate 干净。live-e2e CI-gated（注明 gated，未谎称跑过）。
+  设计/总结：`FIX-FECONF-STORAGE-PARITY-design.md` + `-summary.md`。
 
 ## 🗺️ 代码脚手架
 - **Plugin connector**：`fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/`
-  （**flavor/存储装配 `PaimonCatalogFactory.java`[FIX-4]**：`buildHadoopConfiguration:390-394`、
-  `applyStorageConfig:412-426`、`applyCanonicalS3Config:437-465`、`applyCanonicalOssConfig:475-499`、
-  alias 数组 `:87-106`、`buildHmsHiveConf`；scan `PaimonScanPlanProvider.java`+`PaimonScanRange.java`；
+  （存储装配 `PaimonCatalogFactory.java`：`applyStorageConfig`→`applyCanonicalS3/Oss/Cos/ObsConfig` +
+  共享 `applyS3aBaseConfig`；`buildHmsHiveConf`/`buildDlfHiveConf`；scan `PaimonScanPlanProvider.java`；
   @incr `PaimonIncrementalScanParams.java`）。`-api`/`-backend-*` 模块在 git 内为空壳。
 - **fe-core 桥/SPI**：`fe/fe-core/.../connector/DefaultConnectorContext.java`、`.../datasource/PluginDriven*.java`；
   SPI `fe/fe-connector/fe-connector-{api,spi}/`。
-- **Legacy 对照基准（仍在树内，勿删；FIX-4 literal 复刻源）**：`fe/fe-core/.../datasource/property/storage/`
-  下 `OSSProperties`/`COSProperties`/`OBSProperties`/`HMSBaseProperties`（grep 确认实际路径）；
-  `fe/fe-core/.../datasource/paimon/`（`source/PaimonScanNode.java`、`PaimonUtil.java`、
-  `PaimonRestMetaStoreProperties` 等）。
+- **Legacy 对照基准（B8 删除目标）**：`fe/fe-core/.../datasource/paimon/`、`.../datasource/property/storage/`
+  下 `{OSS,COS,OBS,S3,Minio}Properties`、`.../property/metastore/HMSBaseProperties`。**FIX-4 已 commit → 对照
+  完成，B8 可删。**
 - **BE 消费端**：`be/src/format/table/`（`paimon_cpp_reader.cpp`、`paimon_reader.cpp`、`partition_column_filler.h`）。
 
 ---
 
 # 📦 仓库状态
-- **HEAD = `f08bc22b9bd`（FIX-3）**。迁移链：…→`c376aba1264`(FIX-1)→`2e845e88bf9`(FIX-2)→
-  `1b2b4236db3`(docs)→**`f08bc22b9bd`(FIX-3, HEAD)**。本 session 后另有一个 `docs:` 提
-  （滚 HANDOFF + task-list 勾 FIX-3 + 加 `FIX-INCR-SCAN-RESET-summary.md`）。
+- **HEAD = `f0210b51871`（FIX-4）**。迁移链：…→`c376aba1264`(FIX-1)→`2e845e88bf9`(FIX-2)→`f08bc22b9bd`(FIX-3)
+  →`d4aeaaccc45`(docs)→**`f0210b51871`(FIX-4, HEAD)**。本 session 后另有一个 `docs:` 提
+  （滚 HANDOFF + task-list 勾 FIX-4 + 加 `FIX-FECONF-STORAGE-PARITY-summary.md`）。
 - ⚠️ `regression-test/conf/regression-conf.groovy` 仍 modified 未 commit 且含**明文 Aliyun key** —— commit 前继续
   path-whitelist，**严禁 `git add -A`**；`regression-conf.groovy.bak` 同理排除。
 - 未 commit/未跟踪：scratch（`.audit-scratch/` `conf.cmy/` `META-INF/`）；
   `plan-doc/reviews/P5-paimon-rereview3-2026-06-12.md`（第三轮 review 报告，未跟踪——大文件，下次方便时
   vet+commit 或保留本地）。
-- 当前分支 `catalog-spi-07-paimon`（非 `master`）。**无 P0~P4 阻塞遗留**；P9-1 BLOCKER 已清；P2-1 已清。
+- 当前分支 `catalog-spi-07-paimon`（非 `master`）。**P0~P4 无阻塞；P9-1/P7-1/P2-1 + P8/P9-config 全清。**
+  round-3 的 4 个 user-approved fix 全部完成。
 
 ## ⚠️ Commit 须知（任何 `git add` 前必读）
 - **硬前置**：scrub `regression-test/conf/regression-conf.groovy`（明文 key）+ 清 scratch（`.audit-scratch/` `conf.cmy/`
@@ -79,26 +76,25 @@
 ## ⚙️ 操作须知（复用）
 - maven 绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> **-am** -Dmaven.build.cache.enabled=false
   -DfailIfNoTests=false`；验证读 surefire XML + `BUILD SUCCESS`/`MVN_EXIT`（[[doris-build-verify-gotchas]]）。
-  **漏 `-am` → `could not resolve fe-connector-spi ${revision}` 假错**（FIX-3 fail-before 验证亲证）。改 SPI
+  **漏 `-am` → `could not resolve fe-connector-spi ${revision}` 假错**。改 fe-core `-pl :fe-core -am`；SPI
   `-pl :fe-connector-api`/`:fe-connector-spi -am`。**checkstyle**：连接器
-  `mvn -f …/fe/pom.xml -pl :fe-connector-paimon -am checkstyle:check`。
+  `mvn -f …/fe/pom.xml -pl :fe-connector-paimon -am checkstyle:check`。**checkstyle 在 `validate` phase 跑（编译前）**——
+  多行数组初始化 `{` 须留在 `=` 同行（见 FIX-4），否则 'array initialization lcurly' indentation 报错。
 - 连接器禁 import fe-core：`bash tools/check-connector-imports.sh`（仅允许 `org.apache.doris.{thrift,connector,extension,filesystem}`）。
 - cwd 跨 Bash 调用持久，`cd` 破相对路径 → 一律绝对路径。
-- 测试优先 runnable FE 单测。harness：`RecordingConnectorContext`/`RecordingPaimonCatalogOps`/`FakePaimonTable`
-  （注意 `FakePaimonTable.copy` 是 no-op recorder，不能当 reset/merge 的 fail-before 闸——须 real
-  `FileSystemCatalog`，见 FIX-3 `resolveScanTableResetsStalePinForIncrementalRead`）/`PaimonScanPlanProviderTest`
-  (real-table `FileSystemCatalog`)/`PaimonIncrementalScanParamsTest`/`PaimonCatalogFactoryTest`[FIX-4]/
-  `DefaultConnectorContextNormalizeUriTest`(fe-core)。live-e2e CI-gated（`enablePaimonTest` 默认 false）→ 注明 gated，勿谎称跑过。
+- 测试 harness：`PaimonCatalogFactoryTest`（纯 Map→Configuration/HiveConf，56 测）/`PaimonScanPlanProviderTest`
+  (real-table `FileSystemCatalog`)/`PaimonIncrementalScanParamsTest`/`RecordingConnectorContext`/
+  `RecordingPaimonCatalogOps`/`FakePaimonTable`（`.copy` 是 no-op recorder，reset/merge fail-before 须 real
+  table）/`DefaultConnectorContextNormalizeUriTest`(fe-core)。live-e2e CI-gated（`enablePaimonTest` 默认 false）→
+  注明 gated，勿谎称跑过。
 
 ## 🧠 给下一个 agent 的 meta
-- **逐项修**：一次一个 fix，design→impl→test→commit，别批量糊。各 fix 根因/site/legacy 对照/test 都在
-  [task-list-P5-rereview3-fixes.md](./task-list-P5-rereview3-fixes.md) + 各 `FIX-*-design.md`。
-- **design 前对抗 red-team 见效（FIX-1/FIX-3 亲证）**：5-skeptic 各驳一 claim + completeness critic 在写码前
-  抓出 signature-fanout（FIX-3：`resolveScanTable` 两 caller 共 chokepoint）、test-double 矛盾
-  （`FakePaimonTable.copy` 是 no-op→fail-before 须 real table）、framing 纠偏（FIX-3 失败态实为硬抛非静默丢行）。
-  **改 handle/分区/scan 流必 grep 全调用方 + 确认实际实例类（base vs MVCC 子类）。**
-- **fail-before 闸要真验**：FIX-3 neuter 掉 fix 后跑 real-table 测确认 RED（`IllegalArgumentException`）再恢复
-  （verification-before-completion；勿凭「应该会红」自满）。
-- **历史不压制新发现**：P9-1（FIX-1）正是被 DV-025「合理化 defer」却没真修的；P2-1（FIX-3）的 strip 也是被
-  「fresh table 无 inherited scan.*」错误合理化。
-- 完整背景：报告 `reviews/P5-paimon-rereview3-2026-06-12.md`；memory `catalog-spi-p5-*`。
+- **B8 是大动作**：开工前 `AskUserQuestion` 定 scope（删哪个子树 / follow-ups 哪几条先做）。逐子树删 + 每批跑
+  fe-core 编译 + 连接器测 + regression-gated；**保 load-bearing dispatch ordering**（grep 全调用方，base vs MVCC
+  子类）。
+- **改 handle/分区/scan 流必 grep 全调用方 + 确认实际实例类（base vs MVCC 子类）**；改 storage/auth 装配流必
+  grep `applyStorageConfig` 全 caller（filesystem/jdbc/hms/dlf）+ 注意 raw `hadoop.*`/`fs.*` passthrough 跑在最后
+  （last-write-wins）会 clobber 之前的 authoritative 设置（FIX-4 4d/4e 亲证）。
+- **design red-team（写码前）+ impl verification（写码后）两道**本 session 各抓真 defect，**勿跳**。
+- **fail-before 闸要真验**：钉「旧 ordering 会 RED」的测试（username-priority / kerberos-survives-simple-HDFS）。
+- **历史不压制新发现**；完整背景：报告 `reviews/P5-paimon-rereview3-2026-06-12.md`；memory `catalog-spi-p5-*`。

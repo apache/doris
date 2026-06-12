@@ -107,7 +107,20 @@ incremental-between window is applied → potential wrong @incr scan.
 **Tests**: `PaimonIncrementalScanParamsTest` — assert the reset keys are present/applied for @incr.
 **Build**: connector only. **Commit**: `fix: FIX-INCR-SCAN-RESET`.
 
-## ▶ FIX-4 — `FIX-FECONF-STORAGE-PARITY` (cluster: P8-1/P8-2/P8-3/P8-4/P9-2/P9-3) — FULL legacy parity
+## ✅ FIX-4 — `FIX-FECONF-STORAGE-PARITY` (cluster: P8-1/P8-2/P8-3/P8-4/P9-2/P9-3) — **DONE** (commit `f0210b51871`)
+> Single commit (the shared `applyS3aBaseConfig` helper couples 4a/4b/4c). Design red-team
+> `wf_a6385c61-669` (pre-code) + impl verification `wf_f90260cb-5e6` (post-code, fidelity CLEAN).
+> Design/summary: `FIX-FECONF-STORAGE-PARITY-design.md` + `-summary.md`. Verified: connector 56/0/0 +
+> full module green; checkstyle 0; import-gate clean. Live e2e CI-gated.
+> **Done beyond the literal task-list (all justified by signed FULL parity / found in review)**:
+> (i) **user-approved** S3 endpoint-from-region (`https://s3.<region>.amazonaws.com`, same defect class as the
+> OSS P8-1 fix); (ii) per-backend tuning defaults — S3 `50/3000/1000` (red-team caught a single shared default
+> would mis-tune AWS S3), OSS/COS/OBS `100/10000/10000`; (iii) COS/OBS detection by endpoint PATTERN
+> (`myqcloud.com`/`myhuaweicloud.com`) not scheme-key-only; (iv) unconditional `fs.cosn.*`/`fs.obs.*`;
+> (v) **4e folded-in pre-existing MAJOR** — kerberos block moved AFTER the storage overlay so a kerberized-HMS +
+> simple-HDFS catalog isn't clobbered to `auth=simple`+`sasl=true` (user-approved fold-in). Removed the dead
+> DLF-local OSS-endpoint block (derivation now shared). **Known residual (out of scope, documented)**: OSS
+> endpoint-PATTERN detection not added to the existing OSS block (pre-existing, no failing case).
 **Root cause (shared)**: `PaimonCatalogFactory.buildHadoopConfiguration:390-394` rebuilds the FE-side
 Hadoop `Configuration` from RAW props (the connector cannot import fe-core `OSSProperties`/`COSProperties`/
 `OBSProperties`/`HMSBaseProperties`), and the reconstruction (`applyStorageConfig:412-426`,
