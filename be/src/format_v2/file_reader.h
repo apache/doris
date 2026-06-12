@@ -212,12 +212,14 @@ public:
     // Initialize file reader and parse file metadata.
     virtual Status init(RuntimeState* state);
 
-    // Get file-local schema from file metadata. The file schema is determined by file format and
-    // file content, and does not contain table/global schema semantics. A file reader may expose
-    // raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier, but it
-    // must not interpret table-format semantics such as Iceberg name mapping, default/generated
-    // columns, or partition columns. This method can only be called after init() successfully, but
-    // does not require open() to be called.
+    // Get semantic file-local schema from file metadata. The file schema is determined by file
+    // format and file content, and does not contain table/global schema semantics. A file reader may
+    // expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier,
+    // but it must not interpret table-format semantics such as Iceberg name mapping,
+    // default/generated columns, or partition columns. File-format physical wrappers should stay in
+    // private reader schema; for example, a Parquet MAP is exposed as key/value children rather than
+    // key_value/entry. This method can only be called after init() successfully, but does not
+    // require open() to be called.
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
 
     // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.

@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -79,6 +80,154 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
                                    child_projection.local_id(), column_schema.name);
 }
 
+// Convert the semantic projection accepted by FileReader::open() back to the physical Parquet
+// schema tree consumed by Parquet internals.
+//
+// ParquetReader::get_schema() exposes a semantic file-local ColumnDefinition tree:
+//
+//   MAP children = [key, value]
+//
+// The private ParquetColumnSchema tree still mirrors the physical Parquet layout:
+//
+//   MAP children = [key_value/entry]
+//   key_value/entry children = [key, value]
+//
+// Row group pruning, page pruning and ParquetColumnReaderFactory all walk ParquetColumnSchema and
+// match LocalColumnIndex children against that physical tree. Therefore a table-layer request such
+// as `m.value.b` must be translated from semantic form:
+//
+//   m -> value -> b
+//
+// to physical Parquet form:
+//
+//   m -> key_value/entry -> key, value -> b
+//
+// The key child is always included for MAP because Doris MAP materialization requires both key and
+// value columns even when the projection only prunes inside the value type.
+static Status translate_projection_to_physical(const ParquetColumnSchema& column_schema,
+                                               const format::LocalColumnIndex& semantic_projection,
+                                               format::LocalColumnIndex* physical_projection) {
+    DORIS_CHECK(physical_projection != nullptr);
+    *physical_projection = semantic_projection;
+    if (semantic_projection.project_all_children || semantic_projection.children.empty()) {
+        physical_projection->project_all_children = true;
+        physical_projection->children.clear();
+        return Status::OK();
+    }
+
+    physical_projection->project_all_children = false;
+    physical_projection->children.clear();
+    switch (column_schema.kind) {
+    case ParquetColumnSchemaKind::STRUCT:
+    case ParquetColumnSchemaKind::LIST: {
+        physical_projection->children.reserve(semantic_projection.children.size());
+        for (const auto& semantic_child_projection : semantic_projection.children) {
+            const auto child_schema_it =
+                    std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
+                        return child_schema->local_id == semantic_child_projection.local_id();
+                    });
+            if (child_schema_it == column_schema.children.end()) {
+                return Status::InvalidArgument(
+                        "Invalid parquet projection child id {} for column {}",
+                        semantic_child_projection.local_id(), column_schema.name);
+            }
+            format::LocalColumnIndex physical_child_projection;
+            RETURN_IF_ERROR(translate_projection_to_physical(
+                    **child_schema_it, semantic_child_projection, &physical_child_projection));
+            physical_projection->children.push_back(std::move(physical_child_projection));
+        }
+        return Status::OK();
+    }
+    case ParquetColumnSchemaKind::MAP: {
+        if (column_schema.children.size() != 1 || column_schema.children[0]->children.size() != 2) {
+            return Status::NotSupported("Unsupported parquet MAP layout for column {}",
+                                        column_schema.name);
+        }
+        const auto& entry_schema = *column_schema.children[0];
+        const auto& key_schema = *entry_schema.children[0];
+        const auto& value_schema = *entry_schema.children[1];
+        const auto* value_projection =
+                format::find_child_projection(&semantic_projection, value_schema.local_id);
+        if (value_projection == nullptr) {
+            return Status::NotSupported("Parquet MAP projection for column {} contains no value",
+                                        column_schema.name);
+        }
+
+        format::LocalColumnIndex entry_projection =
+                format::LocalColumnIndex::partial_local(entry_schema.local_id);
+        entry_projection.children.push_back(format::LocalColumnIndex::local(key_schema.local_id));
+        format::LocalColumnIndex physical_value_projection;
+        RETURN_IF_ERROR(translate_projection_to_physical(value_schema, *value_projection,
+                                                         &physical_value_projection));
+        entry_projection.children.push_back(std::move(physical_value_projection));
+        physical_projection->children.push_back(std::move(entry_projection));
+        return Status::OK();
+    }
+    case ParquetColumnSchemaKind::PRIMITIVE:
+        return Status::InvalidArgument("Cannot project children from primitive parquet column {}",
+                                       column_schema.name);
+    }
+    return Status::InvalidArgument("Unknown parquet schema kind for column {}", column_schema.name);
+}
+
+// Translate every column projection in a scan request from the semantic FileReader API shape to the
+// physical Parquet reader shape. local_positions and expressions stay unchanged because they are
+// keyed by top-level file-local column ids; only nested projection paths need physical wrappers.
+static Status translate_request_to_physical(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& semantic_request,
+        std::shared_ptr<format::FileScanRequest>* physical_request) {
+    DORIS_CHECK(physical_request != nullptr);
+    auto translated = std::make_shared<format::FileScanRequest>(semantic_request);
+    auto translate_root_projection = [&](format::LocalColumnIndex* projection) -> Status {
+        DORIS_CHECK(projection != nullptr);
+        const auto local_id = projection->local_id();
+        if (local_id == format::ROW_POSITION_COLUMN_ID ||
+            local_id == format::GLOBAL_ROWID_COLUMN_ID) {
+            return Status::OK();
+        }
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
+            return Status::InvalidArgument("Invalid parquet projection top-level local id {}",
+                                           local_id);
+        }
+        format::LocalColumnIndex physical_projection;
+        RETURN_IF_ERROR(translate_projection_to_physical(*file_schema[local_id], *projection,
+                                                         &physical_projection));
+        *projection = std::move(physical_projection);
+        return Status::OK();
+    };
+    for (auto& projection : translated->predicate_columns) {
+        RETURN_IF_ERROR(translate_root_projection(&projection));
+    }
+    for (auto& projection : translated->non_predicate_columns) {
+        RETURN_IF_ERROR(translate_root_projection(&projection));
+    }
+    *physical_request = std::move(translated);
+    return Status::OK();
+}
+
+// Aggregate pushdown resolves a single primitive Parquet leaf from the projection. It shares the
+// same physical ParquetColumnSchema traversal as normal scans, so nested aggregate projections need
+// the same semantic-to-physical translation before min/max leaf lookup.
+static Status translate_aggregate_request_to_physical(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileAggregateRequest& semantic_request,
+        format::FileAggregateRequest* physical_request) {
+    DORIS_CHECK(physical_request != nullptr);
+    *physical_request = semantic_request;
+    for (auto& column : physical_request->columns) {
+        const auto local_id = column.projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
+            return Status::InvalidArgument("Invalid parquet aggregate column id {}", local_id);
+        }
+        format::LocalColumnIndex physical_projection;
+        RETURN_IF_ERROR(translate_projection_to_physical(*file_schema[local_id], column.projection,
+                                                         &physical_projection));
+        column.projection = std::move(physical_projection);
+    }
+    return Status::OK();
+}
+
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
                                             format::ColumnDefinition* field) const {
     if (column_schema.parquet_field_id >= 0) {
@@ -90,6 +239,23 @@ void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_sc
     field->name = column_schema.name;
     field->type = column_schema.type;
     field->children.clear();
+    if (column_schema.kind == ParquetColumnSchemaKind::MAP) {
+        // Expose semantic Doris MAP children through FileReader::get_schema(). The Parquet
+        // key_value/entry wrapper remains private in ParquetColumnSchema and is restored only when
+        // translating FileScanRequest projections for the physical reader path.
+        if (column_schema.children.empty()) {
+            return;
+        }
+        const auto& entry_schema = *column_schema.children[0];
+        DORIS_CHECK(entry_schema.children.size() == 2);
+        field->children.reserve(entry_schema.children.size());
+        for (const auto& child : entry_schema.children) {
+            format::ColumnDefinition child_field;
+            _fill_column_definition(*child, &child_field);
+            field->children.push_back(std::move(child_field));
+        }
+        return;
+    }
     field->children.reserve(column_schema.children.size());
     for (const auto& child : column_schema.children) {
         format::ColumnDefinition child_field;
@@ -161,6 +327,15 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     auto request_snapshot = request;
     DORIS_CHECK(request_snapshot != nullptr);
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
+    // The table layer builds FileScanRequest from FileReader::get_schema(), so nested paths use the
+    // semantic ColumnDefinition shape. Parquet scan planning and column readers consume the private
+    // ParquetColumnSchema physical shape, so keep the public request contract semantic and adapt it
+    // at this boundary.
+    std::shared_ptr<format::FileScanRequest> physical_request;
+    RETURN_IF_ERROR(translate_request_to_physical(_state->file_schema, *request_snapshot,
+                                                  &physical_request));
+    request_snapshot = std::move(physical_request);
+    _request = request_snapshot;
 
     const int num_fields = static_cast<int>(_state->file_schema.size());
     for (const auto& column_filter : request_snapshot->column_predicate_filters) {
@@ -311,10 +486,15 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         return Status::OK();
     }
 
-    result->columns.resize(request.columns.size());
-    for (size_t request_column_idx = 0; request_column_idx < request.columns.size();
+    format::FileAggregateRequest physical_request;
+    RETURN_IF_ERROR(translate_aggregate_request_to_physical(_state->file_schema, request,
+                                                            &physical_request));
+
+    result->columns.resize(physical_request.columns.size());
+    for (size_t request_column_idx = 0; request_column_idx < physical_request.columns.size();
          ++request_column_idx) {
-        const auto file_column_id = request.columns[request_column_idx].projection.local_id();
+        const auto file_column_id =
+                physical_request.columns[request_column_idx].projection.local_id();
         if (file_column_id < 0 ||
             file_column_id >= static_cast<int32_t>(_state->file_schema.size())) {
             return Status::InvalidArgument("Invalid parquet aggregate column id {}",
@@ -324,7 +504,8 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         DORIS_CHECK(column_schema != nullptr);
         const ParquetColumnSchema* leaf_schema = nullptr;
         RETURN_IF_ERROR(find_projected_minmax_leaf(
-                *column_schema, request.columns[request_column_idx].projection, &leaf_schema));
+                *column_schema, physical_request.columns[request_column_idx].projection,
+                &leaf_schema));
         DORIS_CHECK(leaf_schema != nullptr);
 
         auto& aggregate_column = result->columns[request_column_idx];

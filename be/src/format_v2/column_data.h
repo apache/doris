@@ -249,8 +249,12 @@ struct ColumnDefinition {
     // use this to resolve partition path keys after column rename.
     std::vector<std::string> name_mapping {};
     DataTypePtr type;
-    // Projected nested table children. Children use table/global identifiers; they are resolved to
-    // file-local child ids by TableColumnMapper before reaching FileReader.
+    // Semantic nested children for this schema node.
+    //
+    // Table/global columns carry projected table children. File-local schemas returned by
+    // FileReader::get_schema() also expose semantic children, not physical reader wrappers. For
+    // example, MAP children are key/value, while a file format such as Parquet may keep its
+    // key_value/entry wrapper in its private reader schema and translate projections internally.
     std::vector<ColumnDefinition> children {};
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.

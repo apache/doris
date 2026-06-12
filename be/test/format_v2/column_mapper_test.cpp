@@ -137,12 +137,12 @@ ColumnDefinition array_col(const std::string& name, int32_t field_id, ColumnDefi
     return column;
 }
 
-ColumnDefinition map_col(const std::string& name, int32_t field_id, ColumnDefinition entry,
-                         const DataTypePtr& key_type, const DataTypePtr& value_type,
-                         int32_t local_id = -1) {
+ColumnDefinition map_col(const std::string& name, int32_t field_id,
+                         std::vector<ColumnDefinition> children, const DataTypePtr& key_type,
+                         const DataTypePtr& value_type, int32_t local_id = -1) {
     auto column = field_id_col(name, field_id, std::make_shared<DataTypeMap>(key_type, value_type),
                                local_id);
-    column.children = {std::move(entry)};
+    column.children = std::move(children);
     return column;
 }
 
@@ -399,25 +399,18 @@ TEST(ColumnMapperSchemaProjectionTest, ProjectsMapValueStructLeaf) {
             std::make_shared<DataTypeStruct>(DataTypes {i32(), str()}, Strings {"a", "b"});
     ColumnDefinition value = field_id_col("value", 4, value_type, 1);
     value.children = {value_a, value_b};
-    auto entry_type = std::make_shared<DataTypeStruct>(DataTypes {str(), value_type},
-                                                       Strings {"key", "value"});
-    ColumnDefinition entry = field_id_col("entries", 5, entry_type, 0);
-    entry.children = {key, value};
-    auto map = map_col("m", 100, entry, str(), value_type, 9);
+    auto map = map_col("m", 100, {key, value}, str(), value_type, 9);
 
     LocalColumnIndex projection = LocalColumnIndex::partial_local(9);
-    auto entry_projection = LocalColumnIndex::partial_local(0);
     auto value_projection = LocalColumnIndex::partial_local(1);
     value_projection.children.push_back(LocalColumnIndex::local(1));
-    entry_projection.children.push_back(std::move(value_projection));
-    projection.children.push_back(std::move(entry_projection));
+    projection.children.push_back(std::move(value_projection));
 
     ColumnDefinition projected;
     ASSERT_TRUE(project_column_definition(map, projection, &projected).ok());
     ASSERT_EQ(projected.children.size(), 1);
     ASSERT_EQ(projected.children[0].children.size(), 1);
-    ASSERT_EQ(projected.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(projected.children[0].children[0].children[0].name, "b");
+    EXPECT_EQ(projected.children[0].children[0].name, "b");
 
     const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(projected.type).get());
     const auto* projected_value =
@@ -451,11 +444,15 @@ TEST(ColumnMapperSchemaProjectionTest, RejectsEmptyProjectionPathWithFieldName) 
     EXPECT_NE(status.to_string().find("Empty projection path for field s"), std::string::npos);
 }
 
-TEST(ColumnMapperSchemaProjectionTest, RejectsChildProjectionForPrimitiveType) {
-    DataTypePtr projected_type;
-    const auto status = rebuild_projected_type(i32(), {i32()}, {"a"}, &projected_type);
+TEST(ColumnMapperSchemaProjectionTest, RejectsInvalidChildProjectionForPrimitiveField) {
+    auto root = field_id_col("i", 1, i32(), 7);
+    LocalColumnIndex projection = LocalColumnIndex::partial_local(7);
+    projection.children.push_back(LocalColumnIndex::local(0));
+
+    ColumnDefinition projected;
+    const auto status = project_column_definition(root, projection, &projected);
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Cannot project children from non-complex type"),
+    EXPECT_NE(status.to_string().find("Invalid projection child id 0 for field i"),
               std::string::npos);
 }
 
@@ -1965,8 +1962,7 @@ TEST(ColumnMapperScanRequestTest, MapValueStructProjectionPrunesValueChildren) {
 
     auto table_value_b = name_col("b", string_type);
     auto table_value = struct_name_col("value", {table_value_b});
-    auto table_entry = struct_name_col("entries", {table_value});
-    auto table_map = map_col("m", -1, table_entry, key_type, table_value.type);
+    auto table_map = map_col("m", -1, {table_value}, key_type, table_value.type);
     table_map.identifier = Field::create_field<TYPE_STRING>("m");
     set_name_identifiers(&table_map, -1);
 
@@ -1974,8 +1970,7 @@ TEST(ColumnMapperScanRequestTest, MapValueStructProjectionPrunesValueChildren) {
     auto file_value_a = name_col("a", int_type, 0);
     auto file_value_b = name_col("b", string_type, 1);
     auto file_value = struct_name_col("value", {file_value_a, file_value_b}, 1);
-    auto file_entry = struct_name_col("key_value", {file_key, file_value}, 0);
-    auto file_map = map_col("m", -1, file_entry, key_type, file_value.type, 6);
+    auto file_map = map_col("m", -1, {file_key, file_value}, key_type, file_value.type, 6);
     file_map.identifier = Field::create_field<TYPE_STRING>("m");
     set_name_identifiers(&file_map, 6);
 
@@ -1990,11 +1985,9 @@ TEST(ColumnMapperScanRequestTest, MapValueStructProjectionPrunesValueChildren) {
     EXPECT_EQ(projection.column_id(), LocalColumnId(6));
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
-    EXPECT_EQ(projection.children[0].local_id(), 0);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
     ASSERT_EQ(projection.children[0].children.size(), 1);
     EXPECT_EQ(projection.children[0].children[0].local_id(), 1);
-    ASSERT_EQ(projection.children[0].children[0].children.size(), 1);
-    EXPECT_EQ(projection.children[0].children[0].children[0].local_id(), 1);
 
     const auto* mapped_map =
             assert_cast<const DataTypeMap*>(remove_nullable(mapper.mappings()[0].file_type).get());

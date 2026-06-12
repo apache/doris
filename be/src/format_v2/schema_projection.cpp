@@ -28,39 +28,56 @@
 #include "core/data_type/data_type_struct.h"
 
 namespace doris::format {
+namespace {
 
-Status rebuild_projected_type(const DataTypePtr& original_type,
-                              const std::vector<DataTypePtr>& child_types,
-                              const std::vector<std::string>& child_names,
-                              DataTypePtr* projected_type) {
+// Rebuild the complex DataType for one already-pruned semantic ColumnDefinition node.
+//
+// The caller has already matched the projection against ColumnDefinition::children and preserved
+// the file-local child order. This helper only mirrors those projected semantic children into the
+// node type. It intentionally does not understand physical format wrappers. In particular, a MAP
+// node is expected to have semantic children [key, value], even if the underlying format stores a
+// wrapper such as Parquet key_value/entry.
+Status rebuild_semantic_projected_type(const DataTypePtr& original_type,
+                                       const std::vector<ColumnDefinition>& projected_children,
+                                       DataTypePtr* projected_type) {
     DORIS_CHECK(original_type != nullptr);
     DORIS_CHECK(projected_type != nullptr);
-    DORIS_CHECK(child_types.size() == child_names.size());
 
     DataTypePtr nested_projected_type;
     const auto primitive_type = remove_nullable(original_type)->get_primitive_type();
     switch (primitive_type) {
-    case TYPE_STRUCT:
+    case TYPE_STRUCT: {
+        DataTypes child_types;
+        Strings child_names;
+        child_types.reserve(projected_children.size());
+        child_names.reserve(projected_children.size());
+        for (const auto& child : projected_children) {
+            child_types.push_back(child.type);
+            child_names.push_back(child.name);
+        }
         nested_projected_type = std::make_shared<DataTypeStruct>(child_types, child_names);
         break;
+    }
     case TYPE_ARRAY:
-        DORIS_CHECK(child_types.size() == 1);
-        nested_projected_type = std::make_shared<DataTypeArray>(child_types[0]);
+        DORIS_CHECK(projected_children.size() == 1);
+        nested_projected_type = std::make_shared<DataTypeArray>(projected_children[0].type);
         break;
     case TYPE_MAP: {
-        // TODO: ?
-        DORIS_CHECK(child_types.size() == 1);
-        DORIS_CHECK(remove_nullable(child_types[0])->get_primitive_type() == TYPE_STRUCT);
         DORIS_CHECK(remove_nullable(original_type)->get_primitive_type() == TYPE_MAP);
-        const auto* entry_type =
-                assert_cast<const DataTypeStruct*>(remove_nullable(child_types[0]).get());
-        DORIS_CHECK(entry_type->get_elements().size() == 1 ||
-                    entry_type->get_elements().size() == 2);
-        const auto value_idx = entry_type->get_elements().size() == 1 ? 0 : 1;
-        nested_projected_type = std::make_shared<DataTypeMap>(
-                assert_cast<const DataTypeMap*>(remove_nullable(original_type).get())
-                        ->get_key_type(),
-                entry_type->get_element(value_idx));
+        const auto* original_map_type =
+                assert_cast<const DataTypeMap*>(remove_nullable(original_type).get());
+        DataTypePtr key_type = original_map_type->get_key_type();
+        DataTypePtr value_type;
+        for (const auto& child : projected_children) {
+            if (child.file_local_id() == 1 || child.name == "value") {
+                value_type = child.type;
+            }
+        }
+        if (value_type == nullptr) {
+            return Status::NotSupported("MAP projection for type {} contains no value child",
+                                        original_type->get_name());
+        }
+        nested_projected_type = std::make_shared<DataTypeMap>(key_type, value_type);
         break;
     }
     default:
@@ -72,6 +89,8 @@ Status rebuild_projected_type(const DataTypePtr& original_type,
                                                    : nested_projected_type;
     return Status::OK();
 }
+
+} // namespace
 
 Status project_column_definition(const ColumnDefinition& field, const LocalColumnIndex& projection,
                                  ColumnDefinition* projected_field) {
@@ -113,15 +132,8 @@ Status project_column_definition(const ColumnDefinition& field, const LocalColum
         return Status::NotSupported("Projection for field {} contains no children", field.name);
     }
 
-    DataTypes child_types;
-    Strings child_names;
-    child_types.reserve(projected_field->children.size());
-    child_names.reserve(projected_field->children.size());
-    for (const auto& child : projected_field->children) {
-        child_types.push_back(child.type);
-        child_names.push_back(child.name);
-    }
-    return rebuild_projected_type(field.type, child_types, child_names, &projected_field->type);
+    return rebuild_semantic_projected_type(field.type, projected_field->children,
+                                           &projected_field->type);
 }
 
 } // namespace doris::format

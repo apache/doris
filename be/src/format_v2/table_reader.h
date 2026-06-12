@@ -967,11 +967,6 @@ protected:
     Status _materialize_map_mapping_column(const ColumnMapping& mapping,
                                            const ColumnPtr& file_column, const size_t rows,
                                            ColumnPtr* column) {
-        DORIS_CHECK(mapping.child_mappings.size() == 1);
-        const auto& entry_mapping = mapping.child_mappings[0];
-        DORIS_CHECK(entry_mapping.child_mappings.size() == 1 ||
-                    entry_mapping.child_mappings.size() == 2);
-
         const auto full_file_column = file_column->convert_to_full_column_if_const();
         const NullMap* parent_null_map = nullptr;
         const auto* nested_file_column =
@@ -982,7 +977,7 @@ protected:
 
         const ColumnMapping* key_mapping = nullptr;
         const ColumnMapping* value_mapping = nullptr;
-        for (const auto& child_mapping : entry_mapping.child_mappings) {
+        for (const auto& child_mapping : mapping.child_mappings) {
             if (!child_mapping.file_local_id.has_value()) {
                 continue;
             }
