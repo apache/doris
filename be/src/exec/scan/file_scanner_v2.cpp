@@ -237,15 +237,13 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
 //     create children country and city, so city can be materialized as missing/default.
 //   - ARRAY<STRUCT<item, quantity>> should create the array element wrapper and then the element
 //     struct children item and quantity.
-//   - MAP<STRING, STRUCT<full_name, age>> should create the entries wrapper with key/value, then
-//     expand the value struct children full_name and age.
+//   - MAP<STRING, STRUCT<full_name, age>> should create semantic children key/value directly, then
+//     expand the value struct children full_name and age. Do not introduce a physical entries
+//     wrapper here: ColumnMapper and TableReader treat MAP children as [key, value].
 Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
                                              const DataTypePtr& type, const std::string& path,
                                              const format::ColumnDefinition* schema_column) {
     DORIS_CHECK(column != nullptr);
-    if (schema_column == nullptr || schema_column->children.empty()) {
-        return Status::OK();
-    }
 
     const auto nested_type = remove_nullable(type);
     AccessPathNode project_all;
@@ -268,7 +266,10 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
     }
     case TYPE_ARRAY: {
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
-        const auto* element_schema = &schema_column->children[0];
+        const auto* element_schema =
+                schema_column != nullptr && !schema_column->children.empty()
+                        ? &schema_column->children[0]
+                        : nullptr;
         auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0),
                                         schema_field_name_or(element_schema, "element"),
                                         array_type.get_nested_type());
@@ -278,20 +279,20 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
     }
     case TYPE_MAP: {
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
-        const auto* key_schema = &schema_column->children[0];
-        const auto* value_schema =
-                schema_column->children.size() > 1 ? &schema_column->children[1] : nullptr;
-        DataTypes entry_child_types {map_type.get_key_type(), map_type.get_value_type()};
-        Strings entry_child_names {"key", "value"};
-        auto entry_type = std::make_shared<DataTypeStruct>(entry_child_types, entry_child_names);
-        auto* entry_child = find_or_add_child(column, 0, "entries", entry_type);
+        const auto* key_schema = schema_column != nullptr && !schema_column->children.empty()
+                                         ? &schema_column->children[0]
+                                         : nullptr;
+        const auto* value_schema = schema_column != nullptr && schema_column->children.size() > 1
+                                           ? &schema_column->children[1]
+                                           : nullptr;
         auto* key_child =
-                find_or_add_child(entry_child, schema_field_id_or(key_schema, 0),
-                                  schema_field_name_or(key_schema, "key"), map_type.get_key_type());
+                find_or_add_child(column, schema_field_id_or(key_schema, 0),
+                                  schema_field_name_or(key_schema, "key"),
+                                  map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
                 key_child, key_child->type, project_all, path + ".KEYS", key_schema));
-        auto* value_child = find_or_add_child(entry_child, schema_field_id_or(value_schema, 1),
+        auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1),
                                               schema_field_name_or(value_schema, "value"),
                                               map_type.get_value_type());
         inherit_schema_metadata(value_child, value_schema);
@@ -395,22 +396,10 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
         value_node.children.clear();
     }
 
-    DataTypes entry_child_types;
-    Strings entry_child_names;
-    if (need_key) {
-        entry_child_types.push_back(map_type.get_key_type());
-        entry_child_names.push_back("key");
-    }
-    if (need_value) {
-        entry_child_types.push_back(map_type.get_value_type());
-        entry_child_names.push_back("value");
-    }
-    if (entry_child_types.empty()) {
+    if (!need_key && !need_value) {
         return Status::OK();
     }
 
-    auto entry_type = std::make_shared<DataTypeStruct>(entry_child_types, entry_child_names);
-    auto* entry_child = find_or_add_child(column, 0, "entries", entry_type);
     const auto* key_schema = schema_column != nullptr && !schema_column->children.empty()
                                      ? &schema_column->children[0]
                                      : nullptr;
@@ -419,14 +408,15 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
                                        : nullptr;
     if (need_key) {
         auto* key_child =
-                find_or_add_child(entry_child, schema_field_id_or(key_schema, 0),
-                                  schema_field_name_or(key_schema, "key"), map_type.get_key_type());
+                find_or_add_child(column, schema_field_id_or(key_schema, 0),
+                                  schema_field_name_or(key_schema, "key"),
+                                  map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(key_child, key_child->type, key_node,
                                                                path + ".KEYS", key_schema));
     }
     if (need_value) {
-        auto* value_child = find_or_add_child(entry_child, schema_field_id_or(value_schema, 1),
+        auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1),
                                               schema_field_name_or(value_schema, "value"),
                                               map_type.get_value_type());
         inherit_schema_metadata(value_child, value_schema);

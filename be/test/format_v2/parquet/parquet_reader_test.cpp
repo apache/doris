@@ -1768,10 +1768,38 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     ASSERT_EQ(schema.size(), 2);
     EXPECT_EQ(schema[0].local_id, 0);
     EXPECT_EQ(schema[0].name, "id");
-    EXPECT_EQ(schema[0].type->get_primitive_type(), TYPE_INT);
+    ASSERT_TRUE(schema[0].type->is_nullable());
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_INT);
     EXPECT_EQ(schema[1].local_id, 1);
     EXPECT_EQ(schema[1].name, "value");
-    EXPECT_EQ(schema[1].type->get_primitive_type(), TYPE_STRING);
+    ASSERT_TRUE(schema[1].type->is_nullable());
+    EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_STRING);
+}
+
+TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {
+    write_struct_filter_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    EXPECT_EQ(schema[0].name, "s");
+    ASSERT_TRUE(schema[0].type->is_nullable());
+    ASSERT_EQ(schema[0].children.size(), 2);
+    EXPECT_EQ(schema[0].children[0].name, "id");
+    ASSERT_TRUE(schema[0].children[0].type->is_nullable());
+    EXPECT_EQ(remove_nullable(schema[0].children[0].type)->get_primitive_type(), TYPE_INT);
+    EXPECT_EQ(schema[0].children[1].name, "name");
+    ASSERT_TRUE(schema[0].children[1].type->is_nullable());
+    EXPECT_EQ(remove_nullable(schema[0].children[1].type)->get_primitive_type(), TYPE_STRING);
+
+    const auto* struct_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(schema[0].type).get());
+    ASSERT_EQ(struct_type->get_elements().size(), 2);
+    EXPECT_TRUE(struct_type->get_element(0)->is_nullable());
+    EXPECT_TRUE(struct_type->get_element(1)->is_nullable());
 }
 
 TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {
