@@ -393,26 +393,35 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
-    if (column_schema.children.size() != 1 || column_schema.children[0]->children.size() != 2) {
+    if (column_schema.children.size() != 2) {
         return Status::NotSupported("Unsupported parquet MAP layout for column {}",
                                     column_schema.name);
     }
-    const auto& key_value_schema = *column_schema.children[0];
-    const auto* key_value_projection =
-            format::find_child_projection(projection, key_value_schema.local_id);
-    if (format::is_partial_projection(projection) && key_value_projection == nullptr) {
-        return Status::NotSupported("Parquet MAP projection for column {} contains no entry",
-                                    column_schema.name);
-    }
     std::unique_ptr<ParquetColumnReader> key_reader;
-    const auto& key_schema = *key_value_schema.children[0];
-    const auto* key_projection =
-            format::find_child_projection(key_value_projection, key_schema.local_id);
+    const auto& key_schema = *column_schema.children[0];
+    const auto* key_projection = format::find_child_projection(projection, key_schema.local_id);
+    // MAP materialization always needs keys. A partial MAP projection may prune inside the value
+    // type, but it must not drop the key stream because offsets and entry existence are derived
+    // from the key levels.
     RETURN_IF_ERROR(create_column_reader(key_schema, key_projection, true, &key_reader));
     std::unique_ptr<ParquetColumnReader> value_reader;
-    const auto& value_schema = *key_value_schema.children[1];
+    const auto& value_schema = *column_schema.children[1];
     const auto* value_projection =
-            format::find_child_projection(key_value_projection, value_schema.local_id);
+            format::find_child_projection(projection, value_schema.local_id);
+    if (format::is_partial_projection(projection)) {
+        if (value_projection == nullptr) {
+            return Status::NotSupported("Parquet MAP projection for column {} contains no value",
+                                        column_schema.name);
+        }
+        for (const auto& child_projection : projection->children) {
+            if (child_projection.local_id() != key_schema.local_id &&
+                child_projection.local_id() != value_schema.local_id) {
+                return Status::InvalidArgument(
+                        "Parquet MAP projection for column {} contains invalid child",
+                        column_schema.name);
+            }
+        }
+    }
     RETURN_IF_ERROR(create_column_reader(value_schema, value_projection, true, &value_reader));
     DataTypePtr type = column_schema.type;
     if (format::is_partial_projection(key_projection) ||

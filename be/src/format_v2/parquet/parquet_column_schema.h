@@ -41,6 +41,9 @@ enum class ParquetColumnSchemaKind {
 
 // 新 Parquet reader 的 file-local schema tree。
 // 它描述 Parquet 逻辑字段到 leaf column ordinal 的关系，不包含 table/global schema 语义。
+// LIST repeated-group wrappers and MAP key_value/entry wrappers are folded into their parent
+// schema nodes; LIST children are [element] and MAP children are [key, value]. The folded parent
+// nodes keep the repeated definition/repetition levels needed to assemble nested values.
 struct ParquetColumnSchema {
     // Reader-local id inside the parent schema node.
     //

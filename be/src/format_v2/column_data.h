@@ -253,8 +253,7 @@ struct ColumnDefinition {
     //
     // Table/global columns carry projected table children. File-local schemas returned by
     // FileReader::get_schema() also expose semantic children, not physical reader wrappers. For
-    // example, MAP children are key/value, while a file format such as Parquet may keep its
-    // key_value/entry wrapper in its private reader schema and translate projections internally.
+    // example, MAP children are key/value and ARRAY children contain only the element field.
     std::vector<ColumnDefinition> children {};
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.

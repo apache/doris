@@ -184,9 +184,10 @@ private:
                                      const format::LocalColumnIndex* projection,
                                      std::unique_ptr<ParquetColumnReader>* reader) const;
 
-    // Creates a MAP reader around key and value readers. The schema builder normalizes
-    // Parquet MAP layouts to an entry struct with key/value children before this point.
-    // Partial key/value projections rebuild the output DataTypeMap.
+    // Creates a MAP reader around key and value readers. The schema builder folds the Parquet
+    // key_value/entry wrapper into the MAP node, so children are direct key/value fields here.
+    // Partial value projections rebuild the output DataTypeMap; the key stream is always read
+    // because it owns entry existence and offsets.
     Status create_map_column_reader(const ParquetColumnSchema& column_schema,
                                     const format::LocalColumnIndex* projection,
                                     std::unique_ptr<ParquetColumnReader>* reader) const;

@@ -2323,26 +2323,20 @@ TEST_F(ParquetColumnReaderTest, ReadProjectedMapStructValueChildren) {
     ASSERT_LT(field_idx, _fields.size());
     const auto& map_schema = *_fields[field_idx];
     ASSERT_EQ(map_schema.name, "nullable_map_int_struct_col");
-    ASSERT_EQ(map_schema.children.size(), 1);
-    const auto& key_value_schema = *map_schema.children[0];
-    ASSERT_EQ(key_value_schema.children.size(), 2);
-    const auto& value_schema = *key_value_schema.children[1];
+    ASSERT_EQ(map_schema.children.size(), 2);
+    const auto& value_schema = *map_schema.children[1];
     ASSERT_EQ(value_schema.children.size(), 2);
 
     format::LocalColumnIndex projection;
     projection.index = map_schema.local_id;
     projection.project_all_children = false;
-    format::LocalColumnIndex entry_projection;
-    entry_projection.index = key_value_schema.local_id;
-    entry_projection.project_all_children = false;
     format::LocalColumnIndex value_projection;
     value_projection.index = value_schema.local_id;
     value_projection.project_all_children = false;
     format::LocalColumnIndex child_projection;
     child_projection.index = value_schema.children[1]->local_id;
     value_projection.children.push_back(std::move(child_projection));
-    entry_projection.children.push_back(std::move(value_projection));
-    projection.children.push_back(std::move(entry_projection));
+    projection.children.push_back(std::move(value_projection));
 
     ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
     std::unique_ptr<ParquetColumnReader> reader;

@@ -198,26 +198,15 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
             return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
                                         node.name());
         }
-        auto key_value = std::make_unique<ParquetColumnSchema>();
-        inherit_common_schema_state(key_value_node, key_value_context, key_value.get());
-        key_value->kind = ParquetColumnSchemaKind::STRUCT;
-        DataTypes child_types;
-        Strings child_names;
-        child_types.reserve(key_value_group.field_count());
-        child_names.reserve(key_value_group.field_count());
         for (int child_idx = 0; child_idx < key_value_group.field_count(); ++child_idx) {
             std::unique_ptr<ParquetColumnSchema> child;
             RETURN_IF_ERROR(build_node_schema(
                     schema, *key_value_group.field(child_idx),
                     child_context(key_value_context, *key_value_group.field(child_idx), child_idx),
                     &child));
-            child_types.push_back(make_nullable(child->type));
-            child_names.push_back(child->name);
-            key_value->children.push_back(std::move(child));
+            column_schema->children.push_back(std::move(child));
         }
-        key_value->type = std::make_shared<DataTypeStruct>(child_types, child_names);
-        propagate_child_levels(key_value.get());
-        if (key_value->children.size() != 2) {
+        if (column_schema->children.size() != 2) {
             return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
                                         node.name());
         }
@@ -225,11 +214,10 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
             return Status::NotSupported("Unsupported nullable parquet MAP key for column {}",
                                         node.name());
         }
-        auto key_type = make_nullable(key_value->children[0]->type);
-        auto value_type = make_nullable(key_value->children[1]->type);
+        auto key_type = make_nullable(column_schema->children[0]->type);
+        auto value_type = make_nullable(column_schema->children[1]->type);
         column_schema->type =
                 nullable_if_needed(std::make_shared<DataTypeMap>(key_type, value_type), node);
-        column_schema->children.push_back(std::move(key_value));
         propagate_child_levels(column_schema.get());
         *result = std::move(column_schema);
         return Status::OK();
