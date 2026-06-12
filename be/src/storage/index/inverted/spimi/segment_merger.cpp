@@ -18,11 +18,13 @@
 #include "storage/index/inverted/spimi/segment_merger.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <queue>
 #include <utility>
 
 #include "common/logging.h"
+#include "storage/index/inverted/spimi/byte_parser_error.h"
 #include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/posting_decoder.h"
@@ -139,6 +141,17 @@ std::pair<const uint8_t*, size_t> PrxRange(const std::vector<uint8_t>& prx_bytes
     return {prx_bytes.data() + prox_start, static_cast<size_t>(prox_end - prox_start)};
 }
 
+// LEB128 VInt append (same encoding ByteOutput::WriteVInt produces for the
+// same 32-bit pattern) — used to rebuild a merged SLIM term's .frq block from
+// the flat arrays.
+inline void AppendVInt(std::vector<uint8_t>& buf, uint32_t v) {
+    while (v & ~0x7FU) {
+        buf.push_back(static_cast<uint8_t>((v & 0x7FU) | 0x80U));
+        v >>= 7U;
+    }
+    buf.push_back(static_cast<uint8_t>(v));
+}
+
 } // namespace
 
 int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmentSink& sink,
@@ -203,6 +216,24 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
 
     int64_t term_count = 0;
 
+    // Per-term scratch, reused across the whole merge (capacity persists,
+    // contents cleared per term) — the merged term's working set is FLAT:
+    // doc-delta/freq arrays + the raw position VInt bytes + per-doc offsets.
+    // No per-doc vector<DecodedDoc> materialization, no per-doc heap blocks.
+    struct TermSource {
+        int32_t input_index;
+        // Copied: Current() is invalidated by the enum's Next(). The inline
+        // spans inside borrow the input's .tis buffer, which outlives the merge.
+        TermInfo info;
+    };
+    std::vector<TermSource> sources;
+    PostingDecoder::FlatPostings flat;
+    std::vector<uint8_t> slim_frq; // rebuilt merged SLIM .frq block (df < skip_interval)
+    const std::vector<uint32_t> kNoU32;
+    const std::vector<uint8_t> kNoBytes;
+    const int32_t skip_interval = TermDictWriter::kDefaultSkipInterval;
+    const bool has_prox = !omit_term_freq_and_positions;
+
     while (!heap.empty()) {
         // Pop the smallest (field, term). Collect all inputs that
         // share this exact (field, term).
@@ -212,103 +243,170 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         const int32_t cur_field = top.field_number;
         const std::string& cur_term = top.term_utf8;
 
-        // Gather decoded docs from all inputs that have this term.
-        std::vector<DecodedDoc> merged_docs;
+        // ---- Phase 1: collect every input holding this exact (field, term),
+        // in input (spill) order, advancing the enums. The df of every run is
+        // known BEFORE any posting byte is touched (df lives in the .tis entry
+        // ahead of the posting pointers), so Σdf — the merged doc frequency —
+        // drives the slim/windowed/inline tier decision below exactly as it
+        // would have driven a direct write of the same data. Heap op count is
+        // unchanged versus the old drain (one pop + one push per entry).
+        sources.clear();
+        auto take = [&](int32_t idx) {
+            sources.push_back({idx, enums[idx]->Current().info});
+            if (enums[idx]->Next()) {
+                const auto& ne = enums[idx]->Current();
+                heap.push({ne.field_number, ne.term_utf8, idx});
+            }
+        };
+        take(top.input_index);
+        while (!heap.empty() && heap.top().field_number == cur_field &&
+               heap.top().term_utf8 == cur_term) {
+            const int32_t idx = heap.top().input_index;
+            heap.pop();
+            take(idx);
+        }
 
-        // Process the first (smallest) input for this term.
-        auto process_input = [&](int32_t idx) {
-            const auto& input = inputs[idx];
-            const auto& entry = enums[idx]->Current();
+        int64_t sum_df = 0;
+        for (const auto& s : sources) {
+            sum_df += s.info.doc_freq;
+        }
+        if (sum_df <= 0 || sum_df > std::numeric_limits<int32_t>::max()) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("SegmentMerger: merged doc_freq out of range");
+        }
+        const auto df = static_cast<int32_t>(sum_df);
 
+        // ---- Phase 2: flat-decode each input's run in spill order. Spill
+        // segments already carry GLOBAL absolute doc_ids in non-overlapping
+        // ascending ranges (see the contract above), so the runs concatenate
+        // verbatim — DecodeFlat re-bases only each subsequent run's FIRST
+        // doc-delta (from "delta vs implicit 0" to "delta vs previous run's
+        // last doc") and splices the position bytes untouched (within-doc
+        // position deltas are self-anchored per doc). No doc-level merge, no
+        // sort: the result is the exact flat input a direct write of the
+        // merged term would have staged.
+        flat.Clear();
+        for (const auto& s : sources) {
+            const auto& input = inputs[s.input_index];
             const uint8_t* frq_ptr = nullptr;
             size_t frq_len = 0;
             const uint8_t* prx_ptr = nullptr;
             size_t prx_len = 0;
-            if (entry.info.inlined) {
+            if (s.info.inlined) {
                 // Inline input term: the posting bytes live in the .tis entry
                 // (TermEnum recorded spans into the input's .tis buffer).
                 // Decode them directly — no .frq/.prx offset arithmetic. V4
-                // spills are now written inlined (lockstep with the final
+                // spills are written inlined (lockstep with the final
                 // segment), so multi-spill merges hit this branch for every
                 // small term.
-                frq_ptr = entry.info.inline_frq;
-                frq_len = entry.info.inline_frq_len;
-                prx_ptr = entry.info.inline_prx;
-                prx_len = entry.info.inline_prx_len;
+                frq_ptr = s.info.inline_frq;
+                frq_len = s.info.inline_frq_len;
+                prx_ptr = s.info.inline_prx;
+                prx_len = s.info.inline_prx_len;
             } else {
-                // Compute the .frq byte range for this term.
-                // Use the next entry's freq_pointer or frq_bytes.size().
-                const int64_t frq_start = entry.info.freq_pointer;
-                // We don't easily know the end without peeking ahead.
-                // Use the full remaining buffer — PostingDecoder stops
-                // after doc_freq docs anyway.
+                // .frq byte range: we don't easily know the end without
+                // peeking ahead, so use the full remaining buffer — the
+                // decoder stops after doc_freq docs anyway.
+                const int64_t frq_start = s.info.freq_pointer;
                 frq_ptr = input.frq_bytes.data() + frq_start;
                 frq_len = static_cast<size_t>(input.frq_bytes.size()) -
                           static_cast<size_t>(frq_start);
 
-                // Compute the .prx byte range.
-                const int64_t prx_start = entry.info.prox_pointer;
+                const int64_t prx_start = s.info.prox_pointer;
                 const int64_t prx_end = static_cast<int64_t>(input.prx_bytes.size());
                 auto range = PrxRange(input.prx_bytes, prx_start, prx_end);
                 prx_ptr = range.first;
                 prx_len = range.second;
             }
-
-            auto docs =
-                    PostingDecoder::Decode(frq_ptr, frq_len, prx_ptr, prx_len, entry.info.doc_freq,
-                                           !omit_term_freq_and_positions, entry.info.is_slim);
-
-            // Spill segments already carry global absolute doc_ids, so append
-            // the decoded run verbatim (no per-segment offset).
-            merged_docs.insert(merged_docs.end(), std::make_move_iterator(docs.begin()),
-                               std::make_move_iterator(docs.end()));
-        };
-
-        process_input(top.input_index);
-
-        // Advance this input's enum; push back if more terms remain.
-        if (enums[top.input_index]->Next()) {
-            const auto& ne = enums[top.input_index]->Current();
-            heap.push({ne.field_number, ne.term_utf8, top.input_index});
+            PostingDecoder::DecodeFlat(frq_ptr, frq_len, prx_ptr, prx_len, s.info.doc_freq,
+                                       has_prox, s.info.is_slim, &flat);
         }
 
-        // Drain any other inputs with the same (field, term).
-        while (!heap.empty() && heap.top().field_number == cur_field &&
-               heap.top().term_utf8 == cur_term) {
-            const auto dup = heap.top();
-            heap.pop();
-            process_input(dup.input_index);
-            if (enums[dup.input_index]->Next()) {
-                const auto& ne = enums[dup.input_index]->Current();
-                heap.push({ne.field_number, ne.term_utf8, dup.input_index});
+        // ---- Phase 3: re-emit through the Σdf tier — the SAME dispatch a
+        // direct write performs in FreqProxEncoder::StartTerm (slim below the
+        // skip interval, windowed/PFOR at-or-above), fed pre-decoded flat
+        // input, so the output bytes are identical to the direct write's.
+        FreqProxEncoder::FinishedTerm ft;
+        bool staged = false;
+        if (df < skip_interval) {
+            // SLIM merged term: rebuild the per-doc docCode VInts from the
+            // flat arrays (cheap — df < skip_interval) and hand the spliced
+            // raw position bytes to the slim pre-encoded emit, which applies
+            // the exact FlushProxBlock mode-byte + ZSTD policy to the MERGED
+            // payload (any input-side .prx envelope was already resolved by
+            // DecodeFlat).
+            slim_frq.clear();
+            if (has_prox) {
+                for (int32_t i = 0; i < df; ++i) {
+                    const uint32_t code = flat.doc_deltas[static_cast<size_t>(i)] << 1U;
+                    const uint32_t freq = flat.freqs[static_cast<size_t>(i)];
+                    if (freq == 1) {
+                        AppendVInt(slim_frq, code | 1U);
+                    } else {
+                        AppendVInt(slim_frq, code);
+                        AppendVInt(slim_frq, freq);
+                    }
+                }
+            } else {
+                for (int32_t i = 0; i < df; ++i) {
+                    AppendVInt(slim_frq, flat.doc_deltas[static_cast<size_t>(i)]);
+                }
+            }
+            ft = encoder.EmitSlimTermPreEncoded(df, slim_frq, has_prox ? flat.pos_vint : kNoBytes);
+            staged = true;
+        } else if (use_windowed) {
+            // V4 windowed merged term (phrase-on or DOCS_ONLY): the flat
+            // arrays are exactly the pre-decoded shape the windowed emit
+            // consumes; WindowFrameEncoder receives the same input a direct
+            // write would have buffered, so framing/W-selection/ZSTD reproduce
+            // byte-for-byte.
+            ft = encoder.EmitWindowedTermPreDecoded(
+                    df, flat.doc_deltas, has_prox ? flat.freqs : kNoU32,
+                    has_prox ? flat.pos_vint : kNoBytes, has_prox ? flat.pos_offsets : kNoU32);
+            staged = true;
+        } else {
+            // Legacy (pre-V4) PFOR re-encode: replay the flat arrays through
+            // the streaming encoder. Positions are prefix-summed straight off
+            // the flat VInt bytes — still no per-doc heap blocks.
+            encoder.StartTerm(df);
+            int64_t doc = 0;
+            size_t pb = 0;
+            const uint8_t* pv = flat.pos_vint.data();
+            for (int32_t i = 0; i < df; ++i) {
+                doc += flat.doc_deltas[static_cast<size_t>(i)];
+                const auto freq =
+                        has_prox ? static_cast<int32_t>(flat.freqs[static_cast<size_t>(i)]) : 1;
+                encoder.StartDoc(static_cast<int32_t>(doc), freq);
+                if (has_prox) {
+                    int32_t pos = 0;
+                    for (int32_t f = 0; f < freq; ++f) {
+                        // One LEB128 VInt (bounds enforced by DecodeFlat's scan).
+                        uint32_t v = 0;
+                        uint32_t shift = 0;
+                        while (true) {
+                            const uint8_t b = pv[pb++];
+                            v |= static_cast<uint32_t>(b & 0x7FU) << shift;
+                            if ((b & 0x80U) == 0) {
+                                break;
+                            }
+                            shift += 7;
+                        }
+                        pos += static_cast<int32_t>(v);
+                        encoder.AddPosition(pos);
+                    }
+                }
+                encoder.FinishDoc();
+            }
+            if (inline_small_terms) {
+                ft = encoder.FinishTermStaged();
+                staged = true;
+            } else {
+                dict.Add(cur_field, cur_term, encoder.FinishTerm());
             }
         }
 
-        // Sort merged docs by doc_id. Each input's run is already sorted and the
-        // inputs' absolute-id ranges don't overlap, so this is a no-op merge of
-        // already-ordered runs — but we sort defensively.
-        std::stable_sort(
-                merged_docs.begin(), merged_docs.end(),
-                [](const DecodedDoc& a, const DecodedDoc& b) { return a.doc_id < b.doc_id; });
-
-        // In the normal case every doc_id is unique across inputs (the _rid
-        // stream is strictly increasing and spills never overlap), so there is
-        // nothing to deduplicate.
-
-        // Re-encode through FreqProxEncoder.
-        const auto df = static_cast<int32_t>(merged_docs.size());
-        encoder.StartTerm(df);
-        for (const auto& doc : merged_docs) {
-            encoder.StartDoc(doc.doc_id, doc.freq);
-            for (int32_t pos : doc.positions) {
-                encoder.AddPosition(pos);
-            }
-            encoder.FinishDoc();
-        }
-        if (inline_small_terms) {
+        if (staged && inline_small_terms) {
             // Stage the merged term's block; inline it if small, else flush
-            // externally — mirroring SegmentWriter::FinishAndAddTerm.
-            const FreqProxEncoder::FinishedTerm ft = encoder.FinishTermStaged();
+            // externally — mirroring SegmentWriter::AddStagedTerm.
             const size_t frq_n = ft.frq != nullptr ? ft.frq->size() : 0;
             const size_t prx_n = ft.prx != nullptr ? ft.prx->size() : 0;
             const size_t total = frq_n + prx_n;
@@ -328,9 +426,10 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
                 }
                 dict.Add(cur_field, cur_term, ft.info);
             }
-        } else {
-            const TermInfo info = encoder.FinishTerm();
-            dict.Add(cur_field, cur_term, info);
+        } else if (staged) {
+            // Non-inline mode: the pre-encoded emits wrote the block straight
+            // to the real outputs; just record the external .tis entry.
+            dict.Add(cur_field, cur_term, ft.info);
         }
         ++term_count;
     }

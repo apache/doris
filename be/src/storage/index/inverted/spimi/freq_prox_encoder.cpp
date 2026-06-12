@@ -461,8 +461,7 @@ void FreqProxEncoder::FinishTermWindowed(TermInfo* info) {
     // the recorded per-doc byte offsets let the framer slice PART_POS without
     // re-scanning the whole position VInt stream.
     WindowFrameEncoder::Encode(_win_doc_deltas, _win_freqs, _win_pos_vint, _win_freqs, has_prox,
-                               _cctx, _frq_sink, has_prox ? _prx_sink : nullptr,
-                               &_win_pos_offsets);
+                               _cctx, _frq_sink, has_prox ? _prx_sink : nullptr, &_win_pos_offsets);
     info->doc_freq = _doc_freq;
     info->freq_pointer = _term_freq_start;
     info->prox_pointer = _term_prox_start;
@@ -541,12 +540,24 @@ FreqProxEncoder::FinishedTerm FreqProxEncoder::EmitWindowedTermPreDecoded(
         const std::vector<uint32_t>& freqs, const std::vector<uint8_t>& pos_vint,
         const std::vector<uint32_t>& pos_offsets) {
     DCHECK(!_term_open) << "EmitWindowedTermPreDecoded with an open term";
-    DCHECK(!_omit_tfap) << "windowed pre-decoded emit is phrase-on only";
     DCHECK(_windowed_capable) << "windowed pre-decoded emit on a non-windowed encoder";
     DCHECK_GE(doc_freq, _skip_interval) << "pre-decoded emit is for windowed terms only";
     DCHECK_EQ(doc_deltas.size(), static_cast<size_t>(doc_freq));
-    DCHECK_EQ(freqs.size(), static_cast<size_t>(doc_freq));
-    DCHECK_EQ(pos_offsets.size(), static_cast<size_t>(doc_freq));
+    const bool has_prox = !_omit_tfap;
+    if (has_prox) {
+        DCHECK_EQ(freqs.size(), static_cast<size_t>(doc_freq));
+        DCHECK_EQ(pos_offsets.size(), static_cast<size_t>(doc_freq));
+    } else {
+        // DOCS_ONLY: a windowed omit term is doc-deltas only. The caller must
+        // pass empty freq/position vectors — mirroring FinishTermWindowed,
+        // whose _win_freqs / _win_pos_vint / _win_pos_offsets stay empty in
+        // omit mode (StartDoc gates their fills on !_omit_tfap), so the
+        // WindowFrameEncoder::Encode call below is argument-for-argument the
+        // replay's call and the emitted bytes are identical.
+        DCHECK(freqs.empty()) << "omit_tfap windowed terms carry no freqs";
+        DCHECK(pos_vint.empty()) << "omit_tfap windowed terms carry no positions";
+        DCHECK(pos_offsets.empty()) << "omit_tfap windowed terms carry no position offsets";
+    }
     if (_inline_capable) {
         // Fresh per-term block sinks, exactly like StartTerm.
         _stage_frq.Clear();
@@ -556,18 +567,19 @@ FreqProxEncoder::FinishedTerm FreqProxEncoder::EmitWindowedTermPreDecoded(
     // Same pointer capture StartTerm performs; same TermInfo shape
     // FinishTermWindowed produces (per-window skip table replaces the legacy
     // skip tail, so skip_offset is 0; windowed terms carry a codec byte, never
-    // slim).
+    // slim). In omit mode every term's prox_pointer is 0 (the CLucene contract
+    // StartTerm mirrors) and the prox stream is never touched.
     out.info.doc_freq = doc_freq;
     out.info.freq_pointer = _frq_real->FilePointer();
-    out.info.prox_pointer = _prx_out->FilePointer();
+    out.info.prox_pointer = _omit_tfap ? 0 : _prx_out->FilePointer();
     out.info.skip_offset = 0;
     out.info.is_slim = false;
     // freqs doubles as the per-doc position-count vector, exactly like
     // FinishTermWindowed's call.
-    WindowFrameEncoder::Encode(doc_deltas, freqs, pos_vint, freqs, /*has_prox=*/true, _cctx,
-                               _frq_sink, _prx_sink, &pos_offsets);
+    WindowFrameEncoder::Encode(doc_deltas, freqs, pos_vint, freqs, has_prox, _cctx, _frq_sink,
+                               has_prox ? _prx_sink : nullptr, &pos_offsets);
     out.frq = &_stage_frq.bytes();
-    out.prx = &_stage_prx.bytes();
+    out.prx = has_prox ? &_stage_prx.bytes() : nullptr;
     return out;
 }
 

@@ -32,10 +32,16 @@ struct DecodedDoc {
     std::vector<int32_t> positions; // populated only when has_prox=true
 };
 
-// Decodes a single term's `.frq` and `.prx` blocks into a vector of
-// `DecodedDoc`.  This extends `SpimiTermDocsReader::ReadTerm` (which
-// only recovers doc_id + freq) by additionally decoding position
-// deltas from the `.prx` stream.
+// Decodes a single term's `.frq` and `.prx` blocks. Two output shapes:
+//
+//   - `Decode` materializes a `vector<DecodedDoc>` (one positions vector per
+//     doc) — convenient for tests and small terms.
+//   - `DecodeFlat` APPENDS into a reusable `FlatPostings` (flat doc-delta /
+//     freq arrays + the raw position-delta VInt bytes + per-doc byte offsets)
+//     — no per-doc heap blocks, so a df=O(million) term costs O(df) flat words
+//     instead of millions of vector allocations. This is the segment merger's
+//     working set, and the flat shape is exactly what
+//     `FreqProxEncoder::EmitWindowedTermPreDecoded` consumes.
 //
 // Supports every `.frq`/`.prx` envelope the writer produces:
 //   - SLIM kDefault (is_slim, df < skip_interval): per-doc VInt deltas with NO
@@ -45,14 +51,42 @@ struct DecodedDoc {
 //   - `.frq` `kCodeModeSpimiWindowed` (0x06): V4 windowed framing
 //   - `.frq` `kCodeModeZstd` (0x80): whole-term ZSTD wrapper around the PFOR
 //     inner mode (never wraps a slim kDefault block)
-//   - `.prx` `kProxRaw` / `kProxZstd`: raw or whole-term ZSTD-compressed
-//     position-delta stream
-//
-// The segment merger uses this to recover the raw posting list from
-// each spill segment so it can re-encode the merged list through
-// `FreqProxEncoder`.
+//   - `.prx` `kProxRaw` / `kProxZstd` / `kProxWindowed`: raw, whole-term ZSTD,
+//     or V4 windowed position-delta stream
 class PostingDecoder {
 public:
+    // Flat per-term posting arrays, appendable across multiple inputs of the
+    // SAME term (the k-way merge case): each call to DecodeFlat appends one
+    // input's run. Because every spill input carries GLOBAL absolute doc_ids
+    // (a term's first stored delta is taken against an implicit 0, i.e. it IS
+    // the absolute first id), DecodeFlat re-bases each appended run's first
+    // delta against `last_doc` so `doc_deltas` stays one continuous
+    // delta-from-previous chain across inputs — exactly the shape the term
+    // would have had if written in one piece.
+    struct FlatPostings {
+        std::vector<uint32_t> doc_deltas; // df deltas (first = delta from doc "last_doc")
+        std::vector<uint32_t> freqs;      // df freqs; untouched when !has_prox
+        // The term's within-doc position-delta VInt bytes, verbatim
+        // (concatenated across inputs; position deltas are self-anchored per
+        // doc, so the bytes splice without re-encoding). Untouched when
+        // !has_prox.
+        std::vector<uint8_t> pos_vint;
+        // Byte offset into pos_vint where each doc's positions start (what
+        // StartDoc would have recorded). Untouched when !has_prox.
+        std::vector<uint32_t> pos_offsets;
+        // Absolute doc_id of the last appended doc (re-base anchor for the
+        // next input's first delta). 0 before the first append.
+        int64_t last_doc = 0;
+
+        void Clear() {
+            doc_deltas.clear();
+            freqs.clear();
+            pos_vint.clear();
+            pos_offsets.clear();
+            last_doc = 0;
+        }
+    };
+
     // Decodes one term's posting data.
     //
     // `frq_data` / `frq_length`: the byte range starting at the term's
@@ -62,7 +96,7 @@ public:
     //
     // `prx_data` / `prx_length`: the byte range starting at the term's
     // `prox_pointer` in the `.prx` file.  May be null/zero when
-    // `has_prox` is false.
+    // `has_prox` is false (positions are then left empty).
     //
     // `doc_freq`: from the `.tis` TermInfo — number of documents.
     // `has_prox`: field-level flag (!omit_term_freq_and_positions).
@@ -77,13 +111,14 @@ public:
                                           const uint8_t* prx_data, size_t prx_length,
                                           int32_t doc_freq, bool has_prox, bool is_slim = false);
 
-private:
-    // Decodes only the `.frq` stream into per-doc {doc_id, freq}, resolving a
-    // whole-term `kCodeModeZstd` envelope (recursing on the decompressed inner
-    // block). Positions are attached separately by `Decode`. `is_slim` selects
-    // the no-codec-byte SLIM kDefault fast path (see Decode).
-    static std::vector<DecodedDoc> DecodeInner(const uint8_t* frq_data, size_t frq_length,
-                                               int32_t doc_freq, bool has_prox, bool is_slim);
+    // Flat variant: APPENDS this term run's `doc_freq` docs to `out` (see
+    // FlatPostings). Same envelope support as Decode. When `has_prox` is true
+    // the `.prx` block is REQUIRED (a phrase-on term always has positions);
+    // a missing/empty block throws the same corrupt-input error the other
+    // malformed-stream paths use.
+    static void DecodeFlat(const uint8_t* frq_data, size_t frq_length, const uint8_t* prx_data,
+                           size_t prx_length, int32_t doc_freq, bool has_prox, bool is_slim,
+                           FlatPostings* out);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

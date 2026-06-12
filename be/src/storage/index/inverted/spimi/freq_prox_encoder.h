@@ -171,15 +171,18 @@ public:
     // inline_capable=true.
     FinishedTerm FinishTermStaged();
 
-    // WINDOWED fast path: emits a windowed (df >= skip_interval) phrase-on term
-    // whose inputs were decoded/copied straight from the posting chains,
-    // bypassing the StartDoc/AddPosition replay. `doc_deltas`/`freqs` carry the
-    // df per-doc values the replay would have fed; `pos_vint` is the term's
+    // WINDOWED fast path: emits a windowed (df >= skip_interval) term whose
+    // inputs were decoded/copied straight from the posting chains, bypassing
+    // the StartDoc/AddPosition replay. `doc_deltas`/`freqs` carry the df
+    // per-doc values the replay would have fed; `pos_vint` is the term's
     // within-doc position-delta VInt stream — the prox chain bytes verbatim,
     // which are byte-identical to what AddPosition would have rebuilt (same
     // deltas, same LEB128); `pos_offsets` are the per-doc byte offsets into
     // pos_vint (what StartDoc would have recorded). Produces exactly the
-    // FinishTermWindowed output. Not valid for omit_tfap or slim terms.
+    // FinishTermWindowed output. On an omit_tfap encoder the term is
+    // doc-deltas only: `freqs`/`pos_vint`/`pos_offsets` must be EMPTY
+    // (mirroring the replay's untouched omit-mode buffers) and no `.prx`
+    // bytes are produced. Not valid for slim terms.
     FinishedTerm EmitWindowedTermPreDecoded(int32_t doc_freq,
                                             const std::vector<uint32_t>& doc_deltas,
                                             const std::vector<uint32_t>& freqs,

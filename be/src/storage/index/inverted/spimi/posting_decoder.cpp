@@ -18,6 +18,7 @@
 #include "storage/index/inverted/spimi/posting_decoder.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "common/logging.h"
 #include "gen_cpp/segment_v2.pb.h"
@@ -162,8 +163,8 @@ std::vector<uint32_t> DecodePforRun(Cursor& cur, int32_t count) {
 
 // Resolves jk's whole-term ZSTD envelope on the `.frq` stream. The caller has
 // already consumed the leading `kCodeModeZstd` marker; what follows is
-// `VInt(uncomp_len) VInt(comp_len) ZSTD-payload`, decompressing to the raw inner
-// block (which itself begins with a kDefault/kPfor mode byte). Mirrors
+// `VInt(uncomp_len) VInt(comp_len) ZSTD-payload`, decompressing to the raw
+// inner block (which itself begins with a kDefault/kPfor mode byte). Mirrors
 // term_docs_reader.cpp's DecompressZstdFrqBlock; all reads are bounds-checked
 // against the (untrusted) input.
 std::vector<uint8_t> DecompressZstdFrqBlock(Cursor& cur) {
@@ -216,135 +217,33 @@ std::vector<uint8_t> ReadWindowPayload(Cursor& cur) {
     SPIMI_THROW_CORRUPT("PostingDecoder window: unknown win_mode");
 }
 
-// Decodes position deltas from the `.prx` stream for all documents.
-// The term's `.prx` block begins with a 1-byte mode header (kProxRaw = raw VInt
-// deltas, or kProxZstd = ZSTD-compressed payload behind VInt(uncomp) VInt(comp)).
-// After resolving the envelope, the inner format for a term is:
-//   for each doc d_i (in ascending order):
-//     for each position p_j (in ascending order within d_i):
-//       vint  position_delta_j   (delta resets to 0 at every new doc)
-//
-// Mirrors prox_reader.cpp's envelope handling. `docs` must already have doc_id
-// and freq populated.
-void DecodePositions(const uint8_t* prx_data, size_t prx_length, std::vector<DecodedDoc>& docs) {
-    if (prx_data == nullptr || prx_length == 0) {
-        return;
-    }
-    // Resolve the whole-term prox envelope (kProxRaw / kProxZstd) so the cursor
-    // below sees only the inner VInt position-delta stream.
-    const uint8_t* data = prx_data;
-    size_t len = prx_length;
-    std::vector<uint8_t> decompressed;
-    const uint8_t mode = prx_data[0];
-    if (mode == FreqProxEncoder::kProxZstd) {
-        Cursor hdr(prx_data + 1, prx_length - 1);
-        const auto uncomp = static_cast<uint32_t>(hdr.ReadVInt());
-        const auto comp = static_cast<uint32_t>(hdr.ReadVInt());
-        const size_t hpos = 1 + hdr.pos();
-        if (hpos + comp > prx_length || hpos + comp < hpos) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder .prx: compressed length exceeds block");
-        }
-        decompressed.resize(uncomp);
-        BlockCompressionCodec* codec = nullptr;
-        if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
-                [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD codec unavailable");
-        }
-        Slice in(reinterpret_cast<const char*>(prx_data + hpos), comp);
-        Slice slice_out(reinterpret_cast<char*>(decompressed.data()), uncomp);
-        if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD decompress failed");
-        }
-        data = decompressed.data();
-        len = uncomp;
-    } else if (mode == FreqProxEncoder::kProxRaw) {
-        data = prx_data + 1;
-        len = prx_length - 1;
-    } else if (mode == FreqProxEncoder::kProxWindowed) {
-        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), a per-window
-        // skip table (4 VInts/window), then per-window payloads. This eager path
-        // is framing-agnostic — concatenating the inflated per-window PART_POS
-        // bytes reproduces the term's whole contiguous VInt position stream — so
-        // it only STEPS OVER the skip table (mirrors the .frq skip-table skip).
-        Cursor wc(prx_data + 1, prx_length - 1);
-        (void)wc.ReadVInt(); // W
-        const int32_t num_windows = wc.ReadVInt();
-        if (num_windows <= 0) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder .prx windowed: num_windows out of range");
-        }
-        // Skip the skip table: doc_count, byte_offset, min_docid, max_docid_delta.
-        for (int32_t w = 0; w < num_windows; ++w) {
-            for (int s = 0; s < 4; ++s) {
-                (void)wc.ReadVInt();
-            }
-        }
-        for (int32_t w = 0; w < num_windows; ++w) {
-            const std::vector<uint8_t> inner = ReadWindowPayload(wc);
-            decompressed.insert(decompressed.end(), inner.begin(), inner.end());
-        }
-        data = decompressed.data();
-        len = decompressed.size();
-    } else [[unlikely]] {
-        SPIMI_THROW_CORRUPT("PostingDecoder .prx: unknown prox block mode");
-    }
-
-    Cursor prx(data, len);
-    for (auto& doc : docs) {
-        doc.positions.reserve(static_cast<size_t>(doc.freq));
-        int32_t last_pos = 0;
-        for (int32_t j = 0; j < doc.freq; ++j) {
-            const int32_t delta = prx.ReadVInt();
-            last_pos += delta;
-            doc.positions.push_back(last_pos);
-        }
-    }
-}
-
-} // namespace
-
-std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t frq_length,
-                                               const uint8_t* prx_data, size_t prx_length,
-                                               int32_t doc_freq, bool has_prox, bool is_slim) {
-    if (doc_freq <= 0 || frq_length == 0U) [[unlikely]] {
-        SPIMI_THROW_CORRUPT("PostingDecoder: bad doc_freq / buffer length");
-    }
-
-    // Decode the .frq stream (resolving any whole-term kCodeModeZstd envelope)
-    // into per-doc {doc_id, freq}, then attach positions from the .prx stream.
-    std::vector<DecodedDoc> docs = DecodeInner(frq_data, frq_length, doc_freq, has_prox, is_slim);
-    if (has_prox) {
-        DecodePositions(prx_data, prx_length, docs);
-    }
-    return docs;
-}
-
-std::vector<DecodedDoc> PostingDecoder::DecodeInner(const uint8_t* frq_data, size_t frq_length,
-                                                    int32_t doc_freq, bool has_prox, bool is_slim) {
+// Flat `.frq` core: appends exactly `doc_freq` RAW doc-deltas (as stored — the
+// first one is the delta from an implicit 0, i.e. the absolute first doc id)
+// to `dd`, and `doc_freq` freqs to `fq` when has_prox. Shared by Decode and
+// DecodeFlat so there is exactly ONE envelope/codec dispatch implementation.
+void DecodeFrqFlat(const uint8_t* frq_data, size_t frq_length, int32_t doc_freq, bool has_prox,
+                   bool is_slim, std::vector<uint32_t>& dd, std::vector<uint32_t>& fq) {
     Cursor cur(frq_data, frq_length);
-
-    std::vector<DecodedDoc> docs;
     constexpr size_t kSafeReserveCap = 1U << 24;
-    docs.reserve(std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
+    dd.reserve(dd.size() + std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
+    if (has_prox) {
+        fq.reserve(fq.size() + std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
+    }
 
     if (is_slim) {
         // SLIM kDefault block (df < skip_interval): NO codec byte, NO
         // VInt(doc_count). Read exactly `doc_freq` per-doc VInt deltas; doc_freq
         // is authoritative from .tis so the loop never over-reads.
-        int32_t last_doc = 0;
         for (int32_t i = 0; i < doc_freq; ++i) {
-            DecodedDoc d;
             if (has_prox) {
-                const uint32_t code = static_cast<uint32_t>(cur.ReadVInt());
-                last_doc += static_cast<int32_t>(code >> 1U);
-                d.freq = ((code & 1U) != 0) ? 1 : cur.ReadVInt();
+                const auto code = static_cast<uint32_t>(cur.ReadVInt());
+                dd.push_back(code >> 1U);
+                fq.push_back(((code & 1U) != 0) ? 1U : static_cast<uint32_t>(cur.ReadVInt()));
             } else {
-                last_doc += static_cast<int32_t>(cur.ReadVInt());
-                d.freq = 1;
+                dd.push_back(static_cast<uint32_t>(cur.ReadVInt()));
             }
-            d.doc_id = last_doc;
-            docs.push_back(std::move(d));
         }
-        return docs;
+        return;
     }
 
     const uint8_t mode = cur.ReadByte();
@@ -353,7 +252,8 @@ std::vector<DecodedDoc> PostingDecoder::DecodeInner(const uint8_t* frq_data, siz
         const std::vector<uint8_t> raw = DecompressZstdFrqBlock(cur);
         // Only PFOR blocks are ZSTD-wrapped; the inner block keeps its codec
         // byte, so is_slim stays false through the recursion.
-        return DecodeInner(raw.data(), raw.size(), doc_freq, has_prox, /*is_slim=*/false);
+        DecodeFrqFlat(raw.data(), raw.size(), doc_freq, has_prox, /*is_slim=*/false, dd, fq);
+        return;
     }
     if (mode == FreqProxEncoder::kCodeModeSpimiWindowed) {
         const uint8_t inner_mode = cur.ReadByte();
@@ -386,66 +286,223 @@ std::vector<DecodedDoc> PostingDecoder::DecodeInner(const uint8_t* frq_data, siz
         if (total != doc_freq) [[unlikely]] {
             SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: window counts disagree");
         }
-        int32_t last_doc = 0;
         for (int32_t w = 0; w < num_windows; ++w) {
             const std::vector<uint8_t> inner = ReadWindowPayload(cur);
             const int32_t wc = win_doc_count[static_cast<size_t>(w)];
             Cursor wcur(inner.data(), inner.size());
             if (inner_mode == FreqProxEncoder::kCodeModeSpimiPfor) {
-                const auto dd = DecodePforRun(wcur, wc);
-                std::vector<uint32_t> fq;
+                const auto run = DecodePforRun(wcur, wc);
+                dd.insert(dd.end(), run.begin(), run.end());
                 if (has_prox) {
-                    fq = DecodePforRun(wcur, wc);
-                }
-                for (int32_t i = 0; i < wc; ++i) {
-                    DecodedDoc d;
-                    last_doc += static_cast<int32_t>(dd[static_cast<size_t>(i)]);
-                    d.doc_id = last_doc;
-                    d.freq = has_prox ? static_cast<int32_t>(fq[static_cast<size_t>(i)]) : 1;
-                    docs.push_back(std::move(d));
+                    const auto fr = DecodePforRun(wcur, wc);
+                    fq.insert(fq.end(), fr.begin(), fr.end());
                 }
             } else if (inner_mode == FreqProxEncoder::kCodeModeDefault) {
                 for (int32_t i = 0; i < wc; ++i) {
-                    DecodedDoc d;
                     if (has_prox) {
                         const auto code = static_cast<uint32_t>(wcur.ReadVInt());
-                        last_doc += static_cast<int32_t>(code >> 1U);
-                        d.freq = ((code & 1U) != 0) ? 1 : wcur.ReadVInt();
+                        dd.push_back(code >> 1U);
+                        fq.push_back(((code & 1U) != 0) ? 1U
+                                                        : static_cast<uint32_t>(wcur.ReadVInt()));
                     } else {
-                        last_doc += static_cast<int32_t>(wcur.ReadVInt());
-                        d.freq = 1;
+                        dd.push_back(static_cast<uint32_t>(wcur.ReadVInt()));
                     }
-                    d.doc_id = last_doc;
-                    docs.push_back(std::move(d));
                 }
             } else [[unlikely]] {
                 SPIMI_THROW_CORRUPT("PostingDecoder .frq windowed: unknown inner_mode");
             }
         }
-        return docs;
+        return;
     }
     // A SLIM kDefault top-level block (df < skip_interval) carries NO codec byte
     // and is handled by the is_slim fast path above; it never reaches this
     // codec-byte dispatch. Only PFOR / windowed / ZSTD blocks remain here.
     if (mode == FreqProxEncoder::kCodeModeSpimiPfor) {
-        const auto doc_deltas = DecodePforRun(cur, doc_freq);
-        std::vector<uint32_t> freqs;
+        const auto run = DecodePforRun(cur, doc_freq);
+        dd.insert(dd.end(), run.begin(), run.end());
         if (has_prox) {
-            freqs = DecodePforRun(cur, doc_freq);
+            const auto fr = DecodePforRun(cur, doc_freq);
+            fq.insert(fq.end(), fr.begin(), fr.end());
         }
-        int32_t last_doc = 0;
-        for (int32_t i = 0; i < doc_freq; ++i) {
-            DecodedDoc d;
-            last_doc += static_cast<int32_t>(doc_deltas[static_cast<size_t>(i)]);
-            d.doc_id = last_doc;
-            d.freq = has_prox ? static_cast<int32_t>(freqs[static_cast<size_t>(i)]) : 1;
-            docs.push_back(std::move(d));
+        return;
+    }
+    SPIMI_THROW_CORRUPT("PostingDecoder: unknown .frq CodeMode byte");
+}
+
+// Resolves the whole-term `.prx` envelope (kProxRaw / kProxZstd /
+// kProxWindowed) to the term's contiguous inner VInt position-delta stream.
+// `owned` receives the inflated bytes when the envelope required
+// decompression/concatenation; the returned pointer either borrows `prx_data`
+// (raw mode — may include trailing bytes of FOLLOWING terms, the caller stops
+// after the term's own VInts) or points into `owned` (exact term stream).
+std::pair<const uint8_t*, size_t> ResolvePrxInner(const uint8_t* prx_data, size_t prx_length,
+                                                  std::vector<uint8_t>* owned) {
+    const uint8_t mode = prx_data[0];
+    if (mode == FreqProxEncoder::kProxZstd) {
+        Cursor hdr(prx_data + 1, prx_length - 1);
+        const auto uncomp = static_cast<uint32_t>(hdr.ReadVInt());
+        const auto comp = static_cast<uint32_t>(hdr.ReadVInt());
+        const size_t hpos = 1 + hdr.pos();
+        if (hpos + comp > prx_length || hpos + comp < hpos) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx: compressed length exceeds block");
         }
-    } else {
-        SPIMI_THROW_CORRUPT("PostingDecoder: unknown .frq CodeMode byte");
+        owned->resize(uncomp);
+        BlockCompressionCodec* codec = nullptr;
+        if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+                [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD codec unavailable");
+        }
+        Slice in(reinterpret_cast<const char*>(prx_data + hpos), comp);
+        Slice slice_out(reinterpret_cast<char*>(owned->data()), uncomp);
+        if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD decompress failed");
+        }
+        return {owned->data(), owned->size()};
+    }
+    if (mode == FreqProxEncoder::kProxRaw) {
+        return {prx_data + 1, prx_length - 1};
+    }
+    if (mode == FreqProxEncoder::kProxWindowed) {
+        // V4 windowed .prx: byte mode, VInt(W), VInt(num_windows), a per-window
+        // skip table (4 VInts/window), then per-window payloads. This eager path
+        // is framing-agnostic — concatenating the inflated per-window PART_POS
+        // bytes reproduces the term's whole contiguous VInt position stream — so
+        // it only STEPS OVER the skip table (mirrors the .frq skip-table skip).
+        Cursor wc(prx_data + 1, prx_length - 1);
+        (void)wc.ReadVInt(); // W
+        const int32_t num_windows = wc.ReadVInt();
+        if (num_windows <= 0) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder .prx windowed: num_windows out of range");
+        }
+        // Skip the skip table: doc_count, byte_offset, min_docid, max_docid_delta.
+        for (int32_t w = 0; w < num_windows; ++w) {
+            for (int s = 0; s < 4; ++s) {
+                (void)wc.ReadVInt();
+            }
+        }
+        for (int32_t w = 0; w < num_windows; ++w) {
+            const std::vector<uint8_t> inner = ReadWindowPayload(wc);
+            owned->insert(owned->end(), inner.begin(), inner.end());
+        }
+        return {owned->data(), owned->size()};
+    }
+    SPIMI_THROW_CORRUPT("PostingDecoder .prx: unknown prox block mode");
+}
+
+} // namespace
+
+std::vector<DecodedDoc> PostingDecoder::Decode(const uint8_t* frq_data, size_t frq_length,
+                                               const uint8_t* prx_data, size_t prx_length,
+                                               int32_t doc_freq, bool has_prox, bool is_slim) {
+    if (doc_freq <= 0 || frq_length == 0U) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder: bad doc_freq / buffer length");
     }
 
+    // Positions are attached only when the caller actually supplied a `.prx`
+    // block (legacy tolerance: a null/empty block yields docs with empty
+    // position lists).
+    const bool want_pos = has_prox && prx_data != nullptr && prx_length > 0;
+
+    FlatPostings flat;
+    if (want_pos) {
+        DecodeFlat(frq_data, frq_length, prx_data, prx_length, doc_freq, has_prox, is_slim, &flat);
+    } else {
+        DecodeFrqFlat(frq_data, frq_length, doc_freq, has_prox, is_slim, flat.doc_deltas,
+                      flat.freqs);
+    }
+
+    std::vector<DecodedDoc> docs;
+    constexpr size_t kSafeReserveCap = 1U << 24;
+    docs.reserve(std::min(static_cast<size_t>(doc_freq), kSafeReserveCap));
+    Cursor prx(flat.pos_vint.data(), flat.pos_vint.size());
+    int64_t doc = 0;
+    for (int32_t i = 0; i < doc_freq; ++i) {
+        doc += flat.doc_deltas[static_cast<size_t>(i)];
+        DecodedDoc d;
+        d.doc_id = static_cast<int32_t>(doc);
+        d.freq = has_prox ? static_cast<int32_t>(flat.freqs[static_cast<size_t>(i)]) : 1;
+        if (want_pos) {
+            d.positions.reserve(static_cast<size_t>(d.freq));
+            int32_t last_pos = 0;
+            for (int32_t j = 0; j < d.freq; ++j) {
+                last_pos += prx.ReadVInt();
+                d.positions.push_back(last_pos);
+            }
+        }
+        docs.push_back(std::move(d));
+    }
     return docs;
+}
+
+void PostingDecoder::DecodeFlat(const uint8_t* frq_data, size_t frq_length, const uint8_t* prx_data,
+                                size_t prx_length, int32_t doc_freq, bool has_prox, bool is_slim,
+                                FlatPostings* out) {
+    if (doc_freq <= 0 || frq_length == 0U) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder: bad doc_freq / buffer length");
+    }
+
+    const size_t dd_base = out->doc_deltas.size();
+    DecodeFrqFlat(frq_data, frq_length, doc_freq, has_prox, is_slim, out->doc_deltas, out->freqs);
+    if (out->doc_deltas.size() != dd_base + static_cast<size_t>(doc_freq)) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder flat: decoded doc count mismatch");
+    }
+
+    // Re-base this run's first delta. As stored, it is the delta from an
+    // implicit 0 (== the absolute first doc id, because FreqProxEncoder::
+    // StartTerm resets _last_doc to 0 per segment). Appended after a previous
+    // run, it must become the delta from that run's last doc so the chain
+    // reads as ONE term written in doc order. Inputs never overlap (spills are
+    // successive slices of the same monotonically increasing _rid stream), so
+    // the re-based delta is strictly positive; anything else is corruption.
+    if (dd_base > 0) {
+        const auto abs_first = static_cast<int64_t>(out->doc_deltas[dd_base]);
+        if (abs_first <= out->last_doc) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder flat: appended run overlaps the previous run");
+        }
+        out->doc_deltas[dd_base] = static_cast<uint32_t>(abs_first - out->last_doc);
+    }
+    int64_t last = out->last_doc;
+    for (size_t i = dd_base; i < out->doc_deltas.size(); ++i) {
+        last += out->doc_deltas[i];
+    }
+    out->last_doc = last;
+
+    if (!has_prox) {
+        return;
+    }
+    if (prx_data == nullptr || prx_length == 0U) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder flat: missing .prx block for a phrase-on term");
+    }
+
+    // Resolve the `.prx` envelope, then record each doc's byte offset by
+    // SKIPPING freq VInts (a byte scan — no value decode) and splice the
+    // consumed prefix verbatim. Within-doc position deltas are self-anchored
+    // (reset to 0 per doc), so the bytes need no re-basing across inputs.
+    std::vector<uint8_t> owned;
+    const auto [pd, plen] = ResolvePrxInner(prx_data, prx_length, &owned);
+    const size_t base = out->pos_vint.size();
+    size_t pb = 0;
+    for (int32_t i = 0; i < doc_freq; ++i) {
+        if (base + pb > std::numeric_limits<uint32_t>::max()) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder flat: position stream exceeds u32 offsets");
+        }
+        out->pos_offsets.push_back(static_cast<uint32_t>(base + pb));
+        const uint32_t freq = out->freqs[dd_base + static_cast<size_t>(i)];
+        for (uint32_t f = 0; f < freq; ++f) {
+            // Skip one VInt: continuation bytes then the terminator.
+            while (true) {
+                if (pb >= plen) [[unlikely]] {
+                    SPIMI_THROW_CORRUPT("PostingDecoder flat: .prx stream truncated");
+                }
+                const bool cont = (pd[pb] & 0x80U) != 0U;
+                ++pb;
+                if (!cont) {
+                    break;
+                }
+            }
+        }
+    }
+    out->pos_vint.insert(out->pos_vint.end(), pd, pd + pb);
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi
