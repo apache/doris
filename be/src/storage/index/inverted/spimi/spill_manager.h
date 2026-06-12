@@ -148,7 +148,22 @@ public:
     // Streams spill `i`'s .tis/.tii/.frq/.prx back from their per-stream tmp
     // files into `out` (the only streams the merge consumes). Resident cost is
     // exactly one spill's four streams. Returns an error Status on IO failure.
+    //
+    // 生产归并已改走 OpenSpillCursor（流式游标）；本接口保留给测试/诊断。
     Status LoadSpill(size_t i, SegmentMerger::Input& out) const;
+
+    // 游标读缓冲默认容量（每流一个，按 min(容量, 流长) 一次性分配）。
+    static constexpr size_t kDefaultCursorBufferBytes = 1U << 20; // 1 MiB
+
+    // 以顺序读滑窗游标打开 spill `i` 的四个归并消费流，替代 LoadSpill 的
+    // 全量载回：k 路归并期间的输入驻留从 Σspill 字节降到
+    // k×4×min(buffer_bytes, 流长)。spill 布局保证 k×4 顺序游标可行 ——
+    // .tis 按 term 序 emit、.frq/.prx posting 指针随 term 序单调不回退
+    // （TermDictWriter::Add 的 DCHECK），TermEnum / PostingDecoder 只前进。
+    // IO 打开失败返回错误 Status；打开后的读错误由游标抛 doris::Exception
+    // （与 LoadSpill 的错误传播一致，经 Finish 的 try/catch 收口）。
+    Status OpenSpillCursor(size_t i, SegmentMerger::StreamInput& out,
+                           size_t buffer_bytes = kDefaultCursorBufferBytes) const;
 
     size_t SpillCount() const { return _spills.size(); }
     const std::vector<SpillSegment>& Spills() const { return _spills; }

@@ -30,6 +30,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/byte_source.h"
 #include "storage/index/inverted/spimi/field_infos_writer.h"
 #include "storage/index/inverted/spimi/file_byte_output.h"
 #include "storage/index/inverted/spimi/fulltext_writer.h"
@@ -324,6 +325,33 @@ Status SpillManager::LoadSpill(size_t i, SegmentMerger::Input& out) const {
     RETURN_IF_ERROR(read_stream("tii", seg.tii, out.tii_bytes));
     RETURN_IF_ERROR(read_stream("frq", seg.frq, out.frq_bytes));
     RETURN_IF_ERROR(read_stream("prx", seg.prx, out.prx_bytes));
+    out.doc_count = seg.doc_count;
+
+    return Status::OK();
+}
+
+Status SpillManager::OpenSpillCursor(size_t i, SegmentMerger::StreamInput& out,
+                                     size_t buffer_bytes) const {
+    if (i >= _spills.size()) {
+        return Status::InternalError("SpillManager::OpenSpillCursor index {} out of range ({})", i,
+                                     _spills.size());
+    }
+    const SpillSegment& seg = _spills[i];
+
+    auto open_stream = [&](const char* ext, const SpillSegment::Range& range,
+                           std::unique_ptr<ForwardByteSource>& dst) -> Status {
+        io::FileReaderSPtr reader;
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(seg.StreamPath(ext), &reader));
+        dst = std::make_unique<SpillFileByteSource>(std::move(reader), range.length, buffer_bytes);
+        return Status::OK();
+    };
+
+    // Only .tis/.tii/.frq/.prx are consumed by the merge; .fnm/segments_* are
+    // rebuilt from scratch by the merger and need not be opened.
+    RETURN_IF_ERROR(open_stream("tis", seg.tis, out.tis));
+    RETURN_IF_ERROR(open_stream("tii", seg.tii, out.tii));
+    RETURN_IF_ERROR(open_stream("frq", seg.frq, out.frq));
+    RETURN_IF_ERROR(open_stream("prx", seg.prx, out.prx));
     out.doc_count = seg.doc_count;
 
     return Status::OK();

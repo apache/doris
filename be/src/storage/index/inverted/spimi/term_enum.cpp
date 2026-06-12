@@ -58,142 +58,85 @@ std::string WideToUtf8(const std::wstring& wide) {
     return out;
 }
 
-// Byte-stream cursor matching the one in term_dict_reader.cpp.
-// Duplicated here to avoid coupling the merge-path reader to the
-// query-path reader's translation unit.
-class Cursor {
-public:
-    Cursor(const uint8_t* data, size_t len, size_t pos = 0) : _data(data), _len(len), _pos(pos) {}
-
-    uint8_t ReadByte() {
-        if (_pos >= _len) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: read past end of buffer");
+// Inverse of `ByteOutput::WriteSCharsFromWide` — identical logic to the
+// ReadSChars in term_dict_reader.cpp, lifted onto a ForwardByteSource so the
+// same parse serves both the in-memory and the streaming-cursor backing.
+std::wstring ReadSChars(ForwardByteSource& src, int32_t length) {
+    std::wstring out;
+    out.reserve(static_cast<size_t>(length));
+    for (int32_t i = 0; i < length; ++i) {
+        const uint8_t b0 = src.ReadByte();
+        uint32_t code = 0;
+        if ((b0 & 0x80U) == 0) {
+            code = b0;
+        } else if ((b0 & 0xE0U) == 0xC0U) {
+            const uint8_t b1 = src.ReadByte();
+            code = (static_cast<uint32_t>(b0 & 0x1FU) << 6) | (b1 & 0x3FU);
+        } else if ((b0 & 0xF0U) == 0xE0U) {
+            const uint8_t b1 = src.ReadByte();
+            const uint8_t b2 = src.ReadByte();
+            code = (static_cast<uint32_t>(b0 & 0x0FU) << 12) |
+                   (static_cast<uint32_t>(b1 & 0x3FU) << 6) | (b2 & 0x3FU);
+        } else if ((b0 & 0xF8U) == 0xF0U) {
+            const uint8_t b1 = src.ReadByte();
+            const uint8_t b2 = src.ReadByte();
+            const uint8_t b3 = src.ReadByte();
+            code = (static_cast<uint32_t>(b0 & 0x07U) << 18) |
+                   (static_cast<uint32_t>(b1 & 0x3FU) << 12) |
+                   (static_cast<uint32_t>(b2 & 0x3FU) << 6) | (b3 & 0x3FU);
+        } else {
+            // Modified-4-byte form (CLucene-specific).
+            const uint8_t b1 = src.ReadByte();
+            const uint8_t b2 = src.ReadByte();
+            const uint8_t b3 = src.ReadByte();
+            code = (static_cast<uint32_t>(b0 & 0x7FU) << 18) |
+                   (static_cast<uint32_t>(b1 & 0x3FU) << 12) |
+                   (static_cast<uint32_t>(b2 & 0x3FU) << 6) | (b3 & 0x3FU);
         }
-        return _data[_pos++];
+        out.push_back(static_cast<wchar_t>(code));
     }
-    int32_t ReadInt32BE() {
-        const uint32_t b0 = ReadByte();
-        const uint32_t b1 = ReadByte();
-        const uint32_t b2 = ReadByte();
-        const uint32_t b3 = ReadByte();
-        return static_cast<int32_t>((b0 << 24) | (b1 << 16) | (b2 << 8) | b3);
-    }
-    int64_t ReadInt64BE() {
-        const uint64_t hi = static_cast<uint32_t>(ReadInt32BE());
-        const uint64_t lo = static_cast<uint32_t>(ReadInt32BE());
-        return static_cast<int64_t>((hi << 32) | lo);
-    }
-    int32_t ReadVInt() {
-        uint32_t v = 0;
-        uint32_t shift = 0;
-        while (true) {
-            const uint8_t b = ReadByte();
-            v |= static_cast<uint32_t>(b & 0x7FU) << shift;
-            if ((b & 0x80U) == 0) {
-                break;
-            }
-            shift += 7;
-            if (shift >= 32U) [[unlikely]] {
-                SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum VInt: shift overflow");
-            }
-        }
-        return static_cast<int32_t>(v);
-    }
-    int64_t ReadVLong() {
-        uint64_t v = 0;
-        uint32_t shift = 0;
-        while (true) {
-            const uint8_t b = ReadByte();
-            v |= static_cast<uint64_t>(b & 0x7FU) << shift;
-            if ((b & 0x80U) == 0) {
-                break;
-            }
-            shift += 7;
-            if (shift >= 64U) [[unlikely]] {
-                SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum VLong: shift overflow");
-            }
-        }
-        return static_cast<int64_t>(v);
-    }
-    // Inverse of `ByteOutput::WriteSCharsFromWide` — identical logic
-    // to the ReadSChars in term_dict_reader.cpp.
-    std::wstring ReadSChars(int32_t length) {
-        std::wstring out;
-        out.reserve(static_cast<size_t>(length));
-        for (int32_t i = 0; i < length; ++i) {
-            const uint8_t b0 = ReadByte();
-            uint32_t code = 0;
-            if ((b0 & 0x80U) == 0) {
-                code = b0;
-            } else if ((b0 & 0xE0U) == 0xC0U) {
-                const uint8_t b1 = ReadByte();
-                code = (static_cast<uint32_t>(b0 & 0x1FU) << 6) | (b1 & 0x3FU);
-            } else if ((b0 & 0xF0U) == 0xE0U) {
-                const uint8_t b1 = ReadByte();
-                const uint8_t b2 = ReadByte();
-                code = (static_cast<uint32_t>(b0 & 0x0FU) << 12) |
-                       (static_cast<uint32_t>(b1 & 0x3FU) << 6) | (b2 & 0x3FU);
-            } else if ((b0 & 0xF8U) == 0xF0U) {
-                const uint8_t b1 = ReadByte();
-                const uint8_t b2 = ReadByte();
-                const uint8_t b3 = ReadByte();
-                code = (static_cast<uint32_t>(b0 & 0x07U) << 18) |
-                       (static_cast<uint32_t>(b1 & 0x3FU) << 12) |
-                       (static_cast<uint32_t>(b2 & 0x3FU) << 6) | (b3 & 0x3FU);
-            } else {
-                // Modified-4-byte form (CLucene-specific).
-                const uint8_t b1 = ReadByte();
-                const uint8_t b2 = ReadByte();
-                const uint8_t b3 = ReadByte();
-                code = (static_cast<uint32_t>(b0 & 0x7FU) << 18) |
-                       (static_cast<uint32_t>(b1 & 0x3FU) << 12) |
-                       (static_cast<uint32_t>(b2 & 0x3FU) << 6) | (b3 & 0x3FU);
-            }
-            out.push_back(static_cast<wchar_t>(code));
-        }
-        return out;
-    }
-    size_t pos() const { return _pos; }
-    void Skip(size_t n) {
-        if (_pos > _len || n > _len - _pos) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: skip past end of buffer");
-        }
-        _pos += n;
-    }
-
-private:
-    const uint8_t* _data;
-    size_t _len;
-    size_t _pos;
-};
+    return out;
+}
 
 } // namespace
 
-TermEnum::TermEnum(const std::vector<uint8_t>& tis_bytes) : _tis_bytes(tis_bytes) {
+TermEnum::TermEnum(const std::vector<uint8_t>& tis_bytes)
+        : _owned_src(std::make_unique<MemoryByteSource>(tis_bytes.data(), tis_bytes.size())),
+          _src(_owned_src.get()) {
+    Init();
+}
+
+TermEnum::TermEnum(ForwardByteSource* src) : _src(src) {
+    Init();
+}
+
+void TermEnum::Init() {
     // Minimum size: 24-byte header + 8-byte footer.
-    if (tis_bytes.size() < 32U) [[unlikely]] {
+    if (_src->Length() < 32) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: buffer too short");
     }
 
-    Cursor cur(tis_bytes.data(), tis_bytes.size());
-
     // Header.
-    const int32_t format = cur.ReadInt32BE();
+    const int32_t format = _src->ReadInt32BE();
     if (format != TermDictWriter::kFormat && format != TermDictWriter::kFormatInline) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: FORMAT mismatch");
     }
     _inline_format = (format == TermDictWriter::kFormatInline);
-    [[maybe_unused]] const int64_t legacy = cur.ReadInt64BE(); // always -1
-    _index_interval = cur.ReadInt32BE();
-    _skip_interval = cur.ReadInt32BE();
-    [[maybe_unused]] const int32_t max_skip_levels = cur.ReadInt32BE();
+    [[maybe_unused]] const int64_t legacy = _src->ReadInt64BE(); // always -1
+    _index_interval = _src->ReadInt32BE();
+    _skip_interval = _src->ReadInt32BE();
+    [[maybe_unused]] const int32_t max_skip_levels = _src->ReadInt32BE();
 
-    _pos = cur.pos();
-    _data_end = tis_bytes.size() - 8U; // footer is the last 8 bytes
+    _data_end = _src->Length() - 8; // footer is the last 8 bytes
 
-    // Footer: int64 size (number of .tis entries).
-    Cursor footer(tis_bytes.data(), tis_bytes.size(), _data_end);
-    _total_entries = footer.ReadInt64BE();
+    // Footer: int64 size (number of .tis entries) — 一次性随机读，不动主游标。
+    uint8_t footer[8];
+    _src->ReadAt(_data_end, footer, sizeof(footer));
+    uint64_t total = 0;
+    for (const uint8_t b : footer) {
+        total = (total << 8) | b;
+    }
+    _total_entries = static_cast<int64_t>(total);
     if (_total_entries < 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative entry count");
     }
@@ -209,16 +152,14 @@ bool TermEnum::Next() {
         _done = true;
         return false;
     }
-    if (_pos >= _data_end) {
+    if (_src->Position() >= _data_end) {
         _done = true;
         return false;
     }
 
-    Cursor cur(_tis_bytes.data(), _data_end, _pos);
-
     // Front-coded term: prefix_len, suffix_len, suffix bytes, field_number.
-    const int32_t prefix_len = cur.ReadVInt();
-    const int32_t suffix_len = cur.ReadVInt();
+    const int32_t prefix_len = _src->ReadVInt();
+    const int32_t suffix_len = _src->ReadVInt();
     if (prefix_len < 0 || suffix_len < 0 || static_cast<size_t>(prefix_len) > _last_term.size())
             [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: malformed prefix/suffix length");
@@ -226,22 +167,22 @@ bool TermEnum::Next() {
 
     _last_term.resize(static_cast<size_t>(prefix_len));
     if (suffix_len > 0) {
-        _last_term.append(cur.ReadSChars(suffix_len));
+        _last_term.append(ReadSChars(*_src, suffix_len));
     }
 
-    const int32_t field_number = cur.ReadVInt();
+    const int32_t field_number = _src->ReadVInt();
 
     int32_t doc_freq = 0;
     bool inlined = false;
     if (_inline_format) {
-        const int32_t raw = cur.ReadVInt();
+        const int32_t raw = _src->ReadVInt();
         if (raw < 0) [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative inline doc_freq word");
         }
         doc_freq = raw >> 1;
         inlined = (raw & 1) != 0;
     } else {
-        doc_freq = cur.ReadVInt();
+        doc_freq = _src->ReadVInt();
     }
     if (doc_freq < 0) [[unlikely]] {
         SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative doc_freq");
@@ -258,33 +199,63 @@ bool TermEnum::Next() {
     if (inlined) {
         // Inline entry: freq/prox pointer deltas OMITTED; the running
         // accumulators stay unchanged (anchored at the previous external term).
-        const int32_t frq_len = cur.ReadVInt();
-        if (frq_len < 0) [[unlikely]] {
+        // span 借用/拷贝二选一：内存源 BorrowStable 返回稳定指针（旧契约，
+        // 生命周期 = 底层缓冲）；流式源返回 nullptr，span 字节拷入
+        // _inline_scratch（frq 在前、prx 紧随），仅本 entry 有效。
+        _inline_scratch.clear();
+        const int32_t frq_len = _src->ReadVInt();
+        if (frq_len < 0 || static_cast<int64_t>(frq_len) > _data_end - _src->Position())
+                [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative inline frq_len");
         }
-        const size_t frq_off = cur.pos();
-        cur.Skip(static_cast<size_t>(frq_len));
-        const int32_t prx_len = cur.ReadVInt();
-        if (prx_len < 0) [[unlikely]] {
+        const uint8_t* borrow_frq = nullptr;
+        size_t scratch_frq_len = 0;
+        if (frq_len > 0) {
+            borrow_frq = _src->BorrowStable(static_cast<size_t>(frq_len));
+            if (borrow_frq == nullptr) {
+                _src->ReadInto(&_inline_scratch, static_cast<size_t>(frq_len));
+                scratch_frq_len = static_cast<size_t>(frq_len);
+            }
+        }
+        const int32_t prx_len = _src->ReadVInt();
+        if (prx_len < 0 || static_cast<int64_t>(prx_len) > _data_end - _src->Position())
+                [[unlikely]] {
             SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative inline prx_len");
         }
-        const size_t prx_off = cur.pos();
-        cur.Skip(static_cast<size_t>(prx_len));
+        const uint8_t* borrow_prx = nullptr;
+        bool scratch_prx = false;
+        if (prx_len > 0) {
+            borrow_prx = _src->BorrowStable(static_cast<size_t>(prx_len));
+            if (borrow_prx == nullptr) {
+                _src->ReadInto(&_inline_scratch, static_cast<size_t>(prx_len));
+                scratch_prx = true;
+            }
+        }
 
         _current.info.inlined = true;
-        _current.info.inline_frq = (frq_len > 0) ? _tis_bytes.data() + frq_off : nullptr;
+        // scratch 指针在两段 ReadInto 全部完成后再取（中途可能扩容搬家）。
+        _current.info.inline_frq =
+                borrow_frq != nullptr ? borrow_frq
+                                      : (scratch_frq_len > 0 ? _inline_scratch.data() : nullptr);
         _current.info.inline_frq_len = static_cast<uint32_t>(frq_len);
-        _current.info.inline_prx = (prx_len > 0) ? _tis_bytes.data() + prx_off : nullptr;
+        _current.info.inline_prx =
+                borrow_prx != nullptr
+                        ? borrow_prx
+                        : (scratch_prx ? _inline_scratch.data() + scratch_frq_len : nullptr);
         _current.info.inline_prx_len = static_cast<uint32_t>(prx_len);
     } else {
-        _last_freq_pointer += cur.ReadVLong();
-        _last_prox_pointer += cur.ReadVLong();
+        _last_freq_pointer += _src->ReadVLong();
+        _last_prox_pointer += _src->ReadVLong();
         if (doc_freq >= _skip_interval) {
-            skip_offset = cur.ReadVInt();
+            skip_offset = _src->ReadVInt();
         }
     }
 
-    _pos = cur.pos();
+    // 防御：entry 不得越过 footer（旧实现以 _data_end 截断 Cursor 逐字节
+    // 兜底；源以流尾为界，这里补 entry 级越界检查，坏文件同样必抛）。
+    if (_src->Position() > _data_end) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: entry runs into the footer");
+    }
 
     // Populate output.
     _current.field_number = field_number;
@@ -299,7 +270,7 @@ bool TermEnum::Next() {
     _current.info.is_slim = doc_freq < _skip_interval;
 
     ++_consumed;
-    if (_consumed >= _total_entries || _pos >= _data_end) {
+    if (_consumed >= _total_entries || _src->Position() >= _data_end) {
         _done = true;
     }
     return true;

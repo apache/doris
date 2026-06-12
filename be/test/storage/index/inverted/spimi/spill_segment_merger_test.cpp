@@ -505,12 +505,16 @@ TEST(SegmentMergerTest, CompactModeFlushBufferDoesNotSkipData) {
     // Verify the merged terms are correct.
     auto merged_terms = ReadAllTerms(result.tis_bytes);
     EXPECT_EQ(merged_terms.size(), vocab.size());
-    for (const auto& t : merged_terms) {
+    for (size_t i = 0; i < merged_terms.size(); ++i) {
+        const TermEntry& t = merged_terms[i];
         // Each term should appear in vocab.
         EXPECT_NE(std::find(vocab.begin(), vocab.end(), t.term_utf8), vocab.end());
         // Verify posting content: doc_ids should be monotonically increasing.
-        auto docs = DecodeTerm(t, result.frq_bytes, result.prx_bytes,
-                               &merged_terms[0] + merged_terms.size() > &t ? &(&t)[1] : nullptr);
+        // 末位 term 的 next 必须是 nullptr（旧写法 `end > &t` 恒真，会解引用
+        // past-the-end 的未初始化 TermEntry —— 其垃圾 prox_pointer 偶发把
+        // prx 区间算成空/负，UB 读，堆布局一变即炸）。
+        const TermEntry* next = (i + 1 < merged_terms.size()) ? &merged_terms[i + 1] : nullptr;
+        auto docs = DecodeTerm(t, result.frq_bytes, result.prx_bytes, next);
         ASSERT_GT(docs.size(), 0U);
         for (size_t d = 1; d < docs.size(); ++d) {
             EXPECT_GT(docs[d].doc_id, docs[d - 1].doc_id)

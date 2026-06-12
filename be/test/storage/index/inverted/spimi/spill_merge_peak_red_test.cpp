@@ -16,34 +16,42 @@
 // under the License.
 
 // 批2 RED 网（R1-R7）：merger 平面化重编 + Σdf 升级判定的峰值/语义双断言。
+// 批3 RED 网（R8）：spill 流式游标 —— 消 LoadSpill 全量载回的峰值断言。
 //
 // 每例两段断言：
-//   (a) 峰值 —— ScopedHeapHighWater 包住 LoadSpill+Merge 全程。旧实现把整个
-//       term 物化为 vector<DecodedDoc>（每 doc 32B 结构 + 独立 positions 堆块
-//       + merged_docs 扩容瞬态），高 df 用例（R1/R3/R4/R5）峰值必超线 → RED；
-//       平面化重编（flat dd/fq/pos_vint/pos_offsets）后 → GREEN。
+//   (a) 峰值 —— ScopedHeapHighWater 包住「输入构造+Merge」全程。批2 杀掉了
+//       vector<DecodedDoc> 物化（R1/R3/R4/R5 由此转绿）；批3 进一步要求
+//       merge 阶段总驻留 < k×游标缓冲 + 平面化批 + 常数 —— R8 的 term 海
+//       形态下 Σ输入字节主导峰值，LoadSpill 全量载回必超线（RED），
+//       流式游标（OpenSpillCursor）后转绿。
 //   (b) 语义 —— 归并输出与「同数据直写单 flush」四流逐字节相同（强金标准，
 //       与 spill_merge_byte_identity_golden_test 同口径），改前改后都必须绿。
 //
 // 构造遵循生产合约（spill_segment_merger_test.cpp:1404-1421 的注释）：绝对
 // doc_id、k 份连续 doc 区间、cumulative doc_count、SpillManager::FlushBuffer
-// 真落盘后 LoadSpill 读回。R2/R6/R7 是绿守护（HEAD 上也绿），分别盯
-// Σdf 跨 spill 升级判定（511/512/513）、k=3 绝对 doc_id 合约、staged-inline
-// 判定不被流式重构破坏。
+// 真落盘。R2/R6/R7 是绿守护（HEAD 上也绿），分别盯 Σdf 跨 spill 升级判定
+// （511/512/513）、k=3 绝对 doc_id 合约、staged-inline 判定不被流式重构破坏。
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "heap_high_water.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "storage/index/inverted/spimi/byte_output.h"
 #include "storage/index/inverted/spimi/field_infos_writer.h"
+#include "storage/index/inverted/spimi/file_byte_output.h"
 #include "storage/index/inverted/spimi/freq_prox_encoder.h"
 #include "storage/index/inverted/spimi/fulltext_writer.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
@@ -51,6 +59,7 @@
 #include "storage/index/inverted/spimi/segment_merger.h"
 #include "storage/index/inverted/spimi/spill_manager.h"
 #include "storage/index/inverted/spimi/term_enum.h"
+#include "util/slice.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
 
@@ -116,9 +125,12 @@ struct MergedRun {
 };
 
 // k 份连续 doc 区间（cuts = k+1 个边界）→ k 个 spill（FlushBuffer 真落盘）
-// → ScopedHeapHighWater 包住 LoadSpill + Merge。
+// → ScopedHeapHighWater 包住「OpenSpillCursor + Merge」（批3 后的生产形态：
+// 流式游标，无全量载回）。`cursor_buffer_bytes` 控制每流滑窗容量（默认与
+// 生产相同；R9 用 4KB 压力暴露生命周期 bug）。
 template <typename Gen>
-MergedRun EmitMergedWithPeak(const Gen& gen, const std::vector<int32_t>& cuts, bool omit) {
+MergedRun EmitMergedWithPeak(const Gen& gen, const std::vector<int32_t>& cuts, bool omit,
+                             size_t cursor_buffer_bytes = SpillManager::kDefaultCursorBufferBytes) {
     const int32_t total_docs = cuts.back();
     SpillManager mgr("content", /*is_v4=*/true, /*tmp_dir=*/"",
                      /*omit_term_freq_and_positions=*/omit);
@@ -135,6 +147,10 @@ MergedRun EmitMergedWithPeak(const Gen& gen, const std::vector<int32_t>& cuts, b
     EXPECT_EQ(mgr.SpillCount(), cuts.size() - 1);
 
     MergedRun out;
+    for (const SpillSegment& seg : mgr.Spills()) {
+        out.input_bytes += static_cast<size_t>(seg.tis.length + seg.tii.length + seg.frq.length +
+                                               seg.prx.length);
+    }
     MemoryByteOutput tis, tii, frq, prx, fnm, nrm, seg_n, seg_gen;
     SpimiSegmentSink sink {.tis = &tis,
                            .tii = &tii,
@@ -146,13 +162,11 @@ MergedRun EmitMergedWithPeak(const Gen& gen, const std::vector<int32_t>& cuts, b
                            .segments_gen = &seg_gen};
     {
         ScopedHeapHighWater hw;
-        std::vector<SegmentMerger::Input> inputs;
+        std::vector<SegmentMerger::StreamInput> inputs;
         inputs.reserve(mgr.SpillCount());
         for (size_t i = 0; i < mgr.SpillCount(); ++i) {
-            SegmentMerger::Input in;
-            EXPECT_TRUE(mgr.LoadSpill(i, in).ok());
-            out.input_bytes += in.tis_bytes.size() + in.tii_bytes.size() + in.frq_bytes.size() +
-                               in.prx_bytes.size();
+            SegmentMerger::StreamInput in;
+            EXPECT_TRUE(mgr.OpenSpillCursor(i, in, cursor_buffer_bytes).ok());
             inputs.push_back(std::move(in));
         }
         out.term_count = SegmentMerger::Merge(inputs, sink, "_0", "content", total_docs,
@@ -161,6 +175,108 @@ MergedRun EmitMergedWithPeak(const Gen& gen, const std::vector<int32_t>& cuts, b
         out.peak_bytes = hw.PeakDeltaBytes();
     }
     out.streams = {tis.bytes(), tii.bytes(), frq.bytes(), prx.bytes()};
+    return out;
+}
+
+std::vector<uint8_t> ReadFileBytes(const std::string& path) {
+    io::FileReaderSPtr reader;
+    EXPECT_TRUE(io::global_local_filesystem()->open_file(path, &reader).ok()) << path;
+    std::vector<uint8_t> bytes(reader->size());
+    if (!bytes.empty()) {
+        size_t got = 0;
+        EXPECT_TRUE(reader->read_at(0, Slice(bytes.data(), bytes.size()), &got).ok()) << path;
+        EXPECT_EQ(got, bytes.size()) << path;
+    }
+    static_cast<void>(reader->close());
+    return bytes;
+}
+
+// 批3 专用：与 EmitMergedWithPeak 同合约，但归并的四个输出流走 FileByteOutput
+// （对齐生产 EmitMerged 的文件背书 IndexOutput —— 输出字节不驻留内存），
+// ScopedHeapHighWater 因此只量「输入构造 + Merge 工作集」。Σ输入字节从
+// SpillSegment 元数据取（不依赖载回方式）。term 海形态下旧实现的
+// LoadSpill 全量载回 ≈ Σ输入 全程驻留 → 超线 RED（b3_red_run.log 留证）；
+// 流式游标后只剩 k×4×min(缓冲, 流长) + 平面化批 → GREEN。
+template <typename Gen>
+MergedRun EmitMergedWithPeakFileSink(const Gen& gen, const std::vector<int32_t>& cuts, bool omit) {
+    const int32_t total_docs = cuts.back();
+    SpillManager mgr("content", /*is_v4=*/true, /*tmp_dir=*/"",
+                     /*omit_term_freq_and_positions=*/omit);
+    {
+        SpimiPostingBuffer buf(omit);
+        for (size_t j = 0; j + 1 < cuts.size(); ++j) {
+            gen(cuts[j], cuts[j + 1], buf);
+            EXPECT_GT(buf.RecordCount(), 0) << "spill " << j << " must not be empty";
+            EXPECT_FALSE(buf.Saturated());
+            mgr.FlushBuffer(buf, /*doc_count=*/cuts[j + 1]);
+        }
+    }
+    EXPECT_EQ(mgr.SpillCount(), cuts.size() - 1);
+
+    MergedRun out;
+    for (const SpillSegment& seg : mgr.Spills()) {
+        out.input_bytes += static_cast<size_t>(seg.tis.length + seg.tii.length + seg.frq.length +
+                                               seg.prx.length);
+    }
+
+    // 输出文件目录（用例级唯一，结束即删）。
+    static std::atomic<uint64_t> g_dir_counter {0};
+    const std::string dir = "/tmp/spimi_peak_red_" + std::to_string(::getpid()) + "_" +
+                            std::to_string(g_dir_counter.fetch_add(1));
+    EXPECT_TRUE(
+            io::global_local_filesystem()->create_directory(dir, /*failed_if_exists=*/false).ok());
+
+    struct OutStream {
+        io::FileWriterPtr writer;
+        std::unique_ptr<FileByteOutput> out;
+    };
+    auto open_out = [&](const char* ext) -> OutStream {
+        OutStream os;
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->create_file(dir + "/merged." + ext, &os.writer)
+                            .ok());
+        os.out = std::make_unique<FileByteOutput>(os.writer.get());
+        return os;
+    };
+    OutStream o_tis = open_out("tis");
+    OutStream o_tii = open_out("tii");
+    OutStream o_frq = open_out("frq");
+    OutStream o_prx = open_out("prx");
+    MemoryByteOutput fnm, nrm, seg_n, seg_gen; // 元数据流极小，不影响峰值口径
+    SpimiSegmentSink sink {.tis = o_tis.out.get(),
+                           .tii = o_tii.out.get(),
+                           .frq = o_frq.out.get(),
+                           .prx = o_prx.out.get(),
+                           .fnm = &fnm,
+                           .nrm = &nrm,
+                           .segments_n = &seg_n,
+                           .segments_gen = &seg_gen};
+    {
+        ScopedHeapHighWater hw;
+        std::vector<SegmentMerger::StreamInput> inputs;
+        inputs.reserve(mgr.SpillCount());
+        for (size_t i = 0; i < mgr.SpillCount(); ++i) {
+            SegmentMerger::StreamInput in;
+            EXPECT_TRUE(mgr.OpenSpillCursor(i, in).ok());
+            inputs.push_back(std::move(in));
+        }
+        out.term_count = SegmentMerger::Merge(inputs, sink, "_0", "content", total_docs,
+                                              FieldInfosWriter::kIndexVersionV4, omit,
+                                              /*omit_norms=*/true);
+        out.peak_bytes = hw.PeakDeltaBytes();
+    }
+    auto close_out = [](OutStream& os) {
+        EXPECT_TRUE(os.out->Finish().ok());
+        EXPECT_TRUE(os.writer->close().ok());
+    };
+    close_out(o_tis);
+    close_out(o_tii);
+    close_out(o_frq);
+    close_out(o_prx);
+
+    out.streams = {ReadFileBytes(dir + "/merged.tis"), ReadFileBytes(dir + "/merged.tii"),
+                   ReadFileBytes(dir + "/merged.frq"), ReadFileBytes(dir + "/merged.prx")};
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(dir).ok());
     return out;
 }
 
@@ -228,7 +344,9 @@ TEST(SpimiMergePeakRed, R1_HighDfWindowedTwoSpillPeakBounded) {
     EXPECT_EQ(merged.term_count, 1);
     const FourStreams direct = EmitDirect(gen, kTotal, /*omit=*/false);
     ExpectStreamsEqual(direct, merged.streams, "R1");
-    ExpectPeakBounded("R1", merged, /*floor_mb=*/32, /*ratio=*/0.25);
+    // 批3 收紧：输入字节不再是合法驻留（流式游标），ratio 归零、floor 压到
+    // 平面化批 + 有界游标缓冲 + 余量（基线 26.7MB，输入 0.28MB）。
+    ExpectPeakBounded("R1", merged, /*floor_mb=*/30, /*ratio=*/0.0);
 }
 
 // R3 —— PFOR 常数块（b=0）高 df：stride≡1、freq≡2、positions 恒定 {3,7}，
@@ -247,7 +365,8 @@ TEST(SpimiMergePeakRed, R3_ConstBlockHighDfPeakBounded) {
     EXPECT_EQ(merged.term_count, 1);
     const FourStreams direct = EmitDirect(gen, kTotal, /*omit=*/false);
     ExpectStreamsEqual(direct, merged.streams, "R3");
-    ExpectPeakBounded("R3", merged, /*floor_mb=*/32, /*ratio=*/0.25);
+    // 批3 收紧：ratio 归零（基线 28.2MB，输入 0.06MB）。
+    ExpectPeakBounded("R3", merged, /*floor_mb=*/32, /*ratio=*/0.0);
 }
 
 // R4 —— DOCS_ONLY（omit=true、无 positions）df≈80 万，k=2，FlushBuffer/
@@ -267,7 +386,8 @@ TEST(SpimiMergePeakRed, R4_OmitTfapHighDfPeakBounded) {
     EXPECT_EQ(merged.term_count, 1);
     const FourStreams direct = EmitDirect(gen, kTotal, /*omit=*/true);
     ExpectStreamsEqual(direct, merged.streams, "R4");
-    ExpectPeakBounded("R4", merged, /*floor_mb=*/16, /*ratio=*/0.25);
+    // 批3 收紧：16→9MB（基线 7.7MB，输入 0.21MB）。
+    ExpectPeakBounded("R4", merged, /*floor_mb=*/9, /*ratio=*/0.0);
 }
 
 // R5 —— phrase 重 positions：df≈60 万 × freq=8（positions 独立堆块在旧实现
@@ -293,7 +413,8 @@ TEST(SpimiMergePeakRed, R5_HeavyPositionsPhraseK3PeakBounded) {
     EXPECT_EQ(merged.term_count, 1);
     const FourStreams direct = EmitDirect(gen, kTotal, /*omit=*/false);
     ExpectStreamsEqual(direct, merged.streams, "R5");
-    ExpectPeakBounded("R5", merged, /*floor_mb=*/48, /*ratio=*/0.25);
+    // 批3 收紧：48→40MB（基线 34.3MB，输入 0.43MB）。
+    ExpectPeakBounded("R5", merged, /*floor_mb=*/40, /*ratio=*/0.0);
 }
 
 // R2 —— Σdf 跨 spill 升级判定专项（绿守护）：cross_511 = 256+255（归并后仍
@@ -472,6 +593,136 @@ TEST(SpimiMergePeakRed, R7_MixedInlineAndHighDfLockstep) {
     EXPECT_EQ(tiny_total, static_cast<size_t>(kTinyTerms));
     EXPECT_EQ(tiny_inlined, tiny_total) << "every df<=3 term must stay inlined in .tis";
     ExpectPeakBounded("R7", merged, /*floor_mb=*/96, /*ratio=*/1.0);
+}
+
+// R8 —— 批3 核心 RED：httplogs 形态 50 万 doc 合成 term 海，k=7。每 doc：
+// 2 个 hot term（get/http，df=50 万）+ 1 个状态 term（5 词表）+ 2 个唯一长名
+// term（url_/ref_，64-hex 后缀 → .tis 体量主导，Σ输入 ≈ 数十 MB）+ 1 个
+// ip term（df≈3）+ 1 个 ua term（千词表）。输出走 FileByteOutput（输出字节
+// 不驻留），故峰值 ≈ 输入驻留 + 平面化批：
+//   旧实现 LoadSpill 把 k=7 个 spill 全量载回 → 峰值 ≥ Σ输入 > 64MB（RED）；
+//   流式游标后 ≈ k×4×min(1MB,流长) + 平面化批 + 常数 < 64MB（GREEN）。
+TEST(SpimiMergePeakRed, R8_HttpLogsShapedTermSeaPeakBounded) {
+    ScopedSpimiConfigPin pin;
+    constexpr int32_t kTotal = 500'000;
+    auto gen = [](int32_t lo, int32_t hi, SpimiPostingBuffer& buf) {
+        char name[96];
+        for (int32_t doc = lo; doc < hi; ++doc) {
+            const auto d = static_cast<uint32_t>(doc);
+            buf.Append("get", d, 0);
+            buf.Append("http", d, 1);
+            std::snprintf(name, sizeof(name), "st_%u", Jitter(doc, 3, 5));
+            buf.Append(name, d, 2);
+            // 唯一 URL / referrer：64-hex 后缀（乘法散列展开，逐 doc 唯一）。
+            const auto h = static_cast<uint64_t>(d);
+            std::snprintf(name, sizeof(name), "url_%016llx%016llx%016llx%016llx",
+                          static_cast<unsigned long long>(h * 0x9E3779B97F4A7C15ULL),
+                          static_cast<unsigned long long>((h + 1) * 0xC2B2AE3D27D4EB4FULL),
+                          static_cast<unsigned long long>((h + 2) * 0x165667B19E3779F9ULL),
+                          static_cast<unsigned long long>(h ^ 0xD6E8FEB86659FD93ULL));
+            buf.Append(name, d, 3);
+            std::snprintf(name, sizeof(name), "ref_%016llx%016llx%016llx%016llx",
+                          static_cast<unsigned long long>(h * 0xFF51AFD7ED558CCDULL),
+                          static_cast<unsigned long long>((h + 3) * 0x9E3779B97F4A7C15ULL),
+                          static_cast<unsigned long long>((h + 4) * 0xC2B2AE3D27D4EB4FULL),
+                          static_cast<unsigned long long>(h ^ 0xA24BAED4963EE407ULL));
+            buf.Append(name, d, 4);
+            std::snprintf(name, sizeof(name), "ip_%08x",
+                          Jitter(doc / 3, 7, 0xFFFFFFFFU)); // df≈3 的客户端 IP
+            buf.Append(name, d, 5);
+            std::snprintf(name, sizeof(name), "ua_%03u", Jitter(doc, 11, 1000));
+            buf.Append(name, d, 6);
+        }
+    };
+    const MergedRun merged = EmitMergedWithPeakFileSink(
+            gen, {0, 71'429, 142'858, 214'287, 285'716, 357'145, 428'574, kTotal},
+            /*omit=*/false);
+    EXPECT_GT(merged.term_count, 1'000'000); // url+ref 唯一 term 海
+    const FourStreams direct = EmitDirect(gen, kTotal, /*omit=*/false);
+    ExpectStreamsEqual(direct, merged.streams, "R8");
+    // 设计文档批3 指定线：httplogs 形态 50 万 doc 合成 term 下 <64MB。
+    ExpectPeakBounded("R8", merged, /*floor_mb=*/64, /*ratio=*/0.0);
+}
+
+// R9 —— 4KB 小读缓冲压力（绿守护，批3 流式游标专属）：R2 同款 Σdf 跨界
+// 三连（511/512/513）+ 小 term 海（inline）+ 高 df windowed term（prx ZSTD
+// 窗口），k=3，游标缓冲压到 4KB —— 高频 Refill / SkipForwardTo / inline
+// span 拷贝在 ASAN 下暴露借用生命周期与短读 bug；输出仍须与直写逐字节相同。
+TEST(SpimiMergePeakRed, R9_TinyCursorBufferStressByteIdentical) {
+    ScopedSpimiConfigPin pin;
+    constexpr int32_t kTotal = 120'000;
+    constexpr int32_t kHalf = 60'000;
+    constexpr int32_t kTinyTerms = 20'000;
+    auto gen = [](int32_t lo, int32_t hi, SpimiPostingBuffer& buf) {
+        // 高 df windowed term（跨全部 spill，positions 抖动防常数收敛）。
+        for (int32_t doc = lo; doc < hi; ++doc) {
+            if (Jitter(doc, 5, 4) == 0) {
+                continue;
+            }
+            uint32_t p = static_cast<uint32_t>(doc % 5);
+            for (int j = 0; j < 2; ++j) {
+                buf.Append("r9hot", static_cast<uint32_t>(doc), p);
+                p += 1 + Jitter(doc, j + 17, 9);
+            }
+        }
+        // Σdf 跨界三连（与 R2 同构，跨前两段切分点 kHalf）。
+        struct Cross {
+            const char* name;
+            int32_t df_a;
+            int32_t df_b;
+            int32_t phase;
+        };
+        static constexpr Cross kCross[] = {
+                {"r9cross_511", 256, 255, 7},
+                {"r9cross_512", 256, 256, 11},
+                {"r9cross_513", 256, 257, 19},
+        };
+        for (const auto& c : kCross) {
+            auto emit_half = [&](int32_t base, int32_t df) {
+                for (int32_t i = 0; i < df; ++i) {
+                    const int32_t doc = base + i * 200 + c.phase;
+                    if (doc < lo || doc >= hi) {
+                        continue;
+                    }
+                    const int freq = 1 + (i % 3);
+                    uint32_t p = static_cast<uint32_t>(i % 4);
+                    for (int j = 0; j < freq; ++j) {
+                        buf.Append(c.name, static_cast<uint32_t>(doc), p);
+                        p += 1 + Jitter(i, j, 5);
+                    }
+                }
+            };
+            emit_half(/*base=*/0, c.df_a);
+            emit_half(/*base=*/kHalf, c.df_b);
+        }
+        // 小 term 海（inline 路径 + .tis 滑窗高频换页）。
+        char name[24];
+        for (int32_t i = 0; i < kTinyTerms; ++i) {
+            std::snprintf(name, sizeof(name), "r9tiny_%05d", i);
+            const int32_t base =
+                    static_cast<int32_t>((static_cast<uint64_t>(i) * 2654435761ULL) % 110'000ULL);
+            const int df = 1 + (i % 3);
+            for (int d = 0; d < df; ++d) {
+                const int32_t doc = base + d * 433;
+                if (doc < lo || doc >= hi) {
+                    continue;
+                }
+                buf.Append(name, static_cast<uint32_t>(doc), static_cast<uint32_t>(i % 7));
+            }
+        }
+    };
+    const MergedRun merged = EmitMergedWithPeak(gen, {0, kHalf, 90'000, kTotal}, /*omit=*/false,
+                                                /*cursor_buffer_bytes=*/4096);
+    const FourStreams direct = EmitDirect(gen, kTotal, /*omit=*/false);
+    ExpectStreamsEqual(direct, merged.streams, "R9");
+
+    // DOCS_ONLY（omit）同口径再压一遍：纯 .frq 流（.prx 长度 0 的游标）。
+    auto gen_omit = [&gen](int32_t lo, int32_t hi, SpimiPostingBuffer& buf) { gen(lo, hi, buf); };
+    const MergedRun merged_omit =
+            EmitMergedWithPeak(gen_omit, {0, kHalf, 90'000, kTotal}, /*omit=*/true,
+                               /*cursor_buffer_bytes=*/4096);
+    const FourStreams direct_omit = EmitDirect(gen_omit, kTotal, /*omit=*/true);
+    ExpectStreamsEqual(direct_omit, merged_omit.streams, "R9-omit");
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

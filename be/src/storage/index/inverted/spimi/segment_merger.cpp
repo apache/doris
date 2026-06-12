@@ -37,6 +37,31 @@ namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
+// 把一条输入流整段拷到输出：内存源走 BorrowStable 零拷贝 WriteBytes（与旧
+// 的 vector 直拷等价），文件游标按 1MiB 分块流拷 —— 任一情形下输出字节与
+// 全量载回后整段 WriteBytes 逐一相同。
+void CopyWholeStream(ForwardByteSource& src, ByteOutput* dst) {
+    const int64_t total = src.Remaining();
+    if (total <= 0) {
+        return;
+    }
+    if (const uint8_t* p = src.BorrowStable(static_cast<size_t>(total))) {
+        dst->WriteBytes(p, static_cast<size_t>(total));
+        return;
+    }
+    constexpr size_t kCopyChunk = 1U << 20;
+    std::vector<uint8_t> chunk;
+    int64_t left = total;
+    while (left > 0) {
+        const size_t n =
+                static_cast<size_t>(std::min<int64_t>(static_cast<int64_t>(kCopyChunk), left));
+        chunk.clear();
+        src.ReadInto(&chunk, n);
+        dst->WriteBytes(chunk.data(), n);
+        left -= static_cast<int64_t>(n);
+    }
+}
+
 // Single-input fast path: copies posting bytes (.tis/.tii/.frq/.prx)
 // directly from the input to the output without decode/re-encode,
 // then rebuilds metadata (.fnm, segments_N, segments.gen) with the
@@ -52,7 +77,7 @@ namespace {
 // (.prx empty, has_prox=false). The byte-copy is correct for BOTH: it copies
 // the .prx verbatim (empty in omit mode) and rebuilds .fnm with
 // has_prox = !omit. This covers the V4 (pure SPIMI) path including DOCS_ONLY.
-int64_t MergeSingleInput(const SegmentMerger::Input& input, const SpimiSegmentSink& sink,
+int64_t MergeSingleInput(SegmentMerger::StreamInput& input, const SpimiSegmentSink& sink,
                          const std::string& segment_name, const std::string& field_name,
                          int32_t total_doc_count, int32_t index_version,
                          bool omit_term_freq_and_positions, bool omit_norms) {
@@ -64,13 +89,36 @@ int64_t MergeSingleInput(const SegmentMerger::Input& input, const SpimiSegmentSi
     // in debug for any future caller that bypasses the guard.
     DCHECK(omit_norms);
 
+    // .tis 头/尾校验 + footer term 数（不动游标的随机小读）—— 与旧实现经
+    // TermEnum ctor 做的 FORMAT / 长度 / 条目数校验同口径。
+    if (input.tis->Length() < 32) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: buffer too short");
+    }
+    uint8_t hdr[4];
+    input.tis->ReadAt(0, hdr, sizeof(hdr));
+    const auto format = static_cast<int32_t>((static_cast<uint32_t>(hdr[0]) << 24) |
+                                             (static_cast<uint32_t>(hdr[1]) << 16) |
+                                             (static_cast<uint32_t>(hdr[2]) << 8) | hdr[3]);
+    if (format != TermDictWriter::kFormat && format != TermDictWriter::kFormatInline) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: FORMAT mismatch");
+    }
+    uint8_t footer[8];
+    input.tis->ReadAt(input.tis->Length() - 8, footer, sizeof(footer));
+    uint64_t total_entries = 0;
+    for (const uint8_t b : footer) {
+        total_entries = (total_entries << 8) | b;
+    }
+    if (static_cast<int64_t>(total_entries) < 0) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("SPIMI .tis TermEnum: negative entry count");
+    }
+
     // Copy all posting bytes directly — no decode/re-encode cycle.
     // The single input's doc_offset is 0, so TermInfo pointers in
     // .tis remain valid and posting data needs no adjustment.
-    sink.tis->WriteBytes(input.tis_bytes.data(), input.tis_bytes.size());
-    sink.tii->WriteBytes(input.tii_bytes.data(), input.tii_bytes.size());
-    sink.frq->WriteBytes(input.frq_bytes.data(), input.frq_bytes.size());
-    sink.prx->WriteBytes(input.prx_bytes.data(), input.prx_bytes.size());
+    CopyWholeStream(*input.tis, sink.tis);
+    CopyWholeStream(*input.tii, sink.tii);
+    CopyWholeStream(*input.frq, sink.frq);
+    CopyWholeStream(*input.prx, sink.prx);
 
     // Rebuild .fnm with the caller's index_version and field flags.
     // The spill's .fnm may have used kIndexVersionV1; the final
@@ -103,8 +151,7 @@ int64_t MergeSingleInput(const SegmentMerger::Input& input, const SpimiSegmentSi
     }
 
     // Return the term count from the input's .tis footer.
-    TermEnum tenum(input.tis_bytes);
-    return tenum.TotalEntries();
+    return static_cast<int64_t>(total_entries);
 }
 
 // Heap entry: the current term from one input segment.
@@ -126,21 +173,6 @@ struct HeapEntry {
     }
 };
 
-// Helper: compute the .prx byte range for one term.
-// `prox_start` is the term's prox_pointer (absolute in .prx).
-// `prox_end` is the next term's prox_pointer, or prx_bytes.size()
-// for the last term.
-std::pair<const uint8_t*, size_t> PrxRange(const std::vector<uint8_t>& prx_bytes,
-                                           int64_t prox_start, int64_t prox_end) {
-    if (prox_start < 0 || prox_start >= static_cast<int64_t>(prx_bytes.size())) {
-        return {nullptr, 0};
-    }
-    if (prox_end <= prox_start) {
-        return {nullptr, 0};
-    }
-    return {prx_bytes.data() + prox_start, static_cast<size_t>(prox_end - prox_start)};
-}
-
 // LEB128 VInt append (same encoding ByteOutput::WriteVInt produces for the
 // same 32-bit pattern) — used to rebuild a merged SLIM term's .frq block from
 // the flat arrays.
@@ -154,7 +186,38 @@ inline void AppendVInt(std::vector<uint8_t>& buf, uint32_t v) {
 
 } // namespace
 
+SegmentMerger::StreamInput SegmentMerger::WrapOwnedInput(Input&& in) {
+    StreamInput s;
+    s.tis = std::make_unique<MemoryByteSource>(std::move(in.tis_bytes));
+    s.tii = std::make_unique<MemoryByteSource>(std::move(in.tii_bytes));
+    s.frq = std::make_unique<MemoryByteSource>(std::move(in.frq_bytes));
+    s.prx = std::make_unique<MemoryByteSource>(std::move(in.prx_bytes));
+    s.doc_count = in.doc_count;
+    return s;
+}
+
 int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmentSink& sink,
+                             const std::string& segment_name, const std::string& field_name,
+                             int32_t total_doc_count, int32_t index_version,
+                             bool omit_term_freq_and_positions, bool omit_norms) {
+    // 薄包装：对每路内存 Input 构造借用型游标（字节仍归调用方所有），转发
+    // 给核心（游标）重载 —— 两条入口的输出逐字节相同。
+    std::vector<StreamInput> streams;
+    streams.reserve(inputs.size());
+    for (const Input& in : inputs) {
+        StreamInput s;
+        s.tis = std::make_unique<MemoryByteSource>(in.tis_bytes.data(), in.tis_bytes.size());
+        s.tii = std::make_unique<MemoryByteSource>(in.tii_bytes.data(), in.tii_bytes.size());
+        s.frq = std::make_unique<MemoryByteSource>(in.frq_bytes.data(), in.frq_bytes.size());
+        s.prx = std::make_unique<MemoryByteSource>(in.prx_bytes.data(), in.prx_bytes.size());
+        s.doc_count = in.doc_count;
+        streams.push_back(std::move(s));
+    }
+    return Merge(streams, sink, segment_name, field_name, total_doc_count, index_version,
+                 omit_term_freq_and_positions, omit_norms);
+}
+
+int64_t SegmentMerger::Merge(std::vector<StreamInput>& inputs, const SpimiSegmentSink& sink,
                              const std::string& segment_name, const std::string& field_name,
                              int32_t total_doc_count, int32_t index_version,
                              bool omit_term_freq_and_positions, bool omit_norms) {
@@ -183,11 +246,12 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
     // per-segment offset here would double-shift every doc after the first spill
     // and push doc_ids past total_doc_count.
 
-    // Create TermEnums for each input.
+    // Create TermEnums for each input (流式 .tis 游标解析；内存输入经包装
+    // 后同样走游标接口)。
     std::vector<std::unique_ptr<TermEnum>> enums;
     enums.reserve(inputs.size());
     for (size_t i = 0; i < inputs.size(); ++i) {
-        enums.push_back(std::make_unique<TermEnum>(inputs[i].tis_bytes));
+        enums.push_back(std::make_unique<TermEnum>(inputs[i].tis.get()));
     }
 
     // Seed the min-heap with the first term from each input.
@@ -222,9 +286,12 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
     // No per-doc vector<DecodedDoc> materialization, no per-doc heap blocks.
     struct TermSource {
         int32_t input_index;
-        // Copied: Current() is invalidated by the enum's Next(). The inline
-        // spans inside borrow the input's .tis buffer, which outlives the merge.
+        // Copied: Current() is invalidated by the enum's Next(). 流式 .tis
+        // 游标下 enum 的 inline span 只活到它的下一次 Next()，take() 把 span
+        // 字节拷入本结构的 inline_bytes（≤ inline 上限的有界拷贝，V7 的
+        // ≤257B stage 合约不变）并把 info 的指针重指向自有缓冲。
         TermInfo info;
+        std::vector<uint8_t> inline_bytes;
     };
     std::vector<TermSource> sources;
     PostingDecoder::FlatPostings flat;
@@ -252,7 +319,28 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         // unchanged versus the old drain (one pop + one push per entry).
         sources.clear();
         auto take = [&](int32_t idx) {
-            sources.push_back({idx, enums[idx]->Current().info});
+            TermSource src;
+            src.input_index = idx;
+            src.info = enums[idx]->Current().info;
+            if (src.info.inlined) {
+                // inline span 即拷即走（frq 在前、prx 紧随），随后才允许该
+                // enum Next()（流式游标的滑窗会作废借用指针）。指针在两段
+                // 都追加完成后再取，避免扩容搬家。
+                const size_t fn = src.info.inline_frq_len;
+                const size_t pn = src.info.inline_prx_len;
+                src.inline_bytes.reserve(fn + pn);
+                if (fn > 0) {
+                    src.inline_bytes.insert(src.inline_bytes.end(), src.info.inline_frq,
+                                            src.info.inline_frq + fn);
+                }
+                if (pn > 0) {
+                    src.inline_bytes.insert(src.inline_bytes.end(), src.info.inline_prx,
+                                            src.info.inline_prx + pn);
+                }
+                src.info.inline_frq = fn > 0 ? src.inline_bytes.data() : nullptr;
+                src.info.inline_prx = pn > 0 ? src.inline_bytes.data() + fn : nullptr;
+            }
+            sources.push_back(std::move(src));
             if (enums[idx]->Next()) {
                 const auto& ne = enums[idx]->Current();
                 heap.push({ne.field_number, ne.term_utf8, idx});
@@ -286,39 +374,29 @@ int64_t SegmentMerger::Merge(const std::vector<Input>& inputs, const SpimiSegmen
         // merged term would have staged.
         flat.Clear();
         for (const auto& s : sources) {
-            const auto& input = inputs[s.input_index];
-            const uint8_t* frq_ptr = nullptr;
-            size_t frq_len = 0;
-            const uint8_t* prx_ptr = nullptr;
-            size_t prx_len = 0;
             if (s.info.inlined) {
                 // Inline input term: the posting bytes live in the .tis entry
-                // (TermEnum recorded spans into the input's .tis buffer).
-                // Decode them directly — no .frq/.prx offset arithmetic. V4
-                // spills are written inlined (lockstep with the final
-                // segment), so multi-spill merges hit this branch for every
-                // small term.
-                frq_ptr = s.info.inline_frq;
-                frq_len = s.info.inline_frq_len;
-                prx_ptr = s.info.inline_prx;
-                prx_len = s.info.inline_prx_len;
+                // (take() 已拷入 TermSource 自有缓冲)。Decode them directly —
+                // no .frq/.prx offset arithmetic. V4 spills are written
+                // inlined (lockstep with the final segment), so multi-spill
+                // merges hit this branch for every small term.
+                PostingDecoder::DecodeFlat(s.info.inline_frq, s.info.inline_frq_len,
+                                           s.info.inline_prx, s.info.inline_prx_len,
+                                           s.info.doc_freq, has_prox, s.info.is_slim, &flat);
             } else {
-                // .frq byte range: we don't easily know the end without
-                // peeking ahead, so use the full remaining buffer — the
-                // decoder stops after doc_freq docs anyway.
-                const int64_t frq_start = s.info.freq_pointer;
-                frq_ptr = input.frq_bytes.data() + frq_start;
-                frq_len = static_cast<size_t>(input.frq_bytes.size()) -
-                          static_cast<size_t>(frq_start);
-
-                const int64_t prx_start = s.info.prox_pointer;
-                const int64_t prx_end = static_cast<int64_t>(input.prx_bytes.size());
-                auto range = PrxRange(input.prx_bytes, prx_start, prx_end);
-                prx_ptr = range.first;
-                prx_len = range.second;
+                // 外置 term：把该输入的 .frq/.prx 游标前跳到本 term 的
+                // posting 指针（指针随 term 序单调，跳表等间隙字节顺带跳过），
+                // 流式解码自定界（doc_freq / 信封驱动），无需预知块尾。
+                auto& input = inputs[s.input_index];
+                input.frq->SkipForwardTo(s.info.freq_pointer);
+                ForwardByteSource* prx_src = nullptr;
+                if (has_prox) {
+                    input.prx->SkipForwardTo(s.info.prox_pointer);
+                    prx_src = input.prx.get();
+                }
+                PostingDecoder::DecodeFlat(*input.frq, prx_src, s.info.doc_freq, has_prox,
+                                           s.info.is_slim, &flat);
             }
-            PostingDecoder::DecodeFlat(frq_ptr, frq_len, prx_ptr, prx_len, s.info.doc_freq,
-                                       has_prox, s.info.is_slim, &flat);
         }
 
         // ---- Phase 3: re-emit through the Σdf tier — the SAME dispatch a

@@ -170,37 +170,35 @@ void SpimiIndexWriter::EmitMerged(const OutputStreams& streams, const SpimiFinis
     sink.segments_n = &seg_n_bo;
     sink.segments_gen = &seg_gen_bo;
 
-    // Stream each spill back from its node-local tmp file into a
-    // SegmentMerger::Input. The bytes are owned by the Input alone (no parallel
-    // copy retained in _spills), so resident RAM is the sum of the loaded spills
-    // exactly ONCE — not the COPY-double the old copy-assignment loop incurred.
+    // 流式游标替代全量载回（design.md §8/V8）：每个 spill 的四个归并消费流
+    // 经 OpenSpillCursor 以顺序读滑窗游标接入，归并期输入驻留从 Σspill 字节
+    // 降到 k×4×min(1MiB, 流长) —— Σspill 不再同时进内存。单 spill 情形同样
+    // 喂 Merge() 恰好一路输入，MergeSingleInput 的字节拷贝快路保持可达
+    // （游标分块流拷，输出字节不变）。IO errors propagate as doris::Exception
+    // through Finish's try/catch + FINALLY_CLOSE.
     const size_t spill_count = _spill_manager->SpillCount();
-    std::vector<SegmentMerger::Input> inputs;
+    std::vector<SegmentMerger::StreamInput> inputs;
     inputs.reserve(spill_count + 1);
     for (size_t i = 0; i < spill_count; ++i) {
-        SegmentMerger::Input inp;
-        // LoadSpill moves bytes off disk into `inp`. For the single-spill case
-        // this feeds Merge() exactly one (moved) Input, keeping the
-        // MergeSingleInput byte-copy fast path reachable. IO errors propagate
-        // as doris::Exception through Finish's try/catch + FINALLY_CLOSE.
-        if (Status st = _spill_manager->LoadSpill(i, inp); !st.ok()) {
+        SegmentMerger::StreamInput inp;
+        if (Status st = _spill_manager->OpenSpillCursor(i, inp); !st.ok()) {
             throw doris::Exception(st);
         }
         inputs.push_back(std::move(inp));
     }
 
     // 残余 buffer 不再「FlushBuffer 落成第 k 个 spill 再 LoadSpill 读回」，
-    // 而是 EmitBufferToInput 在内存中直产与 LoadSpill 同形的 Input，追加为
-    // 最后一路归并输入（其 doc 区间最高，绝对 doc_id 升序合约不变），
-    // merger 零改动；省去残余段一次磁盘写 + 读回。编码参数与 FlushBuffer
-    // 完全一致，归并产物逐字节不变。空残余（如 ShouldFlush 已锁存但记录
-    // 已全部 spill）不产生输入，与旧 FlushBuffer 的空跳过等价；零 spill +
-    // 非空残余（仅 latch 触发 has_spills）则成为唯一一路输入，保持
-    // MergeSingleInput 字节拷贝快路可达。
+    // 而是 EmitBufferToInput 在内存中直产四流，包成持有型内存游标追加为
+    // 最后一路归并输入（其 doc 区间最高，绝对 doc_id 升序合约不变）；
+    // 省去残余段一次磁盘写 + 读回。编码参数与 FlushBuffer 完全一致，归并
+    // 产物逐字节不变。空残余（如 ShouldFlush 已锁存但记录已全部 spill）
+    // 不产生输入，与旧 FlushBuffer 的空跳过等价；零 spill + 非空残余（仅
+    // latch 触发 has_spills）则成为唯一一路输入，保持 MergeSingleInput
+    // 字节拷贝快路可达。
     {
         SegmentMerger::Input residual;
         if (_spill_manager->EmitBufferToInput(*_buffer, config.doc_count, residual)) {
-            inputs.push_back(std::move(residual));
+            inputs.push_back(SegmentMerger::WrapOwnedInput(std::move(residual)));
         }
     }
 

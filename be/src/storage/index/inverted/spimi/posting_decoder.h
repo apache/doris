@@ -21,6 +21,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "storage/index/inverted/spimi/byte_source.h"
+
 namespace doris::segment_v2::inverted_index::spimi {
 
 // One document's decoded posting data: the doc_id, its term frequency,
@@ -119,6 +121,20 @@ public:
     static void DecodeFlat(const uint8_t* frq_data, size_t frq_length, const uint8_t* prx_data,
                            size_t prx_length, int32_t doc_freq, bool has_prox, bool is_slim,
                            FlatPostings* out);
+
+    // 流式核心（(ptr,len) 重载是它包内存源的薄包装）：从前向滑窗源顺序消费
+    // 一个 term 的 .frq / .prx 块。两个块的解码都严格前向且自定界 —— .frq
+    // 由 `doc_freq` 驱动（slim 按 doc 数读 VInt；windowed/PFOR 的头表 +
+    // 载荷长度都在流内），.prx 信封自带长度（ZSTD/窗口）或由 Σfreq 驱动
+    // （raw 逐 VInt 扫描）—— 所以调用方无需预知块尾：消费完毕后源恰好停在
+    // 块尾（下一 term SkipForwardTo 自己的指针即可，跳表等间隙字节被跳过）。
+    //
+    // `frq_src` 必须已定位在该 term 的 freq_pointer；`prx_src` 仅在
+    // `has_prox` 时使用且必须已定位在 prox_pointer（DOCS_ONLY 传 nullptr）。
+    // 这是 k 路归并的流式工作集入口：每输入只驻留 min(缓冲, 流长) 的窗口，
+    // 不再把整条 .frq/.prx 载回内存。
+    static void DecodeFlat(ForwardByteSource& frq_src, ForwardByteSource* prx_src, int32_t doc_freq,
+                           bool has_prox, bool is_slim, FlatPostings* out);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

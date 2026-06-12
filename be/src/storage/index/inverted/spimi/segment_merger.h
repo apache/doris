@@ -18,10 +18,12 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "storage/index/inverted/spimi/byte_output.h"
+#include "storage/index/inverted/spimi/byte_source.h"
 #include "storage/index/inverted/spimi/fulltext_writer.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -63,6 +65,22 @@ public:
         int32_t doc_count = 0;
     };
 
+    // 流式输入：同一段的四条前向游标（spill 文件滑窗游标或内存游标）。
+    // 这是核心 Merge 的入参形态 —— 归并期每输入只驻留 4×min(缓冲, 流长)
+    // 的读窗口，Σspill 字节不再同时进内存。`doc_count` 语义同 Input（仅
+    // 元数据）。游标由 StreamInput 持有，须覆盖完整流且定位在流首。
+    struct StreamInput {
+        std::unique_ptr<ForwardByteSource> tis;
+        std::unique_ptr<ForwardByteSource> tii;
+        std::unique_ptr<ForwardByteSource> frq;
+        std::unique_ptr<ForwardByteSource> prx;
+        int32_t doc_count = 0;
+    };
+
+    // 把内存 Input（如残余 buffer 的 EmitBufferToInput 产物）包成持有型
+    // 游标输入（字节 move 进游标，无拷贝）。
+    static StreamInput WrapOwnedInput(Input&& in);
+
     // Merges `inputs` into a single output segment.
     //
     // `sink`: the ByteOutput streams for the merged segment.
@@ -76,7 +94,15 @@ public:
     // `omit_norms`: field-level flag propagated to .fnm.
     //
     // Returns the number of distinct terms in the merged segment.
+    //
+    // 内存 Input 重载是核心（游标）重载的薄包装：对每路输入构造借用型
+    // MemoryByteSource —— 两条入口产出逐字节相同的归并段。
     static int64_t Merge(const std::vector<Input>& inputs, const SpimiSegmentSink& sink,
+                         const std::string& segment_name, const std::string& field_name,
+                         int32_t total_doc_count, int32_t index_version,
+                         bool omit_term_freq_and_positions, bool omit_norms);
+
+    static int64_t Merge(std::vector<StreamInput>& inputs, const SpimiSegmentSink& sink,
                          const std::string& segment_name, const std::string& field_name,
                          int32_t total_doc_count, int32_t index_version,
                          bool omit_term_freq_and_positions, bool omit_norms);
