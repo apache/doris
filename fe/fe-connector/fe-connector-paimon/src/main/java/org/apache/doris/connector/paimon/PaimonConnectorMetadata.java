@@ -1059,12 +1059,16 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // default-fill). Keep columns nullable; do not propagate the paimon NOT NULL constraint
             // on the read path.
             boolean nullable = true;
+            // Legacy DESC parity: PaimonExternalTable/PaimonSysExternalTable built every column (base AND
+            // system table) with isKey=true (3rd positional Column arg), so DESC shows Key=true for all
+            // paimon columns. The 5-arg ConnectorColumn ctor defaults isKey=false; pass true explicitly.
             columns.add(new ConnectorColumn(
                     field.name().toLowerCase(),
                     connectorType,
                     comment,
                     nullable,
-                    null));
+                    null,
+                    true));
         }
         return columns;
     }

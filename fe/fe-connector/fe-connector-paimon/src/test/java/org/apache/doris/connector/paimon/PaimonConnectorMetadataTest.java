@@ -262,6 +262,15 @@ public class PaimonConnectorMetadataTest {
         Assertions.assertTrue(id.isNullable(),
                 "a paimon NOT NULL (PK) column must surface as nullable to Doris (legacy parity)");
         Assertions.assertTrue(val.isNullable());
+
+        // WHY (RC-6 DESC Key parity): legacy PaimonExternalTable/PaimonSysExternalTable built every
+        // column with isKey=true (3rd positional Column arg), so DESC shows Key=true for ALL paimon
+        // columns (PK and non-PK alike). MUTATION: reverting mapFields to the 5-arg ConnectorColumn ctor
+        // (isKey defaults to false) -> both assertions red, and DESC would regress to Key=false.
+        Assertions.assertTrue(id.isKey(),
+                "every paimon column must report isKey=true for legacy DESC Key parity");
+        Assertions.assertTrue(val.isKey(),
+                "a non-PK paimon column must also report isKey=true (legacy set isKey=true for all)");
     }
 
     @Test
