@@ -58,8 +58,13 @@ constexpr uint8_t kWidthMask = 0x3FU;
 // payload.
 inline void pack_bits(const uint32_t* values, size_t count, uint8_t width, ByteOutput* out) {
     const size_t max_bytes = ((count * width) + 7U) / 8U + 8U; // +8 slack for Flush alignment
-    std::vector<uint8_t> packed(max_bytes, 0);
-    arrow::bit_util::BitWriter bw(packed.data(), static_cast<int>(packed.size()));
+    // count <= kBlockSize (128) and width <= 32, so max_bytes <= 520. A stack
+    // buffer avoids one heap alloc+free per 128-value block (a large segment
+    // emits millions of blocks). Zero-initialised to match the prior
+    // vector(max_bytes, 0); only the first payload_bytes are ever written out.
+    uint8_t packed[SpimiPforEncoder::kBlockSize * 4U + 8U] = {0};
+    DCHECK_LE(max_bytes, sizeof(packed));
+    arrow::bit_util::BitWriter bw(packed, static_cast<int>(max_bytes));
     for (size_t i = 0; i < count; ++i) {
         const bool ok = bw.PutValue(values[i], width);
         DCHECK(ok) << "Arrow BitWriter overflow in SpimiPforEncoder pack_bits";
@@ -67,7 +72,7 @@ inline void pack_bits(const uint32_t* values, size_t count, uint8_t width, ByteO
     bw.Flush(false);
     const int payload_bytes = bw.bytes_written();
     if (payload_bytes > 0) {
-        out->WriteBytes(packed.data(), static_cast<size_t>(payload_bytes));
+        out->WriteBytes(packed, static_cast<size_t>(payload_bytes));
     }
 }
 
@@ -86,9 +91,12 @@ bool select_patch(const uint32_t* values, size_t count, uint8_t plain_width,
     if (count < 2) {
         return false; // nothing to gain from a single value
     }
-    // Sorted copy to find the exception threshold deterministically.
-    std::vector<uint32_t> sorted(values, values + count);
-    std::sort(sorted.begin(), sorted.end());
+    // Find the exception threshold deterministically. We read exactly one
+    // order statistic (the (count-k-1)-th smallest), so nth_element (O(count))
+    // replaces the full sort, and a stack buffer replaces the heap copy — both
+    // run per 128-value block, millions of times per large segment.
+    uint32_t sorted[SpimiPforEncoder::kBlockSize];
+    std::memcpy(sorted, values, count * sizeof(uint32_t));
     // Number of exceptions: top ~1/16, at least 1, but leave at least one
     // non-exception value to anchor the base width.
     size_t k = count / 16;
@@ -98,8 +106,12 @@ bool select_patch(const uint32_t* values, size_t count, uint8_t plain_width,
     if (k >= count) {
         k = count - 1;
     }
-    // base value = largest value NOT treated as an exception.
-    const uint32_t base_max = sorted[count - k - 1];
+    // base value = largest value NOT treated as an exception. nth_element puts
+    // exactly sorted[pivot] in its final sorted position — the only element we
+    // read — so base_max is identical to the full-sort result.
+    const size_t pivot = count - k - 1;
+    std::nth_element(sorted, sorted + pivot, sorted + count);
+    const uint32_t base_max = sorted[pivot];
     const uint8_t base_width = bit_width_for(base_max);
     if (base_width >= plain_width) {
         return false; // exceptions don't lower the base width — no win possible
@@ -109,6 +121,8 @@ bool select_patch(const uint32_t* values, size_t count, uint8_t plain_width,
     const uint32_t base_cap = (base_width >= 32U) ? 0xFFFFFFFFU : ((1U << base_width) - 1U);
     std::vector<uint8_t> positions;
     std::vector<uint32_t> highs;
+    positions.reserve(count);
+    highs.reserve(count);
     uint32_t max_high = 0;
     for (size_t i = 0; i < count; ++i) {
         if (values[i] > base_cap) {
@@ -181,11 +195,11 @@ size_t SpimiPforEncoder::EncodeBlock(uint32_t* values, size_t count, ByteOutput*
             // rather than rely on PutValue truncating.
             const uint32_t base_mask =
                     (base_width >= 32U) ? 0xFFFFFFFFU : ((1U << base_width) - 1U);
-            std::vector<uint32_t> low(count);
+            uint32_t low[SpimiPforEncoder::kBlockSize];
             for (size_t i = 0; i < count; ++i) {
                 low[i] = values[i] & base_mask;
             }
-            pack_bits(low.data(), count, base_width, out);
+            pack_bits(low, count, base_width, out);
             // Patch trailer.
             out->WriteByte(static_cast<uint8_t>(positions.size()));
             out->WriteByte(except_width);
