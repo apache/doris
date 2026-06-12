@@ -741,6 +741,8 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
+static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
+static constexpr int32_t ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID = 2147483539;
 
 static TableVirtualColumnType row_lineage_virtual_column_type(const std::string& column_name) {
     if (column_name == ROW_LINEAGE_ROW_ID) {
@@ -748,6 +750,33 @@ static TableVirtualColumnType row_lineage_virtual_column_type(const std::string&
     }
     if (column_name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
         return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+    }
+    return TableVirtualColumnType::INVALID;
+}
+
+static TableVirtualColumnType row_lineage_virtual_column_type_by_field_id(
+        const ColumnDefinition& column) {
+    if (!column.has_identifier_field_id()) {
+        return TableVirtualColumnType::INVALID;
+    }
+    switch (column.get_identifier_field_id()) {
+    case ROW_LINEAGE_ROW_ID_FIELD_ID:
+        return TableVirtualColumnType::ROW_ID;
+    case ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID:
+        return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+    default:
+        return TableVirtualColumnType::INVALID;
+    }
+}
+
+static TableVirtualColumnType row_lineage_virtual_column_type(const ColumnDefinition& column,
+                                                             TableColumnMappingMode mode) {
+    switch (mode) {
+    case TableColumnMappingMode::BY_FIELD_ID:
+        return row_lineage_virtual_column_type_by_field_id(column);
+    case TableColumnMappingMode::BY_NAME:
+    case TableColumnMappingMode::BY_INDEX:
+        return row_lineage_virtual_column_type(column.name);
     }
     return TableVirtualColumnType::INVALID;
 }
@@ -1186,7 +1215,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
-    const auto row_lineage_type = row_lineage_virtual_column_type(table_column.name);
+    const auto row_lineage_type = row_lineage_virtual_column_type(table_column, _options.mode);
     if (const auto* partition_value = find_partition_value(table_column, _partition_values);
         table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
