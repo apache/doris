@@ -36,7 +36,7 @@ public class MTMVTaskContextCompatTest {
     // Forward compat: INCREMENTAL mode serialized → old version reads isComplete=false
     @Test
     public void testForwardCompatIncrementalCarriesIsCompleteFalse() {
-        MTMVTaskContext ctx = new MTMVTaskContext(
+        MTMVTaskContext ctx = MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL);
         String json = GSON.toJson(ctx);
         JsonObject obj = GSON.fromJson(json, JsonObject.class);
@@ -49,7 +49,7 @@ public class MTMVTaskContextCompatTest {
     // Forward compat: COMPLETE mode serialized → old version reads isComplete=true
     @Test
     public void testForwardCompatCompleteCarriesIsCompleteTrue() {
-        MTMVTaskContext ctx = new MTMVTaskContext(
+        MTMVTaskContext ctx = MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.COMPLETE);
         String json = GSON.toJson(ctx);
         JsonObject obj = GSON.fromJson(json, JsonObject.class);
@@ -60,7 +60,7 @@ public class MTMVTaskContextCompatTest {
     // Forward compat: PARTITIONS mode serialized → old version reads isComplete=false
     @Test
     public void testForwardCompatPartitionsCarriesIsCompleteFalse() {
-        MTMVTaskContext ctx = new MTMVTaskContext(
+        MTMVTaskContext ctx = MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS);
         String json = GSON.toJson(ctx);
         JsonObject obj = GSON.fromJson(json, JsonObject.class);
@@ -84,13 +84,53 @@ public class MTMVTaskContextCompatTest {
         MTMVTaskContext ctx = GSON.fromJson(oldJson, MTMVTaskContext.class);
         Assert.assertFalse(ctx.isComplete());
         Assert.assertEquals(RefreshMode.AUTO, ctx.getRefreshMode());
+        Assert.assertTrue(ctx.allowFallback());
+    }
+
+    @Test
+    public void testDefaultAllowFallbackByRefreshMode() {
+        Assert.assertTrue(MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.AUTO).allowFallback());
+        Assert.assertFalse(MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL).allowFallback());
+        Assert.assertFalse(MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS).allowFallback());
+        Assert.assertFalse(MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.COMPLETE).allowFallback());
+    }
+
+    @Test
+    public void testMvDefaultContextUsesPersistedPolicyMarker() {
+        MTMVTaskContext ctx = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
+        Assert.assertTrue(ctx.useMvDefaultRefreshPolicy());
+        Assert.assertEquals(RefreshMode.AUTO, ctx.getRefreshMode());
+        Assert.assertTrue(ctx.allowFallback());
+    }
+
+    @Test
+    public void testNewJsonUsesShortFallbackPolicyFieldNames() {
+        MTMVTaskContext ctx = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
+        String json = GSON.toJson(ctx);
+        JsonObject obj = GSON.fromJson(json, JsonObject.class);
+        Assert.assertFalse(obj.has("allowFallback"));
+        Assert.assertFalse(obj.has("useMvDefaultRefreshPolicy"));
+        Assert.assertTrue(obj.has("md"));
+    }
+
+    @Test
+    public void testOldJsonFallbackPolicyFieldNamesStillDeserialize() {
+        String oldJson = "{\"triggerMode\":\"SYSTEM\",\"allowFallback\":false,"
+                + "\"useMvDefaultRefreshPolicy\":true}";
+        MTMVTaskContext ctx = GSON.fromJson(oldJson, MTMVTaskContext.class);
+        Assert.assertFalse(ctx.allowFallback());
+        Assert.assertTrue(ctx.useMvDefaultRefreshPolicy());
     }
 
     // Round-trip: serialize new → deserialize new preserves RefreshMode
     @Test
     public void testRoundTripPreservesRefreshMode() {
         for (RefreshMode mode : RefreshMode.values()) {
-            MTMVTaskContext original = new MTMVTaskContext(
+            MTMVTaskContext original = MTMVTaskContext.of(
                     MTMVTaskTriggerMode.MANUAL, null, mode);
             String json = GSON.toJson(original);
             MTMVTaskContext restored = GSON.fromJson(json, MTMVTaskContext.class);

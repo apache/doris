@@ -321,6 +321,53 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateMTMVWithIncrementalFallback() throws Exception {
+        String mv = "CREATE MATERIALIZED VIEW mtmv_increment_fallback\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT 1 AS k1;";
+
+        LogicalPlan plan = new NereidsParser().parseSingle(mv);
+        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
+        CreateMTMVInfo info = ((CreateMTMVCommand) plan).getCreateMTMVInfo();
+
+        Assertions.assertEquals(RefreshMethod.INCREMENTAL, info.getRefreshInfo().getRefreshMethod());
+        Assertions.assertTrue(info.getRefreshInfo().allowFallback());
+    }
+
+    @Test
+    public void testCreateMTMVWithCompleteFallbackRejected() {
+        String mv = "CREATE MATERIALIZED VIEW mtmv_complete_fallback\n"
+                + " BUILD DEFERRED REFRESH COMPLETE FALLBACK ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT 1 AS k1;";
+
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> getPartitionTableInfo(mv));
+
+        Assertions.assertTrue(ex.getMessage().contains("COMPLETE"));
+        Assertions.assertTrue(ex.getMessage().contains("FALLBACK"));
+    }
+
+    @Test
+    public void testCreatePartitionsRefreshRequiresPartitionBy() {
+        String mv = "CREATE MATERIALIZED VIEW mtmv_partitions_without_partition_by\n"
+                + " BUILD DEFERRED REFRESH PARTITIONS ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT 1 AS k1;";
+
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> getPartitionTableInfo(mv));
+
+        Assertions.assertTrue(ex.getMessage().contains("REFRESH PARTITIONS requires PARTITION BY"));
+    }
+
+    @Test
     public void testCreateIncrementalMTMVPersistsIvmFlag() throws Exception {
         createTable("create table test.mtmv_increment_flag_base (k1 int)\n"
                 + "duplicate key(k1)\n"
