@@ -130,9 +130,14 @@ EmittedSegmentByteCounts SpimiIndexWriter::EmitDirect(const OutputStreams& strea
     const int32_t index_version =
             config.is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV0;
     EmittedSegmentByteCounts byte_counts;
+    // inline_small_terms 与 spill / merge 路径 lockstep 传 true：直写（单次
+    // flush 无 spill）的 V4 段同样把小 term 的 frq/prx 字节内联进 .tis
+    //（FORMAT=-5，查询零额外 GET）。EmitSegment 内部以 use_windowed
+    //（index_version >= V4）门控，V0 兼容段仍保持 -4 外置不受影响。
     SpimiFulltextWriter::EmitSegment(*_buffer, sink, /*segment_name=*/"_0", config.field_name_utf8,
                                      config.doc_count, index_version,
-                                     config.omit_term_freq_and_positions, omit_norms, &byte_counts);
+                                     config.omit_term_freq_and_positions, omit_norms, &byte_counts,
+                                     /*inline_small_terms=*/true);
     return byte_counts;
 }
 
