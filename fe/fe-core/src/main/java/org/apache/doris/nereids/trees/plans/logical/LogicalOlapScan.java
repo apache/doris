@@ -171,7 +171,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      * original predicates. The set is preserved through {@code with*} rewrites
      * and copied onto MV rewrite outputs.
      */
-    private final Optional<PartitionPrunablePredicate> partitionPrunablePredicates;
+    protected final Optional<PartitionPrunablePredicate> partitionPrunablePredicates;
 
     protected final Optional<TableScanParams> scanParams;
 
@@ -362,7 +362,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                Optional.empty(), -1, false);
+                Optional.empty(), Optional.empty(), -1, false);
     }
 
     /**
@@ -385,7 +385,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                Optional.empty(), tso, isDelta);
+                Optional.empty(), Optional.empty(), tso, isDelta);
     }
 
     /**
