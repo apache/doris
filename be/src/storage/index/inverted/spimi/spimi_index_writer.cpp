@@ -64,7 +64,16 @@ SpimiIndexWriter::SpimiIndexWriter(std::string field_name, bool is_v4,
           // emit side (SegmentWriter/FreqProxEncoder) gets the same flag
           // independently via EmitSegment, which DCHECKs that emit never reads a
           // prox chain the buffer omitted (the only unsafe drift direction).
-          _buffer(std::make_unique<SpimiPostingBuffer>(omit_term_freq_and_positions)),
+          //
+          // Memory budget follows config::inverted_index_ram_buffer_size (the
+          // same knob the V2/CLucene path feeds into setRAMBufferSizeMB), read
+          // ONCE here per segment-writer construction: the config is
+          // hot-updatable (mDouble), so new segments pick up changes without
+          // re-reading it in the Append hot path.
+          _buffer(std::make_unique<SpimiPostingBuffer>(
+                  SpimiPostingBuffer::Limits {
+                          .memory_budget_bytes = SpimiPostingBuffer::ConfiguredMemoryBudgetBytes()},
+                  omit_term_freq_and_positions)),
           _spill_manager(std::make_unique<SpillManager>(_field_name, is_v4, /*tmp_dir=*/"",
                                                         omit_term_freq_and_positions)) {}
 

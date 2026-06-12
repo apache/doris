@@ -23,9 +23,11 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/spimi/term_dict_reader.h"
@@ -335,6 +337,164 @@ TEST(SpimiIndexWriterTest, DirectEmitNonV4StaysExternalFormat) {
     const auto info = dict.LookupTerm(/*field_number=*/0, "alpha");
     ASSERT_TRUE(info.has_value());
     EXPECT_FALSE(info->inlined) << "非 V4 直写段不得内联";
+}
+
+// --- Memory budget follows config::inverted_index_ram_buffer_size ---
+//
+// 生产路径（SpimiIndexWriter 构造）必须把 V2/CLucene 同款旋钮
+// config::inverted_index_ram_buffer_size（单位 MB，mDouble 可热改）换算成
+// buffer 的 memory_budget_bytes：每个 writer 构造时读一次，夹紧到
+// [16 MiB, 8 GiB]；非有限值或 <= 0 回退 kDefaultMemoryBudget。
+
+namespace {
+
+// RAII pin：临时改写 config::inverted_index_ram_buffer_size，析构时恢复。
+// 与 segment_roundtrip_test.cpp 中既有的 config pin 写法一致。
+struct RamBufferConfigPin {
+    double saved;
+    explicit RamBufferConfigPin(double mb) : saved(config::inverted_index_ram_buffer_size) {
+        config::inverted_index_ram_buffer_size = mb;
+    }
+    ~RamBufferConfigPin() { config::inverted_index_ram_buffer_size = saved; }
+};
+
+} // namespace
+
+TEST(SpimiIndexWriterTest, BudgetFollowsRamBufferConfig) {
+    {
+        RamBufferConfigPin pin(16); // 16 MB
+        SpimiIndexWriter writer("content");
+        EXPECT_EQ(writer.buffer()->limits().memory_budget_bytes, size_t {16} << 20);
+    }
+    {
+        RamBufferConfigPin pin(512); // 生产默认值
+        SpimiIndexWriter writer("content");
+        EXPECT_EQ(writer.buffer()->limits().memory_budget_bytes, size_t {512} << 20);
+    }
+}
+
+TEST(SpimiIndexWriterTest, BudgetReadOncePerWriterConstruction) {
+    RamBufferConfigPin pin(32);
+    SpimiIndexWriter writer_a("content");
+    EXPECT_EQ(writer_a.buffer()->limits().memory_budget_bytes, size_t {32} << 20);
+
+    // 热改 config：已构造的 writer 不变（构造时读一次），新 writer 取新值。
+    config::inverted_index_ram_buffer_size = 64;
+    EXPECT_EQ(writer_a.buffer()->limits().memory_budget_bytes, size_t {32} << 20);
+    SpimiIndexWriter writer_b("content");
+    EXPECT_EQ(writer_b.buffer()->limits().memory_budget_bytes, size_t {64} << 20);
+}
+
+TEST(SpimiIndexWriterTest, BudgetClampsToFloorAndCeiling) {
+    {
+        RamBufferConfigPin pin(1); // 低于 16 MiB 下限 → 夹到下限
+        SpimiIndexWriter writer("content");
+        EXPECT_EQ(writer.buffer()->limits().memory_budget_bytes, size_t {16} << 20);
+    }
+    {
+        RamBufferConfigPin pin(1024.0 * 1024.0); // 1 TiB → 夹到 8 GiB 上限
+        SpimiIndexWriter writer("content");
+        EXPECT_EQ(writer.buffer()->limits().memory_budget_bytes, size_t {8} << 30);
+    }
+}
+
+// --- 预算只移动 spill 切分点，不改变最终索引字节 ---
+//
+// 预算影响产物的唯一途径是 flush 节奏：调用方在 ShouldFlush() 后 FlushPending，
+// 预算越小 spill 越多。a863652 曾在旧 merge 路径实测 +0.75% .idx 随 spill 数
+// 变化；spill-merge emit 重做（预解码再编码）后产物必须与 spill 节奏无关。
+// 本测试是该声明（posting_buffer.h kDefaultMemoryBudget 注释）的可复现证据
+// 与回归护栏：同一语料按 0 / 1 / 3 次 spill 三种节奏写入 V4 段，落盘的全部
+// 文件必须逐字节一致。
+TEST(SpimiIndexWriterTest, SpillCadenceDoesNotChangeIndexBytes) {
+    // 确定性语料：600 个 doc(id 1..600)，每 doc = 2 个全量 hot term（df=600，
+    // 跨 512-doc 窗口边界）+ 10 个轮转 vocab term + 1 个 df=1 唯一 term。
+    // 任何 spill 切分都会把 hot/vocab term 的 posting 链拆进多个 spill 段，
+    // 强制 k-way merge 走再编码路径。
+    constexpr int kDocs = 600;
+    constexpr int kVocab = 16;
+    const auto append_docs = [&](SpimiIndexWriter& w, int doc_lo, int doc_hi) {
+        for (int d = doc_lo; d <= doc_hi; ++d) {
+            uint32_t pos = 0;
+            const auto doc = static_cast<uint32_t>(d);
+            w.AppendToken("hot_alpha", doc, pos++);
+            w.AppendToken("hot_beta", doc, pos++);
+            for (int k = 0; k < 10; ++k) {
+                w.AppendToken("v" + std::to_string((d * 7 + k) % kVocab), doc, pos++);
+            }
+            w.AppendToken("uniq_" + std::to_string(d), doc, pos++);
+        }
+    };
+
+    struct Variant {
+        const char* tag;
+        std::vector<int> cuts; // 在这些 doc id 之后 FlushPending（≙ 不同预算下的切分点）
+    };
+    const std::vector<Variant> variants = {
+            {"direct", {}},             // 0 spill：EmitDirect 路径
+            {"single", {300}},          // 1 spill + 余量留在 buffer
+            {"multi", {150, 300, 450}}, // 3 spill + 余量：k-way merge
+    };
+    // V4 段 omit norms（.nrm 不落盘），故对比 .nrm 之外的全部落盘文件。
+    static constexpr const char* kFiles[] = {"_0.tis", "_0.tii", "_0.frq",
+                                             "_0.prx", "_0.fnm", "segments_1"};
+
+    std::vector<std::vector<uint8_t>> baseline; // direct 变体的各文件字节
+    for (const auto& variant : variants) {
+        TmpFSDirectory tmp(std::string("spimi_spill_cadence_") + variant.tag);
+        SpimiIndexWriter writer("body", /*is_v4=*/true);
+        int next = 1;
+        size_t expected_spills = 0;
+        for (int cut : variant.cuts) {
+            append_docs(writer, next, cut);
+            writer.FlushPending(/*doc_count=*/cut + 1);
+            ++expected_spills;
+            next = cut + 1;
+        }
+        append_docs(writer, next, kDocs);
+        ASSERT_EQ(writer.spill_manager()->SpillCount(), expected_spills) << variant.tag;
+
+        SpimiFinishConfig config;
+        config.is_v4 = true;
+        config.field_name_utf8 = "body";
+        config.doc_count = kDocs + 1;
+        writer.Finish(tmp.dir.get(), config);
+
+        size_t file_idx = 0;
+        for (const char* file : kFiles) {
+            auto bytes = SlurpDirFile(tmp.dir.get(), file);
+            ASSERT_FALSE(bytes.empty()) << variant.tag << " " << file;
+            if (baseline.size() <= file_idx) {
+                baseline.push_back(std::move(bytes)); // direct 变体建立基线
+            } else {
+                EXPECT_EQ(bytes.size(), baseline[file_idx].size()) << variant.tag << " " << file;
+                EXPECT_TRUE(bytes == baseline[file_idx])
+                        << variant.tag << " 与 direct 基线在 " << file << " 上字节不一致";
+            }
+            ++file_idx;
+        }
+    }
+}
+
+TEST(SpimiIndexWriterTest, BudgetFallsBackOnInvalidConfig) {
+    {
+        RamBufferConfigPin pin(0); // 0 → 回退编译期兜底
+        SpimiIndexWriter writer("content");
+        EXPECT_EQ(writer.buffer()->limits().memory_budget_bytes,
+                  SpimiPostingBuffer::kDefaultMemoryBudget);
+    }
+    {
+        RamBufferConfigPin pin(-5); // 负数 → 回退
+        SpimiIndexWriter writer("content");
+        EXPECT_EQ(writer.buffer()->limits().memory_budget_bytes,
+                  SpimiPostingBuffer::kDefaultMemoryBudget);
+    }
+    {
+        RamBufferConfigPin pin(std::numeric_limits<double>::quiet_NaN()); // NaN → 回退
+        SpimiIndexWriter writer("content");
+        EXPECT_EQ(writer.buffer()->limits().memory_budget_bytes,
+                  SpimiPostingBuffer::kDefaultMemoryBudget);
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

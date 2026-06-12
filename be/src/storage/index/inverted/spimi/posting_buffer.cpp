@@ -19,10 +19,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <random>
 #include <unordered_map>
 
+#include "common/config.h"
 #include "common/logging.h"
 
 namespace doris::segment_v2::inverted_index::spimi {
@@ -155,11 +157,29 @@ uint64_t MakeHashSeed() {
 SpimiPostingBuffer::SpimiPostingBuffer(bool omit_tfap)
         : _omit_tfap(omit_tfap), _hash_seed(MakeHashSeed()) {}
 
+SpimiPostingBuffer::SpimiPostingBuffer(Limits limits, bool omit_tfap)
+        : _omit_tfap(omit_tfap), _hash_seed(MakeHashSeed()), _limits(limits) {}
+
 SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed, bool omit_tfap)
         : _omit_tfap(omit_tfap), _hash_seed(hash_seed) {}
 
 SpimiPostingBuffer::SpimiPostingBuffer(uint64_t hash_seed, Limits limits, bool omit_tfap)
         : _omit_tfap(omit_tfap), _hash_seed(hash_seed), _limits(limits) {}
+
+size_t SpimiPostingBuffer::ConfiguredMemoryBudgetBytes() {
+    // MB → bytes with clamping done in the MB domain (double) so a huge
+    // config value can't overflow the size_t conversion. Non-finite (NaN /
+    // inf from a hand-edited conf) or <= 0 values fall back to the
+    // compile-time default rather than silently disabling the budget.
+    const double mb = config::inverted_index_ram_buffer_size;
+    if (!std::isfinite(mb) || mb <= 0.0) {
+        return kDefaultMemoryBudget;
+    }
+    constexpr double kMinMb = 16.0;         // floor: keep spills bounded in tests/tiny confs
+    constexpr double kMaxMb = 8.0 * 1024.0; // ceiling: 8 GiB per column writer
+    const double clamped_mb = std::clamp(mb, kMinMb, kMaxMb);
+    return static_cast<size_t>(clamped_mb * static_cast<double>(size_t {1} << 20));
+}
 
 // HashTerm is now defined inline in the header for use by
 // InternHot's inlined fast path. See posting_buffer.h.
@@ -402,11 +422,11 @@ void SpimiPostingBuffer::FinalizeBlocks() {
                 continue;
             }
             if (s.cur_doc_freq == 1) {
-                s.doc_upto = _pool.WriteVInt64(
-                        s.doc_upto, (static_cast<uint64_t>(s.cur_doc_delta) << 1U) | 1U);
-            } else {
                 s.doc_upto = _pool.WriteVInt64(s.doc_upto,
-                                               static_cast<uint64_t>(s.cur_doc_delta) << 1U);
+                                               (static_cast<uint64_t>(s.cur_doc_delta) << 1U) | 1U);
+            } else {
+                s.doc_upto =
+                        _pool.WriteVInt64(s.doc_upto, static_cast<uint64_t>(s.cur_doc_delta) << 1U);
                 s.doc_upto = _pool.WriteVInt(s.doc_upto, s.cur_doc_freq);
             }
         }

@@ -493,9 +493,10 @@ void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, 
 template <FieldType field_type>
 bool InvertedIndexColumnWriter<field_type>::ShouldSpillUnderPressure() const {
     DCHECK(_spimi_writer != nullptr);
-    // Process-pressure spill triggers ONLY (the cheap 256MiB ShouldFlush() hard
-    // floor is checked separately every row in add_values; this is the expensive
-    // half, throttled to every inverted_index_spimi_spill_check_interval_rows).
+    // Process-pressure spill triggers ONLY (the cheap config-driven
+    // (inverted_index_ram_buffer_size) ShouldFlush() budget floor is checked
+    // separately every row in add_values; this is the expensive half, throttled
+    // to every inverted_index_spimi_spill_check_interval_rows).
     // (1) Process hard mem limit exceeded → force a spill regardless of size.
     if (GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {
         return true;
@@ -643,15 +644,16 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
                                 "would be dropped silently",
                                 std::string(_field_name.begin(), _field_name.end()));
                     }
-                    // Spill gate. The cheap 256MiB ShouldFlush() latch (set
-                    // inside Append when the buffer crosses the budget) is checked
-                    // EVERY row so the hard floor stays responsive and the
-                    // no-pressure default behaviour + .idx output are unchanged.
-                    // The EXPENSIVE checks — process memory watermarks, MemoryUsage
-                    // and the growth reserve — run only every
-                    // inverted_index_spimi_spill_check_interval_rows rows, keeping
-                    // the per-row hot path lean (a 512-row window cannot cross the
-                    // 256MiB budget for any realistic doc size).
+                    // Spill gate. The cheap ShouldFlush() latch (set inside
+                    // Append when the buffer crosses its config-driven budget,
+                    // inverted_index_ram_buffer_size clamped to >= 16MiB) is
+                    // checked EVERY row, so the budget floor stays responsive
+                    // even at the smallest configurable budget and the .idx
+                    // output is unchanged (the budget only moves spill points).
+                    // The EXPENSIVE checks — process memory watermarks,
+                    // MemoryUsage and the growth reserve — run only every
+                    // inverted_index_spimi_spill_check_interval_rows rows,
+                    // keeping the per-row hot path lean.
                     if (_spimi_writer->ShouldFlush()) {
                         _spimi_writer->FlushPending(_spimi_doc_count);
                     } else if (++_spimi_gate_counter >=

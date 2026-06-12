@@ -292,11 +292,34 @@ public:
     // memory. Unlike `Saturated()` (a hard limit that freezes the buffer),
     // `ShouldFlush()` is advisory: Append() continues to work after the
     // budget is exceeded, but each additional record increases peak RAM.
-    // Default 128 MiB: with spill-to-disk (spilled bytes are freed, no resident
-    // accumulation) a lower budget sharply cuts the large-doc write peak
-    // (wiki 546→259 MB, below V2's 288) for only +0.75% .idx (more spills → a
-    // slightly less optimal k-way re-encode). Short docs never cross it and are
-    // unaffected.
+    // Compile-time default budget = test fallback ONLY. Production writers do
+    // NOT use this value: SpimiIndexWriter reads
+    // `config::inverted_index_ram_buffer_size` (MB, hot-updatable, the same
+    // knob the V2/CLucene path feeds into setRAMBufferSizeMB) once per
+    // segment-writer construction via `ConfiguredMemoryBudgetBytes()`, so V4
+    // and V2 share one source of truth. This constant remains the
+    // `Limits` default for direct (test) construction and the fallback when
+    // the config is non-finite or <= 0. 128 MiB keeps test workloads below
+    // the budget (no surprise spills) while still being small enough to
+    // exercise ShouldFlush() cheaply with explicit Limits.
+    //
+    // Measured tradeoffs behind the config move (this intentionally
+    // supersedes a863652's fixed 256->128 MiB lowering; user-approved):
+    //  - Gain: at a fixed 128 MiB budget, segments with >2M rows hit
+    //    pathological spill churn (write CPU 1.3-3.8x vs V2, peak RAM
+    //    1 GB+). Following the 512 MB config default restores parity.
+    //  - Cost: wiki-like large-document/small-segment workloads give back
+    //    a863652's peak-RAM win (546->259 MB, below V2's 288 MB) — at the
+    //    512 MB default their write peak rises back toward the ~546 MB
+    //    level, above V2. Operators who prefer the old behaviour can lower
+    //    inverted_index_ram_buffer_size (it is hot-updatable).
+    //  - The budget only moves spill points; the emitted index bytes do
+    //    not depend on it. a863652 measured +0.75% .idx from extra spills
+    //    on the old merge path; after the spill-merge emit rework
+    //    (pre-decoded re-encode) the output is spill-cadence-independent —
+    //    guarded by SpimiIndexWriterTest.SpillCadenceDoesNotChangeIndexBytes
+    //    and confirmed on httplogs 9M: identical idx bytes at 128 MB and
+    //    512 MB budgets.
     static constexpr size_t kDefaultMemoryBudget = size_t {128} << 20;
 
     struct Limits {
@@ -307,6 +330,15 @@ public:
     };
     static_assert(sizeof(Limits) <= 32, "Limits must stay cheap-by-value");
 
+    // Production memory budget: `config::inverted_index_ram_buffer_size`
+    // (MB → bytes), clamped to [16 MiB, 8 GiB]. A non-finite or <= 0 config
+    // value falls back to `kDefaultMemoryBudget`. Callers (SpimiIndexWriter,
+    // the benchmark's [BENCH-CONFIG] provenance line) read this once per
+    // segment-writer construction — the config is hot-updatable (mDouble),
+    // so new segments pick up changes; never call this in the Append hot
+    // path.
+    static size_t ConfiguredMemoryBudgetBytes();
+
     // `omit_tfap` (default false): when true the field omits term-frequencies
     // and positions (DOCS_ONLY / support_phrase=false). In that mode the
     // per-occurrence absolute-position VInt is NOT written into the prox slice
@@ -316,6 +348,12 @@ public:
     // per-doc freq/doc-delta chain is UNCHANGED (it drives StartDoc and the
     // on-disk .frq), so the emitted .idx stays byte-identical.
     explicit SpimiPostingBuffer(bool omit_tfap = false);
+    // Production ctor with caller-supplied limits (random per-instance hash
+    // seed, unlike the deterministic-seed test seams below). Used by
+    // SpimiIndexWriter to inject the config-derived memory budget
+    // (`ConfiguredMemoryBudgetBytes()`) while keeping the other limits at
+    // their production defaults.
+    explicit SpimiPostingBuffer(Limits limits, bool omit_tfap = false);
     // Test seam: deterministic hash seed (default-constructed picks a random
     // per-instance seed at runtime to defend against hash-collision DoS from
     // attacker-controlled term bytes).
@@ -424,6 +462,11 @@ public:
     // reads the prox chain (omit=false) while the buffer omitted it.
     bool OmitTfap() const { return _omit_tfap; }
 
+    // Read-only view of the effective per-instance limits. Lets callers (and
+    // the budget-follows-config unit tests) observe the memory budget this
+    // buffer was constructed with, without widening any mutable surface.
+    const Limits& limits() const { return _limits; }
+
     // Resolves the term text referenced by `text_ref`. The returned view is
     // valid as long as the buffer is not modified.
     std::string_view TermAt(uint32_t text_ref) const;
@@ -482,7 +525,7 @@ private:
                 state.doc_upto = _pool.WriteVInt(state.doc_upto, doc_id);
             } else {
                 state.pos_start = state.pos_upto = _pool.NewSlice(); // prox chain
-                state.last_pos = 0; // within-doc position-delta base for this doc
+                state.last_pos = 0;           // within-doc position-delta base for this doc
                 state.cur_doc_delta = doc_id; // delta from implicit 0
                 state.cur_doc_freq = 1;
             }

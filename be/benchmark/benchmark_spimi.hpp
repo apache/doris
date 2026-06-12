@@ -59,16 +59,16 @@
 #include <benchmark/benchmark.h>
 
 #include <algorithm>
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cmath>
-#include <thread>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <random>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "common/config.h"
@@ -80,12 +80,12 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h" // TmpFileDirs
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
-#include "storage/options.h" // StorePath
-#include "storage/tablet/tablet_schema.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/index/inverted/spimi/posting_buffer.h"
+#include "storage/options.h" // StorePath
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
 
@@ -165,7 +165,8 @@ inline std::string extract_request_field(const std::string& line) {
 // recompiling.
 inline const std::vector<std::string>& httplogs_requests(size_t max_lines) {
     static const std::vector<std::string> cached = [max_lines]() -> std::vector<std::string> {
-        const size_t cap = resolve_rows_cap("SPIMI_HTTPLOGS_ROWS", max_lines, /*allow_global=*/true);
+        const size_t cap =
+                resolve_rows_cap("SPIMI_HTTPLOGS_ROWS", max_lines, /*allow_global=*/true);
         std::vector<std::string> out;
         out.reserve(cap);
         const char* env = std::getenv("SPIMI_HTTPLOGS_DIR");
@@ -204,9 +205,9 @@ inline const std::vector<std::string>& httplogs_requests(size_t max_lines) {
         // Synthetic fallback: Zipf over a small bag of HTTP-path
         // tokens, shaped like the real `request` field.
         static const std::array<const char*, 24> kVocab = {
-                "GET",     "POST",    "HTTP",    "images",  "english", "html",  "gif",  "jpg",
-                "nav",     "bg",      "top",     "bottom",  "news",    "btn",   "off",  "on",
-                "splash",  "inet",    "home",    "comp",    "hm",      "nbg",   "backg", "phrase"};
+                "GET",    "POST", "HTTP", "images", "english", "html", "gif",   "jpg",
+                "nav",    "bg",   "top",  "bottom", "news",    "btn",  "off",   "on",
+                "splash", "inet", "home", "comp",   "hm",      "nbg",  "backg", "phrase"};
         std::mt19937 rng(0xB17B17BEU);
         std::vector<double> cdf;
         cdf.reserve(kVocab.size());
@@ -267,12 +268,11 @@ inline const std::vector<std::string>& unicode_corpus_rows(size_t max_lines) {
         }
         // Synthetic fallback: agentlogs-shaped CJK+ASCII templates.
         static const std::array<const char*, 12> kCjk = {
-                "上下文主题", "分类", "应用", "租户", "任务主题", "估算",
-                "编码运维", "大上下文回放", "意图", "阶段", "直接计数", "令牌"};
+                "上下文主题", "分类",         "应用", "租户", "任务主题", "估算",
+                "编码运维",   "大上下文回放", "意图", "阶段", "直接计数", "令牌"};
         static const std::array<const char*, 12> kAscii = {
-                "token",   "estimate",          "coding_devops", "app_001",
-                "tenant",  "archetype",         "intent",        "phase",
-                "rid",     "large_context",     "tokens",        "direct_count"};
+                "token",  "estimate", "coding_devops", "app_001",       "tenant", "archetype",
+                "intent", "phase",    "rid",           "large_context", "tokens", "direct_count"};
         std::mt19937 rng(0xA9E27106U);
         out.reserve(cap);
         for (size_t row = 0; row < cap; ++row) {
@@ -327,16 +327,13 @@ inline const std::vector<std::string>& textbench_body_rows(size_t max_lines) {
         // messages and JSON gRPC-error blobs, so term frequencies are skewed
         // like the real Body column.
         static const std::array<const char*, 16> kMsg = {
-                "Failed to place order",  "Checkout",
-                "payment processed",      "shipping quote requested",
-                "cart emptied",           "product not found",
-                "recommendation served",  "currency converted",
-                "ad request served",      "user session expired",
-                "inventory reserved",     "order confirmed",
-                "email dispatched",       "cache miss",
-                "rpc deadline exceeded",  "connection reset by peer"};
-        static const std::array<const char*, 8> kCode = {"13", "2", "5", "14",
-                                                         "8",  "4", "7", "16"};
+                "Failed to place order",    "Checkout",           "payment processed",
+                "shipping quote requested", "cart emptied",       "product not found",
+                "recommendation served",    "currency converted", "ad request served",
+                "user session expired",     "inventory reserved", "order confirmed",
+                "email dispatched",         "cache miss",         "rpc deadline exceeded",
+                "connection reset by peer"};
+        static const std::array<const char*, 8> kCode = {"13", "2", "5", "14", "8", "4", "7", "16"};
         std::mt19937 rng(0x7E47BE0CU);
         std::vector<double> cdf;
         cdf.reserve(kMsg.size());
@@ -411,10 +408,10 @@ inline const std::vector<std::string>& wikipedia_rows(size_t max_lines) {
             return out;
         }
         static const std::array<const char*, 24> kVocab = {
-                "the",     "history", "century", "government", "system",  "during",
-                "national","world",   "州",     "war",        "language","people",
-                "city",    "first",   "states",  "university", "company", "music",
-                "river",   "north",   "south",   "church",     "island",  "party"};
+                "the",      "history", "century", "government", "system",   "during",
+                "national", "world",   "州",      "war",        "language", "people",
+                "city",     "first",   "states",  "university", "company",  "music",
+                "river",    "north",   "south",   "church",     "island",   "party"};
         std::mt19937 rng(0xC0FFEE11U);
         out.reserve(cap);
         for (size_t row = 0; row < cap; ++row) {
@@ -445,8 +442,8 @@ inline const std::vector<std::string>& weibo_rows(size_t max_lines) {
             return out;
         }
         static const std::array<const char*, 16> kCjk = {
-                "一分耕耘", "一分收获", "转发微博", "哈哈哈", "给力", "围观", "求关注",
-                "今天天气", "好开心", "加油", "支持", "分享", "美图", "心情", "周末", "晚安"};
+                "一分耕耘", "一分收获", "转发微博", "哈哈哈", "给力", "围观", "求关注", "今天天气",
+                "好开心",   "加油",     "支持",     "分享",   "美图", "心情", "周末",   "晚安"};
         std::mt19937 rng(0x5E1B0U);
         out.reserve(cap);
         for (size_t row = 0; row < cap; ++row) {
@@ -497,8 +494,8 @@ inline void ensure_env_inited() {
             LOG(FATAL) << "spimi bench config::init failed — config would be all-zero "
                           "and every measurement meaningless; fix the env (DORIS_HOME?)";
         }
-        config::inverted_index_ram_buffer_size = 512;        // MB, production default
-        config::inverted_index_max_buffered_docs = -1;       // production default
+        config::inverted_index_ram_buffer_size = 512;  // MB, production default
+        config::inverted_index_max_buffered_docs = -1; // production default
         // frq/prx ZSTD defaults follow the compiled config (config::init above
         // applies the DEFINE defaults). Env overrides let one binary measure
         // either side of the split: SPIMI_FRQ_ZSTD=0/1, SPIMI_PRX_ZSTD=0/1
@@ -544,12 +541,19 @@ inline void ensure_env_inited() {
                   << " frq_zstd=" << config::inverted_index_spimi_frq_zstd_enable
                   << " prx_zstd=" << config::inverted_index_spimi_prx_zstd_enable
                   << " zstd_min_window_bytes=" << config::inverted_index_spimi_zstd_min_window_bytes
-                  << " prx_window_docs=" << config::inverted_index_spimi_prx_window_docs
+                  << " prx_window_docs="
+                  << config::inverted_index_spimi_prx_window_docs
+                  // Effective budget, not the compile-time default: production
+                  // writers derive it from config::inverted_index_ram_buffer_size
+                  // (clamped) at construction, so the provenance line must print
+                  // the same config-derived value the measured writers will use.
                   << " buffer_budget_mb="
-                  << (inverted_index::spimi::SpimiPostingBuffer::kDefaultMemoryBudget >> 20)
+                  << (inverted_index::spimi::SpimiPostingBuffer::ConfiguredMemoryBudgetBytes() >>
+                      20)
                   << " ram_dir_config=" << config::inverted_index_ram_dir_enable
-                  << " ram_dir_bench=" << !(std::getenv("SPIMI_RAM_DIR") &&
-                                            std::string_view(std::getenv("SPIMI_RAM_DIR")) == "0")
+                  << " ram_dir_bench="
+                  << !(std::getenv("SPIMI_RAM_DIR") &&
+                       std::string_view(std::getenv("SPIMI_RAM_DIR")) == "0")
                   << " track_mem=" << track_mem
                   << " warmup_cache=" << config::enable_write_index_searcher_cache
                   << " batch=" << bench_batch_size();
@@ -676,10 +680,9 @@ inline WriteResult write_one_segment(InvertedIndexStorageFormatPB format, const 
     auto schema = make_schema();
     TabletIndex idx_meta = make_index_meta(parser, support_phrase);
 
-    const std::string fmt_tag =
-            (format == InvertedIndexStorageFormatPB::V4) ? "v4" : "v2";
-    const std::string rowset_id = std::string("spimi_gb_") + fmt_tag + "_" + parser + "_" +
-                                  std::to_string(run_id);
+    const std::string fmt_tag = (format == InvertedIndexStorageFormatPB::V4) ? "v4" : "v2";
+    const std::string rowset_id =
+            std::string("spimi_gb_") + fmt_tag + "_" + parser + "_" + std::to_string(run_id);
     const int seg_id = 0;
     const std::string seg_path =
             std::string(kBenchDir) + "/" + rowset_id + "_" + std::to_string(seg_id) + ".dat";
@@ -712,8 +715,8 @@ inline WriteResult write_one_segment(InvertedIndexStorageFormatPB format, const 
     // FAIR: both V2 and V4 use the SAME ram-dir setting (env SPIMI_RAM_DIR=0
     // streams both to disk; default keeps both in the RAM directory). Never
     // give one format the disk-streaming escape and not the other.
-    const bool can_use_ram_dir = !(std::getenv("SPIMI_RAM_DIR") &&
-                                   std::string(std::getenv("SPIMI_RAM_DIR")) == "0");
+    const bool can_use_ram_dir =
+            !(std::getenv("SPIMI_RAM_DIR") && std::string(std::getenv("SPIMI_RAM_DIR")) == "0");
     auto ifw = std::make_unique<IndexFileWriter>(fs, prefix, rowset_id, seg_id, format,
                                                  std::move(fw), can_use_ram_dir);
     const TabletColumn& column = schema->column(1);
@@ -823,8 +826,9 @@ inline void hash_only(const std::string& parser, const std::vector<std::string>&
 
     auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(cfg.char_filter_map);
     auto analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&cfg);
-    inverted_index::spimi::SpimiPostingBuffer buf(0xD0D0F00DULL,
-                                                  /*omit_tfap=*/false); // fixed seed; HashTerm is const
+    inverted_index::spimi::SpimiPostingBuffer buf(
+            0xD0D0F00DULL,
+            /*omit_tfap=*/false); // fixed seed; HashTerm is const
     lucene::analysis::Token tok;
     volatile uint64_t sink = 0;
     for (const auto& r : rows) {

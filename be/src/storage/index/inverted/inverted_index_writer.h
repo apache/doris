@@ -143,8 +143,9 @@ private:
     int64_t _spimi_backstop_bytes = 0;
 
     // Row counter throttling the EXPENSIVE per-row spill gate (process memory
-    // watermarks + MemoryUsage + reserve). The cheap 256MiB ShouldFlush() latch
-    // is still checked every row; the expensive checks run only every
+    // watermarks + MemoryUsage + reserve). The cheap config-driven
+    // (inverted_index_ram_buffer_size) ShouldFlush() latch is still checked
+    // every row; the expensive checks run only every
     // inverted_index_spimi_spill_check_interval_rows rows. Persists across the
     // batched add_values calls.
     int64_t _spimi_gate_counter = 0;
@@ -152,8 +153,9 @@ private:
     // True when process memory PRESSURE warrants a spill (the expensive half of
     // the gate, throttled to every N rows): OR of (1) process hard-mem-limit
     // exceeded (force), (2) process soft pressure + buffer past the opportunistic
-    // min, (3) per-writer backstop. The cheap 256MiB ShouldFlush() hard floor is
-    // checked separately every row. Only the V4 branch calls this; _spimi_writer
+    // min, (3) per-writer backstop. The cheap config-driven
+    // (inverted_index_ram_buffer_size) ShouldFlush() budget floor is checked
+    // separately every row. Only the V4 branch calls this; _spimi_writer
     // must be non-null.
     bool ShouldSpillUnderPressure() const;
 };
