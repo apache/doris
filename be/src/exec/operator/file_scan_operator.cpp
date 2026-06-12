@@ -24,6 +24,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
 #include "storage/storage_engine.h"
@@ -119,10 +120,32 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                      _max_scanners);
     shard_num = std::max(shard_num, 1U);
     _kv_cache = std::make_unique<ShardedKVCache>(shard_num);
+    const TFileScanRangeParams* scan_params = nullptr;
+    if (state()->get_query_ctx() != nullptr &&
+        state()->get_query_ctx()->file_scan_range_params_map.count(parent_id()) > 0) {
+        scan_params = &state()->get_query_ctx()->file_scan_range_params_map[parent_id()];
+    } else {
+        scan_params = _split_source->get_params();
+    }
+    const bool is_load =
+            state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
+    // TODO: Use scanner v2 for all queries.
+    const bool use_file_scanner_v2 =
+            state()->query_options().__isset.enable_file_scanner_v2 &&
+            state()->query_options().enable_file_scanner_v2 && !is_load &&
+            _split_source->all_scan_ranges_match(*scan_params, FileScannerV2::is_supported);
+    _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     for (int i = 0; i < _max_scanners; ++i) {
-        std::unique_ptr<FileScanner> scanner = FileScanner::create_unique(
-                state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
-                &p._colname_to_slot_id);
+        ScannerSPtr scanner;
+        if (use_file_scanner_v2) {
+            scanner = FileScannerV2::create_shared(state(), this, p._limit, _split_source,
+                                                   _scanner_profile.get(), _kv_cache.get(),
+                                                   &p._colname_to_slot_id);
+        } else {
+            scanner = FileScanner::create_shared(state(), this, p._limit, _split_source,
+                                                 _scanner_profile.get(), _kv_cache.get(),
+                                                 &p._colname_to_slot_id);
+        }
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }

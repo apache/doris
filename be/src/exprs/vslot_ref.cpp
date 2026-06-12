@@ -41,10 +41,28 @@ VSlotRef::VSlotRef(const doris::TExprNode& node)
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true), _slot_id(desc->id()), _column_id(-1), _column_name(nullptr) {}
 
+VSlotRef::VSlotRef(int slot_id, int column_id, int column_uniq_id, const DataTypePtr& type,
+                   std::string column_name)
+        : VExpr(type, true),
+          _slot_id(slot_id),
+          _column_id(column_id),
+          _column_uniq_id(column_uniq_id),
+          _owned_column_name(std::move(column_name)),
+          _column_name(&_owned_column_name) {}
+
 Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                          VExprContext* context) {
-    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(_children.size(), 0);
+    if (_prepared) {
+        return Status::OK();
+    }
+    if (_column_id >= 0 && _column_name != nullptr) {
+        _prepared = true;
+        _prepare_finished = true;
+        return Status::OK();
+    }
+    _prepared = true;
+    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
     if (_slot_id == -1) {
         _prepare_finished = true;
         return Status::OK();
@@ -107,6 +125,27 @@ DataTypePtr VSlotRef::execute_type(const Block* block) const {
                                *_column_name, _column_id, block->dump_structure());
     }
     return block->get_by_position(_column_id).type;
+}
+
+Status VSlotRef::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    if (_column_id >= 0 && _column_name != nullptr) {
+        *cloned_expr = VSlotRef::create_shared(_slot_id, _column_id, _column_uniq_id, _data_type,
+                                               *_column_name);
+        return Status::OK();
+    }
+    auto node = clone_texpr_node();
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(_slot_id);
+    node.__set_slot_ref(slot_ref);
+    node.__set_label(_column_label);
+    auto cloned = VSlotRef::create_shared(node);
+    auto* cloned_slot_ref = static_cast<VSlotRef*>(cloned.get());
+    cloned_slot_ref->_column_id = _column_id;
+    cloned_slot_ref->_column_uniq_id = _column_uniq_id;
+    cloned_slot_ref->_column_name = _column_name;
+    *cloned_expr = std::move(cloned);
+    return Status::OK();
 }
 
 const std::string& VSlotRef::expr_name() const {

@@ -63,6 +63,17 @@ RuntimeFilterExpr::RuntimeFilterExpr(const TExprNode& node, VExprSPtr impl, doub
           _filter_id(filter_id),
           _sampling_frequency(sampling_frequency) {}
 
+Status RuntimeFilterExpr::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    DORIS_CHECK(_impl != nullptr);
+    VExprSPtr cloned_impl;
+    RETURN_IF_ERROR(_impl->deep_clone(&cloned_impl));
+    *cloned_expr = RuntimeFilterExpr::create_shared(clone_texpr_node(), std::move(cloned_impl),
+                                                    _ignore_thredhold, _null_aware, _filter_id,
+                                                    _sampling_frequency);
+    return Status::OK();
+}
+
 Status RuntimeFilterExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
                                   VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));

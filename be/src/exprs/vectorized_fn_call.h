@@ -98,6 +98,12 @@ public:
                                   segment_v2::AnnRangeSearchRuntime& runtime,
                                   bool& suitable_for_ann_index) override;
 
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VectorizedFnCall::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
+
 protected:
     FunctionBasePtr _function;
     std::string _expr_name;
