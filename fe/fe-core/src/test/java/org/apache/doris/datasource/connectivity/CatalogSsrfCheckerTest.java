@@ -150,6 +150,7 @@ public class CatalogSsrfCheckerTest {
         Map<String, String> props = new HashMap<>();
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "rest");
+        props.put("provider", "azure");
         props.put("azure.auth_type", "OAuth2");
         props.put("azure.endpoint", "https://onelake.dfs.fabric.microsoft.com");
         props.put("azure.oauth2_client_id", "client-id");
