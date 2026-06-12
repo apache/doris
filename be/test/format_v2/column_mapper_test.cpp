@@ -1191,6 +1191,62 @@ TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
     EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({2147483540, 2147483539}));
 }
 
+TEST(ColumnMapperConstantTest, MissingRowLineageDefaultExprStillUsesVirtualMapping) {
+    auto id_column = field_id_col("id", 1, make_nullable(i32()));
+    auto row_id_column = field_id_col("renamed_row_id", 2147483540, make_nullable(i64()));
+    row_id_column.default_expr = VExprContext::create_shared(
+            literal(make_nullable(i64()), Field::create_field<TYPE_BIGINT>(0)));
+    auto sequence_column = field_id_col("renamed_last_updated_sequence_number", 2147483539,
+                                        make_nullable(i64()));
+    sequence_column.default_expr = VExprContext::create_shared(
+            literal(make_nullable(i64()), Field::create_field<TYPE_BIGINT>(0)));
+
+    const std::vector<ColumnDefinition> table_schema = {id_column, row_id_column, sequence_column};
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("id", 1, make_nullable(i32()), 0),
+            field_id_col("name", 2, make_nullable(str()), 1),
+    };
+
+    TableColumnMapper mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .allow_missing_columns = false});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 3);
+    expect_mapping(mapper.mappings()[0], 0, "id", 0, "id", make_nullable(i32()),
+                   make_nullable(i32()));
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type, TableVirtualColumnType::ROW_ID);
+    EXPECT_FALSE(mapper.mappings()[1].constant_index.has_value());
+    EXPECT_EQ(mapper.mappings()[2].virtual_column_type,
+              TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER);
+    EXPECT_FALSE(mapper.mappings()[2].constant_index.has_value());
+    EXPECT_TRUE(mapper.constant_map().empty());
+}
+
+TEST(ColumnMapperConstantTest, ByFieldIdDoesNotTreatSameNameDifferentIdAsRowLineage) {
+    const std::vector<ColumnDefinition> table_schema = {
+            field_id_col("_row_id", 100, make_nullable(i64())),
+            field_id_col("_last_updated_sequence_number", 101, make_nullable(i64())),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("_row_id", 100, make_nullable(i64()), 0),
+            field_id_col("_last_updated_sequence_number", 101, make_nullable(i64()), 1),
+    };
+
+    TableColumnMapper mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .allow_missing_columns = false});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    expect_mapping(mapper.mappings()[0], 0, "_row_id", 0, "_row_id", make_nullable(i64()),
+                   make_nullable(i64()));
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type, TableVirtualColumnType::INVALID);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::COPY_DIRECTLY);
+    expect_mapping(mapper.mappings()[1], 1, "_last_updated_sequence_number", 1,
+                   "_last_updated_sequence_number", make_nullable(i64()), make_nullable(i64()));
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type, TableVirtualColumnType::INVALID);
+    EXPECT_EQ(mapper.mappings()[1].filter_conversion, FilterConversionType::COPY_DIRECTLY);
+}
+
 TEST(ColumnMapperConstantTest, PartitionAliasResolvesRenamedValue) {
     auto partition_column = name_col("current_dt", str());
     partition_column.name_mapping = {"legacy_dt"};

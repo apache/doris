@@ -761,8 +761,11 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER = "_last_updated_sequence_number";
+static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
+static constexpr int32_t ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID = 2147483539;
 
-static TableVirtualColumnType row_lineage_virtual_column_type(const std::string& column_name) {
+static TableVirtualColumnType row_lineage_virtual_column_type_by_name(
+        const std::string& column_name) {
     if (column_name == ROW_LINEAGE_ROW_ID) {
         return TableVirtualColumnType::ROW_ID;
     }
@@ -770,6 +773,21 @@ static TableVirtualColumnType row_lineage_virtual_column_type(const std::string&
         return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
     }
     return TableVirtualColumnType::INVALID;
+}
+
+static TableVirtualColumnType row_lineage_virtual_column_type(
+        const ColumnDefinition& table_column, TableColumnMappingMode mode) {
+    if (mode == TableColumnMappingMode::BY_FIELD_ID && table_column.has_identifier_field_id()) {
+        const auto field_id = table_column.get_identifier_field_id();
+        if (field_id == ROW_LINEAGE_ROW_ID_FIELD_ID) {
+            return TableVirtualColumnType::ROW_ID;
+        }
+        if (field_id == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER_FIELD_ID) {
+            return TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+        }
+        return TableVirtualColumnType::INVALID;
+    }
+    return row_lineage_virtual_column_type_by_name(table_column.name);
 }
 
 // Returns true when the current file type is not the exact nested type the scan should expose.
@@ -1198,7 +1216,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
-    const auto row_lineage_type = row_lineage_virtual_column_type(table_column.name);
+    const auto row_lineage_type = row_lineage_virtual_column_type(table_column, _options.mode);
     if (const auto* partition_value = find_partition_value(table_column, _partition_values);
         table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
@@ -1219,18 +1237,20 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
             mapping->virtual_column_type = row_lineage_type;
             mapping->filter_conversion = FilterConversionType::FINALIZE_ONLY;
         }
-    } else if (table_column.default_expr != nullptr) {
-        // Missing schema-evolution column with an explicit default expression.
-        _set_constant_mapping(mapping, table_column.default_expr);
     } else if (row_lineage_type != TableVirtualColumnType::INVALID) {
         // Iceberg row lineage metadata fields are optional in data files. Missing fields are exposed
         // as all-NULL table columns first; IcebergTableReader fills inherited values only when the
         // split carries first_row_id / last_updated_sequence_number metadata.
+        // FE may attach a default_expr to these hidden metadata columns, but the Iceberg v3
+        // inheritance rule must take precedence over the generic missing-column default path.
         mapping->virtual_column_type = row_lineage_type;
     } else if (table_column.name == BeConsts::ICEBERG_ROWID_COL) {
         // Doris internal Iceberg row locator is never a physical Iceberg data column. It is built
         // from file path, row position and partition metadata for delete/update/merge.
         mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
+    } else if (table_column.default_expr != nullptr) {
+        // Missing schema-evolution column with an explicit default expression.
+        _set_constant_mapping(mapping, table_column.default_expr);
     } else {
         if (table_column.is_partition_key) {
             return Status::InvalidArgument(
