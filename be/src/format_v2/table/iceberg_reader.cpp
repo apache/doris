@@ -670,11 +670,13 @@ Status IcebergTableReader::_materialize_row_lineage_row_id(Block* table_block, s
     auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
     auto& null_map = nullable_column->get_null_map_data();
     auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
-    null_map.resize(row_position_column.size());
-    std::fill(null_map.begin(), null_map.end(), 0);
-    data.resize(row_position_column.size());
+    DORIS_CHECK(null_map.size() == row_position_column.size());
+    DORIS_CHECK(data.size() == row_position_column.size());
     for (size_t row = 0; row < row_position_column.size(); ++row) {
-        data[row] = _row_lineage_columns.first_row_id + row_position_column.get_element(row);
+        if (null_map[row]) {
+            null_map[row] = 0;
+            data[row] = _row_lineage_columns.first_row_id + row_position_column.get_element(row);
+        }
     }
     table_block->replace_by_position(column_idx, std::move(column));
     return Status::OK();
@@ -735,11 +737,20 @@ Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number
     if (_row_lineage_columns.last_updated_sequence_number < 0) {
         return Status::OK();
     }
-    const auto rows = table_block->rows();
-    auto data_column = table_block->get_by_position(column_idx).type->create_column();
-    data_column->insert(
-            Field::create_field<TYPE_BIGINT>(_row_lineage_columns.last_updated_sequence_number));
-    auto column = ColumnConst::create(std::move(data_column), rows);
+    auto column = table_block->get_by_position(column_idx)
+                          .column->convert_to_full_column_if_const()
+                          ->assert_mutable();
+    auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+    auto& null_map = nullable_column->get_null_map_data();
+    auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+    DORIS_CHECK(null_map.size() == table_block->rows());
+    DORIS_CHECK(data.size() == table_block->rows());
+    for (size_t row = 0; row < table_block->rows(); ++row) {
+        if (null_map[row]) {
+            null_map[row] = 0;
+            data[row] = _row_lineage_columns.last_updated_sequence_number;
+        }
+    }
     table_block->replace_by_position(column_idx, std::move(column));
     return Status::OK();
 }

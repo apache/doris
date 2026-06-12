@@ -60,11 +60,12 @@ enum class TableColumnMappingMode {
 
 enum TableVirtualColumnType {
     INVALID = 0, // not a virtual column
-    // Iceberg v3 row lineage metadata column `_row_id`. It is materialized as
-    // first_row_id + row_position and exposed as a BIGINT table column.
+    // Iceberg v3 row lineage metadata column `_row_id`. Physical non-null values
+    // are preserved; NULL or missing values inherit first_row_id + row_position.
     ROW_ID = 1,
     // Iceberg v3 row lineage metadata column `_last_updated_sequence_number`.
-    // It is materialized from the data file's last_updated_sequence_number.
+    // Physical non-null values are preserved; NULL or missing values inherit the
+    // data file's last_updated_sequence_number.
     LAST_UPDATED_SEQUENCE_NUMBER = 2,
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.

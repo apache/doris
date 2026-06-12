@@ -1285,6 +1285,13 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     } else if (const auto* file_field = _find_file_field(table_column, _file_schema)) {
         // Normal physical file column mapping.
         RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, mapping));
+        if (table_column.name == ROW_LINEAGE_ROW_ID) {
+            mapping->virtual_column_type = TableVirtualColumnType::ROW_ID;
+            mapping->filter_conversion = FilterConversionType::FINALIZE_ONLY;
+        } else if (table_column.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+            mapping->virtual_column_type = TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER;
+            mapping->filter_conversion = FilterConversionType::FINALIZE_ONLY;
+        }
     } else if (table_column.default_expr != nullptr) {
         // Missing schema-evolution column with an explicit default expression.
         _set_constant_mapping(mapping, table_column.default_expr);
