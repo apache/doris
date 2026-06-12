@@ -393,17 +393,22 @@ void SpimiPostingBuffer::FinalizeBlocks() {
     // on doc transitions during Append; the final doc has no transition.)
     // docCode is VInt64-coded (delta<<1|flag in uint64) for the same
     // backward-delta-safety reason as the Append hot path.
-    for (auto& s : _term_states) {
-        if (s.occ_count == 0) {
-            continue;
-        }
-        if (s.cur_doc_freq == 1) {
-            s.doc_upto = _pool.WriteVInt64(s.doc_upto,
-                                           (static_cast<uint64_t>(s.cur_doc_delta) << 1U) | 1U);
-        } else {
-            s.doc_upto =
-                    _pool.WriteVInt64(s.doc_upto, static_cast<uint64_t>(s.cur_doc_delta) << 1U);
-            s.doc_upto = _pool.WriteVInt(s.doc_upto, s.cur_doc_freq);
+    //
+    // DOCS_ONLY needs no close pass: the bare doc-delta is written EAGERLY at
+    // doc open (there is no buffered freq), so the chain is already complete.
+    if (!_omit_tfap) {
+        for (auto& s : _term_states) {
+            if (s.occ_count == 0) {
+                continue;
+            }
+            if (s.cur_doc_freq == 1) {
+                s.doc_upto = _pool.WriteVInt64(
+                        s.doc_upto, (static_cast<uint64_t>(s.cur_doc_delta) << 1U) | 1U);
+            } else {
+                s.doc_upto = _pool.WriteVInt64(s.doc_upto,
+                                               static_cast<uint64_t>(s.cur_doc_delta) << 1U);
+                s.doc_upto = _pool.WriteVInt(s.doc_upto, s.cur_doc_freq);
+            }
         }
     }
     // NOTE: the intern slot tables (_slots/_slot_term_ids) are NOT freed here.
@@ -419,6 +424,27 @@ void SpimiPostingBuffer::FinalizeBlocks() {
 void SpimiPostingBuffer::DecodeCompactTerm(uint32_t term_id, std::vector<uint32_t>& docs,
                                            std::vector<uint32_t>& positions) const {
     const auto& state = _term_states[term_id];
+    if (_omit_tfap) {
+        // DOCS_ONLY: the chain holds one bare doc-delta VInt PER DOC (no freq,
+        // no prox), so the decoded sequence is per-DOC — doc_count entries with
+        // position 0. Per-occurrence multiplicity is not recoverable (and not
+        // needed: the omit emit ignores freq, and norms — the only
+        // per-occurrence consumer — are never written for omit fields; see the
+        // EmitSegment guard).
+        const uint32_t n = state.doc_count;
+        docs.resize(n);
+        positions.assign(n, 0);
+        if (n == 0) {
+            return;
+        }
+        ByteSliceReader freq_reader(_pool, state.doc_start, state.doc_upto);
+        uint32_t prev = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            prev += freq_reader.ReadVInt(); // modular delta; round-trips any order
+            docs[i] = prev;
+        }
+        return;
+    }
     const uint32_t n = state.occ_count;
     docs.resize(n);
     positions.resize(n);
@@ -426,57 +452,38 @@ void SpimiPostingBuffer::DecodeCompactTerm(uint32_t term_id, std::vector<uint32_
         return;
     }
     // Per-doc freq chain (docCode = doc_delta<<1, low bit = freq==1, else a
-    // trailing VInt(freq)) + per-occurrence absolute positions in the prox chain.
+    // trailing VInt(freq)) + per-occurrence position deltas in the prox chain.
     // Expand back to the per-occurrence (doc, position) sequence as appended.
-    //
-    // In DOCS_ONLY there is NO prox chain (EncodeOccurrenceToStreamInline skipped
-    // it), so positions[] is filled with 0 and no prox reader is constructed —
-    // constructing one over the unwritten pos_start/pos_upto==0 span would read
-    // garbage. The 0 positions are discarded downstream (emit drops them via the
-    // encoder no-op / the omit-aware EmitFromCompactDirect), so this stays
-    // byte-neutral.
     ByteSliceReader freq_reader(_pool, state.doc_start, state.doc_upto);
-    const bool read_pos = !_omit_tfap;
+    ByteSliceReader pos_reader(_pool, state.pos_start, state.pos_upto);
     uint32_t prev = 0;
     uint32_t i = 0;
-    if (read_pos) {
-        ByteSliceReader pos_reader(_pool, state.pos_start, state.pos_upto);
-        while (i < n) {
-            const uint64_t code = freq_reader.ReadVInt64();
-            prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
-            const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
-            // Positions are stored as within-doc deltas (reset to 0 per doc);
-            // prefix-sum them back to absolute. Modular add round-trips any order.
-            uint32_t pos = 0;
-            for (uint32_t k = 0; k < freq; ++k) {
-                docs[i] = prev;
-                pos += pos_reader.ReadVInt();
-                positions[i] = pos;
-                ++i;
-            }
-        }
-    } else {
-        while (i < n) {
-            const uint64_t code = freq_reader.ReadVInt64();
-            prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
-            const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
-            for (uint32_t k = 0; k < freq; ++k) {
-                docs[i] = prev;
-                positions[i] = 0; // DOCS_ONLY: no stored position; discarded at emit
-                ++i;
-            }
+    while (i < n) {
+        const uint64_t code = freq_reader.ReadVInt64();
+        prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
+        const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+        // Positions are stored as within-doc deltas (reset to 0 per doc);
+        // prefix-sum them back to absolute. Modular add round-trips any order.
+        uint32_t pos = 0;
+        for (uint32_t k = 0; k < freq; ++k) {
+            docs[i] = prev;
+            pos += pos_reader.ReadVInt();
+            positions[i] = pos;
+            ++i;
         }
     }
 }
 
 void SpimiPostingBuffer::DecodeTermToRecords(uint32_t term_id) {
-    const auto& state = _term_states[term_id];
-    const uint32_t n = state.occ_count;
-    const uint32_t text_ref = state.text_ref;
+    const uint32_t text_ref = _term_states[term_id].text_ref;
     std::vector<uint32_t> docs;
     std::vector<uint32_t> positions;
     DecodeCompactTerm(term_id, docs, positions);
-    for (uint32_t i = 0; i < n; ++i) {
+    // Decoded length is per-OCCURRENCE for phrase chains but per-DOC for
+    // DOCS_ONLY (the bare-delta chain carries no freq), so bound on the
+    // decoded size rather than occ_count.
+    const size_t n = docs.size();
+    for (size_t i = 0; i < n; ++i) {
         _records.push_back(SpimiRecord {text_ref, docs[i], positions[i]});
     }
 }

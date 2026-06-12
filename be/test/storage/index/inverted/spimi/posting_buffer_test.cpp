@@ -638,17 +638,22 @@ TEST(SpimiPostingBufferTest, OmitTfapLeavesProxChainEmptyInCompactMode) {
 }
 
 TEST(SpimiPostingBufferTest, OmitTfapDecodeReturnsDocsWithZeroPositions) {
-    // DecodeCompactTerm must round-trip the (term, doc) sequence with positions
-    // forced to 0 in DOCS_ONLY (no prox chain exists to read).
+    // DecodeCompactTerm must round-trip the doc sequence with positions forced
+    // to 0 in DOCS_ONLY. The omit chain stores one bare doc-delta PER DOC (no
+    // freq), so the decoded sequence is per-doc: same-doc repeats collapse to
+    // one entry (per-occurrence multiplicity is not recoverable, and nothing
+    // downstream needs it — the omit emit ignores freq and norms are never
+    // written for omit fields).
     SpimiPostingBuffer buf(/*omit_tfap=*/true);
-    // Deterministic (doc, freq) layout: doc d appears (d % 4 + 1) times.
+    // Deterministic layout: doc d appears (d % 4 + 1) times; expected decode
+    // holds each doc ONCE.
     std::vector<uint32_t> expected_docs;
     for (uint32_t d = 0; d < 200; ++d) {
         const uint32_t freq = (d % 4) + 1;
         for (uint32_t f = 0; f < freq; ++f) {
             buf.Append("term", d, f);
-            expected_docs.push_back(d);
         }
+        expected_docs.push_back(d);
     }
     // Top up well past compact threshold with the same term so it stays compact.
     while (buf.RecordCount() < 600) {

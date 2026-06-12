@@ -177,23 +177,32 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
         // Every interned term has at least one occurrence.
         DCHECK_GT(n, 0U);
 
-        // SLIM phrase-on fast path: the buffer's freq chain bytes ARE the
-        // on-disk slim .frq block (per-doc docCode VInts — same values in the
-        // same order; VInt64/VInt of the same value encode identically and
-        // direct-emit input is monotonic), and since the prox chain stores
-        // within-doc position deltas, its bytes ARE the raw .prx payload
-        // FlushProxBlock would have built. Copy each chain with one memcpy per
-        // slice and emit pre-encoded — no per-occurrence VInt decode +
-        // re-encode through StartDoc/AddPosition for the dominant vocabulary
-        // tail. DOCS_ONLY stays on the replay (its chain carries freq codes
-        // the bare-delta on-disk format omits).
-        if (!_omit_tfap && st.doc_count < static_cast<uint32_t>(_skip_interval)) {
+        // SLIM fast path: the buffer's freq chain bytes ARE the on-disk slim
+        // .frq block — phrase-on stores per-doc docCode VInts (same values in
+        // the same order; VInt64/VInt of the same value encode identically and
+        // direct-emit input is monotonic), DOCS_ONLY stores the bare doc-delta
+        // VInts the omit format wants. Phrase-on additionally copies the prox
+        // chain, whose within-doc position deltas ARE the raw .prx payload
+        // FlushProxBlock would have built. One memcpy per slice replaces the
+        // per-occurrence VInt decode + re-encode through StartDoc/AddPosition
+        // for the dominant vocabulary tail.
+        //
+        // The chain FORMAT follows the BUFFER's omit flag, the on-disk format
+        // follows the WRITER's — the copy is only legal when they AGREE. The
+        // one legal mixed combination (omit writer over a phrase buffer, which
+        // tests use to emit DOCS_ONLY from a generic buffer) has a docCode
+        // chain but wants bare deltas, so it falls through to the replay
+        // below, which decodes and re-encodes.
+        if (st.doc_count < static_cast<uint32_t>(_skip_interval) &&
+            buffer.OmitTfap() == _omit_tfap) {
             _slim_frq_scratch.clear();
             ByteSliceReader(buffer.Pool(), st.doc_start, st.doc_end)
                     .AppendRemainingTo(_slim_frq_scratch);
             _slim_prx_scratch.clear();
-            ByteSliceReader(buffer.Pool(), st.pos_start, st.pos_end)
-                    .AppendRemainingTo(_slim_prx_scratch);
+            if (!_omit_tfap) {
+                ByteSliceReader(buffer.Pool(), st.pos_start, st.pos_end)
+                        .AppendRemainingTo(_slim_prx_scratch);
+            }
             const FreqProxEncoder::FinishedTerm ft = _encoder.EmitSlimTermPreEncoded(
                     static_cast<int32_t>(st.doc_count), _slim_frq_scratch, _slim_prx_scratch);
             const std::string_view term_text = buffer.TermAt(term.text_ref);
@@ -219,12 +228,23 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
         ByteSliceReader freq_reader(buffer.Pool(), st.doc_start, st.doc_end);
         uint32_t prev_doc = 0;
         uint32_t emitted_occ = 0;
-        if (_omit_tfap) {
-            // DOCS_ONLY: the buffer never wrote a prox chain (st.pos_start ==
-            // st.pos_end == 0), so do NOT construct a prox reader and skip the
-            // AddPosition loop. The StartDoc(prev_doc, freq) call STAYS — the
-            // encoder ignores freq in omit mode and writes only the doc-delta
-            // VInt, so .frq is byte-identical. `freq` still advances emitted_occ.
+        if (_omit_tfap && buffer.OmitTfap()) {
+            // DOCS_ONLY buffer: the chain holds one bare doc-delta VInt per doc
+            // (no freq codes, no prox chain), so replay doc_count entries. This
+            // branch only runs for PFOR terms (df >= skip_interval — slim omit
+            // terms took the chain-copy fast path above); the encoder ignores
+            // freq in omit mode, so StartDoc(_, 1) reproduces the same bytes.
+            const uint32_t dc = st.doc_count;
+            for (uint32_t k = 0; k < dc; ++k) {
+                prev_doc += freq_reader.ReadVInt();
+                _encoder.StartDoc(static_cast<int32_t>(prev_doc), /*freq=*/1);
+                _encoder.FinishDoc();
+            }
+        } else if (_omit_tfap) {
+            // Omit WRITER over a PHRASE buffer (the test-supported mixed
+            // combination): decode the docCode chain, ignore freqs/positions,
+            // and emit bare doc deltas. The buffer's prox chain exists but is
+            // never read.
             while (emitted_occ < n) {
                 const uint64_t code = freq_reader.ReadVInt64();
                 prev_doc += static_cast<uint32_t>(code >> 1U);

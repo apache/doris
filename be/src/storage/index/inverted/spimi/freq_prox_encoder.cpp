@@ -540,9 +540,9 @@ FreqProxEncoder::FinishedTerm FreqProxEncoder::EmitSlimTermPreEncoded(
         int32_t doc_freq, const std::vector<uint8_t>& frq_block,
         const std::vector<uint8_t>& prx_raw) {
     DCHECK(!_term_open) << "EmitSlimTermPreEncoded with an open term";
-    DCHECK(!_omit_tfap) << "slim pre-encoded emit is phrase-on only";
     DCHECK_GT(doc_freq, 0);
     DCHECK_LT(doc_freq, _skip_interval) << "pre-encoded emit is for slim terms only";
+    DCHECK(!_omit_tfap || prx_raw.empty()) << "omit_tfap terms carry no prox bytes";
     if (_inline_capable) {
         // Fresh per-term block sinks, exactly like StartTerm.
         _stage_frq.Clear();
@@ -550,21 +550,26 @@ FreqProxEncoder::FinishedTerm FreqProxEncoder::EmitSlimTermPreEncoded(
     }
     FinishedTerm out;
     // Same pointer capture StartTerm performs: where the block lands in the
-    // REAL outputs if flushed externally (inline terms ignore these).
+    // REAL outputs if flushed externally (inline terms ignore these). In
+    // omit_tfap mode the prox stream is empty and every term's prox_pointer is
+    // 0 (the CLucene contract StartTerm mirrors).
     out.info.doc_freq = doc_freq;
     out.info.freq_pointer = _frq_real->FilePointer();
-    out.info.prox_pointer = _prx_out->FilePointer();
+    out.info.prox_pointer = _omit_tfap ? 0 : _prx_out->FilePointer();
     out.info.skip_offset = 0; // slim terms never write skip data
     out.info.is_slim = true;
     // The slim .frq block is the chain bytes verbatim (no codec byte, never
-    // ZSTD); the .prx block applies the same mode-byte + ZSTD policy
+    // ZSTD): phrase-on docCode VInts, or DOCS_ONLY bare doc-delta VInts. The
+    // .prx block (phrase-on only) applies the same mode-byte + ZSTD policy
     // FlushProxBlock applies to encoder-built bytes.
     if (!frq_block.empty()) {
         _frq_sink->WriteBytes(frq_block.data(), frq_block.size());
     }
-    FlushProxRaw(prx_raw.data(), prx_raw.size());
+    if (!_omit_tfap) {
+        FlushProxRaw(prx_raw.data(), prx_raw.size());
+    }
     out.frq = &_stage_frq.bytes();
-    out.prx = &_stage_prx.bytes();
+    out.prx = _omit_tfap ? nullptr : &_stage_prx.bytes();
     return out;
 }
 

@@ -180,6 +180,15 @@ int64_t SpimiFulltextWriter::EmitSegment(SpimiPostingBuffer& buffer, const Spimi
     DCHECK(omit_term_freq_and_positions || !buffer.OmitTfap())
             << "SPIMI omit_tfap desync: emit reads prox but buffer omitted it (buffer.OmitTfap()="
             << buffer.OmitTfap() << " emit_omit=" << omit_term_freq_and_positions << ")";
+    // Norms need per-OCCURRENCE doc lengths, but an omit_tfap buffer's chain
+    // stores one bare doc-delta per doc (no freq), so its materialized records
+    // are per-doc and ComputeDocLengths over them would undercount. Unreachable
+    // from production (V2/CLucene also omits norms for omit_tfap fields; V4
+    // always omits norms) — guard the combination so a future caller fails
+    // loudly instead of writing silently wrong norms.
+    DCHECK(omit_norms || !buffer.OmitTfap())
+            << "norms requested over an omit_tfap buffer: per-occurrence doc lengths are not "
+               "recoverable from the bare-delta chain";
 
     // Norms (.nrm) are derived from per-doc token lengths via
     // ComputeDocLengths(), which iterates buffer.records(). When norms will

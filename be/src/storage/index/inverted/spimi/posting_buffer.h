@@ -473,50 +473,64 @@ private:
         // chain when the doc closes (here on a new doc, or at FinalizeBlocks).
         if (state.occ_count == 0) [[unlikely]] {
             state.doc_start = state.doc_upto = _pool.NewSlice(); // freq chain
-            // The prox chain is dead in DOCS_ONLY (positions are discarded at
-            // emit and no .prx is ever written), so skip the NewSlice() and the
-            // per-token position VInt below. pos_start/pos_upto stay 0; emit
-            // detects omit_tfap and never constructs a prox reader.
-            if (!_omit_tfap) {
+            if (_omit_tfap) {
+                // DOCS_ONLY: the chain IS the on-disk slim block — one bare
+                // doc-delta VInt per doc (no freq flag, no freq, no prox
+                // chain), written EAGERLY at doc open. There is no deferred
+                // doc close (cur_doc_delta/cur_doc_freq stay unused) and the
+                // slim emit copies these bytes verbatim. delta[0] = doc_id - 0.
+                state.doc_upto = _pool.WriteVInt(state.doc_upto, doc_id);
+            } else {
                 state.pos_start = state.pos_upto = _pool.NewSlice(); // prox chain
                 state.last_pos = 0; // within-doc position-delta base for this doc
+                state.cur_doc_delta = doc_id; // delta from implicit 0
+                state.cur_doc_freq = 1;
             }
             state.last_doc = doc_id;
-            state.cur_doc_delta = doc_id; // delta from implicit 0
-            state.cur_doc_freq = 1;
             state.doc_count = 1;
         } else if (doc_id != state.last_doc) {
             if (doc_id < state.last_doc) [[unlikely]] {
                 _compact_streams_sorted = false;
             }
-            // Close the previous doc: write its (docCode, freq) to the freq chain.
-            // docCode = (doc_delta << 1) | (freq==1) is computed in uint64 and
-            // VInt64-coded — a full uint32 backward delta needs 33 bits, so a
-            // uint32 << 1 would drop the top bit and corrupt non-monotonic runs.
-            if (state.cur_doc_freq == 1) {
-                state.doc_upto = _pool.WriteVInt64(
-                        state.doc_upto, (static_cast<uint64_t>(state.cur_doc_delta) << 1U) | 1U);
+            if (_omit_tfap) {
+                // DOCS_ONLY: bare modular doc-delta, eagerly (matches the
+                // on-disk omit format byte for byte).
+                state.doc_upto = _pool.WriteVInt(state.doc_upto, doc_id - state.last_doc);
             } else {
-                state.doc_upto = _pool.WriteVInt64(
-                        state.doc_upto, static_cast<uint64_t>(state.cur_doc_delta) << 1U);
-                state.doc_upto = _pool.WriteVInt(state.doc_upto, state.cur_doc_freq);
+                // Close the previous doc: write its (docCode, freq) to the freq
+                // chain. docCode = (doc_delta << 1) | (freq==1) is computed in
+                // uint64 and VInt64-coded — a full uint32 backward delta needs
+                // 33 bits, so a uint32 << 1 would drop the top bit and corrupt
+                // non-monotonic runs.
+                if (state.cur_doc_freq == 1) {
+                    state.doc_upto = _pool.WriteVInt64(
+                            state.doc_upto,
+                            (static_cast<uint64_t>(state.cur_doc_delta) << 1U) | 1U);
+                } else {
+                    state.doc_upto = _pool.WriteVInt64(
+                            state.doc_upto, static_cast<uint64_t>(state.cur_doc_delta) << 1U);
+                    state.doc_upto = _pool.WriteVInt(state.doc_upto, state.cur_doc_freq);
+                }
+                state.cur_doc_delta = doc_id - state.last_doc; // modular delta (full uint32)
+                state.cur_doc_freq = 1;
+                state.last_pos = 0; // reset within-doc position-delta base
             }
-            state.cur_doc_delta = doc_id - state.last_doc; // modular delta (full uint32)
             state.last_doc = doc_id;
-            state.cur_doc_freq = 1;
             ++state.doc_count;
-            state.last_pos = 0; // reset within-doc position-delta base (no-op in omit)
         } else {
             // The position-monotonic check feeds `_compact_streams_sorted`, but
             // that only governs the prox re-sort — which is dead in DOCS_ONLY
             // (no positions are stored or decoded). Gate it under !_omit_tfap so
             // we don't read last_pos, which is no longer maintained in omit mode.
-            // The DOC-order check above (444) STAYS: doc-delta order still
-            // governs the .frq and the direct-emit-vs-sort decision.
-            if (!_omit_tfap && position < state.last_pos) [[unlikely]] {
-                _compact_streams_sorted = false;
+            // The DOC-order check above STAYS: doc-delta order still governs the
+            // .frq and the direct-emit-vs-sort decision. In omit mode a same-doc
+            // repeat writes nothing (the bare-delta chain has one entry per doc).
+            if (!_omit_tfap) {
+                if (position < state.last_pos) [[unlikely]] {
+                    _compact_streams_sorted = false;
+                }
+                ++state.cur_doc_freq;
             }
-            ++state.cur_doc_freq;
         }
         // Within-doc position delta per occurrence (Lucene-style). last_pos is
         // reset to 0 at each doc boundary, so the first position in a doc is
