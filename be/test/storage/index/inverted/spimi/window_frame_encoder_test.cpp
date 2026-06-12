@@ -626,10 +626,19 @@ TEST(WindowFrameEncoderTest, ByteIdentityGolden) {
     // production default (which skips ZSTD on small windows for write speed).
     const int64_t saved_zstd_min = config::inverted_index_spimi_zstd_min_window_bytes;
     config::inverted_index_spimi_zstd_min_window_bytes = 0;
+    // Also pin .frq ZSTD ON: the production default disables it (raw .frq /
+    // ZSTD .prx split) for write speed, but this golden locks the full-ZSTD
+    // output regardless of that default.
+    const bool saved_frq_zstd = config::inverted_index_spimi_frq_zstd_enable;
+    config::inverted_index_spimi_frq_zstd_enable = true;
     struct ZstdMinRestore {
         int64_t v;
-        ~ZstdMinRestore() { config::inverted_index_spimi_zstd_min_window_bytes = v; }
-    } restore {saved_zstd_min};
+        bool frq;
+        ~ZstdMinRestore() {
+            config::inverted_index_spimi_zstd_min_window_bytes = v;
+            config::inverted_index_spimi_frq_zstd_enable = frq;
+        }
+    } restore {saved_zstd_min, saved_frq_zstd};
     struct Case {
         const char* name;
         uint64_t digest;

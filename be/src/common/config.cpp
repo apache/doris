@@ -1309,9 +1309,12 @@ DEFINE_mBool(inverted_index_spimi_prx_zstd_enable, "true");
 // candidate framing), so turning it OFF is the recommended write-throughput
 // setting. The .prx framing is decoupled (inverted_index_spimi_prx_window_docs),
 // so a raw .frq no longer drags .prx into tiny incompressible windows — disabling
-// .frq keeps the disk win in .prx. ON by default to stay byte-identical with the
-// pre-split build; set false for the throughput-optimized split.
-DEFINE_mBool(inverted_index_spimi_frq_zstd_enable, "true");
+// .frq keeps the disk win in .prx. OFF by default for the throughput-optimized
+// split (raw .frq / ZSTD .prx): measured +17~38% write throughput on short/medium
+// docs (V4≈V2) at the cost of httplogs-class .idx +10.7% (most corpora flat or
+// smaller, since 73-81% of the ZSTD disk win lives in .prx). Set true to restore
+// the pre-split byte-identical full-ZSTD build.
+DEFINE_mBool(inverted_index_spimi_frq_zstd_enable, "false");
 // Target docs per .prx (positions) window, DECOUPLED from the .frq adaptive-W
 // framing. The .prx window step k_prx = clamp(this / 256, 1, num_units), so the
 // .prx window count is a function of df + this knob ALONE — never of the .frq
