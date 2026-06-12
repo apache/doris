@@ -142,6 +142,55 @@ under the License.
             <artifactId>hive-common</artifactId>
         </dependency>
 
+        <!-- RC-5: bundle the 2.x Thrift metastore client (RetryingMetaStoreClient / HiveMetaStoreClient /
+             HiveMetaHookLoader + metastore api) child-first so its getProxy(HiveConf,...) overloads are
+             compiled against the SAME org.apache.hadoop.hive.conf.HiveConf the connector's
+             RetryingMetaStoreClientFactory probes from the child-bundled hive-common-2.3.9 + hadoop-common.
+             Without it those classes resolve from the parent hive-catalog-shade-3.1.1 (Configuration-based
+             getProxy only) -> Class-identity mismatch -> every reflective probe throws NoSuchMethodException
+             -> "Failed to create the desired metastore client". 2.3.7 is the only 2.x metastore line in the
+             repo and pairs with hive-common 2.3.9 (patch-level, API-stable HiveConf); the jar is
+             fastutil-CLEAN, so unlike hive-catalog-shade it does NOT reintroduce the fastutil collision.
+             Bundle ONLY the client+api closure (libfb303 rides transitively); exclude server-side
+             datanucleus/derby/bonecp/HikariCP/jdo/hbase/tephra, the stale hadoop-2.7.2 trio + guava, and
+             libthrift (stays parent-first like the other connectors). NOTE: thrift 0.9.3-vs-host-0.16.0 wire
+             skew + the DLF ProxyMetaStoreClient path are not statically provable — gated by the docker
+             paimon suite (enablePaimonTest=true). -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-metastore</artifactId>
+            <version>2.3.7</version>
+            <exclusions>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-hdfs</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-serde</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-shims</artifactId></exclusion>
+                <exclusion><groupId>org.apache.thrift</groupId><artifactId>libthrift</artifactId></exclusion>
+                <exclusion><groupId>com.google.guava</groupId><artifactId>guava</artifactId></exclusion>
+                <exclusion><groupId>com.google.protobuf</groupId><artifactId>protobuf-java</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-api-jdo</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-core</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-rdbms</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>javax.jdo</artifactId></exclusion>
+                <exclusion><groupId>javax.jdo</groupId><artifactId>jdo-api</artifactId></exclusion>
+                <exclusion><groupId>org.apache.derby</groupId><artifactId>derby</artifactId></exclusion>
+                <exclusion><groupId>com.jolbox</groupId><artifactId>bonecp</artifactId></exclusion>
+                <exclusion><groupId>com.zaxxer</groupId><artifactId>HikariCP</artifactId></exclusion>
+                <exclusion><groupId>commons-dbcp</groupId><artifactId>commons-dbcp</artifactId></exclusion>
+                <exclusion><groupId>commons-pool</groupId><artifactId>commons-pool</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hbase</groupId><artifactId>hbase-client</artifactId></exclusion>
+                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-api</artifactId></exclusion>
+                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-core</artifactId></exclusion>
+                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-hbase-compat-1.0</artifactId></exclusion>
+                <exclusion><groupId>ch.qos.logback</groupId><artifactId>logback-classic</artifactId></exclusion>
+                <exclusion><groupId>ch.qos.logback</groupId><artifactId>logback-core</artifactId></exclusion>
+                <exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-log4j12</artifactId></exclusion>
+                <exclusion><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
