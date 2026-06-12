@@ -960,6 +960,10 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            setStatementContext(((LogicalPlanAdapter) parsedStmt).getStatementContext());
+        }
+        statementContext.setParsedStatement(parsedStmt);
     }
 
     public void finalizeQuery() {
