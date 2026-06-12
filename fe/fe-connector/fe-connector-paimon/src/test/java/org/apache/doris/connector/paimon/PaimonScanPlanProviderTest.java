@@ -59,6 +59,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -267,7 +268,7 @@ public class PaimonScanPlanProviderTest {
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap());
+                file, dv, "parquet", Collections.emptyMap(), 0L, 100L);
 
         // WHY: BE's scheme-dispatched S3 file factory only opens canonical s3://. An un-normalized
         // oss:// DATA-file path fails the native ORC/Parquet read outright; an un-normalized oss:// DV
@@ -291,7 +292,8 @@ public class PaimonScanPlanProviderTest {
                 new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
 
         PaimonScanRange range = provider.buildNativeRange(
-                parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet", Collections.emptyMap());
+                parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
+                Collections.emptyMap(), 0L, 100L);
 
         // WHY: a DV-less native split must still normalize its data-file path and must NOT emit a DV
         // descriptor. MUTATION: emitting a deletion_file for a null DV, or skipping data normalization -> red.
@@ -310,7 +312,8 @@ public class PaimonScanPlanProviderTest {
                 new HashMap<>(), new RecordingPaimonCatalogOps());
 
         PaimonScanRange range = provider.buildNativeRange(
-                parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet", Collections.emptyMap());
+                parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
+                Collections.emptyMap(), 0L, 100L);
 
         // MUTATION: NPE on null context, or fabricating a normalized path from nothing -> red.
         Assertions.assertEquals("oss://bkt/a/part-0.parquet", range.getPath().orElse(null));
@@ -607,6 +610,211 @@ public class PaimonScanPlanProviderTest {
                         "without count pushdown no range may carry a pushed-down row count");
             }
         }
+    }
+
+    // ---- FIX-NATIVE-SUBSPLIT (M-3) ----
+
+    private static final long MB = 1024L * 1024L;
+
+    /** Asserts the [start,length] ranges tile [0, fileLength) with no gap/overlap and positive lengths. */
+    private static void assertContiguousTiling(List<long[]> ranges, long fileLength) {
+        long expectedStart = 0;
+        for (long[] r : ranges) {
+            Assertions.assertEquals(expectedStart, r[0],
+                    "ranges must tile contiguously with no gap/overlap");
+            Assertions.assertTrue(r[1] > 0, "every range length must be positive");
+            expectedStart += r[1];
+        }
+        Assertions.assertEquals(fileLength, expectedStart, "ranges must cover exactly [0, fileLength)");
+    }
+
+    @Test
+    public void computeFileSplitOffsetsTilesWithOneTenthTailGuard() {
+        // 250MB / 64MB: the >1.1D guard keeps the 58MB remainder in the LAST range (no tiny 5th split) —
+        // byte-identical to legacy FileSplitter.splitFile. MUTATION: naive ceilDiv -> a 5th 58MB-or-tiny
+        // split / wrong last length -> red.
+        List<long[]> s = PaimonScanPlanProvider.computeFileSplitOffsets(250 * MB, 64 * MB);
+        Assertions.assertEquals(4, s.size(),
+                "250MB/64MB -> 4 ranges (the 1.1x tail guard absorbs the 58MB remainder)");
+        assertContiguousTiling(s, 250 * MB);
+        Assertions.assertEquals(64 * MB, s.get(0)[1]);
+        Assertions.assertEquals(58 * MB, s.get(3)[1], "last range absorbs the remainder (58MB < 1.1x target)");
+
+        // 256MB / 64MB: exact multiple -> 4 even ranges (the last is exactly 64MB, not 0).
+        List<long[]> even = PaimonScanPlanProvider.computeFileSplitOffsets(256 * MB, 64 * MB);
+        Assertions.assertEquals(4, even.size());
+        assertContiguousTiling(even, 256 * MB);
+        Assertions.assertEquals(64 * MB, even.get(3)[1]);
+    }
+
+    @Test
+    public void computeFileSplitOffsetsKeepsSmallOrEmptyFilesCorrect() {
+        // fileLen <= 1.1*target -> ONE whole-file range (the 1.1x guard avoids a tiny tail).
+        List<long[]> small = PaimonScanPlanProvider.computeFileSplitOffsets(70 * MB, 64 * MB);
+        Assertions.assertEquals(1, small.size(), "70MB <= 1.1*64MB -> one whole-file range");
+        Assertions.assertArrayEquals(new long[] {0L, 70 * MB}, small.get(0));
+
+        // zero/negative length -> no range (legacy FileSplitter skips empty files).
+        Assertions.assertTrue(PaimonScanPlanProvider.computeFileSplitOffsets(0L, 64L).isEmpty());
+        Assertions.assertTrue(PaimonScanPlanProvider.computeFileSplitOffsets(-5L, 64L).isEmpty());
+
+        // non-positive target -> single whole-file range (defensive; never happens on the connector path).
+        List<long[]> defensive = PaimonScanPlanProvider.computeFileSplitOffsets(123L, 0L);
+        Assertions.assertEquals(1, defensive.size());
+        Assertions.assertArrayEquals(new long[] {0L, 123L}, defensive.get(0));
+    }
+
+    @Test
+    public void determineTargetSplitSizeMirrorsLegacyHeuristic() {
+        long init = 32 * MB;   // max_initial_file_split_size default
+        long max = 64 * MB;    // max_file_split_size default
+        long initNum = 200;    // max_initial_file_split_num default
+        long maxNum = 100000;  // max_file_split_num default
+
+        // file_split_size > 0 wins outright (legacy: the explicit override short-circuit).
+        Assertions.assertEquals(7L,
+                PaimonScanPlanProvider.determineTargetSplitSize(7L, init, max, initNum, maxNum, 999L * MB));
+        // total below max*initNum (64MB*200 = 12800MB) -> initial split size (32MB).
+        Assertions.assertEquals(init,
+                PaimonScanPlanProvider.determineTargetSplitSize(0L, init, max, initNum, maxNum, 1024L * MB));
+        // total at/above max*initNum -> max split size (64MB).
+        Assertions.assertEquals(max,
+                PaimonScanPlanProvider.determineTargetSplitSize(0L, init, max, initNum, maxNum, 20000L * MB));
+        // max_file_split_num floor raises the size above the heuristic: ceil(total/maxNum) > 64MB.
+        long hugeTotal = 10_000_000L * MB;   // ceil(/100000) = 100MB > 64MB
+        Assertions.assertEquals((hugeTotal + maxNum - 1L) / maxNum,
+                PaimonScanPlanProvider.determineTargetSplitSize(0L, init, max, initNum, maxNum, hugeTotal),
+                "max_file_split_num floor (ceil(total/maxNum)) must raise the target above 64MB");
+    }
+
+    @Test
+    public void nativeFileIsSubSplitWhenFileSplitSizeForcesIt(@TempDir Path warehouse) throws Exception {
+        // An append-only (no-PK) table yields a native-eligible raw file; a small file_split_size forces
+        // that single file to slice into >=2 contiguous sub-ranges end-to-end through planScan.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .build(), false);   // no primary key -> append-only -> convertToRawFiles present
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                for (int i = 0; i < 200; i++) {
+                    write.write(GenericRow.of(i, (long) i * 10));
+                }
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            // Precondition: exactly ONE native raw file, so the contiguous-tiling check is over one file.
+            List<RawFile> rawFiles = new ArrayList<>();
+            for (Split s : table.newReadBuilder().newScan().plan().splits()) {
+                if (s instanceof DataSplit) {
+                    ((DataSplit) s).convertToRawFiles().ifPresent(rawFiles::addAll);
+                }
+            }
+            Assertions.assertEquals(1, rawFiles.size(),
+                    "fixture precondition: append-only commit must yield exactly one native raw file");
+            long fileLength = rawFiles.get(0).length();
+            Assertions.assertTrue(fileLength > 0, "fixture raw file must be non-empty");
+            long splitSize = Math.max(1L, fileLength / 3);   // ~3 sub-ranges
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // Small file_split_size -> the single native file MUST sub-split into >=2 contiguous ranges.
+            // WHY: this is the whole fix — one scanner per large file becomes N parallel sub-ranges.
+            // MUTATION: neuter computeFileSplitOffsets to a single whole-file range -> nativeRanges==1 -> red.
+            ConnectorSession splitting = sessionWithProps(
+                    Collections.singletonMap("file_split_size", String.valueOf(splitSize)));
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    splitting, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            List<ConnectorScanRange> nativeRanges = new ArrayList<>();
+            for (ConnectorScanRange r : ranges) {
+                if (r.getPath().isPresent()) {   // native ranges carry a file path; JNI ranges do not
+                    nativeRanges.add(r);
+                }
+            }
+            Assertions.assertTrue(nativeRanges.size() >= 2,
+                    "a small file_split_size must sub-split the native file into >=2 ranges, got "
+                            + nativeRanges.size());
+            nativeRanges.sort(Comparator.comparingLong(ConnectorScanRange::getStart));
+            long expectedStart = 0;
+            for (ConnectorScanRange r : nativeRanges) {
+                Assertions.assertEquals(expectedStart, r.getStart(),
+                        "native sub-ranges must tile [0, fileLength) contiguously");
+                Assertions.assertTrue(r.getLength() > 0, "every sub-range length must be positive");
+                Assertions.assertEquals(fileLength, r.getFileSize(),
+                        "every sub-range must report the WHOLE file size, not the sub-range length");
+                expectedStart += r.getLength();
+            }
+            Assertions.assertEquals(fileLength, expectedStart,
+                    "native sub-ranges must cover exactly [0, fileLength)");
+
+            // Contrast: with the default (large) split size the small file stays a SINGLE native range.
+            List<ConnectorScanRange> whole = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()), handle, noColumns, Optional.empty(),
+                    -1, null, false);
+            long wholeNative = whole.stream().filter(r -> r.getPath().isPresent()).count();
+            Assertions.assertEquals(1, wholeNative,
+                    "with the default 32MB+ split size the small fixture file stays one native range");
+        }
+    }
+
+    @Test
+    public void buildNativeRangesAttachesSameDeletionVectorToEverySubRange() {
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+        RawFile file = parquetRawFile("oss://bkt/a/part-0.parquet");
+        DeletionFile dv = new DeletionFile("oss://bkt/a/index/dv-0.index", 8L, 16L, 4L);
+        long target = Math.max(1L, file.length() / 3);   // force the file to sub-split into >=2 ranges
+
+        List<PaimonScanRange> ranges = provider.buildNativeRanges(
+                file, dv, "parquet", Collections.emptyMap(), target);
+
+        // WHY: the load-bearing correctness claim of FIX-NATIVE-SUBSPLIT — a paimon deletion vector is a
+        // bitmap of GLOBAL file row positions, so EVERY sub-range of a DV-bearing file must carry the
+        // same (unmodified) deletion file. If sub-ranges 2..N dropped it, their deleted rows would
+        // reappear (merge-on-read corruption). MUTATION: attaching the DV only to the first (or last)
+        // sub-range, or dropping it on sub-ranges -> a sub-range with a null/!= deletion_file.path -> red.
+        Assertions.assertTrue(ranges.size() >= 2,
+                "fixture must sub-split into >=2 ranges, got " + ranges.size());
+        String expectedDv = ranges.get(0).getProperties().get("paimon.deletion_file.path");
+        Assertions.assertNotNull(expectedDv,
+                "the DV-bearing file's sub-ranges must carry a deletion file");
+        for (PaimonScanRange r : ranges) {
+            Assertions.assertEquals(expectedDv, r.getProperties().get("paimon.deletion_file.path"),
+                    "every native sub-range must carry the same deletion vector (global-row-position DV)");
+        }
+    }
+
+    @Test
+    public void buildNativeRangesKeepsFileWholeWhenTargetNonPositive() {
+        // Under COUNT(*) pushdown the native arm passes target size 0 so a native split that was NOT
+        // siphoned to the count arm (no precomputed merged count) is kept WHOLE — legacy parity
+        // (splittable=!applyCountPushdown). MUTATION: sub-splitting under count pushdown -> >1 range -> red.
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps());
+        RawFile file = parquetRawFile("oss://bkt/a/part-0.parquet");
+
+        List<PaimonScanRange> ranges = provider.buildNativeRanges(
+                file, null, "parquet", Collections.emptyMap(), 0L);
+
+        Assertions.assertEquals(1, ranges.size(),
+                "a non-positive target (COUNT(*) pushdown) must keep the file as one whole-file range");
+        Assertions.assertEquals(0L, ranges.get(0).getStart());
+        Assertions.assertEquals(file.length(), ranges.get(0).getLength(),
+                "the whole-file range must span the entire file");
     }
 
     private static ConnectorSession sessionWithProps(Map<String, String> sessionProps) {

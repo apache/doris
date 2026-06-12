@@ -140,6 +140,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // bypassing the native ORC/Parquet readers to dodge native-reader bugs. Default false (legacy default).
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
+    // MAX_INITIAL_FILE_SPLIT_SIZE, MAX_FILE_SPLIT_SIZE, MAX_INITIAL_FILE_SPLIT_NUM, MAX_FILE_SPLIT_NUM}),
+    // read via the same VariableMgr.toMap channel as ENABLE_PAIMON_CPP_READER. They drive the native
+    // sub-split target size, mirroring legacy PaimonScanNode.determineTargetFileSplitSize without
+    // importing fe-core SessionVariable/FileSplitter. Defaults below are byte-identical to SessionVariable.
+    private static final String FILE_SPLIT_SIZE = "file_split_size";
+    private static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
+    private static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
+    private static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
+    private static final String MAX_FILE_SPLIT_NUM = "max_file_split_num";
+    private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE = 32L * 1024 * 1024;
+    private static final long DEFAULT_MAX_FILE_SPLIT_SIZE = 64L * 1024 * 1024;
+    private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM = 200L;
+    private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
+
     // FIX-SCHEMA-EVOLUTION (B-1a): scan-level prop carrying the base64 TBinaryProtocol-serialized
     // schema dictionary (a throwaway TFileScanRangeParams holding current_schema_id +
     // history_schema_info). getScanNodeProperties builds it from the live table; populateScanLevelParams
@@ -347,6 +362,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         long countSum = 0;
         DataSplit countRepresentative = null;
 
+        // FIX-NATIVE-SUBSPLIT: target file split size for native ORC/Parquet sub-splitting, computed
+        // lazily ONCE on the first native split (legacy hasDeterminedTargetFileSplitSize parity).
+        long targetSplitSize = -1;
+
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
@@ -365,14 +384,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             if (shouldUseNativeReader(paimonHandle.isForceJni(),
                     isForceJniScannerEnabled(session), optRawFiles)) {
-                // Native reader path
+                // Native reader path: sub-split large ORC/Parquet files for read parallelism
+                // (FIX-NATIVE-SUBSPLIT), mirroring legacy fileSplitter.splitFile. Under COUNT(*) pushdown
+                // legacy passes splittable=!applyCountPushdown, so a native split that reaches this arm
+                // (i.e. NOT siphoned to the count arm because its merged count is not precomputed — e.g. a
+                // DV with null cardinality) is kept WHOLE. We mirror that by passing target size 0, which
+                // makes buildNativeRanges emit a single whole-file range; the target heuristic is then not
+                // needed (and not computed) under count pushdown.
+                if (!countPushdown && targetSplitSize < 0) {
+                    targetSplitSize = resolveTargetSplitSize(session, dataSplits);
+                }
+                long effectiveSplitSize = countPushdown ? 0L : targetSplitSize;
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
+                    RawFile file = rawFiles.get(i);
                     DeletionFile deletionFile =
                             (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
                                     ? optDeletionFiles.get().get(i) : null;
-                    ranges.add(buildNativeRange(
-                            rawFiles.get(i), deletionFile, defaultFileFormat, partitionValues));
+                    ranges.addAll(buildNativeRanges(file, deletionFile, defaultFileFormat,
+                            partitionValues, effectiveSplitSize));
                 }
             } else {
                 // JNI reader path
@@ -403,12 +433,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * unit-testable without a live deletion-vector-bearing split.
      */
     PaimonScanRange buildNativeRange(RawFile file, DeletionFile deletionFile,
-            String defaultFileFormat, Map<String, String> partitionValues) {
+            String defaultFileFormat, Map<String, String> partitionValues, long start, long length) {
         String fileFormat = getFileFormatBySuffix(file.path()).orElse(defaultFileFormat);
         PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
                 .path(normalizeUri(file.path()))
-                .start(0)
-                .length(file.length())
+                .start(start)
+                .length(length)
                 .fileSize(file.length())
                 .fileFormat(fileFormat)
                 .partitionValues(partitionValues)
@@ -418,6 +448,27 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     normalizeUri(deletionFile.path()), deletionFile.offset(), deletionFile.length());
         }
         return builder.build();
+    }
+
+    /**
+     * Builds the native sub-range(s) for one raw ORC/Parquet file (FIX-NATIVE-SUBSPLIT): slices it at
+     * {@code targetSplitSize} via {@link #computeFileSplitOffsets} and emits one {@link PaimonScanRange}
+     * per {@code [start, length)} sub-range. The SAME per-file deletion vector is attached to EVERY
+     * sub-range — BE indexes the DV by GLOBAL file row position, so disjoint sub-ranges share the
+     * unmodified deletion file (no offset re-basing); attaching it to only some sub-ranges would let
+     * deleted rows reappear in the others (merge-on-read corruption). A non-positive
+     * {@code targetSplitSize} yields a single whole-file range (used under COUNT(*) pushdown, where
+     * legacy keeps the split whole via {@code splittable=!applyCountPushdown}). Package-private so the
+     * DV-on-every-sub-range invariant is unit-testable without a live DV-bearing split.
+     */
+    List<PaimonScanRange> buildNativeRanges(RawFile file, DeletionFile deletionFile,
+            String defaultFileFormat, Map<String, String> partitionValues, long targetSplitSize) {
+        List<PaimonScanRange> result = new ArrayList<>();
+        for (long[] offset : computeFileSplitOffsets(file.length(), targetSplitSize)) {
+            result.add(buildNativeRange(
+                    file, deletionFile, defaultFileFormat, partitionValues, offset[0], offset[1]));
+        }
+        return result;
     }
 
     /**
@@ -593,6 +644,108 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .selfSplitWeight(computeSplitWeight(dataSplit))
                 .rowCount(rowCount)
                 .build();
+    }
+
+    /**
+     * Slices a native data file into {@code [start, length]} sub-ranges for read parallelism
+     * (FIX-NATIVE-SUBSPLIT), porting the specified-size branch of legacy {@code FileSplitter.splitFile}
+     * (the connector has no block locations, so the block-based branch is never reached). Byte-identical
+     * to {@code FileSplitter.java:129-144}, including the
+     * <b>{@code > 1.1D} tail guard</b> — the LAST range absorbs a remainder of up to 1.1&times; the
+     * target instead of emitting a tiny tail split (a naive {@code ceilDiv} would differ). The ranges
+     * tile {@code [0, fileLength)} contiguously with no gap/overlap. A zero/negative file length yields
+     * no range (legacy skips empty files); a non-positive target yields a single whole-file range —
+     * used under COUNT(*) pushdown (see {@link #buildNativeRanges}, where legacy keeps the split whole
+     * via {@code splittable=!applyCountPushdown}); {@link #determineTargetSplitSize} otherwise never
+     * returns &le; 0. Pure static so the offset math is unit-testable against the fe-core source it ports.
+     */
+    static List<long[]> computeFileSplitOffsets(long fileLength, long targetSplitSize) {
+        List<long[]> result = new ArrayList<>();
+        if (fileLength <= 0) {
+            return result;
+        }
+        if (targetSplitSize <= 0) {
+            result.add(new long[] {0L, fileLength});
+            return result;
+        }
+        long bytesRemaining;
+        for (bytesRemaining = fileLength;
+                (double) bytesRemaining / (double) targetSplitSize > 1.1D;
+                bytesRemaining -= targetSplitSize) {
+            result.add(new long[] {fileLength - bytesRemaining, targetSplitSize});
+        }
+        if (bytesRemaining != 0L) {
+            result.add(new long[] {fileLength - bytesRemaining, bytesRemaining});
+        }
+        return result;
+    }
+
+    /**
+     * Computes the native target file split size, porting legacy
+     * {@code PaimonScanNode.determineTargetFileSplitSize} + {@code FileQueryScanNode.applyMaxFileSplitNumLimit}
+     * with plain longs (the connector cannot import {@code SessionVariable}). The legacy
+     * {@code isBatchMode -> 0} branch is omitted: paimon is never batch-mode on the plugin path. Pure
+     * static so the heuristic is unit-testable.
+     */
+    static long determineTargetSplitSize(long fileSplitSize, long maxInitialSplitSize, long maxSplitSize,
+            long maxInitialSplitNum, long maxFileSplitNum, long totalNativeFileSize) {
+        if (fileSplitSize > 0) {
+            return fileSplitSize;
+        }
+        long result = (totalNativeFileSize >= maxSplitSize * maxInitialSplitNum)
+                ? maxSplitSize : maxInitialSplitSize;
+        if (maxFileSplitNum > 0 && totalNativeFileSize > 0) {
+            long minSplitSizeForMaxNum = (totalNativeFileSize + maxFileSplitNum - 1L) / maxFileSplitNum;
+            result = Math.max(result, minSplitSizeForMaxNum);
+        }
+        return result;
+    }
+
+    /**
+     * Reads the 5 file-split session vars (VariableMgr.toMap channel) and sums the native-eligible
+     * file sizes across {@code dataSplits}, then delegates to the pure-static
+     * {@link #determineTargetSplitSize}. Mirrors legacy {@code determineTargetFileSplitSize}'s
+     * once-per-scan computation (summing every {@code supportNativeReader}-eligible RawFile, like
+     * {@code PaimonScanNode.java:552-564}).
+     */
+    private long resolveTargetSplitSize(ConnectorSession session, List<DataSplit> dataSplits) {
+        long totalNativeFileSize = 0;
+        for (DataSplit dataSplit : dataSplits) {
+            Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
+            if (!supportNativeReader(rawFiles)) {
+                continue;
+            }
+            for (RawFile file : rawFiles.get()) {
+                totalNativeFileSize += file.fileSize();
+            }
+        }
+        return determineTargetSplitSize(
+                sessionLong(session, FILE_SPLIT_SIZE, 0L),
+                sessionLong(session, MAX_INITIAL_FILE_SPLIT_SIZE, DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE),
+                sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE),
+                sessionLong(session, MAX_INITIAL_FILE_SPLIT_NUM, DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM),
+                sessionLong(session, MAX_FILE_SPLIT_NUM, DEFAULT_MAX_FILE_SPLIT_NUM),
+                totalNativeFileSize);
+    }
+
+    /**
+     * Reads a long session var from the SPI session properties (VariableMgr.toMap channel), falling
+     * back to {@code defaultValue} when absent/blank/unparseable. Mirrors the null-tolerant
+     * {@link #isCppReaderEnabled} pattern.
+     */
+    private static long sessionLong(ConnectorSession session, String key, long defaultValue) {
+        if (session == null) {
+            return defaultValue;
+        }
+        String value = session.getSessionProperties().get(key);
+        if (value == null || value.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     private long computeSplitWeight(DataSplit dataSplit) {
