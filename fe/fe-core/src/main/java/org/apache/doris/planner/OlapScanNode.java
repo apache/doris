@@ -1750,7 +1750,7 @@ public class OlapScanNode extends ScanNode {
         if (scanParams == null) {
             return TBinlogScanType.NONE;
         }
-        TBinlogScanType scanType = TBinlogScanType.DETAIL;
+        TBinlogScanType scanType = TBinlogScanType.MIN_DELTA;
         if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_INCREMENT_TYPE)) {
             String info = scanParams.getMapParams().get(OlapScanNode.OLAP_INCREMENT_TYPE).toUpperCase();
             if ("APPEND_ONLY".equals(info) || olapTable.getKeysType() == KeysType.DUP_KEYS) {

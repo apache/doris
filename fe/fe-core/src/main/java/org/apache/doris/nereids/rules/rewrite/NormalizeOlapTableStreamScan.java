@@ -239,4 +239,3 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         return new LogicalProject<>(project, plan);
     }
 }
-

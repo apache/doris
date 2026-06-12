@@ -276,14 +276,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // This tabletIds is set manually, so need to set specifiedTabletIds
             scan = scan.withManuallySpecifiedTabletIds(tabletIds);
         }
-        if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
-            return scan.withPreAggStatus(PreAggStatus.on());
-        }
         if (isChangeRead) {
+            if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
+                throw new AnalysisException(
+                        "PREAGGOPEN hint is not supported on @incr (change-read) scans.");
+            }
             StreamScanType scanType = checkChangeScanCondition(((OlapTableWrapper) table).getOriginTable(),
                     unboundRelation.getScanParams());
             scan = scan.withTableScanParams(unboundRelation.getScanParams());
             return checkAndAddChangeScanFilter(scan, scanType, parseTimestampRange(unboundRelation.getScanParams()));
+        }
+        if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
+            return scan.withPreAggStatus(PreAggStatus.on());
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table

@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 
@@ -760,8 +759,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             return getOutputByIndex(selectedIndexId);
         }
         List<Column> baseSchema = table.getBaseSchema(true);
-        boolean skipBinlogBeforeColumn = scanParams.isPresent()
-                && scanParams.get().getMapParams().get(OlapScanNode.OLAP_INCREMENT_TYPE) != null;
+        boolean skipBinlogBeforeColumn = scanParams.isPresent() && scanParams.get().incrementalRead();
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema, skipBinlogBeforeColumn);
 
         Builder<Slot> slots = ImmutableList.builder();

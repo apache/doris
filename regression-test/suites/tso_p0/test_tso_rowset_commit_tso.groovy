@@ -34,7 +34,7 @@ suite("test_tso_rowset_commit_tso", "nonConcurrent") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES ("replication_num" = "1",
                         "binlog.enable" = "true",
-                        "binlog.format" = "ROW", 
+                        "binlog.format" = "ROW",
                         "disable_auto_compaction" = "true")
         """
 

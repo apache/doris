@@ -782,7 +782,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("3", dupDetailRows[0][0].toString())
         assertEquals("30", dupDetailRows[0][1].toString())
         assertEquals("0", dupDetailRows[0][2].toString())
-    
+
         def dupMinDeltaRows =  sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrDupBase}@incr('startTimestamp' = '${dupStartTimestamp}',
@@ -816,7 +816,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql "INSERT INTO ${incrMowNoHistoryBase} VALUES (1, 11)"
         sql "sync"
         sleep(1200)
-        
+
         def mowNoHistoryDetailRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrMowNoHistoryBase}@incr('startTimestamp' = '${mowNoHistoryStartTimestamp}',
