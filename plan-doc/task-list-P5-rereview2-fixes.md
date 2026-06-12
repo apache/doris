@@ -29,7 +29,7 @@
 | 4 | FIX-JDBC-DRIVER-URL | BLOCKER | B-8a + B-8b | resolve+alias `jdbc.driver_url` for BE; enforce security allow-list | no² | ✅ | ✅ | ✅ 232/0/0 | ✅ `2d15b1b7ed7` |
 | 5 | FIX-MAPPING-FLAG-KEYS | MAJOR | M-crit | dotted-vs-underscore type-mapping flag keys (wrong type) | no | ✅ | ✅ | ✅ 234/0/0 | ✅ `9dcf6d1a9e5` |
 | 6 | FIX-KERBEROS-DOAS | MAJOR | M-8 + M-11 | M-8: wire HDFS authenticator for fs/jdbc (fe-core); M-11: wrap ALL read RPCs in `executeAuthenticated` (connector, full legacy parity) | no³ | ✅ | ✅ | ✅ 248/0/0 + 21/0/0 | ✅ `2b1442fa57a` |
-| 7 | FIX-FORCE-JNI-SCANNER | MAJOR | M-1 | honor `force_jni_scanner` session var on connector scan | no | ⬜ | ⬜ | ⬜ | ⬜ |
+| 7 | FIX-FORCE-JNI-SCANNER | MAJOR | M-1 | honor `force_jni_scanner` session var on connector scan | no | ✅ | ✅ | ✅ 250/0/0 | ✅ `05132a42668` |
 | 8 | FIX-COUNT-PUSHDOWN | MAJOR* | M-2 | FE-computed `mergedRowCount` / `paimon.row_count` (perf) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 | 9 | FIX-NATIVE-SUBSPLIT | MAJOR* | M-3 | native ORC/Parquet sub-file splitting (parallelism) | maybe | ⬜ | ⬜ | ⬜ | ⬜ |
 
@@ -97,6 +97,7 @@ Legend: ⬜ todo / 🔄 in progress / ✅ done
 - **Finding**: M-1. Connector reads only `paimonHandle.isForceJni()` (binlog/audit flag), never the session `force_jni_scanner`; native always chosen for ORC/Parquet. The JNI escape hatch (used to dodge native-reader bugs — incl. the B2 schema-evolution one) is gone.
 - **Connector**: `PaimonScanPlanProvider.java:261,439-441` (`shouldUseNativeReader`). **Legacy**: `source/PaimonScanNode.java:361,430` (`sessionVariable.isForceJniScanner()` gate).
 - **Fix sketch**: read `force_jni_scanner` from the session-properties map (the var is already in it — connector reads sibling `enable_paimon_cpp_reader` from there) and route all data splits to JNI when set. Pure connector.
+- **✅ DONE** `05132a42668` (design [`P5-fix-FORCE-JNI-SCANNER-design.md`](./tasks/designs/P5-fix-FORCE-JNI-SCANNER-design.md)). Re-verified vs current code (4-scout + synthesizer workflow); finding confirmed, current sites = `PaimonScanPlanProvider.java:295` (router) + `:436` (schema-evo emit gate). **Site A** (correctness): new `isForceJniScannerEnabled(session)` (mirror of `isCppReaderEnabled`, key `force_jni_scanner`) → `shouldUseNativeReader` gains an explicit `forceJniScanner` param (mirrors legacy's 3-boolean gate `PaimonScanNode.java:430` 1:1; handle name-force is OR-sibling, never replaced). **Site B** (correctness-neutral): suppress the native-only `paimon.schema_evolution` dict when force-JNI (BE consumes it only on native ORC/Parquet ranges — verified `paimon_reader.cpp`/`file_scanner.cpp:1045-1058`). Pure connector, **zero SPI**, no fe-core import, no BE param (legacy serializes none). UT 250/0/0 (+1 CI skip), fail-before two-test-red verified, import-gate + checkstyle clean. Real BE reader selection = CI-gated live-e2e only.
 
 ---
 
