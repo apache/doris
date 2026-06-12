@@ -125,11 +125,17 @@ protected:
     int64_t _nested_build_level_cursor = 0;
 };
 
-// Parquet column reader 工厂。
-// 工厂绑定当前 row group，并根据 file-local schema tree 创建 Doris 自己的 column
-// reader。Arrow internal RecordReader 的创建和缓存必须封装在这里，避免泄露到
-// ParquetReader 主流程。后续 reader options、Dremel assembler、延时物化 cache/skip
-// 策略都应挂在该工厂上下文里，而不是继续扩展自由函数参数。
+// Creates Doris column readers for one Parquet row group.
+//
+// The factory owns row-group-local state that must be shared by all readers created for
+// the same row group:
+// - Arrow RecordReader instances, cached by file leaf column id.
+// - Page skip plans and page skip profile counters.
+// - Scalar materialization options such as timezone and strict mode.
+//
+// Public callers only ask for a top-level file column reader or for synthetic scan
+// columns. Recursive construction of nested children stays private so physical Parquet
+// schema details do not leak into ParquetScanScheduler or ParquetReader.
 class ParquetColumnReaderFactory {
 public:
     ParquetColumnReaderFactory(std::shared_ptr<::parquet::RowGroupReader> row_group,
@@ -140,8 +146,9 @@ public:
                                bool enable_strict_mode = false,
                                ParquetColumnReaderProfile column_reader_profile = {});
 
-    // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
-    // children。该入口只理解 Parquet file schema，不处理 table/global schema。
+    // Creates a reader for a top-level file column schema. The optional projection uses
+    // file-local child ids from ParquetColumnSchema and may select only part of a nested
+    // subtree. Table/global schema mapping has already happened before this layer.
     Status create(const ParquetColumnSchema& column_schema,
                   const format::LocalColumnIndex* projection,
                   std::unique_ptr<ParquetColumnReader>* reader) const;
@@ -157,35 +164,53 @@ public:
             const format::GlobalRowIdContext& context, int64_t row_group_first_row) const;
 
 private:
-    Status create_scalar_column_reader(const ParquetColumnSchema& column_schema,
+    // Creates a primitive leaf reader. Top-level primitive columns are restricted to flat
+    // scalar layouts, while nested primitive leaves are allowed to carry def/rep levels
+    // that will be consumed by their parent LIST/MAP/STRUCT readers.
+    Status create_scalar_column_reader(const ParquetColumnSchema& column_schema, bool is_nested,
                                        std::unique_ptr<ParquetColumnReader>* reader) const;
 
-    Status create_nested_scalar_column_reader(const ParquetColumnSchema& column_schema,
-                                              std::unique_ptr<ParquetColumnReader>* reader) const;
-
+    // Creates a STRUCT reader and recursively creates readers only for projected
+    // children. For partial projections it rebuilds the output DataTypeStruct so the
+    // materialized column contains only projected child fields.
     Status create_struct_column_reader(const ParquetColumnSchema& column_schema,
                                        const format::LocalColumnIndex* projection,
                                        std::unique_ptr<ParquetColumnReader>* reader) const;
 
+    // Creates a LIST reader around the single element reader. If the element itself is
+    // partially projected, this rebuilds the output DataTypeArray with the projected
+    // element type.
     Status create_list_column_reader(const ParquetColumnSchema& column_schema,
                                      const format::LocalColumnIndex* projection,
                                      std::unique_ptr<ParquetColumnReader>* reader) const;
 
+    // Creates a MAP reader around key and value readers. The schema builder normalizes
+    // Parquet MAP layouts to an entry struct with key/value children before this point.
+    // Partial key/value projections rebuild the output DataTypeMap.
     Status create_map_column_reader(const ParquetColumnSchema& column_schema,
                                     const format::LocalColumnIndex* projection,
                                     std::unique_ptr<ParquetColumnReader>* reader) const;
 
-    Status create(const ParquetColumnSchema& column_schema,
-                  const format::LocalColumnIndex* projection, bool is_nested,
-                  std::unique_ptr<ParquetColumnReader>* reader) const;
+    // Private recursive dispatcher. is_nested is true for children of complex readers
+    // and controls primitive-leaf validation; complex readers are always created from
+    // normalized ParquetColumnSchema subtrees.
+    Status create_column_reader(const ParquetColumnSchema& column_schema,
+                                const format::LocalColumnIndex* projection, bool is_nested,
+                                std::unique_ptr<ParquetColumnReader>* reader) const;
 
+    // Lazily creates and caches the Arrow RecordReader for a file leaf column. Multiple
+    // Doris readers may need the same leaf stream through different nested parents, so
+    // RecordReader lifetime is tied to this row-group factory.
     Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
                              const std::string& name,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
 
-    Status create_scalar_reader(const ParquetColumnSchema& column_schema,
-                                std::shared_ptr<::parquet::internal::RecordReader> record_reader,
-                                std::unique_ptr<ParquetColumnReader>* reader) const;
+    // Final ScalarColumnReader construction after schema validation and RecordReader
+    // lookup have already completed.
+    Status make_scalar_column_reader(
+            const ParquetColumnSchema& column_schema,
+            std::shared_ptr<::parquet::internal::RecordReader> record_reader,
+            std::unique_ptr<ParquetColumnReader>* reader) const;
 
     std::shared_ptr<::parquet::RowGroupReader> _row_group;
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>> _record_readers;
