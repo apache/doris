@@ -42,7 +42,9 @@ struct ComplexTypeDeserializeUtil {
         std::vector<SplitResult> elements;
         for (int pos = 0; pos < str.size; ++pos) {
             char c = str.data[pos];
-            if (c == '"' || c == '\'') {
+            if (c == '\\' && pos + 1 < static_cast<int>(str.size)) {
+                ++pos; // skip escaped character
+            } else if (c == '"' || c == '\'') {
                 if (!has_quote) {
                     quote_char = c;
                     has_quote = !has_quote;
