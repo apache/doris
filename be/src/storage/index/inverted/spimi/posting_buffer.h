@@ -460,6 +460,7 @@ private:
             // detects omit_tfap and never constructs a prox reader.
             if (!_omit_tfap) {
                 state.pos_start = state.pos_upto = _pool.NewSlice(); // prox chain
+                state.last_pos = 0; // within-doc position-delta base for this doc
             }
             state.last_doc = doc_id;
             state.cur_doc_delta = doc_id; // delta from implicit 0
@@ -485,6 +486,7 @@ private:
             state.last_doc = doc_id;
             state.cur_doc_freq = 1;
             ++state.doc_count;
+            state.last_pos = 0; // reset within-doc position-delta base (no-op in omit)
         } else {
             // The position-monotonic check feeds `_compact_streams_sorted`, but
             // that only governs the prox re-sort — which is dead in DOCS_ONLY
@@ -497,13 +499,16 @@ private:
             }
             ++state.cur_doc_freq;
         }
-        // Absolute position per occurrence — same bytes the per-occ scheme stored,
-        // so emit's StartDoc/AddPosition sequence (and the on-disk .prx) is byte-
-        // identical; only the freq/doc chain layout changed. Skipped entirely in
-        // DOCS_ONLY: no position byte ever enters _pool (the O(total tokens) win)
-        // and last_pos is left stale (no reader of it in omit mode).
+        // Within-doc position delta per occurrence (Lucene-style). last_pos is
+        // reset to 0 at each doc boundary, so the first position in a doc is
+        // stored as itself and the rest as intra-doc gaps — typically 1 byte vs
+        // the 2-3 a long-doc absolute position needs, shrinking the in-memory
+        // prox chain. The emit side rebuilds the absolute position (per-doc
+        // prefix sum) before re-encoding, so the on-disk .prx is byte-identical.
+        // Modular subtraction round-trips any order (matching the doc-delta
+        // scheme). Skipped entirely in DOCS_ONLY (no prox chain, last_pos unread).
         if (!_omit_tfap) {
-            state.pos_upto = _pool.WriteVInt(state.pos_upto, position);
+            state.pos_upto = _pool.WriteVInt(state.pos_upto, position - state.last_pos);
             state.last_pos = position;
         }
         ++state.occ_count;

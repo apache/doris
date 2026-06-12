@@ -445,9 +445,13 @@ void SpimiPostingBuffer::DecodeCompactTerm(uint32_t term_id, std::vector<uint32_
             const uint64_t code = freq_reader.ReadVInt64();
             prev += static_cast<uint32_t>(code >> 1U); // modular doc delta; round-trips any order
             const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
+            // Positions are stored as within-doc deltas (reset to 0 per doc);
+            // prefix-sum them back to absolute. Modular add round-trips any order.
+            uint32_t pos = 0;
             for (uint32_t k = 0; k < freq; ++k) {
                 docs[i] = prev;
-                positions[i] = pos_reader.ReadVInt();
+                pos += pos_reader.ReadVInt();
+                positions[i] = pos;
                 ++i;
             }
         }

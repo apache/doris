@@ -174,9 +174,10 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
         _encoder.StartTerm(static_cast<int32_t>(st.doc_count));
         // The freq chain is already grouped PER DOC (docCode = doc_delta<<1, low
         // bit = freq==1, else a trailing VInt(freq)); the prox chain holds the
-        // absolute positions per occurrence. Replay doc-by-doc directly into the
-        // encoder — no per-occurrence regrouping needed. The StartDoc/AddPosition/
-        // FinishDoc sequence (hence .frq/.prx output) is byte-identical.
+        // within-doc position DELTAS per occurrence (reset to 0 each doc). Replay
+        // doc-by-doc, prefix-summing the deltas back to absolute positions for
+        // the encoder — no per-occurrence regrouping needed. The StartDoc/
+        // AddPosition/FinishDoc sequence (hence .frq/.prx output) is byte-identical.
         ByteSliceReader freq_reader(buffer.Pool(), st.doc_start, st.doc_end);
         uint32_t prev_doc = 0;
         uint32_t emitted_occ = 0;
@@ -201,8 +202,13 @@ int64_t SegmentWriter::EmitFromCompactDirect(const SpimiPostingBuffer& buffer,
                 prev_doc += static_cast<uint32_t>(code >> 1U);
                 const uint32_t freq = (code & 1U) ? 1U : freq_reader.ReadVInt();
                 _encoder.StartDoc(static_cast<int32_t>(prev_doc), static_cast<int32_t>(freq));
+                // Positions are stored as within-doc deltas (reset to 0 per doc);
+                // prefix-sum them back to absolute before re-encoding so the .prx
+                // is byte-identical. Modular add round-trips any order.
+                uint32_t pos = 0;
                 for (uint32_t k = 0; k < freq; ++k) {
-                    _encoder.AddPosition(static_cast<int32_t>(pos_reader.ReadVInt()));
+                    pos += pos_reader.ReadVInt();
+                    _encoder.AddPosition(static_cast<int32_t>(pos));
                 }
                 _encoder.FinishDoc();
                 emitted_occ += freq;
