@@ -32,7 +32,6 @@
 #include "exec/spill/spill_file_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class PartitionedHashJoinSinkOperatorX;
@@ -116,7 +115,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     bool should_dry_run(RuntimeState* state) override { return false; }
 
@@ -182,5 +181,4 @@ private:
     std::unique_ptr<PartitionerBase> _partitioner;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

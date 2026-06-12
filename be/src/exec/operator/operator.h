@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -45,15 +46,16 @@
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/block_budget.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class TDataSink;
 class AsyncResultWriter;
 class ScoreRuntime;
 class AnnTopNRuntime;
+class ParsedPartitionBoundaries;
 } // namespace doris
 
 namespace doris {
@@ -186,6 +188,9 @@ public:
             RuntimeState* /*state*/) const;
 
 protected:
+    [[nodiscard]] static bool is_hash_shuffle(ExchangeType exchange_type);
+    [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
+
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
@@ -240,11 +245,28 @@ public:
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
+    [[nodiscard]] const BlockBudget& block_budget() const { return _budget; }
     VExprContextSPtrs& conjuncts() { return _conjuncts; }
     VExprContextSPtrs& projections() { return _projections; }
     [[nodiscard]] int64_t num_rows_returned() const { return _num_rows_returned; }
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
+    void update_output_block_counters(const Block& block) {
+        if (auto rows = block.rows()) {
+            COUNTER_UPDATE(_rows_returned_counter, rows);
+            COUNTER_UPDATE(_blocks_returned_counter, 1);
+            auto block_bytes = static_cast<int64_t>(block.bytes());
+            COUNTER_UPDATE(_output_block_bytes_counter, block_bytes);
+            if (block_bytes > _max_output_block_bytes) {
+                _max_output_block_bytes = block_bytes;
+                COUNTER_SET(_max_output_block_bytes_counter, block_bytes);
+            }
+            if (block_bytes < _min_output_block_bytes) {
+                _min_output_block_bytes = block_bytes;
+                COUNTER_SET(_min_output_block_bytes_counter, block_bytes);
+            }
+        }
+    }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
     [[nodiscard]] virtual bool is_blockable() const;
@@ -299,6 +321,11 @@ protected:
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
+    RuntimeProfile::Counter* _output_block_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _max_output_block_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _min_output_block_bytes_counter = nullptr;
+    int64_t _max_output_block_bytes = 0;
+    int64_t _min_output_block_bytes = std::numeric_limits<int64_t>::max();
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
     // Account for current memory and peak memory used by this node
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
@@ -310,6 +337,8 @@ protected:
 
     OperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
+    // Execution-scoped row/byte budget derived from the session batch settings.
+    const BlockBudget _budget;
     VExprContextSPtrs _conjuncts;
     VExprContextSPtrs _projections;
     std::shared_ptr<ScoreRuntime> _score_runtime;
@@ -388,8 +417,6 @@ public:
 
         _spill_file_current_size = ADD_COUNTER_WITH_LEVEL(
                 Base::custom_profile(), profile::SPILL_WRITE_FILE_CURRENT_BYTES, TUnit::BYTES, 1);
-        _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
-                Base::custom_profile(), profile::SPILL_WRITE_FILE_CURRENT_COUNT, TUnit::UNIT, 1);
     }
 
     // Total time of spill, including spill task scheduling time,
@@ -412,9 +439,6 @@ public:
     // Total bytes of spill data written to disk file(after serialized)
     RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     RuntimeProfile::Counter* _spill_file_total_count = nullptr;
-    RuntimeProfile::Counter* _spill_file_current_count = nullptr;
-    // Spilled file total size
-    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
     // Current spilled file size
     RuntimeProfile::Counter* _spill_file_current_size = nullptr;
 
@@ -591,7 +615,12 @@ public:
         return result.value()->is_finished();
     }
 
-    [[nodiscard]] virtual Status sink(RuntimeState* state, Block* block, bool eos) = 0;
+    [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
+        RETURN_IF_ERROR(block->check_type_and_column());
+        return sink_impl(state, block, eos);
+    }
+
+    [[nodiscard]] virtual Status sink_impl(RuntimeState* state, Block* block, bool eos) = 0;
 
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
@@ -772,8 +801,6 @@ public:
     RuntimeProfile::Counter*& _spill_write_rows_count = _write_counters.spill_write_rows_count;
 
     // Sink-only counters
-    // Spilled file total size
-    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
     // Total bytes written to spill files (required by SpillFileWriter)
     RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     // Total number of spill files created (required by SpillFileWriter)
@@ -796,7 +823,6 @@ public:
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
-            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}));
             _output_row_descriptor =
                     std::make_unique<RowDescriptor>(descs, std::vector {tnode.output_tuple_id});
         }
@@ -831,6 +857,15 @@ public:
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
+
+    // Per-fragment shared partition-boundary parse result, used for
+    // runtime-filter partition pruning. Returns nullptr for operators that
+    // don't support this feature (default). Scan operators override to expose
+    // their parsed boundaries; the per-instance pruning state lives on the
+    // ScanLocalState. This sits on the generic OperatorXBase so non-templated
+    // ScanLocalStateBase methods can fetch it without down-casting `_parent`
+    // to a specific scan type.
+    virtual const ParsedPartitionBoundaries* parsed_partition_boundaries() const { return nullptr; }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     bool is_blockable(RuntimeState* state) const override {
@@ -840,7 +875,13 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status terminate(RuntimeState* state) override;
-    [[nodiscard]] virtual Status get_block(RuntimeState* state, Block* block, bool* eos) = 0;
+    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) {
+        RETURN_IF_ERROR(get_block_impl(state, block, eos));
+        RETURN_IF_ERROR(block->check_type_and_column());
+        return Status::OK();
+    }
+
+    [[nodiscard]] virtual Status get_block_impl(RuntimeState* state, Block* block, bool* eos) = 0;
 
     Status close(RuntimeState* state) override;
 
@@ -1033,7 +1074,7 @@ public:
 
     virtual ~StreamingOperatorX() = default;
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     virtual Status pull(RuntimeState* state, Block* block, bool* eos) = 0;
 };
@@ -1059,7 +1100,7 @@ public:
 
     using OperatorX<LocalStateType>::get_local_state;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    [[nodiscard]] Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, Block* block, bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, Block* input_block, bool eos) const = 0;
@@ -1133,7 +1174,7 @@ public:
 
     [[nodiscard]] bool is_source() const override { return true; }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         *eos = _eos;
         return Status::OK();
     }
@@ -1188,7 +1229,7 @@ class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
 public:
     DummySinkOperatorX(int op_id, int node_id, int dest_id)
             : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
         return _return_eof ? Status::Error<ErrorCode::END_OF_FILE>("source have closed")
                            : Status::OK();
     }
@@ -1218,5 +1259,4 @@ private:
 };
 #endif
 
-#include "common/compile_check_end.h"
 } // namespace doris

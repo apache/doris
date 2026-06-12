@@ -46,10 +46,9 @@ import org.apache.doris.planner.PartitionColumnFilter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Objects;
@@ -57,9 +56,12 @@ import java.util.Objects;
 class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSupported {
 
     @Test
-    void testPruneOlapScanTablet(@Mocked OlapTable olapTable,
-            @Mocked Partition partition, @Mocked MaterializedIndex index,
-            @Mocked HashDistributionInfo distributionInfo) {
+    void testPruneOlapScanTablet() {
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
         for (long i = 0; i < 300; i++) {
             tabletIds.add(i);
@@ -103,32 +105,16 @@ class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSup
         inList4.add(new IntLiteral(2));
         k4Filter.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, "k4"), inList4, false));
 
-        new Expectations() {
-            {
-                olapTable.getPartitionIds();
-                result = ImmutableList.of(1L);
-
-                olapTable.getBaseSchema(true);
-                result = columns;
-
-                olapTable.getName();
-                result = "t1";
-                olapTable.getPartition(anyLong);
-                result = partition;
-                partition.getIndex(anyLong);
-                result = index;
-                partition.getDistributionInfo();
-                result = distributionInfo;
-                index.getTabletIdsInOrder();
-                result = tabletIds;
-                distributionInfo.getDistributionColumns();
-                result = columns;
-                distributionInfo.getType();
-                result = DistributionInfo.DistributionInfoType.HASH;
-                distributionInfo.getBucketNum();
-                result = tabletIds.size();
-            }
-        };
+        Mockito.when(olapTable.getPartitionIds()).thenReturn(ImmutableList.of(1L));
+        Mockito.when(olapTable.getBaseSchema(true)).thenReturn(columns);
+        Mockito.when(olapTable.getName()).thenReturn("t1");
+        Mockito.when(olapTable.getPartition(Mockito.anyLong())).thenReturn(partition);
+        Mockito.when(partition.getIndex(Mockito.anyLong())).thenReturn(index);
+        Mockito.when(partition.getDistributionInfo()).thenReturn(distributionInfo);
+        Mockito.when(index.getTabletIdsInOrder()).thenReturn(tabletIds);
+        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(columns);
+        Mockito.when(distributionInfo.getType()).thenReturn(DistributionInfo.DistributionInfoType.HASH);
+        Mockito.when(distributionInfo.getBucketNum()).thenReturn(tabletIds.size());
 
         LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable);
 

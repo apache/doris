@@ -33,7 +33,6 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VDataStreamMgr::VDataStreamMgr() {
     // TODO: metric
@@ -44,7 +43,7 @@ VDataStreamMgr::~VDataStreamMgr() {
     // It will core during graceful stop.
     auto receivers = std::vector<std::shared_ptr<VDataStreamRecvr>>();
     {
-        std::shared_lock l(_lock);
+        SharedLockGuard l(_lock);
         auto receiver_iterator = _receiver_map.begin();
         while (receiver_iterator != _receiver_map.end()) {
             // Could not call close directly, because during close method, it will remove itself
@@ -77,22 +76,16 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
             this, memory_used_counter, state, fragment_instance_id, dest_node_id, num_senders,
             is_merging, profile, data_queue_capacity));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
-    std::unique_lock l(_lock);
+    LockGuard l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
     _receiver_map.insert(std::make_pair(hash_value, recvr));
     return recvr;
 }
 
-Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
-                                  std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock) {
+Status VDataStreamMgr::_find_recvr(uint32_t hash_value, const TUniqueId& fragment_instance_id,
+                                   PlanNodeId node_id, std::shared_ptr<VDataStreamRecvr>* res) {
     VLOG_ROW << "looking up fragment_instance_id=" << print_id(fragment_instance_id)
              << ", node=" << node_id;
-    uint32_t hash_value = get_hash_value(fragment_instance_id, node_id);
-    // Create lock guard and not own lock currently and will lock conditionally
-    std::shared_lock recvr_lock(_lock, std::defer_lock);
-    if (acquire_lock) {
-        recvr_lock.lock();
-    }
     std::pair<StreamMap::iterator, StreamMap::iterator> range =
             _receiver_map.equal_range(hash_value);
     while (range.first != range.second) {
@@ -106,6 +99,13 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
     }
     return Status::InvalidArgument("Could not find local receiver for node {} with instance {}",
                                    node_id, print_id(fragment_instance_id));
+}
+
+Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
+                                  std::shared_ptr<VDataStreamRecvr>* res) {
+    SharedLockGuard recvr_lock(_lock);
+    uint32_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    return _find_recvr(hash_value, fragment_instance_id, node_id, res);
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
@@ -174,7 +174,7 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
                << ", node=" << node_id;
     uint32_t hash_value = get_hash_value(fragment_instance_id, node_id);
     {
-        std::unique_lock l(_lock);
+        LockGuard l(_lock);
         auto range = _receiver_map.equal_range(hash_value);
         while (range.first != range.second) {
             const std::shared_ptr<VDataStreamRecvr>& recvr = range.first->second;
@@ -205,12 +205,13 @@ void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id, Status exec_s
     VLOG_QUERY << "cancelling all streams for fragment=" << print_id(fragment_instance_id);
     std::vector<std::shared_ptr<VDataStreamRecvr>> recvrs;
     {
-        std::shared_lock l(_lock);
+        SharedLockGuard l(_lock);
         FragmentStreamSet::iterator i =
                 _fragment_stream_set.lower_bound(std::make_pair(fragment_instance_id, 0));
         while (i != _fragment_stream_set.end() && i->first == fragment_instance_id) {
             std::shared_ptr<VDataStreamRecvr> recvr;
-            WARN_IF_ERROR(find_recvr(i->first, i->second, &recvr, false), "");
+            uint32_t hash_value = get_hash_value(i->first, i->second);
+            WARN_IF_ERROR(_find_recvr(hash_value, i->first, i->second, &recvr), "");
             if (recvr == nullptr) {
                 // keep going but at least log it
                 std::stringstream err;

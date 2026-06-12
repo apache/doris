@@ -28,8 +28,8 @@ import java.util.concurrent.TimeUnit;
 
 // Handler which will be call back by processor.
 public class ResponseHandler {
-    private Set<Backend> nodes;
-    private CountDownLatch latch;
+    private final Set<Backend> nodes;
+    private final CountDownLatch latch;
 
     public ResponseHandler(Collection<Backend> nodes) {
         this.nodes = Sets.newConcurrentHashSet(nodes);

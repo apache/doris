@@ -23,7 +23,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 
 namespace doris {
-#include "common/compile_check_begin.h"
 StringRef StringRef::trim() const {
     // Remove leading and trailing spaces.
     int64_t begin = 0;
@@ -95,19 +94,6 @@ StringRef StringRef::max_string_val() {
     return StringRef((char*)(&StringRef::MAX_CHAR), 1);
 }
 
-bool StringRef::start_with(char ch) const {
-    if (UNLIKELY(size == 0)) {
-        return false;
-    }
-    return data[0] == ch;
-}
-bool StringRef::end_with(char ch) const {
-    if (UNLIKELY(size == 0)) {
-        return false;
-    }
-    return data[size - 1] == ch;
-}
-
 bool StringRef::start_with(const StringRef& search_string) const {
     if (search_string.size == 0) {
         return true;
@@ -136,5 +122,4 @@ bool StringRef::end_with(const StringRef& search_string) const {
     return 0 == memcmp(data + size - search_string.size, search_string.data, search_string.size);
 #endif
 }
-#include "common/compile_check_end.h"
 } // namespace doris

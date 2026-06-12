@@ -45,7 +45,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * Use UInt32 as underlying type to represent DateV2 type.
  * Specifically, a dateV2 type is represented as (YYYY (23 bits), MM (4 bits), dd (5 bits)).
@@ -55,9 +54,6 @@ public:
     static constexpr PrimitiveType PType = TYPE_DATEV2;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATEV2; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
-    }
     const std::string get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
@@ -66,16 +62,7 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     }
 
-    Field get_field(const TExprNode& node) const override {
-        DateV2Value<DateV2ValueType> value;
-        if (value.from_date_str(node.date_literal.value.c_str(),
-                                cast_set<Int32>(node.date_literal.value.size()))) {
-            return Field::create_field<TYPE_DATEV2>(std::move(value));
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type DateV2", node.date_literal.value);
-        }
-    }
+    Field get_field(const TExprNode& node) const override;
     bool equals(const IDataType& rhs) const override;
 
 #ifdef BE_TEST
@@ -121,9 +108,6 @@ public:
         scalar_type->set_scale(_scale);
     }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
-    }
     const std::string get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override {
         return "DateTimeV2(" + std::to_string(_scale) + ")";
@@ -147,19 +131,7 @@ public:
         return std::make_shared<SerDeType>(_scale, nesting_level);
     };
 
-    Field get_field(const TExprNode& node) const override {
-        DateV2Value<DateTimeV2ValueType> value;
-        const int32_t scale =
-                node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
-        if (value.from_date_str(node.date_literal.value.c_str(),
-                                cast_set<int32_t>(node.date_literal.value.size()), scale)) {
-            return Field::create_field<TYPE_DATETIMEV2>(std::move(value));
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type DateTimeV2({})",
-                                   node.date_literal.value, _scale);
-        }
-    }
+    Field get_field(const TExprNode& node) const override;
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const override { return _scale; }
@@ -188,5 +160,4 @@ template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;
 template <>
 inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2> = true;
-#include "common/compile_check_end.h"
 } // namespace doris

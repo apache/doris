@@ -28,7 +28,6 @@
 #include "runtime/result_buffer_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
@@ -133,21 +132,29 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     if (_sender) {
         int64_t written_rows = _writer == nullptr ? 0 : _writer->get_written_rows();
         state->get_query_ctx()->resource_ctx()->io_context()->update_returned_rows(written_rows);
-        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status, written_rows));
+        bool is_fully_closed = false;
+        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status, written_rows,
+                                       is_fully_closed));
+        // Schedule deferred cleanup only when the last instance closes the shared
+        // buffer.  In parallel outfile mode the buffer is keyed by query_id; in
+        // non-parallel mode it is keyed by fragment_instance_id.  Either way,
+        // _sender->buffer_id() returns the correct registration key, so there is
+        // no need to branch on enable_parallel_outfile here.
+        if (is_fully_closed) {
+            state->exec_env()->result_mgr()->cancel_at_time(
+                    time(nullptr) + config::result_buffer_cancelled_interval_time,
+                    _sender->buffer_id());
+        }
     }
-    state->exec_env()->result_mgr()->cancel_at_time(
-            time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id());
 
     return Base::close(state, exec_status);
 }
 
-Status ResultFileSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status ResultFileSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     return local_state.sink(state, in_block, eos);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -20,11 +20,11 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -109,7 +109,7 @@ public class CleanQueryStatsCommand extends Command implements ForwardWithSync {
                 }
                 break;
             case TABLE:
-                tableNameInfo.analyze(ctx);
+                tableNameInfo.analyze(ctx.getNameSpaceContext());
                 dbName = tableNameInfo.getDb();
                 if (StringUtils.isEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);

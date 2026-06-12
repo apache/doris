@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_predefine_typed_to_sparse", "p0"){ 
+suite("predefined_typed_to_sparse", "p0"){ 
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_doc_mode = false """
     sql """ set enable_variant_schema_auto_cast = false """

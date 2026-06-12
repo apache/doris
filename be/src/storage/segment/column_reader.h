@@ -30,9 +30,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"               // for Status
-#include "core/column/column_array.h"    // ColumnArray
-#include "core/column/column_nullable.h" // NullMap
+#include "common/status.h"            // for Status
+#include "core/column/column_array.h" // ColumnArray
 #include "core/data_type/data_type.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -54,7 +53,6 @@
 #include "util/once.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
 class AndBlockColumnPredicate;
@@ -105,6 +103,7 @@ struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
+    bool only_read_offsets = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -164,7 +163,8 @@ public:
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
 
     Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                              const TabletIndex* index_meta,
+                              const TabletIndex* index_meta, const std::string& rowset_id,
+                              uint32_t segment_id, size_t rows_of_segment,
                               std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
@@ -175,7 +175,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec, bool is_dict_page = false) const;
+                     BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta_is_nullable; }
 
@@ -250,7 +250,8 @@ private:
                                              const ColumnIteratorOptions& iter_opts);
 
     [[nodiscard]] Status _load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                                     const TabletIndex* index_meta);
+                                     const TabletIndex* index_meta, const std::string& rowset_id,
+                                     uint32_t segment_id, size_t rows_of_segment);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 
@@ -284,9 +285,8 @@ private:
 
     DataTypePtr _data_type;
 
-    TypeInfoPtr _type_info =
-            TypeInfoPtr(nullptr,
-                        nullptr); // initialized in init(), may changed by subclasses.
+    FieldType _type =
+            FieldType::OLAP_FIELD_TYPE_NONE; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
 
@@ -361,10 +361,6 @@ public:
 
     virtual bool is_all_dict_encoding() const { return false; }
 
-    virtual Status read_null_map(size_t* n, NullMap& null_map) {
-        return Status::NotSupported("read_null_map not implemented");
-    }
-
     virtual Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                                     const TColumnAccessPaths& predicate_access_paths) {
         if (!predicate_access_paths.empty()) {
@@ -413,17 +409,38 @@ public:
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) {}
 
+    static constexpr const char* ACCESS_OFFSET = "OFFSET";
+    static constexpr const char* ACCESS_ALL = "*";
+    static constexpr const char* ACCESS_MAP_KEYS = "KEYS";
+    static constexpr const char* ACCESS_MAP_VALUES = "VALUES";
+    static constexpr const char* ACCESS_NULL = "NULL";
+
+    // Meta-only read modes:
+    // - OFFSET_ONLY: only read offset information (e.g., for array_size/map_size/string_length)
+    // - NULL_MAP_ONLY: only read null map (e.g., for IS NULL / IS NOT NULL predicates)
+    // When these modes are enabled, actual content data is skipped.
+    enum class ReadMode : int { DEFAULT, OFFSET_ONLY, NULL_MAP_ONLY };
+
+    bool read_offset_only() const { return _read_mode == ReadMode::OFFSET_ONLY; }
+    bool read_null_map_only() const { return _read_mode == ReadMode::NULL_MAP_ONLY; }
+
 protected:
+    // Checks sub access paths for OFFSET or NULL meta-only modes and
+    // updates _read_mode accordingly. Use the accessor helpers
+    // read_offset_only() / read_null_map_only() to query the current mode.
+    void _check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths);
+
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
 
     ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
+    ReadMode _read_mode = ReadMode::DEFAULT;
     std::string _column_name;
 };
 
 // This iterator is used to read column data from file
 // for scalar type
-class FileColumnIterator final : public ColumnIterator {
+class FileColumnIterator : public ColumnIterator {
 public:
     explicit FileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~FileColumnIterator() override;
@@ -463,12 +480,15 @@ public:
 
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
-    Status read_null_map(size_t* n, NullMap& null_map) override;
-
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
+
+protected:
+    // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
+    // query column metadata such as the storage field type.
+    const std::shared_ptr<ColumnReader>& get_reader() const { return _reader; }
 
 private:
     Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
@@ -479,7 +499,6 @@ private:
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
 
-    // iterator owned compress codec, should NOT be shared by threads, initialized in init()
     BlockCompressionCodec* _compress_codec = nullptr;
 
     // 1. The _page represents current page.
@@ -515,6 +534,21 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
+// StringFileColumnIterator extends FileColumnIterator with meta-only reading
+// support for string/binary column types. When the OFFSET path is detected in
+// set_access_paths, it sets only_read_offsets on the ColumnIteratorOptions so
+// that the BinaryPlainPageDecoder skips chars memcpy and only fills offsets.
+class StringFileColumnIterator final : public FileColumnIterator {
+public:
+    explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
+    ~StringFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+};
+
 // This iterator make offset operation write once for
 class OffsetFileColumnIterator final : public ColumnIterator {
 public:
@@ -527,6 +561,12 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
@@ -576,6 +616,9 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _offsets_iterator->get_current_ordinal();
     }
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
@@ -589,8 +632,6 @@ public:
     void set_need_to_read() override;
 
     void remove_pruned_sub_iterators() override;
-
-    Status read_null_map(size_t* n, NullMap& null_map) override;
 
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
@@ -612,12 +653,20 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _sub_column_iterators[0]->get_current_ordinal();
     }
 
@@ -632,8 +681,6 @@ public:
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
-
-    Status read_null_map(size_t* n, NullMap& null_map) override;
 
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
@@ -654,12 +701,20 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _offset_iterator->get_current_ordinal();
     }
 
@@ -673,8 +728,6 @@ public:
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
-
-    Status read_null_map(size_t* n, NullMap& null_map) override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;
@@ -764,11 +817,11 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
-                               TypeInfoPtr type_info, int precision, int scale, int len)
+                               FieldType type, int precision, int scale, int len)
             : _has_default_value(has_default_value),
               _default_value(std::move(default_value)),
               _is_nullable(is_nullable),
-              _type_info(std::move(type_info)),
+              _type(type),
               _precision(precision),
               _scale(scale),
               _len(len) {}
@@ -802,7 +855,7 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    TypeInfoPtr _type_info;
+    FieldType _type;
     int _precision;
     int _scale;
     const int _len;
@@ -813,5 +866,4 @@ private:
 };
 
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

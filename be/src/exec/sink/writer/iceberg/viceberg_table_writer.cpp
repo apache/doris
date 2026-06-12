@@ -21,6 +21,9 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/materialize_block.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
@@ -33,7 +36,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
                                          const VExprContextSPtrs& output_expr_ctxs,
@@ -45,6 +47,7 @@ VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
 
 Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
+    _operator_profile = profile;
 
     // Get target file size from query options
     // If value is 0 or not set, use config::iceberg_sink_max_file_size
@@ -52,6 +55,9 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     if (state->query_options().__isset.iceberg_write_target_file_size_bytes &&
         state->query_options().iceberg_write_target_file_size_bytes > 0) {
         _target_file_size_bytes = state->query_options().iceberg_write_target_file_size_bytes;
+    }
+    if (_t_sink.iceberg_table_sink.__isset.write_type) {
+        _write_type = _t_sink.iceberg_table_sink.write_type;
     }
 
     // add all counter
@@ -76,6 +82,14 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
             _partition_spec = iceberg::PartitionSpecParser::from_json(_schema, partition_spec_json);
             _iceberg_partition_columns = _to_iceberg_partition_columns();
         }
+        for (int i = 0; i < _schema->columns().size(); ++i) {
+            const auto& col_name = _schema->columns()[i].field_name();
+            if (col_name == "_row_id") {
+                _row_id_column_idx = i;
+            } else if (col_name == "_last_updated_sequence_number") {
+                _last_updated_seq_num_column_idx = i;
+            }
+        }
 
         // Initialize static partition values if present
         _init_static_partition_values();
@@ -86,6 +100,12 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     std::set<int> partition_idx_set;
     for (const auto& iceberg_partition_column : _iceberg_partition_columns) {
         partition_idx_set.insert(iceberg_partition_column.source_idx());
+    }
+
+    if (_vec_output_expr_ctxs.size() != _schema->columns().size()) {
+        return Status::InternalError(
+                "Iceberg table writer data columns {} do not match schema columns {}",
+                _vec_output_expr_ctxs.size(), _schema->columns().size());
     }
 
     for (int i = 0; i < _schema->columns().size(); ++i) {
@@ -188,6 +208,38 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
                                                                        &output_block, false));
     materialize_block_inplace(output_block);
+    return _write_prepared_block(output_block);
+}
+
+Status VIcebergTableWriter::write_prepared_block(Block& block) {
+    SCOPED_RAW_TIMER(&_send_data_ns);
+    if (block.rows() == 0) {
+        return Status::OK();
+    }
+    return _write_prepared_block(block);
+}
+
+Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
+    if (_write_type != TIcebergWriteType::INSERT) {
+        return Status::OK();
+    }
+    if (_last_updated_seq_num_column_idx < 0 ||
+        _last_updated_seq_num_column_idx >= static_cast<int>(block.columns())) {
+        return Status::OK();
+    }
+
+    auto& col_with_type = block.get_by_position(_last_updated_seq_num_column_idx);
+    size_t rows = block.rows();
+    auto nested_type = remove_nullable(col_with_type.type);
+    auto nested_col = nested_type->create_column();
+    nested_col->insert_many_defaults(rows);
+    auto null_map = ColumnUInt8::create(rows, 1);
+    col_with_type.column = ColumnNullable::create(std::move(nested_col), std::move(null_map));
+    return Status::OK();
+}
+
+Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
+    RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
 
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Filter> writer_positions;
     _row_count += output_block.rows();
@@ -231,7 +283,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer = writer;
+        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -274,7 +326,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer = writer;
+        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -377,7 +429,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
         Block filtered_block;
         RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
         RETURN_IF_ERROR(it->first->write(filtered_block));
-        _current_writer = it->first;
+        _current_writer.store(it->first);
     }
     return Status::OK();
 }
@@ -599,7 +651,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     //1) get the partition column ptr
     ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
     CHECK(col_ptr);
-    if (col_ptr->is_nullable()) {
+    if (is_column_nullable(*col_ptr)) {
         const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(col_ptr.get());
         const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {
@@ -612,7 +664,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     auto [item, size] = col_ptr->get_data_at(position);
     switch (type_desc) {
     case TYPE_BOOLEAN: {
-        Field field = check_and_get_column<const ColumnUInt8>(*col_ptr)->operator[](position);
+        Field field = assert_cast<const ColumnUInt8*>(col_ptr.get())->operator[](position);
         return field.get<TYPE_BOOLEAN>();
     }
     case TYPE_TINYINT: {

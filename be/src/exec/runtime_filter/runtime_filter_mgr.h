@@ -27,12 +27,11 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -40,7 +39,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PPublishFilterRequestV2;
 class PMergeFilterRequest;
 class RuntimeFilterMerger;
@@ -53,11 +51,17 @@ class RuntimeFilterWrapper;
 class QueryContext;
 class ExecEnv;
 class RuntimeProfile;
+template <typename Response>
+class HandleErrorBrpcCallback;
+class SyncSizeCallback;
 
 struct LocalMergeContext {
     std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
+    // Tracks the recursive CTE round.  When a producer from a newer round
+    // registers, the context is reset (merger recreated, old producers dropped).
+    uint32_t stage = 0;
 
     Status register_producer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                              std::shared_ptr<RuntimeFilterProducer> producer);
@@ -70,7 +74,14 @@ struct GlobalMergeContext {
     std::vector<TRuntimeFilterTargetParamsV2> targetv2_info;
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PSyncFilterSizeResponse>>>
+            sync_size_callbacks;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>>> publish_callbacks;
     std::atomic<bool> done = false;
+
+    // for represent the round number of recursive cte
+    // if lower stage rf input to higher stage, we just discard the rf
+    uint32_t stage = 0;
 
     Status reset(QueryContext* query_ctx);
 };
@@ -104,13 +115,15 @@ public:
 
     std::string debug_string();
 
-    void remove_filters(const std::set<int32_t>& filter_ids) {
+    void remove_filter(int32_t filter_id) {
         std::lock_guard<std::mutex> l(_lock);
-        for (const auto& id : filter_ids) {
-            _consumer_map.erase(id);
-            _local_merge_map.erase(id);
-            _producer_id_set.erase(id);
-        }
+        _consumer_map.erase(filter_id);
+        // NOTE: _local_merge_map is NOT erased here.  It is reset lazily in
+        // LocalMergeContext::register_producer when a producer from a newer
+        // recursive CTE round registers.  Erasing eagerly here would race with
+        // multi-fragment REBUILD: a consumer-only fragment's remove_filter could
+        // delete the entry that the producer fragment just re-registered.
+        _producer_id_set.erase(filter_id);
     }
 
 private:
@@ -160,7 +173,7 @@ public:
     std::string debug_string();
 
     bool empty() {
-        std::shared_lock<std::shared_mutex> read_lock(_filter_map_mutex);
+        SharedLockGuard read_lock(_filter_map_mutex);
         return _filter_map.empty();
     }
 
@@ -177,10 +190,9 @@ private:
                               int64_t merge_time, PUniqueId query_id, int execution_timeout);
 
     // protect _filter_map
-    std::shared_mutex _filter_map_mutex;
+    AnnotatedSharedMutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
 
-    std::map<int, GlobalMergeContext> _filter_map;
+    std::map<int, GlobalMergeContext> _filter_map GUARDED_BY(_filter_map_mutex);
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.ldap.support.LdapEncoder;
 
 import java.util.HashMap;
 import java.util.List;
@@ -261,5 +262,48 @@ class LdapClientTest {
         // Then
         Assertions.assertNotNull(groups);
         Assertions.assertTrue(groups.isEmpty());
+    }
+
+    @Test
+    @DisplayName("UT-LDAP-C-018: LdapEncoder.filterEncode escapes RFC 4515 special characters")
+    void testLdapFilterEncoding() {
+        // Combined special characters
+        String input = "test*()\\\u0000";
+        String expected = "test\\2a\\28\\29\\5c\\00";
+        Assertions.assertEquals(expected, LdapEncoder.filterEncode(input));
+
+        // Null input
+        Assertions.assertNull(LdapEncoder.filterEncode(null));
+
+        // Normal username should not be altered
+        Assertions.assertEquals("zhangsan", LdapEncoder.filterEncode("zhangsan"));
+        Assertions.assertEquals("user.name@example.com", LdapEncoder.filterEncode("user.name@example.com"));
+
+        // Empty string
+        Assertions.assertEquals("", LdapEncoder.filterEncode(""));
+
+        // Each special character individually
+        Assertions.assertEquals("\\2a", LdapEncoder.filterEncode("*"));
+        Assertions.assertEquals("\\28", LdapEncoder.filterEncode("("));
+        Assertions.assertEquals("\\29", LdapEncoder.filterEncode(")"));
+        Assertions.assertEquals("\\5c", LdapEncoder.filterEncode("\\"));
+        Assertions.assertEquals("\\00", LdapEncoder.filterEncode("\u0000"));
+    }
+
+    @Test
+    @DisplayName("UT-LDAP-C-019: LdapEncoder.filterEncode blocks injection payload")
+    void testFilterEncodeBlocksInjectionPayload() {
+        // Classic LDAP injection: dorisuser6)(mail=testp*
+        String malicious = "dorisuser6)(mail=testp*";
+        String escaped = LdapEncoder.filterEncode(malicious);
+        Assertions.assertEquals("dorisuser6\\29\\28mail=testp\\2a", escaped);
+
+        // The escaped value should be safe for filter template substitution
+        String filter = "(uid={login})".replace("{login}", escaped);
+        Assertions.assertEquals("(uid=dorisuser6\\29\\28mail=testp\\2a)", filter);
+        // No unescaped parentheses or wildcards from input
+        Assertions.assertFalse(escaped.contains("("));
+        Assertions.assertFalse(escaped.contains(")"));
+        Assertions.assertFalse(escaped.contains("*"));
     }
 }

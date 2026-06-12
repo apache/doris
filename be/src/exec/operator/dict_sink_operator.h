@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class DictSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(DictSinkLocalState);
     using Base = PipelineXSinkLocalState<BasicSharedState>;
@@ -50,7 +49,7 @@ public:
                       const std::vector<TExpr>& dict_input_expr, const TDictionarySink& dict_sink);
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class DictSinkLocalState;
@@ -90,4 +89,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

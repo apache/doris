@@ -35,10 +35,12 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "core/column/column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/primitive_type.h"
-#include "exprs/varray_literal.h"
-#include "exprs/vcast_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -47,10 +49,10 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 struct AnnIndexStats;
+class AnnIndexIterator;
 
-Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
+Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
 
 /**
  * @brief Runtime execution engine for ANN (Approximate Nearest Neighbor) Top-N queries.
@@ -67,7 +69,7 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
  * - Thread-safe execution in parallel query contexts
  * 
  * Typical usage in SQL:
- * SELECT * FROM table ORDER BY l2_distance(vec_column, [1,2,3]) LIMIT 10;
+ * SELECT * FROM table ORDER BY l2_distance_approximate(vec_column, [1,2,3]) LIMIT 10;
  */
 class AnnTopNRuntime {
     ENABLE_FACTORY_CREATOR(AnnTopNRuntime);
@@ -116,10 +118,10 @@ public:
      * @param ann_index_stats Statistics collector for performance monitoring
      * @return Status indicating success or failure
      */
-    Status evaluate_vector_ann_search(segment_v2::IndexIterator* ann_index_iterator,
+    Status evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                       roaring::Roaring* row_bitmap, size_t rows_of_segment,
-                                      IColumn::MutablePtr& result_column,
-                                      std::unique_ptr<std::vector<uint64_t>>& row_ids,
+                                      bool enable_result_cache, IColumn::MutablePtr& result_column,
+                                      std::shared_ptr<std::vector<uint64_t>>& row_ids,
                                       segment_v2::AnnIndexStats& ann_index_stats);
 
     /**
@@ -163,8 +165,7 @@ private:
     size_t _src_column_idx = -1;                ///< Source vector column index
     size_t _dest_column_idx = -1;               ///< Destination distance column index
     segment_v2::AnnIndexMetric _metric_type;    ///< Distance metric type
-    IColumn::Ptr _query_array;                  ///< Query vector data (contiguous float buffer)
+    ColumnFloat32::Ptr _query_array;            ///< Query vector data (contiguous float buffer)
     doris::VectorSearchUserParams _user_params; ///< User-defined search parameters
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

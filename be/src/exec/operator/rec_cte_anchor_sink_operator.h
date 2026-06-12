@@ -26,7 +26,6 @@
 #include "exec/pipeline/rec_cte_shared_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class DataQueue;
@@ -80,7 +79,7 @@ public:
         return Base::close(state);
     }
 
-    Status sink(RuntimeState* state, Block* input_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
 
         RETURN_IF_ERROR(_notify_rec_side_ready_if_needed(state));
@@ -122,5 +121,4 @@ private:
     bool _need_notify_rec_side_ready = true;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

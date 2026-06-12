@@ -25,8 +25,10 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
+
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
@@ -307,16 +309,31 @@ protected:
         if (this->use_count() > 1) {
             return derived()->clone();
         } else {
-            return assume_mutable();
+            return assert_mutable();
         }
     }
 
 public:
     MutablePtr mutate() const&& { return shallow_mutate(); }
 
-    MutablePtr assume_mutable() const { return const_cast<COW*>(this)->get_ptr(); }
+    // Ownership assertion for callers that have already proved this object is
+    // uniquely owned. This does not detach shared owners; use a type-specific
+    // COW entry point (for example IColumn::mutate) when the pointer may be
+    // shared.
+    MutablePtr assert_mutable() const {
+        if (this->use_count() > 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assert_mutable: use_count() > 1");
+        }
+        return const_cast<COW*>(this)->get_ptr();
+    }
 
-    Derived& assume_mutable_ref() const { return const_cast<Derived&>(*derived()); }
+    // Reference variant of assert_mutable(), with the same ownership contract.
+    Derived& assert_mutable_ref() const {
+        if (this->use_count() > 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assert_mutable: use_count() > 1");
+        }
+        return const_cast<Derived&>(*derived());
+    }
 
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.
@@ -334,13 +351,13 @@ protected:
                 : value(std::forward<std::initializer_list<U>>(arg)) {}
 
         const T* get() const { return value.get(); }
-        T* get() { return &value->assume_mutable_ref(); }
+        T* get() { return &static_cast<T&>(value->assert_mutable_ref()); }
 
         const T* operator->() const { return get(); }
         T* operator->() { return get(); }
 
         const T& operator*() const { return *value; }
-        T& operator*() { return value->assume_mutable_ref(); }
+        T& operator*() { return static_cast<T&>(value->assert_mutable_ref()); }
 
         operator const immutable_ptr<T>&() const { return value; }
         operator immutable_ptr<T>&() { return value; }
@@ -402,6 +419,7 @@ public:
     static_assert(std::is_base_of_v<doris::IColumn, Base>, "COWHelper only use in IColumn");
     using Ptr = typename Base::template immutable_ptr<Derived>;
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
+    using WrappedPtr = typename Base::template chameleon_ptr<Derived>;
 
 #include "common/compile_check_avoid_begin.h"
 
@@ -449,5 +467,4 @@ protected:
         return MutablePtr(static_cast<Derived*>(Base::shallow_mutate().get()));
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -38,7 +38,6 @@
 namespace doris {
 
 class IColumn;
-#include "common/compile_check_begin.h"
 
 Status DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                   int64_t end_idx, BufferWritable& bw,
@@ -112,7 +111,7 @@ void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
     const auto& data_column = assert_cast<const ColumnHLL&>(column);
     auto& hll_value = data_column.get_element(row_num);
     auto size = hll_value.max_serialized_size();
-    auto* ptr = reinterpret_cast<char*>(arena.alloc(size));
+    auto* ptr = arena.alloc(size);
     size_t actual_size = hll_value.serialize((uint8_t*)ptr);
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);

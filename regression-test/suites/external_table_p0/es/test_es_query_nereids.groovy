@@ -26,8 +26,7 @@ suite("test_es_query_nereids", "p0,external") {
         sql """drop catalog if exists es6_nereids;"""
         sql """drop catalog if exists es7_nereids;"""
         sql """drop catalog if exists es8_nereids;"""
-        sql """drop table if exists test_v1_nereids;"""
-        sql """drop table if exists test_v2_nereids;"""
+
         sql """set enable_nereids_planner=true;"""
 
         // test old create-catalog syntax for compatibility
@@ -58,85 +57,7 @@ suite("test_es_query_nereids", "p0,external") {
         );
         """
 
-        // test external table for datetime
-        sql """
-            CREATE TABLE `test_v1_nereids` (
-                `c_datetime` array<datev2> NULL,
-                `c_long` array<bigint(20)> NULL,
-                `c_unsigned_long` array<largeint(40)> NULL,
-                `c_text` array<text> NULL,
-                `c_short` array<smallint(6)> NULL,
-                `c_ip` array<text> NULL,
-                `test1` text NULL,
-                `c_half_float` array<float> NULL,
-                `test4` date NULL,
-                `test5` datetime NULL,
-                `test2` text NULL,
-                `c_date` array<datev2> NULL,
-                `test3` double NULL,
-                `c_scaled_float` array<double> NULL,
-                `c_float` array<float> NULL,
-                `c_double` array<double> NULL,
-                `c_keyword` array<text> NULL,
-                `c_person` array<text> NULL,
-                `test6` datetime NULL,
-                `test7` datetime NULL,
-                `c_byte` array<tinyint(4)> NULL,
-                `c_bool` array<boolean> NULL,
-                `c_integer` array<int(11)> NULL
-            ) ENGINE=ELASTICSEARCH
-            COMMENT 'ELASTICSEARCH'
-            PROPERTIES (
-                "hosts" = "http://${externalEnvIp}:$es_8_port",
-                "index" = "test1",
-                "nodes_discovery"="false",
-                "enable_keyword_sniff"="true",
-                "http_ssl_enabled"="false"
-            );
-        """
-        // TODO(ftw): should open these annotation when nereids support es external table
-        // order_qt_sql52 """select * from test_v1_nereids where test2='text#1'"""
-
-       sql """
-            CREATE TABLE `test_v2_nereids` (
-                `c_datetime` array<datev2> NULL,
-                `c_long` array<bigint(20)> NULL,
-                `c_unsigned_long` array<largeint(40)> NULL,
-                `c_text` array<text> NULL,
-                `c_short` array<smallint(6)> NULL,
-                `c_ip` array<text> NULL,
-                `test1` text NULL,
-                `c_half_float` array<float> NULL,
-                `test4` datev2 NULL,
-                `test5` datetimev2 NULL,
-                `test2` text NULL,
-                `c_date` array<datev2> NULL,
-                `test3` double NULL,
-                `c_scaled_float` array<double> NULL,
-                `c_float` array<float> NULL,
-                `c_double` array<double> NULL,
-                `c_keyword` array<text> NULL,
-                `c_person` array<text> NULL,
-                `test6` datetimev2 NULL,
-                `test7` datetimev2 NULL,
-                `c_byte` array<tinyint(4)> NULL,
-                `c_bool` array<boolean> NULL,
-                `c_integer` array<int(11)> NULL
-            ) ENGINE=ELASTICSEARCH
-            COMMENT 'ELASTICSEARCH'
-            PROPERTIES (
-                "hosts" = "http://${externalEnvIp}:$es_8_port",
-                "index" = "test1",
-                "nodes_discovery"="false",
-                "enable_keyword_sniff"="true",
-                "http_ssl_enabled"="false"
-            );
-        """
-
         sql """set enable_fallback_to_original_planner=false;"""
-
-        // TODO(ftw): should open these annotation when nereids support es external table
-        // order_qt_sql51 """select * from test_v2_nereids where test2='text#1'"""
 
 
         sql """switch es6_nereids"""

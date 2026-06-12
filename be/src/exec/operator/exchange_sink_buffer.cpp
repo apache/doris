@@ -48,7 +48,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
@@ -159,12 +158,12 @@ Status ExchangeSinkBuffer::add_block(Channel* channel, TransmitInfo&& request) {
                                      print_id(channel->_fragment_instance_id));
     }
     auto& instance_data = *_rpc_instances[ins_id];
-    if (instance_data.rpc_channel_is_turn_off) {
-        return Status::EndOfFile("receiver eof");
-    }
     bool send_now = false;
     {
         std::unique_lock<std::mutex> lock(*instance_data.mutex);
+        if (instance_data.rpc_channel_is_turn_off) {
+            return Status::EndOfFile("receiver eof");
+        }
         // Do not have in process rpc, directly send
         if (instance_data.rpc_channel_is_idle) {
             send_now = true;
@@ -200,12 +199,12 @@ Status ExchangeSinkBuffer::add_block(Channel* channel, BroadcastTransmitInfo&& r
                                      print_id(channel->_fragment_instance_id));
     }
     auto& instance_data = *_rpc_instances[ins_id];
-    if (instance_data.rpc_channel_is_turn_off) {
-        return Status::EndOfFile("receiver eof");
-    }
     bool send_now = false;
     {
         std::unique_lock<std::mutex> lock(*instance_data.mutex);
+        if (instance_data.rpc_channel_is_turn_off) {
+            return Status::EndOfFile("receiver eof");
+        }
         // Do not have in process rpc, directly send
         if (instance_data.rpc_channel_is_idle) {
             send_now = true;
@@ -298,6 +297,13 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                 brpc_request->set_allocated_block(request.block.get());
             }
         }
+        Defer release_block([&]() {
+            if (!_send_multi_blocks && request.block) {
+                static_cast<void>(brpc_request->release_block());
+            } else {
+                brpc_request->clear_blocks();
+            }
+        });
 
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
@@ -347,6 +353,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
+            // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
                 _failed(ins.id,
@@ -367,11 +374,6 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         }
 
-        if (!_send_multi_blocks && request.block) {
-            static_cast<void>(brpc_request->release_block());
-        } else {
-            brpc_request->clear_blocks();
-        }
         if (mem_byte) {
             COUNTER_UPDATE(channel->_parent->memory_used_counter(), -mem_byte);
         }
@@ -427,6 +429,16 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                 brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
+        Defer release_block([&]() {
+            if (!_send_multi_blocks && request.block_holder->get_block()) {
+                static_cast<void>(brpc_request->release_block());
+            } else {
+                for (int i = 0; i < brpc_request->mutable_blocks()->size(); ++i) {
+                    static_cast<void>(brpc_request->mutable_blocks(i)->release_column_values());
+                }
+                brpc_request->clear_blocks();
+            }
+        });
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
         brpc_request->set_eos(requests.back().eos);
@@ -473,9 +485,9 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             } else if (eos) {
                 _ended(ins);
             }
-
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
+            // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
                 _failed(ins.id,
@@ -494,14 +506,6 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             } else {
                 transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
-        }
-        if (!_send_multi_blocks && request.block_holder->get_block()) {
-            static_cast<void>(brpc_request->release_block());
-        } else {
-            for (int i = 0; i < brpc_request->mutable_blocks()->size(); ++i) {
-                static_cast<void>(brpc_request->mutable_blocks(i)->release_column_values());
-            }
-            brpc_request->clear_blocks();
         }
     } else {
         instance_data.rpc_channel_is_idle = true;
@@ -582,6 +586,13 @@ void ExchangeSinkBuffer::_turn_off_channel(RpcInstance& ins,
         for (auto& parent : _parents) {
             parent->on_channel_finished(ins.id);
         }
+    } else {
+        // Task execution context is already gone. The pipeline fragment context is being
+        // destroyed, so on_channel_finished is skipped. This is normally safe because
+        // unblock_all_dependencies() should have already set finish_dependency to always_ready.
+        LOG(INFO) << "ExchangeSinkBuffer::_turn_off_channel: task context is null, "
+                  << "skipping on_channel_finished for instance " << ins.id
+                  << ", dest_node_id=" << _dest_node_id << ", node_id=" << _node_id;
     }
 }
 
@@ -679,10 +690,11 @@ std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
         for (auto& [_, list] : instance_data->package_queue) {
             queue_size += list.size();
         }
-        fmt::format_to(debug_string_buffer, "Instance: {}, queue size: {}\n", id, queue_size);
+        fmt::format_to(debug_string_buffer, "Instance: {}, queue size: {}, is turn off: {}\n",
+                       fmt::format(FMT_COMPILE("{:x}"), static_cast<uint64_t>(id)), queue_size,
+                       instance_data->rpc_channel_is_turn_off);
     }
     return fmt::to_string(debug_string_buffer);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

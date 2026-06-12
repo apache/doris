@@ -31,7 +31,6 @@
 #include "exec/sink/tablet_sink_hash_partitioner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ExchangeWriterBase::ExchangeWriterBase(ExchangeSinkLocalState& local_state)
         : _local_state(local_state), _partitioner(local_state.partitioner()) {}
@@ -128,12 +127,12 @@ Status ExchangeOlapWriter::_write_impl(RuntimeState* state, Block* block, bool e
 }
 
 Status ExchangeTrivialWriter::write(RuntimeState* state, Block* block, bool eos) {
-    auto rows = block->rows();
     {
         SCOPED_TIMER(_local_state.split_block_hash_compute_timer());
         RETURN_IF_ERROR(_partitioner->do_partitioning(state, block));
     }
     {
+        auto rows = block->rows();
         SCOPED_TIMER(_local_state.distribute_rows_into_channels_timer());
         const auto& channel_ids = _partitioner->get_channel_ids();
 

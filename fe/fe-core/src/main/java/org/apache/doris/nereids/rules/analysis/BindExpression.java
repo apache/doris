@@ -17,14 +17,18 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -59,7 +63,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -77,6 +81,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
@@ -230,6 +236,12 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
                 logicalSubQueryAlias().thenApply(this::bindSubqueryAlias)
             ),
+            RuleType.BINDING_ICEBERG_DELETE_SINK_OUTPUT.build(
+                logicalIcebergDeleteSink().thenApply(this::bindIcebergDeleteSink)
+            ),
+            RuleType.BINDING_ICEBERG_MERGE_SINK_OUTPUT.build(
+                logicalIcebergMergeSink().thenApply(this::bindIcebergMergeSink)
+            ),
             RuleType.BINDING_RESULT_SINK.build(
                 unboundResultSink().thenApply(this::bindResultSink)
             )
@@ -258,6 +270,95 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {
         return ctx.root;
+    }
+
+    private LogicalIcebergDeleteSink<Plan> bindIcebergDeleteSink(
+            MatchingContext<LogicalIcebergDeleteSink<Plan>> ctx) {
+        LogicalIcebergDeleteSink<Plan> sink = ctx.root;
+        if (hasUnboundPlan(sink.child())) {
+            return sink;
+        }
+        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        if (sink.getOutputExprs().equals(outputExprs)) {
+            return sink;
+        }
+        return sink.withOutputExprs(outputExprs);
+    }
+
+    private LogicalIcebergMergeSink<Plan> bindIcebergMergeSink(
+            MatchingContext<LogicalIcebergMergeSink<Plan>> ctx) {
+        LogicalIcebergMergeSink<Plan> sink = ctx.root;
+        if (hasUnboundPlan(sink.child())) {
+            return sink;
+        }
+        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        List<Column> visibleColumns = sink.getCols().stream()
+                .filter(Column::isVisible)
+                .collect(ImmutableList.toImmutableList());
+        int dataExprCount = 0;
+        for (NamedExpression expr : outputExprs) {
+            if (!isIcebergMergeMetaColumn(expr.getName())) {
+                dataExprCount++;
+            }
+        }
+        if (dataExprCount != visibleColumns.size()) {
+            if (sink.getOutputExprs().equals(outputExprs)) {
+                return sink;
+            }
+            return sink.withOutputExprs(outputExprs);
+        }
+
+        boolean changed = false;
+        int columnIndex = 0;
+        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
+        for (NamedExpression expr : outputExprs) {
+            if (isIcebergMergeMetaColumn(expr.getName())) {
+                castExprs.add(expr);
+                continue;
+            }
+            Column column = visibleColumns.get(columnIndex++);
+            DataType targetType = DataType.fromCatalogType(column.getType());
+            Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+            NamedExpression namedExpr;
+            if (castExpr instanceof NamedExpression) {
+                namedExpr = (NamedExpression) castExpr;
+                if (!column.getName().equalsIgnoreCase(namedExpr.getName())) {
+                    namedExpr = new Alias(namedExpr, column.getName());
+                }
+            } else {
+                namedExpr = new Alias(castExpr, column.getName());
+            }
+            if (!namedExpr.equals(expr)) {
+                changed = true;
+            }
+            castExprs.add(namedExpr);
+        }
+        if (!changed) {
+            if (sink.getOutputExprs().equals(outputExprs)) {
+                return sink;
+            }
+            return sink.withOutputExprs(outputExprs);
+        }
+        LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
+        return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+    }
+
+    private boolean isIcebergMergeMetaColumn(String name) {
+        if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+            return true;
+        }
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
+            return true;
+        }
+        return IcebergUtils.isIcebergRowLineageColumn(name);
+    }
+
+    private static boolean hasUnboundPlan(Plan plan) {
+        return plan.anyMatch(node -> node instanceof Unbound || ((Plan) node).hasUnboundExpression());
     }
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {
@@ -330,11 +431,11 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (boundSlot.getDataType() instanceof StructType
                         && generate.getExpandColumnAlias().get(i).size() > 1) {
                     // if the alias is not empty, we should bind it with struct_element as child expr with alias
-                    // struct_element(#expand_col#k, #k) as #k
-                    // struct_element(#expand_col#v, #v) as #v
+                    // element_at(#expand_col#k, #k) as #k
+                    // element_at(#expand_col#v, #v) as #v
                     List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
                     for (int idx = 0; idx < fields.size(); ++idx) {
-                        expandAlias.add(new Alias(new StructElement(
+                        expandAlias.add(new Alias(new ElementAt(
                                 boundSlot, new StringLiteral(fields.get(idx).getName())),
                                 generate.getExpandColumnAlias().get(i).get(idx),
                                 slot.getQualifier()));
@@ -1318,7 +1419,7 @@ public class BindExpression implements AnalysisRuleFactory {
         // 2. for 'group by a + random(), a + random() + 1', the two 'random()' will be different.
         int containsUniqueGroupByCount = 0;
         for (Expression groupByExpr : groupByExpressions) {
-            if (groupByExpr.containsUniqueFunction()) {
+            if (groupByExpr.containsVolatileExpression()) {
                 containsUniqueGroupByCount++;
             }
         }
@@ -1332,8 +1433,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 groupByExpressions.size());
         for (Expression groupByExpr : groupByExpressions) {
             Expression newGroupByExpr = groupByExpr;
-            if (groupByExpr.containsUniqueFunction()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupByExpr, true);
+            if (groupByExpr.containsVolatileExpression()) {
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupByExpr,
+                        true);
                 Expression previousGroupByExpr = ignoreUniqueIdGroupByExprs.get(ignoreUniqueIdExpr);
                 if (previousGroupByExpr == null) {
                     ignoreUniqueIdGroupByExprs.put(ignoreUniqueIdExpr, groupByExpr);
@@ -1375,15 +1477,15 @@ public class BindExpression implements AnalysisRuleFactory {
     //    c) let E3 = rewrite E2 with enable unique ids. then E3 is the bind unique id expression for E.
     private <T extends Expression> T bindExprUniqueIdWithGroupBy(T expression,
             Map<Expression, Expression> bindUniqueIdReplaceMap) {
-        if (!expression.containsUniqueFunction() || bindUniqueIdReplaceMap.isEmpty()) {
+        if (!expression.containsVolatileExpression() || bindUniqueIdReplaceMap.isEmpty()) {
             return expression;
         }
 
         // first ignore unique id, then replace sub expression with group by expression
-        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression, true);
         resExpr = ExpressionUtils.replace(resExpr, bindUniqueIdReplaceMap);
         // enable unique id back
-        resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(resExpr, false);
+        resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(resExpr, false);
         return (T) resExpr;
     }
 
@@ -1421,8 +1523,9 @@ public class BindExpression implements AnalysisRuleFactory {
     private Map<Expression, Expression> getGroupByUniqueFuncReplaceMap(List<Expression> groupByByExpressions) {
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         for (Expression expression : groupByByExpressions) {
-            if (expression.containsUniqueFunction()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+            if (expression.containsVolatileExpression()) {
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression,
+                        true);
                 // for sql:
                 //    select distinct a + random(),  a + random()
                 //    from t
@@ -1453,8 +1556,9 @@ public class BindExpression implements AnalysisRuleFactory {
                     = ImmutableList.builderWithExpectedSize(boundGroupingSet.size());
             for (Expression groupBy : boundGroupingSet) {
                 Expression newGroupBy = groupBy;
-                if (groupBy.containsUniqueFunction()) {
-                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupBy, true);
+                if (groupBy.containsVolatileExpression()) {
+                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupBy,
+                            true);
                     Expression previousGroupBy = ignoreUniqueIdGroupByExpressions.get(ignoreUniqueIdGroupBy);
                     if (previousGroupBy == null) {
                         ignoreUniqueIdGroupByExpressions.put(ignoreUniqueIdGroupBy, groupBy);

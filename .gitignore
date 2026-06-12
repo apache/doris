@@ -13,6 +13,8 @@ core.*
 # ignore file with specifiy name anywhere
 .DS_Store
 .classpath
+.factorypath
+.worktree_initialized
 nohup.out
 /custom_env.sh
 /custom_env_mac.sh

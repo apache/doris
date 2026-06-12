@@ -78,9 +78,14 @@ public:
     RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
     const RowDescriptor& row_desc() const override { return _child->row_desc(); }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
+
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        return {_exchange_type};
+    }
+    ExchangeType exchange_type() const { return _exchange_type; }
 
 private:
     friend class LocalExchangeSourceLocalState;

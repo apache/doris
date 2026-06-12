@@ -35,8 +35,34 @@ under the License.
         <!-- Only depend on fe-common for basic types and utilities -->
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-type</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-collections4</artifactId>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/com.googlecode.java-ipv6/java-ipv6 -->
+        <dependency>
+            <groupId>com.googlecode.java-ipv6</groupId>
+            <artifactId>java-ipv6</artifactId>
+            <version>0.17</version>
+        </dependency>
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
         </dependency>
 
         <!-- Test dependencies -->
@@ -51,22 +77,25 @@ under the License.
         <finalName>doris-fe-catalog</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
-            <!-- Build source jar -->
+            <!--antlr-->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <configuration>
-                    <attach>true</attach>
-                </configuration>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr4.version}</version>
                 <executions>
                     <execution>
-                        <id>create-source-jar</id>
+                        <id>antlr</id>
                         <goals>
-                            <goal>jar-no-fork</goal>
-                            <goal>test-jar-no-fork</goal>
+                            <goal>antlr4</goal>
                         </goals>
                     </execution>
                 </executions>
+                <configuration>
+                    <visitor>true</visitor>
+                    <sourceDirectory>src/main/antlr4</sourceDirectory>
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                    <libDirectory>src/main/antlr4/org/apache/doris/parser</libDirectory>
+                </configuration>
             </plugin>
             <!-- Build test-jar for projects that may depend on test utilities -->
             <plugin>
@@ -91,4 +120,29 @@ under the License.
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <configuration>
+                            <attach>true</attach>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>create-source-jar</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                    <goal>test-jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

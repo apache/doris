@@ -30,7 +30,6 @@
 
 #include "common/logging.h"
 #include "core/column/column_complex.h"
-#include "core/column/column_nullable.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
@@ -41,7 +40,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 template <FieldType Type>
 class BinaryPlainPageBuilder : public PageBuilderHelper<BinaryPlainPageBuilder<Type>> {
@@ -103,10 +101,6 @@ public:
                 put_fixed32_le(&_buffer, _offset);
             }
             put_fixed32_le(&_buffer, cast_set<uint32_t>(_offsets.size()));
-            if (_offsets.size() > 0) {
-                _copy_value_at(0, &_first_value);
-                _copy_value_at(_offsets.size() - 1, &_last_value);
-            }
             *slice = _buffer.build();
         });
         return Status::OK();
@@ -133,45 +127,9 @@ public:
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
-    Status get_first_value(void* value) const override {
-        DCHECK(_finished);
-        if (_offsets.size() == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_first_value);
-        return Status::OK();
-    }
-    Status get_last_value(void* value) const override {
-        DCHECK(_finished);
-        if (_offsets.size() == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_last_value);
-        return Status::OK();
-    }
-
-    inline Slice operator[](size_t idx) const {
-        DCHECK(!_finished);
-        DCHECK_LT(idx, _offsets.size());
-        size_t value_size =
-                (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
-        return Slice(&_buffer[_offsets[idx]], value_size);
-    }
-
-    Status get_dict_word(uint32_t value_code, Slice* word) override {
-        *word = (*this)[value_code];
-        return Status::OK();
-    }
-
 private:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
-
-    void _copy_value_at(size_t idx, faststring* value) const {
-        size_t value_size =
-                (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
-        value->assign_copy(&_buffer[_offsets[idx]], value_size);
-    }
 
     faststring _buffer;
     size_t _size_estimate;
@@ -182,8 +140,6 @@ private:
     // size of last added value
     uint32_t _last_value_size = 0;
     uint64_t _raw_data_size = 0;
-    faststring _first_value;
-    faststring _last_value;
 };
 
 template <FieldType Type>
@@ -244,6 +200,21 @@ public:
         }
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
+        if (_options.only_read_offsets) {
+            // OFFSET_ONLY mode: read string lengths from page offset trailer
+            // without copying actual char data. This allows length() to work.
+            _offsets.resize(max_fetch);
+            for (size_t i = 0; i < max_fetch; ++i) {
+                uint32_t str_start = offset(_cur_idx + i);
+                uint32_t str_end = offset(_cur_idx + i + 1);
+                _offsets[i] = str_end - str_start;
+            }
+            dst->insert_offsets_from_lengths(_offsets.data(), max_fetch);
+            _cur_idx += max_fetch;
+            *n = max_fetch;
+            return Status::OK();
+        }
+
         uint32_t last_offset = guarded_offset(_cur_idx);
         _offsets.resize(max_fetch + 1);
         _offsets[0] = last_offset;
@@ -279,6 +250,29 @@ public:
         }
 
         auto total = *n;
+
+        if (_options.only_read_offsets) {
+            // OFFSET_ONLY mode: read string lengths from page offset trailer
+            // without copying actual char data. This allows length() to work.
+            size_t read_count = 0;
+            _offsets.resize(total);
+            for (size_t i = 0; i < total; ++i) {
+                ordinal_t ord = rowids[i] - page_first_ordinal;
+                if (UNLIKELY(ord >= _num_elems)) {
+                    break;
+                }
+                uint32_t str_start = offset(ord);
+                uint32_t str_end = offset(ord + 1);
+                _offsets[read_count] = str_end - str_start;
+                read_count++;
+            }
+            if (read_count > 0) {
+                dst->insert_offsets_from_lengths(_offsets.data(), read_count);
+            }
+            *n = read_count;
+            return Status::OK();
+        }
+
         size_t read_count = 0;
         _binary_data.resize(total);
         for (size_t i = 0; i < total; ++i) {
@@ -309,12 +303,6 @@ public:
     size_t current_index() const override {
         DCHECK(_parsed);
         return _cur_idx;
-    }
-
-    Slice string_at_index(size_t idx) const {
-        const uint32_t start_offset = offset(idx);
-        uint32_t len = offset(idx + 1) - start_offset;
-        return Slice(&_data[start_offset], len);
     }
 
     Status get_dict_word_info(StringRef* dict_word_info) override {
@@ -379,6 +367,5 @@ private:
     friend class FileColumnIterator;
 };
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

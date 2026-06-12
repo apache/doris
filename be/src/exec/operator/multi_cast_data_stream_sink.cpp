@@ -22,7 +22,6 @@
 #include "exec/pipeline/dependency.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     auto* parent = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent);
@@ -67,7 +66,7 @@ std::string MultiCastDataStreamSinkLocalState::debug_string(int indentation_leve
     return fmt::to_string(debug_string_buffer);
 }
 
-Status MultiCastDataStreamSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status MultiCastDataStreamSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (in_block->rows() > 0 || eos) {

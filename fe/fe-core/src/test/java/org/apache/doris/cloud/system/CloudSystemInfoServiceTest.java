@@ -19,8 +19,12 @@ package org.apache.doris.cloud.system;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -28,6 +32,8 @@ import org.apache.doris.system.Backend;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +46,7 @@ public class CloudSystemInfoServiceTest {
     public void setUp() {
         // Enable cloud mode for testing
         Config.cloud_unique_id = "test_cloud_unique_id";
+        Config.meta_service_endpoint = "127.0.0.1:5000";
     }
 
     @Test
@@ -265,6 +272,65 @@ public class CloudSystemInfoServiceTest {
 
         String res = infoService.getPhysicalCluster(vcgName);
         Assert.assertEquals(pcgName2, res);
+    }
+
+    @Test
+    public void testGetPhysicalClusterSwitchActiveStandbyMetric() throws Exception {
+        infoService = new CloudSystemInfoService();
+
+        String vcgName = "v_cluster_1";
+        String vcgId = "id1";
+        String pcgName1 = "p_cluster_1";
+        String pcgName2 = "p_cluster_2";
+
+        ComputeGroup vcg = new ComputeGroup(vcgId, vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        policy.setActiveComputeGroup(pcgName1);
+        policy.setStandbyComputeGroup(pcgName2);
+        policy.setUnhealthyNodeThresholdPercent(100);
+        vcg.setPolicy(policy);
+
+        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        infoService.addComputeGroup(vcgId, vcg);
+        infoService.clusterNameToId.put(pcgName1, "id2");
+        infoService.addComputeGroup("id3", pcg2);
+
+        List<Backend> toAdd2 = new ArrayList<>();
+        for (int i = 0; i < 3; ++i) {
+            Backend b = new Backend(i + 4, "", i);
+            Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+            newTagMap.put(Tag.CLOUD_CLUSTER_NAME, pcgName2);
+            newTagMap.put(Tag.CLOUD_CLUSTER_ID, "id3");
+            b.setTagMap(newTagMap);
+            b.setAlive(true);
+            toAdd2.add(b);
+        }
+        infoService.updateCloudClusterMapNoLock(toAdd2, new ArrayList<>());
+        Assert.assertNull(infoService.getComputeGroupByName(pcgName1));
+        Assert.assertTrue(infoService.isComputeGroupAvailable(pcgName2, policy.getUnhealthyNodeThresholdPercent()));
+
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        Mockito.when(cloudEnv.getCloudInstanceId()).thenReturn("instance_id");
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.AlterClusterResponse response = Cloud.AlterClusterResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK)
+                        .setMsg("OK"))
+                .build();
+        Mockito.when(metaServiceProxy.alterCluster(Mockito.any())).thenReturn(response);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> mockedMetaServiceProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<MetricRepo> mockedMetricRepo = Mockito.mockStatic(MetricRepo.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+            mockedMetaServiceProxy.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            String res = infoService.getPhysicalCluster(vcgName);
+
+            Assert.assertEquals(pcgName2, res);
+            mockedMetricRepo.verify(() ->
+                    MetricRepo.increaseVirtualComputeGroupSwitch(vcgId, vcgName, "id2", pcgName1, "id3", pcgName2));
+        }
     }
 
     // active has 1 alive be and 2 dead be, standby has 3 alive be
@@ -971,6 +1037,21 @@ public class CloudSystemInfoServiceTest {
             // Clean up ConnectContext
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testContainsCloudCluster() {
+        infoService = new CloudSystemInfoService();
+        // Empty / null inputs short-circuit without touching the map.
+        Assert.assertFalse(infoService.containsCloudCluster(null));
+        Assert.assertFalse(infoService.containsCloudCluster(""));
+        // Unknown cluster name -> false.
+        Assert.assertFalse(infoService.containsCloudCluster("absent_cluster"));
+        // Register a cluster; lookup must hit.
+        infoService.addVirtualClusterInfoToMapsNoLock("cid_1", "cluster_1");
+        Assert.assertTrue(infoService.containsCloudCluster("cluster_1"));
+        // Different name in same map -> still false.
+        Assert.assertFalse(infoService.containsCloudCluster("cluster_2"));
     }
 
     /**

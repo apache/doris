@@ -27,7 +27,6 @@
 #include "core/custom_allocator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 inline uint32_t hash_join_table_calc_bucket_size(size_t num_elem) {
     size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
@@ -41,7 +40,7 @@ public:
     using key_type = Key;
     using mapped_type = void*;
     using value_type = void*;
-    size_t hash(const Key& x) const { return Hash()(x); }
+    uint32_t hash(const Key& x) const { return Hash()(x); }
 
     size_t get_byte_size() const {
         auto cal_vector_mem = [](const auto& vec) { return vec.capacity() * sizeof(vec[0]); };
@@ -481,7 +480,8 @@ private:
             /// If the probe key is null
             if constexpr (has_null_map) {
                 if (null_map[probe_idx]) {
-                    probe_idx++;
+                    build_idx = 0;
+                    picking_null_keys = false;
                     break;
                 }
             }
@@ -513,5 +513,4 @@ private:
 
 template <typename Key, typename Hash, bool DirectMapping>
 using JoinHashMap = JoinHashTable<Key, Hash, DirectMapping>;
-#include "common/compile_check_end.h"
 } // namespace doris

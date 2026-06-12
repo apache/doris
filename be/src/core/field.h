@@ -58,16 +58,16 @@ class Field;
 
 using FieldVector = std::vector<Field>;
 
-/// Array and Tuple use the same storage type -- FieldVector, but we declare
+/// Array and Struct use the same storage type -- FieldVector, but we declare
 /// distinct types for them, so that the caller can choose whether it wants to
-/// construct a Field of Array or a Tuple type. An alternative approach would be
+/// construct a Field of Array or a Struct type. An alternative approach would be
 /// to construct both of these types from FieldVector, and have the caller
 /// specify the desired Field type explicitly.
 struct Array : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-struct Tuple : public FieldVector {
+struct Struct : public FieldVector {
     using FieldVector::FieldVector;
 };
 
@@ -213,9 +213,7 @@ public:
         auto f = Field(PType);
         typename PrimitiveTypeTraits<PType>::CppType cpp_value;
         if constexpr (is_string_type(PType)) {
-            auto min_size =
-                    MAX_ZONE_MAP_INDEX_SIZE >= data.size ? data.size : MAX_ZONE_MAP_INDEX_SIZE;
-            cpp_value = String(data.data, min_size);
+            cpp_value = String(data.data, data.size);
         } else if constexpr (is_date_or_datetime(PType)) {
             if constexpr (PType == TYPE_DATE) {
                 cpp_value.from_olap_date(data);
@@ -281,9 +279,14 @@ public:
 
     std::string_view as_string_view() const;
 
+    // Return a human-readable representation of the stored value for debugging.
+    // Unlike get_type_name() which returns the type, this prints the actual value.
+    // For decimal types, caller can provide scale for accurate formatting.
+    std::string to_debug_string(int scale) const;
+
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Tuple, Map,
+                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, Map,
                          VariantMap, Decimal32, Decimal64, DecimalV2Value, Decimal128V3, Decimal256,
                          BitmapValue, HyperLogLog, QuantileState>
             storage;
@@ -320,6 +323,10 @@ struct FieldWithDataType {
     uint8_t num_dimensions = 0;
     int precision = -1;
     int scale = -1;
+    // True when the array elements are mixed-type and must be converted to the common base
+    // type on insert. Mirrors FieldInfo::need_convert so it survives the FieldWithDataType
+    // round trip in the sparse read path.
+    bool need_convert = false;
 };
 
 } // namespace doris

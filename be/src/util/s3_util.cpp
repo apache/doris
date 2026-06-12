@@ -30,7 +30,7 @@
 #include <aws/s3/S3Client.h>
 #include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
-#include <cpp/s3_rate_limiter.h>
+#include <cpp/token_bucket_rate_limiter.h>
 
 #include <atomic>
 
@@ -349,7 +349,6 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     }
 
     Azure::Storage::Blobs::BlobClientOptions options;
-    options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     options.Retry.MaxRetries = config::max_s3_client_retry;
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
     if (_ca_cert_file_path.empty()) {
@@ -526,7 +525,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     }
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-            config::max_s3_client_retry /*scaleFactor = 25*/);
+            config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/false);
 
     std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
             get_aws_credentials_provider(s3_conf), std::move(aws_config),
@@ -626,6 +625,16 @@ static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type c
         return CredProviderType::Simple;
     case TCredProviderType::INSTANCE_PROFILE:
         return CredProviderType::InstanceProfile;
+    case TCredProviderType::ENV:
+        return CredProviderType::Env;
+    case TCredProviderType::SYSTEM_PROPERTIES:
+        return CredProviderType::SystemProperties;
+    case TCredProviderType::WEB_IDENTITY:
+        return CredProviderType::WebIdentity;
+    case TCredProviderType::CONTAINER:
+        return CredProviderType::Container;
+    case TCredProviderType::ANONYMOUS:
+        return CredProviderType::Anonymous;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid TCredProviderType value: " << cred_provider_type

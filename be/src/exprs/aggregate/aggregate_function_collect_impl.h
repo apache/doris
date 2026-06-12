@@ -25,7 +25,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T, bool HasLimit>
 AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
@@ -73,4 +72,3 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

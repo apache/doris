@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SetVar.SetVarType;
@@ -41,6 +40,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -55,13 +55,10 @@ import org.json.simple.JSONValue;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
@@ -107,18 +104,6 @@ import javax.annotation.Nullable;
 public class VariableMgr {
     private static final Logger LOG = LogManager.getLogger(VariableMgr.class);
 
-    // variable have this flag means that every session have a copy of this variable,
-    // and can modify its own variable.
-    public static final int SESSION = 1;
-    // Variables with this flag have only one instance in one process.
-    public static final int GLOBAL = 2;
-    // Variables with this flag only exist in each session.
-    public static final int SESSION_ONLY = 4;
-    // Variables with this flag can only be read.
-    public static final int READ_ONLY = 8;
-    // Variables with this flag can not be seen with `SHOW VARIABLES` statement.
-    public static final int INVISIBLE = 16;
-
     // Map variable name to variable context which have enough information to change variable value.
     // This map contains info of all session and global variables.
     private static ImmutableMap<String, VarContext> ctxByVarName;
@@ -126,8 +111,6 @@ public class VariableMgr {
     // If a session variable "foo" is an experimental variable,
     // its display name is "experimental_foo"
     private static ImmutableMap<String, VarContext> ctxByDisplayVarName;
-
-    private static Map<String, LiteralExpr> userVars = new HashMap<String, LiteralExpr>();
 
     // This variable is equivalent to the default value of session variables.
     // Whenever a new session is established, the value in this object is copied to the session-level variable.
@@ -144,6 +127,38 @@ public class VariableMgr {
     private static final ReadWriteLock rwlock = new ReentrantReadWriteLock();
     private static final Lock rlock = rwlock.readLock();
     private static final Lock wlock = rwlock.writeLock();
+
+    // Session variables that have been removed from SessionVariable.java but may still appear in
+    // user scripts, JDBC client connection init, or older replayed-edit logs. Looking up these
+    // names by SET or SELECT @@ silently no-ops instead of throwing ERR_UNKNOWN_SYSTEM_VARIABLE,
+    // so a BE-then-FE rolling upgrade does not break existing workloads. All entries in this set
+    // must use lowercase to match the case-insensitive comparison.
+    private static final ImmutableSet<String> REMOVED_SESSION_VAR_NAMES = ImmutableSet.of(
+            "use_v2_rollup",
+            "rewrite_count_distinct_to_bitmap_hll",
+            "enable_variant_access_in_original_planner",
+            "extract_wide_range_expr",
+            "auto_broadcast_join_threshold",
+            "runtime_filters_max_num",
+            "disable_inverted_index_v1_for_variant",
+            "enable_infer_predicate",
+            "limit_rows_for_single_instance",
+            "nereids_star_schema_support",
+            "enable_cbo_statistics",
+            "enable_eliminate_sort_node",
+            "drop_table_if_ctas_failed",
+            "trace_nereids",
+            "enable_sync_mv_cost_based_rewrite",
+            "enable_vectorized_engine",
+            "enable_common_expr_pushdown",
+            "enable_common_expr_pushdown_for_inverted_index",
+            "enable_phrase_query_sequential_opt",
+            "enable_rust_lance_reader",
+            "shuffled_agg_node_ids");
+
+    private static boolean isRemovedSessionVar(String varName) {
+        return varName != null && REMOVED_SESSION_VAR_NAMES.contains(varName.toLowerCase());
+    }
 
     // Form map from variable name to its field in Java class.
     static {
@@ -164,7 +179,7 @@ public class VariableMgr {
 
         Field field = sessionVariableField.getField();
         field.setAccessible(true);
-        VarAttr attr = field.getAnnotation(VarAttr.class);
+        VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
 
         if (VariableVarConverters.hasConverter(attr.name())) {
             value = VariableVarConverters.encode(attr.name(), value).toString();
@@ -230,7 +245,11 @@ public class VariableMgr {
                 field.setShort(obj, Short.parseShort(value));
                 break;
             case "int":
-                field.setInt(obj, Integer.parseInt(value));
+                int intValue = Integer.parseInt(value);
+                if (SessionVariable.RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+                    intValue = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+                }
+                field.setInt(obj, intValue);
                 break;
             case "long":
                 field.setLong(obj, Long.parseLong(value));
@@ -279,13 +298,13 @@ public class VariableMgr {
     // But in some case, we do not want to set the query state and need to ignore that error.
     // Set setVarForNonMasterFE() is an example.
     private static void checkUpdate(SetVar setVar, int flag) throws DdlException {
-        if ((flag & READ_ONLY) != 0) {
+        if ((flag & VarAttrDef.READ_ONLY) != 0) {
             throw new DdlException(ErrorCode.ERR_VARIABLE_IS_READONLY.formatErrorMsg(setVar.getVariable()));
         }
-        if (setVar.getType() == SetType.GLOBAL && (flag & SESSION_ONLY) != 0) {
+        if (setVar.getType() == SetType.GLOBAL && (flag & VarAttrDef.SESSION_ONLY) != 0) {
             throw new DdlException(ErrorCode.ERR_LOCAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
-        if (setVar.getType() != SetType.GLOBAL && (flag & GLOBAL) != 0) {
+        if (setVar.getType() != SetType.GLOBAL && (flag & VarAttrDef.GLOBAL) != 0) {
             throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
     }
@@ -298,6 +317,13 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            // Silently ignore variables that have been removed from SessionVariable.
+            // This preserves backward compatibility for clients still issuing SET on the old name
+            // during a BE-then-FE rolling upgrade.
+            if (isRemovedSessionVar(setVar.getVariable())) {
+                LOG.debug("Ignoring removed session variable: {}", setVar.getVariable());
+                return;
+            }
             // Check if the variable is in the MySQL compatibility whitelist
             if (isInMySQLCompatWhitelist(setVar.getVariable())) {
                 // Silently ignore whitelisted variables for MySQL compatibility
@@ -343,6 +369,10 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            if (isRemovedSessionVar(setVar.getVariable())) {
+                LOG.debug("Ignoring removed session variable: {}", setVar.getVariable());
+                return;
+            }
             // Check if the variable is in the MySQL compatibility whitelist
             if (isInMySQLCompatWhitelist(setVar.getVariable())) {
                 // Silently ignore whitelisted variables for MySQL compatibility
@@ -371,7 +401,7 @@ public class VariableMgr {
             return null;
         }
         // for non-matched prefix, report an error
-        VariableAnnotation varType = ctx.getField().getAnnotation(VarAttr.class).varType();
+        VariableAnnotation varType = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).varType();
         if (hasExpPrefix && (!name.startsWith(varType.getPrefix())
                 || varType == VariableAnnotation.NONE)) {
             return null;
@@ -382,7 +412,7 @@ public class VariableMgr {
     private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
             throws DdlException {
         // To modify to default value.
-        VarAttr attr = ctx.getField().getAnnotation(VarAttr.class);
+        VarAttrDef.VarAttr attr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
         String value;
         // If value is null, this is `set variable = DEFAULT`
         if (setVar.getResult() != null) {
@@ -524,6 +554,13 @@ public class VariableMgr {
     public static void fillValue(SessionVariable var, VariableExpr desc) throws AnalysisException {
         VarContext ctx = getVarContext(desc.getName());
         if (ctx == null) {
+            if (isRemovedSessionVar(desc.getName())) {
+                // Treat removed session variables as empty string for read access,
+                // preserving compatibility with clients that still SELECT @@<removed_var>.
+                desc.setType(Type.VARCHAR);
+                desc.setStringValue("");
+                return;
+            }
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, desc.getName());
         }
 
@@ -540,7 +577,7 @@ public class VariableMgr {
     }
 
     private static void fillValue(Object obj, Field field, VariableExpr desc) {
-        VarAttr attr = field.getAnnotation(VarAttr.class);
+        VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
         if (!Strings.isNullOrEmpty(attr.convertBoolToLongMethod())) {
             try {
                 Preconditions.checkArgument(obj instanceof SessionVariable);
@@ -601,6 +638,9 @@ public class VariableMgr {
     private static String getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
         VarContext ctx = ctxByVarName.get(name);
         if (ctx == null) {
+            if (isRemovedSessionVar(name)) {
+                return "";
+            }
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, name);
         }
 
@@ -624,6 +664,12 @@ public class VariableMgr {
 
     // For Nereids optimizer
     public static @Nullable Literal getLiteral(SessionVariable var, String name, SetType setType) {
+        if (isRemovedSessionVar(name)) {
+            // Match the no-op behavior used by setVar/getValue for removed session
+            // variables so that SELECT @@<removed_var> doesn't break clients during
+            // a BE-then-FE rolling upgrade.
+            return new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("");
+        }
         VarContext ctx = getVarContext(name);
         if (ctx == null) {
             return null;
@@ -642,7 +688,7 @@ public class VariableMgr {
     }
 
     private static Literal getLiteral(Object obj, Field field) {
-        VarAttr attr = field.getAnnotation(VarAttr.class);
+        VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
         if (!Strings.isNullOrEmpty(attr.convertBoolToLongMethod())) {
             try {
                 Preconditions.checkArgument(obj instanceof SessionVariable);
@@ -720,7 +766,7 @@ public class VariableMgr {
         Map<String, VarContext> result = Maps.newHashMap();
         for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
             VarContext varContext = entry.getValue();
-            VarAttr varAttr = varContext.getField().getAnnotation(VarAttr.class);
+            VarAttrDef.VarAttr varAttr = varContext.getField().getAnnotation(VarAttrDef.VarAttr.class);
             result.put(varAttr.varType().getPrefix() + entry.getKey(), varContext);
         }
         return ImmutableMap.copyOf(result);
@@ -763,13 +809,13 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
-                VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttr.class);
+                VarAttrDef.VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttrDef.VarAttr.class);
                 // not show removed variables
                 if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
                     continue;
                 }
                 // not show invisible variables
-                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
+                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
                     continue;
                 }
                 // Filter variable not match to the regex.
@@ -846,13 +892,13 @@ public class VariableMgr {
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
                 VarContext ctx = entry.getValue();
-                VarAttr varAttr = ctx.getField().getAnnotation(VarAttr.class);
+                VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
                 // not show removed variables
                 if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
                     continue;
                 }
                 // not show invisible variables
-                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
+                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
                     continue;
                 }
                 List<String> row = Lists.newArrayList();
@@ -884,51 +930,32 @@ public class VariableMgr {
         return changedRows;
     }
 
-    @Retention(RetentionPolicy.RUNTIME)
-    public @interface VarAttr {
-        // Name in show variables and set statement;
-        String name();
-
-        String[] alias() default {};
-
-        int flag() default 0;
-
-        // TODO(zhaochun): min and max is not used.
-        String minValue() default "0";
-
-        String maxValue() default "0";
-
-        // the function name that check the VarAttr before setting it to sessionVariable
-        // only support check function: 0 argument and 0 return value, if an error occurs, throw an exception.
-        // the checker function should be: public void checker(String value), value is the input string.
-        String checker() default "";
-
-        // could specify the setter method for a variable, not depend on reflect mechanism
-        String setter() default "";
-
-        // Set to true if the variables need to be forwarded along with forward statement.
-        boolean needForward() default false;
-
-        // Set to true if this variable is fuzzy
-        boolean fuzzy() default false;
-
-        VariableAnnotation varType() default VariableAnnotation.NONE;
-
-        // description for this config item.
-        // There should be 2 elements in the array.
-        // The first element is the description in Chinese.
-        // The second element is the description in English.
-        String[] description() default {"待补充", "TODO"};
-
-        // Enum options for this config item, if it has.
-        String[] options() default {};
-
-        String convertBoolToLongMethod() default "";
-        // If the variable affects the outcome, set it to true.
-        // If this value is true, it will ignore needForward and enforce forwarding.
-        boolean affectQueryResultInPlan() default false;
-
-        boolean affectQueryResultInExecution() default false;
+    /**
+     * Returns all visible session variables for the given {@link SessionVariable} as a flat
+     * {@code Map<String, String>}. Invisible and removed variables are excluded.
+     *
+     * <p>This is used by the connector SPI to pass the full session state to plugins
+     * without a hard-coded whitelist.</p>
+     */
+    public static Map<String, String> toMap(SessionVariable sessionVar) {
+        Map<String, String> result = Maps.newHashMap();
+        rlock.lock();
+        try {
+            for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
+                VarContext ctx = entry.getValue();
+                VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
+                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
+                    continue;
+                }
+                result.put(entry.getKey(), getValue(sessionVar, ctx.getField()));
+            }
+        } finally {
+            rlock.unlock();
+        }
+        return result;
     }
 
     public static class VarContext {
@@ -979,13 +1006,13 @@ public class VariableMgr {
         ImmutableSortedMap.Builder<String, VarContext> builder =
                 ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (Field field : SessionVariable.class.getDeclaredFields()) {
-            VarAttr attr = field.getAnnotation(VarAttr.class);
+            VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
             if (attr == null) {
                 continue;
             }
 
             field.setAccessible(true);
-            VarContext varContext = new VarContext(field, sessionVariable, SESSION | attr.flag(),
+            VarContext varContext = new VarContext(field, sessionVariable, VarAttrDef.SESSION | attr.flag(),
                     getValue(sessionVariable, field));
 
             // 1. Register the primary name.
@@ -999,13 +1026,14 @@ public class VariableMgr {
 
         // Variables only exist in global environment.
         for (Field field : GlobalVariable.class.getDeclaredFields()) {
-            VarAttr attr = field.getAnnotation(VarAttr.class);
+            VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
             if (attr == null) {
                 continue;
             }
 
             field.setAccessible(true);
-            builder.put(attr.name(), new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
+            builder.put(attr.name(),
+                    new VarContext(field, null, VarAttrDef.GLOBAL | attr.flag(), getValue(null, field)));
         }
         return builder;
     }

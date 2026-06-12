@@ -97,6 +97,7 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             "PartitionExprsSize",
             std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._partitioned_exprs_num));
     _channel_id = info.task_idx;
+    _ins_idx = info.task_idx;
     return Status::OK();
 }
 
@@ -141,7 +142,7 @@ std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) con
     return fmt::to_string(debug_string_buffer);
 }
 
-Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status LocalExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -152,7 +153,8 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
     SinkInfo sink_info = {.channel_id = &local_state._channel_id,
                           .partitioner = local_state._partitioner.get(),
                           .local_state = &local_state,
-                          .shuffle_idx_to_instance_idx = &_shuffle_idx_to_instance_idx};
+                          .shuffle_idx_to_instance_idx = &_shuffle_idx_to_instance_idx,
+                          .ins_idx = local_state._ins_idx};
     RETURN_IF_ERROR(local_state._exchanger->sink(
             state, in_block, eos,
             {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},

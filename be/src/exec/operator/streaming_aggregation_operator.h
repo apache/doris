@@ -27,7 +27,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class StreamingAggOperatorX;
@@ -68,6 +67,7 @@ private:
     Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   const uint32_t num_rows);
+    void _emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns, uint32_t num_rows);
     bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
                                         ColumnRawPtrs& key_columns, uint32_t num_rows);
     Status _create_agg_status(AggregateDataPtr data);
@@ -98,6 +98,7 @@ private:
     // group by k1,k2
     VExprContextSPtrs _probe_expr_ctxs;
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
+    bool _use_simple_count = false;
     bool _reach_limit = false;
     size_t _input_num_rows = 0;
 
@@ -178,6 +179,11 @@ private:
                                  // Do nothing
                              },
                              [&](auto& agg_method) -> void {
+                                 if (_use_simple_count) {
+                                     // Inline count: mapped slots hold UInt64,
+                                     // not real agg state pointers. Skip destroy.
+                                     return;
+                                 }
                                  auto& data = *agg_method.hash_table;
                                  data.for_each_mapped([&](auto& mapped) {
                                      if (mapped) {
@@ -218,10 +224,10 @@ public:
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_child && _child->is_hash_join_probe() &&
             state->enable_streaming_agg_hash_join_force_passthrough()) {
-            return DataDistribution(ExchangeType::PASSTHROUGH);
+            return {ExchangeType::PASSTHROUGH};
         }
-        if (!state->get_query_ctx()->should_be_shuffled_agg(
-                    StatefulOperatorX<StreamingAggLocalState>::node_id())) {
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
+            !child_breaks_local_key_distribution(state)) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }
         if (_partition_exprs.empty()) {
@@ -230,7 +236,7 @@ public:
                            : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
                                      state);
         }
-        return DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return {ExchangeType::HASH_SHUFFLE, _partition_exprs};
     }
 
 private:
@@ -274,5 +280,4 @@ private:
     std::vector<TExpr> _partition_exprs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

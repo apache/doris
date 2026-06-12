@@ -31,8 +31,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
                std::string tablet_path)
         : _rowset_meta(std::move(rowset_meta)),
@@ -84,7 +82,7 @@ Status Rowset::load(bool use_cache) {
     return Status::OK();
 }
 
-void Rowset::make_visible(Version version) {
+void Rowset::make_visible(Version version, int64_t commit_tso) {
     _is_pending = false;
     _rowset_meta->set_version(version);
     _rowset_meta->set_rowset_state(VISIBLE);
@@ -95,6 +93,7 @@ void Rowset::make_visible(Version version) {
     if (_rowset_meta->has_delete_predicate()) {
         _rowset_meta->mutable_delete_predicate()->set_version(cast_set<int32_t>(version.first));
     }
+    _rowset_meta->set_commit_tso(commit_tso);
 }
 
 void Rowset::set_version(Version version) {
@@ -237,7 +236,5 @@ int64_t Rowset::approximate_cache_index_size() {
 std::chrono::time_point<std::chrono::system_clock> Rowset::visible_timestamp() const {
     return _rowset_meta->visible_timestamp();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

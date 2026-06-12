@@ -35,7 +35,6 @@
 #include "util/pretty_printer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::LocalSinkStateInfo& info) {
@@ -236,12 +235,21 @@ Status PartitionedHashJoinSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
+    // Walk the chain `_shared_state -> _inner_runtime_state` defensively.
+    // The inner runtime state is built separately from the outer sink's
+    // setup_local_state path, so its atomicity is weaker than a top-level
+    // local-state init. Any null in this chain on a cancel / early-wake
+    // path would NPE inside terminate.
+    if (_shared_state == nullptr || _shared_state->_inner_runtime_state == nullptr) {
+        return PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>::terminate(state);
+    }
     HashJoinBuildSinkLocalState* inner_sink_state {nullptr};
     if (auto* tmp_sink_state = _shared_state->_inner_runtime_state->get_sink_local_state()) {
         inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
     }
     if (inner_sink_state) {
-        if (_parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator) {
+        if (_parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator &&
+            inner_sink_state->_runtime_filter_producer_helper) {
             RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(state));
         }
         inner_sink_state->_terminated = true;
@@ -291,6 +299,7 @@ Status PartitionedHashJoinSinkLocalState::_finish_spilling(RuntimeState* state) 
 /// because we use limit 1MB here. So we need to force spill all memory to disk to make sure we can make progress.
 Status PartitionedHashJoinSinkLocalState::_execute_spill_partitioned_blocks(RuntimeState* state,
                                                                             bool force_spill) {
+    RETURN_IF_CANCELLED(state);
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
         auto status = Status::InternalError(
                 "fault_inject partitioned_hash_join_sink revoke_memory canceled");
@@ -478,6 +487,10 @@ Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState*
     /// Set these two values after all the work is ready.
     _shared_state->_inner_shared_state = std::move(inner_shared_state);
     _shared_state->_inner_runtime_state = std::move(inner_runtime_state);
+    // The inner (spill) runtime state registers its own runtime filters. Merge those IDs
+    // into the parent state so they are tracked for deregistration during recursive CTE rerun.
+    state->merge_register_runtime_filter(
+            _shared_state->_inner_runtime_state->get_deregister_runtime_filter());
     return Status::OK();
 }
 
@@ -501,7 +514,7 @@ void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
 
 #undef UPDATE_COUNTER_FROM_INNER
 
-Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status PartitionedHashJoinSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     const auto rows = in_block->rows();
@@ -572,5 +585,4 @@ bool PartitionedHashJoinSinkLocalState::is_blockable() const {
     return _shared_state->_is_spilled;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

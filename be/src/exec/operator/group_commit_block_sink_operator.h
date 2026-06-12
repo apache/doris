@@ -23,7 +23,6 @@
 #include "util/bitmap.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class OlapTableBlockConvertor;
 } // namespace doris
 
@@ -103,7 +102,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* block, bool eos) override;
 
 private:
     friend class GroupCommitBlockSinkLocalState;
@@ -127,5 +126,4 @@ private:
     TGroupCommitMode::type _group_commit_mode;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

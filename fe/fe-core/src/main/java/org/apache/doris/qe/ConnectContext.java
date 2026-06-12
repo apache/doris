@@ -21,18 +21,19 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -55,6 +56,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -88,8 +90,10 @@ import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -110,6 +114,7 @@ public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
 
     private static final String SSL_PROTOCOL = "TLS";
+    private static final int INITIAL_PREPARED_STMT_ID = Integer.MIN_VALUE;
 
     public enum ConnectType {
         MYSQL,
@@ -125,7 +130,7 @@ public class ConnectContext {
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
     // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
-    protected int preparedStmtId = Integer.MIN_VALUE;
+    protected int preparedStmtId = INITIAL_PREPARED_STMT_ID;
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
@@ -170,6 +175,10 @@ public class ConnectContext {
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
+    // Authenticated external principal captured during the login flow.
+    protected volatile Principal authenticatedPrincipal;
+    // Roles granted during authentication and bound to the current session.
+    protected volatile Set<String> authenticatedRoles = Collections.emptySet();
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
@@ -274,6 +283,11 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+    // internal flag to expose Iceberg rowid metadata during analysis/planning.
+    // When set to a valid table ID (>= 0), only that specific table's getFullSchema()
+    // will include __DORIS_ICEBERG_ROWID_COL__. This prevents ambiguity in MERGE INTO
+    // when the source table is also an Iceberg table.
+    private long icebergRowIdTargetTableId = -1;
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
@@ -357,6 +371,47 @@ public class ConnectContext {
         lastDBOfCatalog.clear();
     }
 
+    public void resetConnection() throws UserException {
+        closeTxnForConnectionReset();
+        if (!dbToTempTableNamesMap.isEmpty()) {
+            cleanupTemporaryTables(true);
+            dbToTempTableNamesMap.clear();
+        }
+        resetSessionVariable();
+        userVars = new HashMap<>();
+        preparedQuerys.clear();
+        preparedStatementContextMap.clear();
+        runningQuery = null;
+        queryId = null;
+        lastQueryId = null;
+        setTraceId(null);
+        insertResult = null;
+        command = MysqlCommand.COM_SLEEP;
+        returnRows = 0;
+    }
+
+    private void resetSessionVariable() {
+        sessionVariable = VariableMgr.newSessionVariable();
+        applyUserSessionVariableDefaults();
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
+        }
+    }
+
+    private void applyUserSessionVariableDefaults() {
+        String qualifiedUser = getQualifiedUser();
+        if (Strings.isNullOrEmpty(qualifiedUser)) {
+            return;
+        }
+        Env currentEnv = env == null ? Env.getCurrentEnv() : env;
+        Auth auth = currentEnv == null ? null : currentEnv.getAuth();
+        if (auth == null) {
+            return;
+        }
+        setUserQueryTimeout(auth.getQueryTimeout(qualifiedUser));
+        setUserInsertTimeout(auth.getInsertTimeout(qualifiedUser));
+    }
+
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
         this.notEvalNondeterministicFunction = notEvalNondeterministicFunction;
     }
@@ -373,12 +428,9 @@ public class ConnectContext {
         state = new QueryState();
         returnRows = 0;
         isKilled = false;
-        sessionVariable = VariableMgr.newSessionVariable();
+        resetSessionVariable();
         userVars = new HashMap<>();
         command = MysqlCommand.COM_SLEEP;
-        if (Config.use_fuzzy_session_variable) {
-            sessionVariable.initFuzzyModeVariables();
-        }
 
         sessionId = UUID.randomUUID().toString();
         if (!FeConstants.runningUnitTest) {
@@ -473,6 +525,18 @@ public class ConnectContext {
             } catch (Exception e) {
                 LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
                         txnEntry.getTransactionId(), e);
+            }
+            txnEntry = null;
+        }
+    }
+
+    private void closeTxnForConnectionReset() throws DdlException {
+        if (isTxnModel()) {
+            try {
+                txnEntry.abortTransaction();
+            } catch (Exception e) {
+                throw new DdlException(String.format("rollback transaction failed, db: %s, txnId: %s",
+                        currentDb, txnEntry.getTransactionId()), e);
             }
             txnEntry = null;
         }
@@ -577,10 +641,23 @@ public class ConnectContext {
             LiteralExpr literalExpr = userVars.get(varName);
             if (literalExpr instanceof BoolLiteral) {
                 return Literal.of(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
+            } else if (literalExpr instanceof IntLiteral || literalExpr instanceof LargeIntLiteral) {
                 // the value in the IntLiteral should be int, but now is long in old planner literalExpr
                 // so type coercion to generate right new planner int Literal
-                return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                switch (literalExpr.getType().getPrimitiveType()) {
+                    case LARGEINT:
+                        return Literal.of(new BigInteger(literalExpr.getStringValue()));
+                    case BIGINT:
+                        return Literal.of(((IntLiteral) literalExpr).getValue());
+                    case INT:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                    case SMALLINT:
+                        return Literal.of((short) ((IntLiteral) literalExpr).getValue());
+                    case TINYINT:
+                        return Literal.of((byte) ((IntLiteral) literalExpr).getValue());
+                    default:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                }
             } else if (literalExpr instanceof FloatLiteral) {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {
@@ -595,36 +672,6 @@ public class ConnectContext {
         } else {
             // If there are no such user defined var, just return the NULL value.
             return Literal.of(null);
-        }
-    }
-
-    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
-    public void fillValueForUserDefinedVar(VariableExpr desc) {
-        String varName = desc.getName().toLowerCase();
-        if (userVars.containsKey(varName)) {
-            LiteralExpr literalExpr = userVars.get(varName);
-            desc.setType(literalExpr.getType());
-            if (literalExpr instanceof BoolLiteral) {
-                desc.setBoolValue(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
-                desc.setIntValue(((IntLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof FloatLiteral) {
-                desc.setFloatValue(((FloatLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof DecimalLiteral) {
-                desc.setDecimalValue(((DecimalLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof StringLiteral) {
-                desc.setStringValue(((StringLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof NullLiteral) {
-                desc.setType(Type.NULL);
-                desc.setIsNull();
-            } else {
-                desc.setType(Type.VARCHAR);
-                desc.setStringValue(literalExpr.getStringValue());
-            }
-        } else {
-            // If there are no such user defined var, just fill the NULL value.
-            desc.setType(Type.NULL);
-            desc.setIsNull();
         }
     }
 
@@ -654,6 +701,26 @@ public class ConnectContext {
 
     public UserIdentity getCurrentUserIdentity() {
         return currentUserIdentity;
+    }
+
+    public Principal getAuthenticatedPrincipal() {
+        return authenticatedPrincipal;
+    }
+
+    public void setAuthenticatedPrincipal(Principal authenticatedPrincipal) {
+        this.authenticatedPrincipal = authenticatedPrincipal;
+    }
+
+    public Set<String> getAuthenticatedRoles() {
+        return authenticatedRoles;
+    }
+
+    public void setAuthenticatedRoles(Set<String> authenticatedRoles) {
+        if (authenticatedRoles.isEmpty()) {
+            this.authenticatedRoles = Collections.emptySet();
+            return;
+        }
+        this.authenticatedRoles = Collections.unmodifiableSet(new HashSet<>(authenticatedRoles));
     }
 
     // used for select user(), select session_user();
@@ -840,6 +907,10 @@ public class ConnectContext {
         return currentDb;
     }
 
+    public NameSpaceContext getNameSpaceContext() {
+        return new NameSpaceContext(defaultCatalog, currentDb, currentDbId);
+    }
+
     public void setDatabase(String db) {
         currentDb = db;
         Optional<DatabaseIf> dbInstance = getCurrentCatalog().getDb(db);
@@ -892,21 +963,41 @@ public class ConnectContext {
     }
 
     protected void deleteTempTable() {
+        try {
+            cleanupTemporaryTables(false);
+        } catch (DdlException e) {
+            LOG.error("drop temporary table error", e);
+        }
+    }
+
+    private void cleanupTemporaryTables(boolean reportFailure) throws DdlException {
         // only delete temporary table in its creating session, not proxy session in master fe
         if (isProxy) {
             return;
         }
 
+        Map<String, Set<String>> tempTables = new HashMap<>();
+        for (Map.Entry<String, Set<String>> entry : dbToTempTableNamesMap.entrySet()) {
+            tempTables.put(entry.getKey(), new HashSet<>(entry.getValue()));
+        }
+
         // if current fe is master, delete temporary table directly
         if (Env.getCurrentEnv().isMaster()) {
-            for (String dbName : dbToTempTableNamesMap.keySet()) {
-                Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
-                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+            for (String dbName : tempTables.keySet()) {
+                for (String tableName : tempTables.get(dbName)) {
                     LOG.info("try to drop temporary table: {}.{}", dbName, tableName);
                     try {
+                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
                         Env.getCurrentEnv().getInternalCatalog()
                             .dropTableWithoutCheck(db, db.getTable(tableName).get(), false, true);
-                    } catch (DdlException e) {
+                    } catch (Exception e) {
+                        if (reportFailure) {
+                            if (e instanceof DdlException) {
+                                throw (DdlException) e;
+                            }
+                            throw new DdlException(String.format(
+                                    "drop temporary table error: db: %s, table: %s", dbName, tableName), e);
+                        }
                         LOG.error("drop temporary table error: {}.{}", dbName, tableName, e);
                     }
                 }
@@ -914,8 +1005,8 @@ public class ConnectContext {
         } else {
             // forward to master fe to drop table
             RedirectStatus redirectStatus = new RedirectStatus(true, false);
-            for (String dbName : dbToTempTableNamesMap.keySet()) {
-                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+            for (String dbName : tempTables.keySet()) {
+                for (String tableName : tempTables.get(dbName)) {
                     LOG.info("request to delete temporary table: {}.{}", dbName, tableName);
                     String dropTableSql = String.format("drop table `%s`", tableName);
                     OriginStatement originStmt = new OriginStatement(dropTableSql, 0);
@@ -926,6 +1017,11 @@ public class ConnectContext {
                     try {
                         masterOpExecutor.execute();
                     } catch (Exception e) {
+                        if (reportFailure) {
+                            throw new DdlException(String.format(
+                                    "master FE drop temporary table error: db: %s, table: %s",
+                                    dbName, tableName), e);
+                        }
                         LOG.error("master FE drop temporary table error: db: {}, table: {}", dbName, tableName, e);
                     }
                 }
@@ -1022,6 +1118,28 @@ public class ConnectContext {
     public void setStatementContext(StatementContext statementContext) {
         this.statementContext = statementContext;
     }
+
+    /** Backward-compatible: returns true if any Iceberg table is targeted for row_id injection. */
+    public boolean needIcebergRowId() {
+        return icebergRowIdTargetTableId >= 0;
+    }
+
+    /** Check if a specific table should include the hidden row_id column. */
+    public boolean needIcebergRowIdForTable(long tableId) {
+        return icebergRowIdTargetTableId >= 0 && icebergRowIdTargetTableId == tableId;
+    }
+
+    /** Set the target table ID for row_id injection. Use -1 to clear. */
+    public void setIcebergRowIdTargetTableId(long tableId) {
+        this.icebergRowIdTargetTableId = tableId;
+    }
+
+    /** Get the previously saved target table ID (for save/restore pattern). */
+    public long getIcebergRowIdTargetTableId() {
+        return icebergRowIdTargetTableId;
+    }
+
+
 
     public void setResultSinkType(TResultSinkType resultSinkType) {
         this.resultSinkType = resultSinkType;
@@ -1613,5 +1731,18 @@ public class ConnectContext {
         if (tableNameSet != null) {
             tableNameSet.remove(tableName);
         }
+    }
+
+    public int getAliveBeNumber() {
+        return Math.max(1, this.getEnv().getClusterInfo().getBackendsNumber(true));
+    }
+
+    public int getParallelInstanceNum() {
+        String clusterName = this.getSessionVariable().resolveCloudClusterName(this);
+        return Math.max(1, this.getSessionVariable().getParallelExecInstanceNum(clusterName));
+    }
+
+    public int getTotalInstanceNum() {
+        return getAliveBeNumber() * getParallelInstanceNum();
     }
 }

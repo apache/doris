@@ -47,7 +47,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
@@ -57,7 +56,12 @@ using uint128_t = unsigned __int128;
 
 using TabletUid = UniqueId;
 
-enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPACTION = 3 };
+enum CompactionType {
+    BASE_COMPACTION = 1,
+    CUMULATIVE_COMPACTION = 2,
+    FULL_COMPACTION = 3,
+    BINLOG_COMPACTION = 4
+};
 
 enum DataDirType {
     SPILL_DISK_DIR,
@@ -116,9 +120,9 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-// Define all data types supported by StorageField.
-// If new filed_type is defined, not only new TypeInfo may need be defined,
-// but also some functions like get_type_info in types.cpp need to be changed.
+// Storage-engine cell types, used by TabletColumn / KeyCoder and the
+// data_type traits chain. When adding a new value, also extend CppTypeTraits,
+// FieldTypeTraits and the field_type_size() switch in storage/types.h.
 enum class FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
@@ -163,10 +167,10 @@ enum class FieldType {
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
 };
 
-// Define all aggregation methods supported by StorageField
+// Define all aggregation methods supported by TabletColumn
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
-// The implementation of the StorageField class does not perform such checks, and should be constrained when creating the table
+// The implementation of the TabletColumn class does not perform such checks, and should be constrained when creating the table
 enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
@@ -250,6 +254,16 @@ struct Version {
     std::string to_string() const { return fmt::format("[{}-{}]", first, second); }
 };
 
+struct TsoRange : public Version {
+    TsoRange() : Version(-1, -1) {}
+    TsoRange(int64_t start_tso, int64_t end_tso) : Version(start_tso, end_tso) {}
+
+    int64_t start_tso() const { return first; }
+    int64_t end_tso() const { return second; }
+
+    bool contains(const TsoRange& other) const { return Version::contains(other); }
+};
+
 using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
@@ -280,8 +294,6 @@ struct Vertex {
 
     Vertex(int64_t v) : value(v) {}
 };
-
-class StorageField;
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -380,6 +392,10 @@ struct OlapReaderStatistics {
     int64_t ann_index_load_ns = 0;
     int64_t ann_topn_search_ns = 0;
     int64_t ann_index_topn_search_cnt = 0;
+    int64_t ann_ivf_on_disk_load_ns = 0;
+    int64_t ann_ivf_on_disk_cache_hit_cnt = 0;
+    int64_t ann_ivf_on_disk_cache_miss_cnt = 0;
+    int64_t ann_index_cache_hits = 0;
 
     // Detailed timing for ANN operations
     int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
@@ -398,6 +414,8 @@ struct OlapReaderStatistics {
     int64_t ann_range_result_convert_ns = 0; // time spent processing range results
     int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
     int64_t rows_ann_index_range_filtered = 0;
+    int64_t ann_index_range_cache_hits = 0;
+    int64_t ann_fall_back_brute_force_cnt = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
@@ -439,6 +457,9 @@ struct OlapReaderStatistics {
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
+
+    int64_t adaptive_batch_size_predict_min_rows = INT64_MAX;
+    int64_t adaptive_batch_size_predict_max_rows = 0;
 
     int64_t variant_scan_sparse_column_timer_ns = 0;
     int64_t variant_scan_sparse_column_bytes = 0;
@@ -604,7 +625,6 @@ struct VersionWithTime {
         }
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris
 
 // This intended to be a "good" hash function.  It may change from time to time.

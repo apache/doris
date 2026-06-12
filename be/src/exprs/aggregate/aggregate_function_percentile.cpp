@@ -22,7 +22,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_percentile_approx(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
@@ -64,9 +63,13 @@ void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& fact
     using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
                                            TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE>;
     factory.register_function_both("percentile", creator::creator<AggregateFunctionPercentile>);
-    factory.register_alias("percentile", "percentile_cont");
     factory.register_function_both("percentile_array",
                                    creator::creator<AggregateFunctionPercentileArray>);
+    factory.register_function_both("percentile_v2",
+                                   creator::creator<AggregateFunctionPercentileV2>);
+    factory.register_function_both("percentile_array_v2",
+                                   creator::creator<AggregateFunctionPercentileArrayV2>);
+    factory.register_alias("percentile", "percentile_cont");
 }
 
 void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {
@@ -88,5 +91,4 @@ void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactor
     register_percentile_approx_old_function(factory);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -33,7 +33,7 @@
 #include "core/block/block.h"
 #include "exec/sort/sorter.h"
 #include "exec/sort/topn_sorter.h"
-#include "exec/sort/vsort_exec_exprs.h"
+#include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
@@ -46,15 +46,7 @@ struct HeapSorterTest : public testing::Test {
     void SetUp() override {
         row_desc.reset(new MockRowDescriptor({std::make_shared<DataTypeInt64>()}, &pool));
 
-        sort_exec_exprs._sort_tuple_slot_expr_ctxs =
-                MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
-
-        sort_exec_exprs._materialize_tuple = false;
-
-        sort_exec_exprs._ordering_expr_ctxs =
-                MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
-
-        sort_exec_exprs._sort_tuple_slot_expr_ctxs =
+        ordering_expr_ctxs =
                 MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
     }
     MockRuntimeState _state;
@@ -66,7 +58,7 @@ struct HeapSorterTest : public testing::Test {
 
     ObjectPool pool;
 
-    VSortExecExprs sort_exec_exprs;
+    VExprContextSPtrs ordering_expr_ctxs;
 
     std::vector<bool> is_asc_order {true, true};
     std::vector<bool> nulls_first {false, false};
@@ -76,15 +68,9 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
     DataTypes data_types {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()};
     row_desc.reset(new MockRowDescriptor(data_types, &pool));
 
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
+    ordering_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-    sort_exec_exprs._materialize_tuple = true;
-
-    sort_exec_exprs._ordering_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
-
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
-
-    sorter = HeapSorter::create_unique(sort_exec_exprs, &_state, 6, 0, &pool, is_asc_order,
+    sorter = HeapSorter::create_unique(ordering_expr_ctxs, &_state, 6, 0, &pool, is_asc_order,
                                        nulls_first, *row_desc);
 
     sorter->init_profile(&_profile);
@@ -114,20 +100,20 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
     EXPECT_TRUE(sorter->prepare_for_read(false));
 
     {
-        Block block;
+        MutableBlock merged_block = ColumnHelper::create_block<DataTypeInt64>({}, {});
         bool eos = false;
-        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+        while (!eos) {
+            Block block;
+            EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+            EXPECT_TRUE(merged_block.merge(block));
+        }
+
+        auto block = merged_block.to_block();
         EXPECT_EQ(block.rows(), 6);
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block,
                 Block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6}),
                        ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6})}));
-
-        block.clear_column_data();
-
-        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
-        EXPECT_EQ(block.rows(), 0);
-        EXPECT_EQ(eos, true);
     }
 }
 

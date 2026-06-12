@@ -25,7 +25,6 @@
 #include "exec/spill/spill_file_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class SpillSortSinkLocalState;
 class SpillSortSinkOperatorX;
 
@@ -80,7 +79,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         return _sort_sink_operator->required_data_distribution(state);
     }
@@ -115,5 +114,4 @@ private:
     std::unique_ptr<SortSinkOperatorX> _sort_sink_operator;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

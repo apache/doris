@@ -45,7 +45,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <bool reverse>
 class FunctionArraySplit : public IFunction {
 public:
@@ -76,13 +75,12 @@ public:
                                             .get_offsets(); // for check uneven array
 
         const NullMap* null_map = nullptr;
-        if (split_col->is_nullable()) {
+        if (const auto* nullable_split_col =
+                    check_and_get_column<ColumnNullable>(split_col.get())) {
             if (split_col->has_null()) {
-                null_map =
-                        &assert_cast<const ColumnNullable*>(split_col.get())->get_null_map_data();
+                null_map = &nullable_split_col->get_null_map_data();
             }
-            split_col =
-                    assert_cast<const ColumnNullable*>(split_col.get())->get_nested_column_ptr();
+            split_col = nullable_split_col->get_nested_column_ptr();
         }
 
         const IColumn::Filter& cut = assert_cast<const ColumnBool*>(split_col.get())->get_data();

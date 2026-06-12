@@ -127,7 +127,10 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
         return TYPE_STRUCT;
 
     case TPrimitiveType::LAMBDA_FUNCTION:
-        return TYPE_LAMBDA_FUNCTION;
+        // TYPE_LAMBDA_FUNCTION is deprecated. Lambda execution is driven by
+        // TExprNodeType::LAMBDA_FUNCTION_EXPR, not PrimitiveType. Map to TYPE_STRING
+        // since DataTypeFactory always created DataTypeString for it anyway.
+        return TYPE_STRING;
 
     case TPrimitiveType::AGG_STATE:
         return TYPE_AGG_STATE;
@@ -247,8 +250,6 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_STRUCT:
         return TPrimitiveType::STRUCT;
-    case TYPE_LAMBDA_FUNCTION:
-        return TPrimitiveType::LAMBDA_FUNCTION;
     case TYPE_AGG_STATE:
         return TPrimitiveType::AGG_STATE;
     case TYPE_VARBINARY:
@@ -363,8 +364,6 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_STRUCT:
         return "STRUCT";
-    case TYPE_LAMBDA_FUNCTION:
-        return "LAMBDA_FUNCTION TYPE";
 
     case TYPE_VARIANT:
         return "VARIANT";

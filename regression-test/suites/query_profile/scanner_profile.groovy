@@ -77,6 +77,7 @@ suite('scanner_profile') {
     List profileData = profileAction.getProfileList()
     def profileWithLimit1 = getProfileByToken(token)
     logger.info("${token} Profile Data: ${profileWithLimit1}")
+    assertTrue(profileWithLimit1.toString().contains("- TaskCpuTime:"))
     assertTrue(profileWithLimit1.toString().contains("- MaxScanConcurrency: 1"))
 
     token = UUID.randomUUID().toString()
@@ -86,5 +87,16 @@ suite('scanner_profile') {
 
     String profileWithFilter = getProfileByToken(token)
     logger.info("${token} Profile Data: ${profileWithFilter}")
-    assertTrue(profileWithFilter.toString().contains("actualRows=9"))
+    assertTrue(profileWithFilter.toString().contains("- TaskCpuTime:"))
+    assertTrue(profileWithFilter.toString().contains("- ScannerCpuTime:"))
+    assertFalse(profileWithFilter.toString().contains("- TaskCpuTime (Cpu Time):"))
+    assertFalse(profileWithFilter.toString().contains("- ScannerCpuTime (Cpu Time):"))
+    // Verify actualRows is backfilled onto the scan node. The exact value is
+    // unstable because 9 INT keys hash-distribute into 10 buckets and a few
+    // tablets may be pruned at runtime, so only assert it is in [1, 9].
+    def matcher = (profileWithFilter.toString() =~ /PhysicalOlapScan[^\n]*scanner_profile[^\n]*actualRows=(\d+)/)
+    assertTrue(matcher.find(), "actualRows not found on PhysicalOlapScan[scanner_profile] in profile")
+    int actualRows = matcher.group(1) as int
+    assertTrue(actualRows >= 1 && actualRows <= 9,
+            "expect actualRows in [1, 9], got ${actualRows}")
 }

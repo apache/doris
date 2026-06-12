@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LimitElement;
@@ -104,6 +105,7 @@ import java.util.stream.Collectors;
  */
 public class PartitionsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(PartitionsProcDir.class);
+    static final String CLOUD_STORAGE_MEDIUM_DISPLAY = "OBJECT_STORAGE";
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
@@ -164,7 +166,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     default:
                         throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
                 }
-                leftVal = (new DateLiteral((String) element, type)).getLongValue();
+                leftVal = (DateLiteralUtils.createDateLiteral((String) element, type)).getLongValue();
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());
@@ -408,6 +410,14 @@ public class PartitionsProcDir implements ProcDirInterface {
         return partitionInfosInrernal.stream().map(pair -> pair.second).collect(Collectors.toList());
     }
 
+    public static String getStorageMediumDisplay(String storageMedium) {
+        return Config.isCloudMode() ? CLOUD_STORAGE_MEDIUM_DISPLAY : storageMedium;
+    }
+
+    public static String getReplicaAllocationDisplay(String replicaAllocation) {
+        return Config.isCloudMode() ? FeConstants.null_string : replicaAllocation;
+    }
+
     private List<Long> getPartitionVersions(OlapTable olapTable, List<Long> partitionIds)
             throws AnalysisException {
         List<Long> partitionVersions;
@@ -579,8 +589,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                 trow.addToColumnValue(new TCell().setIntVal(totalReplicaNum));
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
-                partitionInfo.add(dataProperty.getStorageMedium().name());
-                trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium().name()));
+                String storageMedium = getStorageMediumDisplay(dataProperty.getStorageMedium().name());
+                partitionInfo.add(storageMedium);
+                trow.addToColumnValue(new TCell().setStringVal(storageMedium));
                 String cooldownTimeStr = TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs());
                 partitionInfo.add(cooldownTimeStr);
                 trow.addToColumnValue(new TCell().setStringVal(cooldownTimeStr));
@@ -599,7 +610,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(isInMemory);
                 trow.addToColumnValue(new TCell().setBoolVal(isInMemory));
                 // replica allocation
-                String replica = tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt();
+                String replica = getReplicaAllocationDisplay(
+                        tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
                 partitionInfo.add(replica);
                 trow.addToColumnValue(new TCell().setStringVal(replica));
 

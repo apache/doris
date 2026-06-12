@@ -73,9 +73,14 @@ struct TxnPublishInfo {
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
+    // The list of rowsets committed along with the transaction rowset
+    // currently contains only the binlog<Row> rowset.
+    std::vector<RowsetSharedPtr> attach_rowsets;
     PendingRowsetGuard pending_rs_guard;
     bool unique_key_merge_on_write {false};
     DeleteBitmapPtr delete_bitmap;
+    // copy delete_bitmap of data rowset to binlog
+    DeleteBitmapPtr binlog_delvec;
     // records rowsets calc in commit txn
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
@@ -168,12 +173,14 @@ public:
     Status commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
-                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
+                      std::vector<RowsetSharedPtr>* attach_rowsets = nullptr);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
                        TabletPublishStatistics* stats,
-                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info);
+                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+                       const int64_t commit_tso = -1);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
@@ -185,14 +192,16 @@ public:
     Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                       TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
-                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
+                      std::vector<RowsetSharedPtr>* attach_rowsets = nullptr);
 
     // remove a txn from txn manager
     // not persist rowset meta because
     Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
                        TabletPublishStatistics* stats,
-                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info);
+                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+                       const int64_t commit_tso = -1);
 
     // only abort not committed txn
     void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
@@ -211,8 +220,10 @@ public:
     void get_tablet_related_txns(TTabletId tablet_id, TabletUid tablet_uid, int64_t* partition_id,
                                  std::set<int64_t>* transaction_ids);
 
-    void get_txn_related_tablets(const TTransactionId transaction_id, TPartitionId partition_ids,
-                                 std::map<TabletInfo, RowsetSharedPtr>* tablet_infos);
+    void get_txn_related_tablets(
+            const TTransactionId transaction_id, TPartitionId partition_ids,
+            std::map<TabletInfo, RowsetSharedPtr>* tablet_infos,
+            std::map<TabletInfo, std::vector<RowsetSharedPtr>>* tablet_attach_rowsets = nullptr);
 
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 

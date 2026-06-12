@@ -30,7 +30,6 @@
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
@@ -52,6 +51,17 @@ PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         // only handle constant value
         return PushDownType::UNACCEPTABLE;
     }
+}
+
+bool FileScanLocalState::_push_down_topn(const RuntimePredicate& predicate) {
+    if (!predicate.target_is_slot(_parent->node_id())) {
+        return false;
+    }
+    auto& p = _parent->cast<FileScanOperatorX>();
+    const auto slot_id = predicate.get_texpr(_parent->node_id()).nodes[0].slot_ref.slot_id;
+    auto* slot = p._slot_id_to_slot_desc[slot_id];
+    DCHECK(slot != nullptr);
+    return p.can_push_down_column_predicate(slot);
 }
 
 int FileScanLocalState::max_scanners_concurrency(RuntimeState* state) const {
@@ -108,7 +118,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             std::min(ScannerScheduler::default_remote_scan_thread_num() / p.parallelism(state()),
                      _max_scanners);
     shard_num = std::max(shard_num, 1U);
-    _kv_cache.reset(new ShardedKVCache(shard_num));
+    _kv_cache = std::make_unique<ShardedKVCache>(shard_num);
     for (int i = 0; i < _max_scanners; ++i) {
         std::unique_ptr<FileScanner> scanner = FileScanner::create_unique(
                 state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
@@ -205,6 +215,11 @@ Status FileScanOperatorX::prepare(RuntimeState* state) {
         _output_tuple_id = params.dest_tuple_id;
     }
     return Status::OK();
+}
+
+bool FileScanOperatorX::can_push_down_column_predicate(const SlotDescriptor* slot) const {
+    // External readers do not fully support VARBINARY column predicates yet.
+    return slot->type()->get_primitive_type() != TYPE_VARBINARY;
 }
 
 } // namespace doris

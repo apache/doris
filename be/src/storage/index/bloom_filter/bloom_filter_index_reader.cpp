@@ -31,7 +31,6 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,
                                     OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
@@ -67,8 +66,7 @@ Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIter
 Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
                                                    std::unique_ptr<BloomFilter>* bf) {
     size_t num_to_read = 1;
-    auto data_type =
-            DataTypeFactory::instance().create_data_type(_reader->type_info()->type(), 1, 0);
+    auto data_type = DataTypeFactory::instance().create_data_type(_reader->type(), 1, 0);
     auto column = data_type->create_column();
 
     RETURN_IF_ERROR(_bloom_filter_iter.seek_to_ordinal(ordinal));
@@ -86,4 +84,3 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

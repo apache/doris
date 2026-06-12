@@ -54,7 +54,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
@@ -306,6 +305,5 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

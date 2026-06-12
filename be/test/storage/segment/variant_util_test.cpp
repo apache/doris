@@ -19,15 +19,21 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "common/config.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
+#include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
 #include "gtest/gtest.h"
 #include "storage/tablet/tablet_schema.h"
@@ -42,6 +48,94 @@ static ColumnString::MutablePtr _make_json_column(const std::vector<std::string_
     return col;
 }
 
+static TabletSchema _make_variant_schema(bool enable_doc_mode = false,
+                                         bool enable_nested_group = false) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* c = schema_pb.add_column();
+    c->set_unique_id(1);
+    c->set_name("v");
+    c->set_type("VARIANT");
+    c->set_is_key(false);
+    c->set_is_nullable(false);
+    c->set_variant_enable_doc_mode(enable_doc_mode);
+    c->set_variant_enable_nested_group(enable_nested_group);
+
+    TabletSchema tablet_schema;
+    tablet_schema.init_from_pb(schema_pb);
+    return tablet_schema;
+}
+
+static TabletColumn _make_subcolumn_template(
+        const std::string& path, PatternTypePB pattern_type = PatternTypePB::MATCH_NAME) {
+    ColumnPB column_pb;
+    column_pb.set_unique_id(-1);
+    column_pb.set_name(path);
+    column_pb.set_type("STRING");
+    column_pb.set_is_nullable(true);
+    column_pb.set_pattern_type(pattern_type);
+
+    TabletColumn column;
+    column.init_from_pb(column_pb);
+    return column;
+}
+
+static void _append_parent_inverted_index(TabletSchema* tablet_schema, int64_t index_id = 10001) {
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(index_id);
+    index_pb.set_index_name("idx_v");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(1);
+
+    TabletIndex tablet_index;
+    tablet_index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(tablet_index));
+}
+
+static Block _make_scalar_variant_block(const std::vector<std::string>& jsons,
+                                        bool enable_doc_mode = false) {
+    auto variant = ColumnVariant::create(0, enable_doc_mode);
+    for (const auto& json : jsons) {
+        doris::VariantUtil::insert_root_scalar_field(
+                *variant, Field::create_field<TYPE_STRING>(String(json)));
+    }
+
+    Block block;
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, enable_doc_mode), "v"});
+    return block;
+}
+
+static size_t _doc_value_entry_count(const ColumnVariant& variant) {
+    const auto& offsets = variant.serialized_doc_value_column_offsets();
+    return offsets.empty() ? 0 : offsets.back();
+}
+
+class ScopedDuplicateJsonPathCheck {
+public:
+    explicit ScopedDuplicateJsonPathCheck(bool value)
+            : _old_value(config::variant_enable_duplicate_json_path_check) {
+        config::variant_enable_duplicate_json_path_check = value;
+    }
+    ~ScopedDuplicateJsonPathCheck() {
+        config::variant_enable_duplicate_json_path_check = _old_value;
+    }
+
+private:
+    bool _old_value;
+};
+
+class ScopedVariantStorageParseMode {
+public:
+    explicit ScopedVariantStorageParseMode(int32_t value)
+            : _old_value(config::variant_storage_parse_mode) {
+        config::variant_storage_parse_mode = value;
+    }
+    ~ScopedVariantStorageParseMode() { config::variant_storage_parse_mode = _old_value; }
+
+private:
+    int32_t _old_value;
+};
+
 TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     const std::vector<std::string_view> jsons = {
             R"({"a":1,"b":"x"})", //
@@ -49,15 +143,13 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
             R"({"a":3})",         //
     };
 
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
 
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
-
-    EXPECT_TRUE(variant->is_doc_mode());
 
     auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
     ASSERT_TRUE(subcolumns.contains("a"));
@@ -95,13 +187,14 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     EXPECT_EQ(fb.field.get_type(), PrimitiveType::TYPE_NULL); // missing
 }
 
-TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
+TEST(VariantUtilTest, MaterializeDocsToSubcolumnsMap_ExpectedUniquePathsPreservesValues) {
     const std::vector<std::string_view> jsons = {
-            R"({"b":true,"d":1.5,"u":18446744073709551615,"arr":[1,2,3],"arr2":[[1],[2]],"s":"x"})",
-            R"({"b":false,"arr":[4],"s":"y"})",
+            R"({"a":1,"b":"x"})", //
+            R"({"b":"y","c":2})", //
+            R"({"a":3,"c":4})",   //
     };
 
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
 
     ParseConfig cfg;
@@ -109,7 +202,63 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
 
-    EXPECT_TRUE(variant->is_doc_mode());
+    auto default_subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant, 3);
+    ASSERT_EQ(subcolumns.size(), default_subcolumns.size());
+    ASSERT_EQ(subcolumns.size(), 3);
+
+    auto& a = subcolumns.at("a");
+    auto& b = subcolumns.at("b");
+    auto& c = subcolumns.at("c");
+    a.finalize();
+    b.finalize();
+    c.finalize();
+    EXPECT_EQ(a.size(), jsons.size());
+    EXPECT_EQ(b.size(), jsons.size());
+    EXPECT_EQ(c.size(), jsons.size());
+
+    FieldWithDataType f;
+    a.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
+    a.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    a.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 3);
+
+    b.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "x");
+    b.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
+    b.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    c.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    c.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
+    c.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 4);
+}
+
+TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
+    const std::vector<std::string_view> jsons = {
+            R"({"b":true,"d":1.5,"u":18446744073709551615,"arr":[1,2,3],"arr2":[[1],[2]],"s":"x"})",
+            R"({"b":false,"arr":[4],"s":"y"})",
+    };
+
+    auto variant = ColumnVariant::create(0, true);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
 
     auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
     ASSERT_TRUE(subcolumns.contains("b"));
@@ -170,29 +319,200 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
     EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
 }
 
-TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    auto* c = schema_pb.add_column();
-    c->set_unique_id(1);
-    c->set_name("v");
-    c->set_type("VARIANT");
-    c->set_is_key(false);
-    c->set_is_nullable(false);
-    // doc mode disabled
-    c->set_variant_enable_doc_mode(false);
+TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":42,"a":{"b":42}})", R"({"a":123,"a":"123"})",       R"({"a.b":1,"a":{"b":2}})",
+            R"({"a":{"b":3},"a.b":4})", R"({"a":{"b":5},"a":{"c":6}})",
+    };
 
-    TabletSchema tablet_schema;
-    tablet_schema.init_from_pb(schema_pb);
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column(jsons);
 
-    auto variant = ColumnVariant::create(0);
-    doris::VariantUtil::insert_root_scalar_field(
-            *variant, Field::create_field<TYPE_STRING>(String(R"({"a":1})")));
-    doris::VariantUtil::insert_root_scalar_field(
-            *variant, Field::create_field<TYPE_STRING>(String(R"({"a":2})")));
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
 
-    Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
+    const auto* sub_a = variant->get_subcolumn(PathInData("a"));
+    const auto* sub_ab = variant->get_subcolumn(PathInData("a.b"));
+    const auto* sub_ac = variant->get_subcolumn(PathInData("a.c"));
+    ASSERT_NE(sub_a, nullptr);
+    ASSERT_NE(sub_ab, nullptr);
+    ASSERT_NE(sub_ac, nullptr);
+
+    FieldWithDataType f;
+    sub_a->get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_a->get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 123);
+
+    sub_ab->get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_ab->get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    sub_ab->get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
+    sub_ab->get(3, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 3);
+    sub_ab->get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 5);
+
+    sub_ac->get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 6);
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstArrayOrScalarValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":[1],"a":2})",
+            R"({"a":2,"a":[1]})",
+    };
+
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
+
+    const auto* sub_a = variant->get_subcolumn(PathInData("a"));
+    ASSERT_NE(sub_a, nullptr);
+
+    FieldWithDataType f;
+    sub_a->get(0, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& first = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(first.get_value(), first.get_size()), "[1]");
+
+    sub_a->get(1, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& second = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(second.get_value(), second.get_size()), "2");
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":42,"a":{"b":42}})", R"({"a":123,"a":"123"})",       R"({"a.b":1,"a":{"b":2}})",
+            R"({"a":{"b":3},"a.b":4})", R"({"a":{"b":5},"a":{"c":6}})",
+    };
+
+    auto variant = ColumnVariant::create(0, true);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
+
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    ASSERT_TRUE(subcolumns.contains("a"));
+    ASSERT_TRUE(subcolumns.contains("a.b"));
+    ASSERT_TRUE(subcolumns.contains("a.c"));
+
+    auto& sub_a = subcolumns.at("a");
+    auto& sub_ab = subcolumns.at("a.b");
+    auto& sub_ac = subcolumns.at("a.c");
+    sub_a.finalize();
+    sub_ab.finalize();
+    sub_ac.finalize();
+
+    FieldWithDataType f;
+    sub_a.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_a.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 123);
+
+    sub_ab.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 42);
+    sub_ab.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    sub_ab.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
+    sub_ab.get(3, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 3);
+    sub_ab.get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 5);
+
+    sub_ac.get(4, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 6);
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstArrayOrScalarValue) {
+    ScopedDuplicateJsonPathCheck check_guard(true);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":[1],"a":2})",
+            R"({"a":2,"a":[1]})",
+    };
+
+    auto variant = ColumnVariant::create(0, true);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.check_duplicate_json_path = true;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
+    ASSERT_TRUE(variant->sanitize().ok());
+
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    ASSERT_TRUE(subcolumns.contains("a"));
+
+    auto& sub_a = subcolumns.at("a");
+    sub_a.finalize();
+
+    FieldWithDataType f;
+    sub_a.get(0, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& first = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(first.get_value(), first.get_size()), "[1]");
+
+    sub_a.get(1, f);
+    ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    const auto& second = f.field.get<TYPE_JSONB>();
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(second.get_value(), second.get_size()), "2");
+}
+
+TEST(VariantUtilTest, ParseDuplicateJsonPathsCheckDisabledByDefault) {
+    ScopedDuplicateJsonPathCheck check_guard(false);
+    const std::vector<std::string_view> jsons = {
+            R"({"a":123,"a":"123"})",
+    };
+
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    EXPECT_THROW(parse_json_to_variant(*variant, *json_col, cfg), Exception);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocScalarJsonToDocValueKv) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    std::vector<std::string> jsons {R"({"a":1})", R"({"a":2})"};
+    Block block = _make_scalar_variant_block(jsons);
 
     const std::vector<uint32_t> column_pos {0};
     Status st = parse_and_materialize_variant_columns(block, tablet_schema, column_pos);
@@ -202,14 +522,213 @@ TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
     const auto& out = assert_cast<const ColumnVariant&>(col0);
 
     const auto* sub_a = out.get_subcolumn(PathInData("a"));
-    ASSERT_TRUE(sub_a != nullptr);
+    ASSERT_TRUE(sub_a == nullptr);
+
+    const auto& doc_offsets = out.serialized_doc_value_column_offsets();
+    ASSERT_EQ(doc_offsets.size(), jsons.size());
+    EXPECT_EQ(doc_offsets.back(), jsons.size());
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    ASSERT_TRUE(docs_subcolumns.contains("a"));
+    auto& materialized_a = docs_subcolumns.at("a");
+    materialized_a.finalize();
+
     FieldWithDataType f;
-    sub_a->get(0, f);
+    materialized_a.get(0, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
-    sub_a->get(1, f);
+    materialized_a.get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageTypedPathUsesDocValueKv) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    auto typed_path = _make_subcolumn_template("a");
+    tablet_schema.mutable_column_by_uid(1).add_sub_column(typed_path);
+
+    Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+    Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
+    ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 2);
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    EXPECT_TRUE(docs_subcolumns.contains("a"));
+    EXPECT_TRUE(docs_subcolumns.contains("b"));
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageParentIndexUsesDocValueKv) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    _append_parent_inverted_index(&tablet_schema);
+
+    Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+    Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
+    ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 2);
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    EXPECT_TRUE(docs_subcolumns.contains("a"));
+    EXPECT_TRUE(docs_subcolumns.contains("b"));
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_DocModeKeepsDocValueWithTypedPathAndParentIndex) {
+    TabletSchema tablet_schema = _make_variant_schema(true);
+    auto typed_path = _make_subcolumn_template("a");
+    tablet_schema.mutable_column_by_uid(1).add_sub_column(typed_path);
+    _append_parent_inverted_index(&tablet_schema);
+
+    Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"}, true);
+    Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
+    ASSERT_EQ(out.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(out.serialized_doc_value_column_offsets().back(), 2);
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    EXPECT_TRUE(docs_subcolumns.contains("a"));
+    EXPECT_TRUE(docs_subcolumns.contains("b"));
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageParseModeConfigControlsPlainNonDocPath) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+
+    {
+        ScopedVariantStorageParseMode parse_time_guard(1);
+        Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+        Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+        EXPECT_EQ(_doc_value_entry_count(out), static_cast<size_t>(0));
+        EXPECT_NE(out.get_subcolumn(PathInData("a")), nullptr);
+        EXPECT_NE(out.get_subcolumn(PathInData("b")), nullptr);
+    }
+
+    {
+        ScopedVariantStorageParseMode doc_value_guard(2);
+        Block block = _make_scalar_variant_block({R"({"a":"x","b":"y"})"});
+        Status st = parse_and_materialize_variant_columns(block, tablet_schema, {0});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+        EXPECT_EQ(out.get_subcolumn(PathInData("a")), nullptr);
+        EXPECT_EQ(out.get_subcolumn(PathInData("b")), nullptr);
+        EXPECT_EQ(_doc_value_entry_count(out), static_cast<size_t>(2));
+    }
+}
+
+TEST(VariantUtilTest, SparseStorageParseUsesDocValueKvInsteadOfManySubcolumns) {
+    constexpr int kRows = 1000;
+    std::vector<std::string> jsons;
+    jsons.reserve(kRows);
+    for (int i = 0; i < kRows; ++i) {
+        jsons.push_back("{\"k" + std::to_string(i) + "\":\"" + std::to_string(i) + "\"}");
+    }
+
+    ParseConfig old_parse_cfg;
+    old_parse_cfg.deprecated_enable_flatten_nested = false;
+    old_parse_cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+
+    Block old_block = _make_scalar_variant_block(jsons);
+    Status old_st = parse_and_materialize_variant_columns(old_block, std::vector<uint32_t> {0},
+                                                          {old_parse_cfg});
+    ASSERT_TRUE(old_st.ok()) << old_st.to_string();
+    const auto& old_variant =
+            assert_cast<const ColumnVariant&>(*old_block.get_by_position(0).column);
+
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    Block new_block = _make_scalar_variant_block(jsons);
+    Status new_st = parse_and_materialize_variant_columns(new_block, tablet_schema, {0});
+    ASSERT_TRUE(new_st.ok()) << new_st.to_string();
+    const auto& new_variant =
+            assert_cast<const ColumnVariant&>(*new_block.get_by_position(0).column);
+
+    const size_t old_subcolumns = old_variant.get_subcolumns().size();
+    const size_t new_subcolumns = new_variant.get_subcolumns().size();
+    const size_t old_bytes = old_variant.allocated_bytes();
+    const size_t new_bytes = new_variant.allocated_bytes();
+
+    std::cout << "sparse variant parse memory old_subcolumns=" << old_subcolumns
+              << " new_subcolumns=" << new_subcolumns << " old_bytes=" << old_bytes
+              << " new_bytes=" << new_bytes << std::endl;
+
+    EXPECT_GE(old_subcolumns, static_cast<size_t>(kRows));
+    EXPECT_LE(new_subcolumns, static_cast<size_t>(1));
+    EXPECT_LT(new_bytes, old_bytes);
+
+    const auto& doc_offsets = new_variant.serialized_doc_value_column_offsets();
+    ASSERT_EQ(doc_offsets.size(), kRows);
+    EXPECT_EQ(doc_offsets.back(), kRows);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocDocValueKvSkipsInvalidRoot) {
+    TabletSchema tablet_schema = _make_variant_schema(false);
+    Block invalid_root_block = _make_scalar_variant_block({R"([])"});
+
+    Status st = parse_and_materialize_variant_columns(invalid_root_block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& invalid_root_variant =
+            assert_cast<const ColumnVariant&>(*invalid_root_block.get_by_position(0).column);
+    EXPECT_TRUE(invalid_root_variant.is_null_root());
+    ASSERT_EQ(invalid_root_variant.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(invalid_root_variant.serialized_doc_value_column_offsets().back(), 0);
+
+    Block scalar_root_block = _make_scalar_variant_block({R"(100)"});
+    st = parse_and_materialize_variant_columns(scalar_root_block, tablet_schema, {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& scalar_root_variant =
+            assert_cast<const ColumnVariant&>(*scalar_root_block.get_by_position(0).column);
+    ASSERT_TRUE(scalar_root_variant.is_scalar_variant());
+    DataTypeSerDe::FormatOptions options;
+    std::string value;
+    scalar_root_variant.serialize_one_row_to_string(0, &value, options);
+    EXPECT_EQ(value, "100");
+}
+
+TEST(VariantUtilTest, ParseNullableScalarVariantDetachesNestedAlias) {
+    auto variant = ColumnVariant::create(0, false);
+    doris::VariantUtil::insert_root_scalar_field(*variant, Field::create_field<TYPE_INT>(123));
+    ColumnPtr variant_ptr = std::move(variant);
+
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    ColumnPtr nullable_variant = ColumnNullable::create(variant_ptr, null_map->get_ptr());
+    variant_ptr.reset();
+    ColumnPtr nullable_alias = nullable_variant;
+
+    Block block;
+    block.insert(
+            {nullable_variant, make_nullable(std::make_shared<DataTypeVariant>(0, false)), "v"});
+
+    ParseConfig parse_cfg;
+    parse_cfg.deprecated_enable_flatten_nested = false;
+    parse_cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    Status st =
+            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    const auto& alias_nullable = assert_cast<const ColumnNullable&>(*nullable_alias);
+    const auto& alias_variant =
+            assert_cast<const ColumnVariant&>(alias_nullable.get_nested_column());
+    EXPECT_TRUE(alias_variant.is_scalar_variant());
+    EXPECT_EQ(alias_variant.get_root_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
+
+    EXPECT_TRUE(block.get_by_position(0).column->is_nullable());
 }
 
 TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
@@ -219,16 +738,14 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     };
 
     // Build a doc-mode ColumnVariant: Only root in subcolumns, others stored in doc snapshot column.
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
-    ASSERT_TRUE(variant->is_doc_mode());
-
     Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 
     ParseConfig parse_cfg;
     parse_cfg.deprecated_enable_flatten_nested = false;
@@ -238,8 +755,6 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
-    EXPECT_TRUE(out.is_doc_mode());
-
     const auto* sub_a = out.get_subcolumn(PathInData("a"));
     const auto* sub_b = out.get_subcolumn(PathInData("b"));
     ASSERT_TRUE(sub_a == nullptr);
@@ -271,17 +786,15 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
 
 TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     const std::vector<std::string_view> jsons = {R"({"a":1})"};
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
 
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
-    ASSERT_TRUE(variant->is_doc_mode());
-
     Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 
     ParseConfig parse_cfg;
     parse_cfg.deprecated_enable_flatten_nested = false;

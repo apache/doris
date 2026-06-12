@@ -35,7 +35,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status CollectionStatistics::collect(RuntimeState* state,
                                      const std::vector<RowSetSplits>& rs_splits,
@@ -165,7 +164,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
             rowset_meta->fs(),
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
             tablet_schema->get_inverted_index_storage_format(),
-            rowset_meta->inverted_index_file_info(seg_id));
+            rowset_meta->inverted_index_file_info(seg_id), rowset_meta->tablet_id());
     RETURN_IF_ERROR(idx_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
 
     int32_t total_seg_num_docs = 0;
@@ -288,5 +287,4 @@ float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_
     return idf;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "core/custom_allocator.h"
+#include "core/pod_array.h"
 #include "core/typeid_cast.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
@@ -41,8 +42,6 @@
 #include "storage/olap_define.h"
 #include "util/slice.h"
 namespace doris {
-
-#include "common/compile_check_begin.h"
 
 namespace io {
 
@@ -428,15 +427,14 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
 
     PrefetchBuffer(const PrefetchRange file_range, size_t buffer_size, size_t whole_buffer_size,
-                   io::FileReader* reader, std::shared_ptr<const IOContext> io_ctx,
+                   io::FileReaderSPtr reader, std::shared_ptr<const IOContext> io_ctx,
                    std::function<void(PrefetchBuffer&)> sync_profile)
             : _file_range(file_range),
               _size(buffer_size),
               _whole_buffer_size(whole_buffer_size),
-              _reader(reader),
+              _reader(std::move(reader)),
               _io_ctx_holder(std::move(io_ctx)),
               _io_ctx(_io_ctx_holder.get()),
-              _buf(new char[buffer_size]),
               _sync_profile(std::move(sync_profile)) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
@@ -445,7 +443,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _random_access_ranges(other._random_access_ranges),
               _size(other._size),
               _whole_buffer_size(other._whole_buffer_size),
-              _reader(other._reader),
+              _reader(std::move(other._reader)),
               _io_ctx_holder(std::move(other._io_ctx_holder)),
               _io_ctx(_io_ctx_holder.get()),
               _buf(std::move(other._buf)),
@@ -462,10 +460,10 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     size_t _size {0};
     size_t _len {0};
     size_t _whole_buffer_size;
-    io::FileReader* _reader = nullptr;
+    io::FileReaderSPtr _reader;
     std::shared_ptr<const IOContext> _io_ctx_holder;
     const IOContext* _io_ctx = nullptr;
-    std::unique_ptr<char[]> _buf;
+    PODArray<char> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
     std::condition_variable _prefetched;
@@ -682,7 +680,5 @@ private:
 };
 
 } // namespace io
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

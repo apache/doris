@@ -36,8 +36,8 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/json_functions.h"
-#include "format/generic_reader.h"
 #include "format/line_reader.h"
+#include "format/table/table_format_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "runtime/runtime_profile.h"
@@ -48,7 +48,6 @@ class object;
 } // namespace simdjson::fallback::ondemand
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;
@@ -63,31 +62,57 @@ struct ScannerCounter;
 class Block;
 class IColumn;
 
-class NewJsonReader : public GenericReader {
+namespace json_reader_detail {
+Status append_null_for_malformed_json(Block& block);
+void truncate_block_to_rows(Block& block, size_t num_rows);
+void pop_back_last_inserted_value(Block& block, size_t column_index);
+} // namespace json_reader_detail
+
+/// JSON-specific initialization context.
+/// Extends ReaderInitContext with default value context (unique to JSON reader).
+struct JsonInitContext final : public ReaderInitContext {
+    const std::unordered_map<std::string, VExprContextSPtr>* col_default_value_ctx = nullptr;
+    bool is_load = false;
+};
+
+class NewJsonReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(NewJsonReader);
 
 public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                  io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
+                  size_t batch_size, io::IOContext* io_ctx,
+                  std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
-                  io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
+                  size_t batch_size, io::IOContext* io_ctx,
+                  std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~NewJsonReader() override = default;
 
     Status init_reader(
             const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx,
             bool is_load);
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
+
+    // Row-based readers control throughput via row count, not byte budget.
+    // The FileScanner's AdaptiveBlockSizePredictor converts the byte budget
+    // into a predicted row count and calls set_batch_size() with it.
+    void set_batch_size(size_t batch_size) override;
+    size_t get_batch_size() const override { return _batch_size; }
+
     Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
 protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
+
     void _collect_profile_before_close() override;
 
 private:
@@ -296,7 +321,8 @@ private:
 
     DataTypeSerDeSPtrs _serdes;
     DataTypeSerDe::FormatOptions _serde_options;
+    // Adaptive batch size set by FileScanner.
+    size_t _batch_size;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

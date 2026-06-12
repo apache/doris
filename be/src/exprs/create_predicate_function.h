@@ -23,7 +23,6 @@
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
-#include "storage/predicate/bitmap_filter_predicate.h"
 #include "storage/predicate/bloom_filter_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/in_list_predicate.h"
@@ -48,17 +47,17 @@ public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function(bool null_aware) {
-        if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
-            using Set = std::conditional_t<
-                    is_string_type(type), StringSet<>,
-                    HybridSet<type,
-                              FixedContainer<typename PrimitiveTypeTraits<type>::CppType, N>>>;
-            return new Set(null_aware);
+        if constexpr (is_string_type(type)) {
+            return new StringSet<>(null_aware);
+        } else if constexpr (type == TYPE_TINYINT || type == TYPE_SMALLINT) {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, BitSetContainer<CppType>>(null_aware);
+        } else if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, FixedContainer<CppType, N>>(null_aware);
         } else {
-            using Set = std::conditional_t<
-                    is_string_type(type), StringSet<>,
-                    HybridSet<type, DynamicContainer<typename PrimitiveTypeTraits<type>::CppType>>>;
-            return new Set(null_aware);
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, DynamicContainer<CppType>>(null_aware);
         }
     }
 };
@@ -69,15 +68,6 @@ public:
     template <PrimitiveType type, size_t N>
     static BasePtr get_function(bool null_aware) {
         return new BloomFilterFunc<type>(null_aware);
-    }
-};
-
-class BitmapFilterTraits {
-public:
-    using BasePtr = BitmapFilterFuncBase*;
-    template <PrimitiveType type, size_t N>
-    static BasePtr get_function(bool null_aware) {
-        return new BitmapFilterFunc<type>(null_aware);
     }
 };
 
@@ -137,27 +127,6 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type, bool null
     return nullptr;
 }
 
-template <class Traits>
-typename Traits::BasePtr create_bitmap_predicate_function(PrimitiveType type) {
-    using Creator = PredicateFunctionCreator<Traits>;
-
-    switch (type) {
-    case TYPE_TINYINT:
-        return Creator::template create<TYPE_TINYINT>(false);
-    case TYPE_SMALLINT:
-        return Creator::template create<TYPE_SMALLINT>(false);
-    case TYPE_INT:
-        return Creator::template create<TYPE_INT>(false);
-    case TYPE_BIGINT:
-        return Creator::template create<TYPE_BIGINT>(false);
-    default:
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "bitmap predicate with type " + type_to_string(type));
-    }
-
-    return nullptr;
-}
-
 inline auto create_minmax_filter(PrimitiveType type, bool null_aware) {
     return create_predicate_function<MinmaxFunctionTraits>(type, null_aware);
 }
@@ -191,43 +160,16 @@ inline auto create_set(PrimitiveType type, size_t size, bool null_aware) {
     }
 }
 
-template <size_t N = 0>
 inline HybridSetBase* create_string_value_set(bool null_aware) {
-    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
-        return new StringValueSet<FixedContainer<StringRef, N>>(null_aware);
-    } else {
-        return new StringValueSet(null_aware);
-    }
+    return new StringValueSet(null_aware);
 }
 
 inline HybridSetBase* create_string_value_set(size_t size, bool null_aware) {
-    if (size == 1) {
-        return create_string_value_set<1>(null_aware);
-    } else if (size == 2) {
-        return create_string_value_set<2>(null_aware);
-    } else if (size == 3) {
-        return create_string_value_set<3>(null_aware);
-    } else if (size == 4) {
-        return create_string_value_set<4>(null_aware);
-    } else if (size == 5) {
-        return create_string_value_set<5>(null_aware);
-    } else if (size == 6) {
-        return create_string_value_set<6>(null_aware);
-    } else if (size == 7) {
-        return create_string_value_set<7>(null_aware);
-    } else if (size == FIXED_CONTAINER_MAX_SIZE) {
-        return create_string_value_set<FIXED_CONTAINER_MAX_SIZE>(null_aware);
-    } else {
-        return create_string_value_set(null_aware);
-    }
+    return create_string_value_set(null_aware);
 }
 
 inline auto create_bloom_filter(PrimitiveType type, bool null_aware) {
     return create_predicate_function<BloomFilterTraits>(type, null_aware);
-}
-
-inline auto create_bitmap_filter(PrimitiveType type) {
-    return create_bitmap_predicate_function<BitmapFilterTraits>(type);
 }
 
 template <PrimitiveType PT>
@@ -239,18 +181,6 @@ std::shared_ptr<const ColumnPredicate> create_olap_column_predicate(
     filter_olap->light_copy(filter.get());
     // create a new filter to match the input filter and PT. For example, filter may be varchar, but PT is char
     return BloomFilterColumnPredicate<PT>::create_shared(column_id, filter_olap);
-}
-
-template <PrimitiveType PT>
-std::shared_ptr<const ColumnPredicate> create_olap_column_predicate(
-        uint32_t column_id, const std::shared_ptr<BitmapFilterFuncBase>& filter,
-        const TabletColumn*, bool) {
-    if constexpr (PT == TYPE_TINYINT || PT == TYPE_SMALLINT || PT == TYPE_INT ||
-                  PT == TYPE_BIGINT) {
-        return BitmapFilterColumnPredicate<PT>::create_shared(column_id, filter);
-    } else {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "bitmap filter do not support type {}", PT);
-    }
 }
 
 template <PrimitiveType PT>

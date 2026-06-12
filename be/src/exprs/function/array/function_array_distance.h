@@ -26,6 +26,8 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -34,7 +36,6 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "exec/common/util.hpp"
-#include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function.h"
 
 namespace doris {
@@ -115,97 +116,64 @@ public:
     // We want to make sure throw exception if input columns contain NULL.
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    // Validate that neither outer column nor inner array elements contain NULL.
+    // Distance functions always throw on NULL input.
+    static void _validate_no_nulls(const ColumnPtr& col, const char* arg_name,
+                                   const String& func_name) {
+        const IColumn* raw = col.get();
+
+        // Unwrap const
+        if (is_column_const(*raw)) {
+            raw = assert_cast<const ColumnConst*>(raw)->get_data_column_ptr().get();
+        }
+
+        // Check outer nullable
+        if (const auto* nullable_raw = check_and_get_column<ColumnNullable>(raw)) {
+            if (raw->has_null()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "{} for function {} cannot be null", arg_name, func_name);
+            }
+            raw = nullable_raw->get_nested_column_ptr().get();
+        }
+
+        // Check inner nullable (array elements)
+        const auto& array_col = assert_cast<const ColumnArray&>(*raw);
+        if (is_column_nullable(*array_col.get_data_ptr()) && array_col.get_data_ptr()->has_null()) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "{} for function {} cannot have null", arg_name, func_name);
+        }
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto& arg1 = block.get_by_position(arguments[0]);
-        const auto& arg2 = block.get_by_position(arguments[1]);
+        const auto& col1 = block.get_by_position(arguments[0]).column;
+        const auto& col2 = block.get_by_position(arguments[1]).column;
 
-        auto col1 = arg1.column->convert_to_full_column_if_const();
-        auto col2 = arg2.column->convert_to_full_column_if_const();
-        if (col1->size() != col2->size()) {
-            return Status::RuntimeError(
-                    fmt::format("function {} have different input array sizes: {} and {}",
-                                get_name(), col1->size(), col2->size()));
-        }
+        // Validate no NULLs (distance functions always throw on NULL input)
+        _validate_no_nulls(col1, "First argument", get_name());
+        _validate_no_nulls(col2, "Second argument", get_name());
 
-        const ColumnArray* arr1 = nullptr;
-        const ColumnArray* arr2 = nullptr;
+        // Create views — handles Const/Nullable unwrapping automatically
+        auto view1 = ColumnArrayView<TYPE_FLOAT>::create(col1);
+        auto view2 = ColumnArrayView<TYPE_FLOAT>::create(col2);
 
-        if (col1->is_nullable()) {
-            if (col1->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "First argument for function {} cannot be null", get_name());
-            }
-            auto nullable1 = assert_cast<const ColumnNullable*>(col1.get());
-            arr1 = assert_cast<const ColumnArray*>(nullable1->get_nested_column_ptr().get());
-        } else {
-            arr1 = assert_cast<const ColumnArray*>(col1.get());
-        }
-
-        if (col2->is_nullable()) {
-            if (col2->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Second argument for function {} cannot be null",
-                                       get_name());
-            }
-            auto nullable2 = assert_cast<const ColumnNullable*>(col2.get());
-            arr2 = assert_cast<const ColumnArray*>(nullable2->get_nested_column_ptr().get());
-        } else {
-            arr2 = assert_cast<const ColumnArray*>(col2.get());
-        }
-
-        const ColumnFloat32* float1 = nullptr;
-        const ColumnFloat32* float2 = nullptr;
-        if (arr1->get_data_ptr()->is_nullable()) {
-            if (arr1->get_data_ptr()->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "First argument for function {} cannot have null",
-                                       get_name());
-            }
-            auto nullable1 = assert_cast<const ColumnNullable*>(arr1->get_data_ptr().get());
-            float1 = assert_cast<const ColumnFloat32*>(nullable1->get_nested_column_ptr().get());
-        } else {
-            float1 = assert_cast<const ColumnFloat32*>(arr1->get_data_ptr().get());
-        }
-
-        if (arr2->get_data_ptr()->is_nullable()) {
-            if (arr2->get_data_ptr()->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Second argument for function {} cannot have null",
-                                       get_name());
-            }
-            auto nullable2 = assert_cast<const ColumnNullable*>(arr2->get_data_ptr().get());
-            float2 = assert_cast<const ColumnFloat32*>(nullable2->get_nested_column_ptr().get());
-        } else {
-            float2 = assert_cast<const ColumnFloat32*>(arr2->get_data_ptr().get());
-        }
-
-        const ColumnOffset64* offset1 =
-                assert_cast<const ColumnArray::ColumnOffsets*>(arr1->get_offsets_ptr().get());
-        const ColumnOffset64* offset2 =
-                assert_cast<const ColumnArray::ColumnOffsets*>(arr2->get_offsets_ptr().get());
-        // prepare return data
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
 
-        size_t elemt_cnt = offset1->size();
-        for (ssize_t row = 0; row < elemt_cnt; ++row) {
-            // Calculate actual array sizes for current row.
-            // For nullable arrays, we cannot compare absolute offset values directly because:
-            // 1. When a row is null, its offset might equal the previous offset (no elements added)
-            // 2. Or it might include the array size even if the row is null (implementation dependent)
-            // Therefore, we must calculate the actual array size as: offsets[row] - offsets[row-1]
-            ssize_t size1 = offset1->get_data()[row] - offset1->get_data()[row - 1];
-            ssize_t size2 = offset2->get_data()[row] - offset2->get_data()[row - 1];
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            auto a1 = view1[row];
+            auto a2 = view2[row];
+            const float* p1 = a1.get_data();
+            const float* p2 = a2.get_data();
+            auto dim1 = a1.size();
+            auto dim2 = a2.size();
 
-            if (size1 != size2) [[unlikely]] {
+            if (dim1 != dim2) [[unlikely]] {
                 return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
-                        get_name(), size1, size2);
+                        get_name(), dim1, dim2);
             }
-            dst_data[row] = DistanceImpl::distance(
-                    float1->get_data().data() + offset1->get_data()[row - 1],
-                    float2->get_data().data() + offset2->get_data()[row - 1], size1);
+            dst_data[row] = DistanceImpl::distance(p1, p2, dim1);
         }
 
         block.replace_by_position(result, std::move(dst));

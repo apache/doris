@@ -51,13 +51,16 @@ public abstract class SqlBlockRuleCommand extends Command implements ForwardWith
 
     public static final String ENABLE_PROPERTY = "enable";
 
+    public static final String REQUIRE_PARTITION_FILTER_PROPERTY = "require_partition_filter";
+
     public static final Long LONG_NOT_SET = SqlBlockUtil.LONG_MINUS_ONE;
 
     public static final String STRING_NOT_SET = SqlBlockUtil.STRING_DEFAULT;
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>().add(SQL_PROPERTY)
                         .add(SQL_HASH_PROPERTY).add(GLOBAL_PROPERTY).add(ENABLE_PROPERTY).add(SCANNED_PARTITION_NUM)
-                        .add(SCANNED_TABLET_NUM).add(SCANNED_CARDINALITY).build();
+                        .add(SCANNED_TABLET_NUM).add(SCANNED_CARDINALITY)
+                        .add(REQUIRE_PARTITION_FILTER_PROPERTY).build();
 
     protected final String ruleName;
 
@@ -76,6 +79,9 @@ public abstract class SqlBlockRuleCommand extends Command implements ForwardWith
 
     // whether to use the rule, default is true
     protected Boolean enable;
+
+    // whether partitioned table scans require partition filters
+    protected Boolean requirePartitionFilter;
 
     protected final Map<String, String> properties;
 
@@ -145,5 +151,8 @@ public abstract class SqlBlockRuleCommand extends Command implements ForwardWith
     public Boolean getEnable() {
         return enable;
     }
-}
 
+    public Boolean getRequirePartitionFilter() {
+        return requirePartitionFilter;
+    }
+}

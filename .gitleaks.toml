@@ -1,0 +1,42 @@
+title = "Doris gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Ignore the fake OIDC token fixture in AuthenticatorManagerTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/mysql/authenticate/AuthenticatorManagerTest\.java$''']
+regexes = ['''OIDC_ID_TOKEN\s*=\s*"eyJhbGciOiJub25lIn0\.eyJzdWIiOiJhbGljZSJ9\.signature"''']
+
+[[rules.allowlists]]
+description = "Ignore fake ETag hash fixture in StageUtilTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/cloud/stage/StageUtilTest\.java$''']
+regexes = ['''RemoteObject\(.*"[A-F0-9]{32}-\d+"''']
+
+[[rules.allowlists]]
+description = "Ignore fake test credentials in S3ObjStorageTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-filesystem/fe-filesystem-s3/src/test/java/org/apache/doris/filesystem/s3/S3ObjStorageTest\.java$''']
+regexes = ['''(access_key|secret_key).*"(ak-|sk-|canonical|sess-tok)''']
+
+[[rules.allowlists]]
+description = "Ignore the GPG signing-key fingerprint in the release-tools config template (a public key id, not a secret)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^tools/release-tools/release\.env$''']
+regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
+
+[[rules]]
+id = "private-key"
+
+[[rules.allowlists]]
+description = "Ignore test-only TLS private key used by MySQL docker-compose fixtures"
+paths = ['''^docker/thirdparties/docker-compose/mysql/certs/server\.key$''']

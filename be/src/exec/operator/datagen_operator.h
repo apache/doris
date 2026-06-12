@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -59,7 +58,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 
@@ -74,5 +73,4 @@ private:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

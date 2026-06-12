@@ -28,11 +28,10 @@
 #include "core/arena.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/itoken_extractor.h"
+#include "storage/olap_common.h"
 #include "util/slice.h"
 
 namespace doris {
-
-class TypeInfo;
 
 namespace io {
 class FileWriter;
@@ -44,7 +43,7 @@ class ColumnIndexMetaPB;
 
 class BloomFilterIndexWriter {
 public:
-    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
+    static Status create(const BloomFilterOptions& bf_options, FieldType type,
                          std::unique_ptr<BloomFilterIndexWriter>* res);
 
     BloomFilterIndexWriter() = default;
@@ -69,12 +68,8 @@ private:
 // `BloomFilterIndexWriterImpl`, so vector can be used to accelerate.
 class PrimaryKeyBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
 public:
-    explicit PrimaryKeyBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
-                                                  const TypeInfo* type_info)
-            : _bf_options(bf_options),
-              _type_info(type_info),
-              _has_null(false),
-              _bf_buffer_size(0) {}
+    explicit PrimaryKeyBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options)
+            : _bf_options(bf_options), _has_null(false), _bf_buffer_size(0) {}
 
     ~PrimaryKeyBloomFilterIndexWriterImpl() override {
         for (auto& bf : _bfs) {
@@ -85,7 +80,7 @@ public:
         }
     };
 
-    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
+    static Status create(const BloomFilterOptions& bf_options, FieldType type,
                          std::unique_ptr<BloomFilterIndexWriter>* res);
     // This method may allocate large memory for bf, will return error
     // when memory is exhaused to prevent oom.
@@ -101,7 +96,6 @@ public:
 
 private:
     BloomFilterOptions _bf_options;
-    const TypeInfo* _type_info = nullptr;
     Arena _arena;
     bool _has_null;
     uint64_t _bf_buffer_size;
@@ -112,9 +106,8 @@ private:
 
 class NGramBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
 public:
-    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
-                         uint8_t gram_size, uint16_t gram_bf_size,
-                         std::unique_ptr<BloomFilterIndexWriter>* res);
+    static Status create(const BloomFilterOptions& bf_options, FieldType type, uint8_t gram_size,
+                         uint16_t gram_bf_size, std::unique_ptr<BloomFilterIndexWriter>* res);
 
     NGramBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options, uint8_t gram_size,
                                     uint16_t bf_size);

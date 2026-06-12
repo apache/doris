@@ -17,12 +17,14 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "io/io_common.h"
 #include "storage/compaction/compaction.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/olap_common.h"
 
 namespace doris {
@@ -37,15 +39,16 @@ public:
 
     Status execute_compact() override;
 
+    std::optional<CompactionProfileType> profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
+
 private:
     std::string_view compaction_name() const override { return "cumulative compaction"; }
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
     Status pick_rowsets_to_compact();
-
-    void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                          std::vector<Version>* missing_version);
 
     Version _last_delete_version {-1, -1};
 };

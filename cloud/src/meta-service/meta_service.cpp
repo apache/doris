@@ -1412,7 +1412,7 @@ void scan_restore_job_rowset(
             });
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(restore_job_rs_key0, restore_job_rs_key1, &it, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -1439,7 +1439,7 @@ void scan_restore_job_rowset(
             if (!it->has_next()) restore_job_rs_key0 = k;
         }
         restore_job_rs_key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     return;
 }
 
@@ -2618,73 +2618,45 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     }
 }
 
-// Check recycle_rowset_key to ensure idempotency for commit_rowset operation.
-// The precondition for commit_rowset is that prepare_rowset has been successfully executed,
-// which creates the recycle_rowset_key. Therefore, we only need to check if the
-// recycle_rowset_key exists to determine if this is a duplicate request:
-// - If key not found: commit_rowset has already been executed and remove the key,
-//   this is a duplicate request and should be rejected.
-// - If key exists but marked as recycled: the rowset data has been recycled by recycler,
-//   this request should be rejected to prevent data inconsistency.
-// - If key exists and not marked: this is a valid commit_rowset request, proceed normally.
-// Note: We don't need to check txn/job status separately because prepare_rowset has already
-// validated them, and the existence of recycle_rowset_key is sufficient to guarantee idempotency.
-int check_idempotent_for_txn_or_job(Transaction* txn, const std::string& recycle_rs_key,
-                                    doris::RowsetMetaCloudPB& rowset_meta,
-                                    const std::string& instance_id, int64_t tablet_id,
-                                    const std::string& rowset_id, const std::string& tablet_job_id,
-                                    bool is_versioned_read, ResourceManager* resource_mgr,
-                                    MetaServiceCode& code, std::string& msg) {
-    if (!rowset_meta.has_delete_predicate() && config::enable_recycle_delete_rowset_key_check) {
+// Returns false only when reading or parsing the recycle rowset key fails, or when the rowset has
+// already been marked as recycled. recycle_rs_key_exists tells the caller whether the key exists,
+bool check_recycle_rowset_key(Transaction* txn, const std::string& recycle_rs_key,
+                              const doris::RowsetMetaCloudPB& rowset_meta,
+                              bool* recycle_rs_key_exists, MetaServiceCode& code,
+                              std::string& msg) {
+    *recycle_rs_key_exists = false;
+    if (!rowset_meta.has_delete_predicate()) {
         std::string recycle_rs_val;
         TxnErrorCode err = txn->get(recycle_rs_key, &recycle_rs_val);
         if (err == TxnErrorCode::TXN_OK) {
+            *recycle_rs_key_exists = true;
             RecycleRowsetPB recycle_rowset;
             if (!recycle_rowset.ParseFromString(recycle_rs_val)) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 msg = fmt::format("malformed recycle rowset value. key={}", hex(recycle_rs_key));
-                return 1;
+                return false;
             }
             auto rs_meta = recycle_rowset.rowset_meta();
             if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = fmt::format("rowset has already been marked as recycled, key={}, rs_meta={}",
                                   hex(recycle_rs_key), rs_meta.ShortDebugString());
-                return 1;
+                return false;
             }
         } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = fmt::format("recycle rowset key not found, key={}", hex(recycle_rs_key));
-            return 1;
+            return true;
         } else {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get recycle rowset, err={}, key={}", err,
                               hex(recycle_rs_key));
-            return -1;
+            return false;
         }
-    } else if (!config::enable_recycle_delete_rowset_key_check) {
-        if (config::enable_tablet_job_check && tablet_job_id.empty() && !tablet_job_id.empty()) {
-            if (!check_job_existed(txn, code, msg, instance_id, tablet_id, rowset_id, tablet_job_id,
-                                   is_versioned_read, resource_mgr)) {
-                return 1;
-            }
-        }
-
-        // Check if the prepare rowset request is invalid.
-        // If the transaction has been finished, it means this prepare rowset is a timeout retry request.
-        // In this case, do not write the recycle key again, otherwise it may cause data loss.
-        // If the rowset had load id, it means it is a load request, otherwise it is a
-        // compaction/sc request.
-        if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
-            !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn, instance_id,
-                                      rowset_meta.txn_id(), code, msg)) {
-            LOG(WARNING) << "prepare rowset failed, txn_id=" << rowset_meta.txn_id()
-                         << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
-                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
-            return 1;
-        }
+    } else {
+        // Old BE does not write recycle rowset keys for delete predicate rowsets during
+        // commit_rowset, so treat the key as existing for compatibility.
+        *recycle_rs_key_exists = true;
     }
-    return 0;
+    return true;
 }
 
 /**
@@ -2736,16 +2708,54 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     bool is_versioned_read = is_version_read_enabled(instance_id);
     auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
 
-    if (check_idempotent_for_txn_or_job(txn.get(), recycle_rs_key, rowset_meta, instance_id,
-                                        tablet_id, rowset_id, request->tablet_job_id(),
-                                        is_versioned_read, resource_mgr_.get(), code, msg) != 0) {
-        return;
+    if (!config::enable_recycle_delete_rowset_key_check) {
+        std::string tablet_job_id = request->tablet_job_id();
+        if (config::enable_tablet_job_check && !tablet_job_id.empty()) {
+            if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
+                                   tablet_job_id, is_versioned_read, resource_mgr_.get())) {
+                return;
+            }
+        }
+
+        // Check if the commit rowset request is invalid.
+        // If the transaction has been finished, it means this commit rowset is a timeout retry request.
+        // In this case, do not write the recycle key again, otherwise it may cause data loss.
+        // If the rowset had load id, it means it is a load request, otherwise it is a
+        // compaction/sc request.
+        if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
+            !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
+                                      rowset_meta.txn_id(), code, msg)) {
+            LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
+                         << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
+                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+            return;
+        }
     }
 
     // Check if commit key already exists.
     std::string existed_commit_val;
     err = txn->get(tmp_rs_key, &existed_commit_val);
     if (err == TxnErrorCode::TXN_OK) {
+        if (config::enable_recycle_delete_rowset_key_check) {
+            bool recycle_rs_key_exists = false;
+            if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
+                                          &recycle_rs_key_exists, code, msg)) {
+                return;
+            }
+            if (recycle_rs_key_exists) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format(
+                        "tmp rowset key and recycle rowset key are mutually exclusive, "
+                        "tmp_rs_key={}, recycle_rs_key={}",
+                        hex(tmp_rs_key), hex(recycle_rs_key));
+                LOG(INFO) << "skip commit rowset because tmp rowset key and recycle rowset key are "
+                             "mutually exclusive, txn_id="
+                          << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                          << ", rowset_id=" << rowset_id << ", tmp_rs_key=" << hex(tmp_rs_key)
+                          << ", recycle_rs_key=" << hex(recycle_rs_key) << ", msg=" << msg;
+                return;
+            }
+        }
         auto existed_rowset_meta = response->mutable_existed_rowset_meta();
         if (!existed_rowset_meta->ParseFromString(existed_commit_val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
@@ -2803,6 +2813,21 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
+    }
+    if (config::enable_recycle_delete_rowset_key_check) {
+        bool recycle_rs_key_exists = false;
+        if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
+                                      &recycle_rs_key_exists, code, msg)) {
+            return;
+        }
+        if (!recycle_rs_key_exists) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("recycle rowset key not found, key={}", hex(recycle_rs_key));
+            LOG(INFO) << "skip commit rowset because recycle rowset key does not exist, txn_id="
+                      << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                      << ", rowset_id=" << rowset_id << ", recycle_rs_key=" << hex(recycle_rs_key);
+            return;
+        }
     }
     // write schema kv if rowset_meta has schema
     if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
@@ -3013,7 +3038,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
     };
 
     std::stringstream ss;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(key0, key1, &it);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -3050,7 +3075,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
             }
         }
         key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
 }
 
 std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, int64_t bc_cnt,
@@ -4307,7 +4332,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             int64_t last_ver = -1;
             int64_t last_seg_id = -1;
             int64_t round = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 if (test) {
                     LOG(INFO) << "test";
                     err = txn->get(start_key, end_key, &it, false, 2);
@@ -4385,7 +4410,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 if (code != MetaServiceCode::OK) return;
                 round++;
                 start_key = it->next_begin_key(); // Update to next smallest key for iteration
-            } while (it->more());
+            }
             LOG(INFO) << "get delete bitmap for tablet=" << tablet_id
                       << ", rowset=" << rowset_ids[i] << ", start version=" << begin_versions[i]
                       << ", end version=" << end_versions[i] << ", internal round=" << round
@@ -5024,7 +5049,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                     MowTabletJobPB mow_tablet_job;
                     std::unique_ptr<RangeGetIterator> it;
                     int64_t expired_job_num = 0;
-                    do {
+                    while (it == nullptr /* may be not init */ ||
+                           (it->more() && !has_unexpired_compaction)) {
                         err = txn->get(key0, key1, &it);
                         if (err != TxnErrorCode::TXN_OK) {
                             code = cast_as<ErrCategory::READ>(err);
@@ -5055,7 +5081,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                             }
                         }
                         key0 = it->next_begin_key(); // Update to next smallest key for iteration
-                    } while (it->more() && !has_unexpired_compaction);
+                    }
                     if (has_unexpired_compaction) {
                         // TODO print initiator
                         ss << "already be locked by lock_id=" << lock_info.lock_id()

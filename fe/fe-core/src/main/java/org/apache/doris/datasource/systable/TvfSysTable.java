@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
  * This is the legacy execution path, still used for:
  * <ul>
  *   <li>Hive partition tables (partition_values TVF)</li>
- *   <li>Iceberg metadata tables (iceberg_meta TVF)</li>
  * </ul>
  *
  * <p>Subclasses must implement:
@@ -37,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
  * </ul>
  *
  * @see PartitionsSysTable
- * @see IcebergSysTable
  */
 public abstract class TvfSysTable extends SysTable {
 
@@ -59,7 +57,7 @@ public abstract class TvfSysTable extends SysTable {
     /**
      * Get the TVF name used for this system table.
      *
-     * @return the TVF name (e.g., "partition_values", "iceberg_meta")
+     * @return the TVF name (e.g., "partition_values")
      */
     public String getTvfName() {
         return tvfName;

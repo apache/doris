@@ -22,7 +22,7 @@ suite("test_orc_nested_types", "p0,external") {
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_orc_nested_types"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -127,8 +127,8 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q14 """
             SELECT
                 id,
-                struct_element(struct_col, 'name') as name,
-                struct_element(struct_col, 'age') as age
+                element_at(struct_col, 'name') as name,
+                element_at(struct_col, 'age') as age
             FROM nested_types1_orc
             WHERE id = 1
         """
@@ -145,18 +145,18 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q16 """
             SELECT
                 id,
-                struct_element(item, 'name') as name,
-                struct_element(item, 'age') as age
+                element_at(item, 'name') as name,
+                element_at(item, 'age') as age
             FROM nested_types1_orc
             LATERAL VIEW EXPLODE(array_struct_col) tmp AS item
-            WHERE id = 1 AND struct_element(item, 'age') > 30
+            WHERE id = 1 AND element_at(item, 'age') > 30
         """
         
         order_qt_nested_types1_q17 """
             SELECT
                 id,
-                struct_element(map_struct_col['a'], 'name') as name,
-                struct_element(map_struct_col['a'], 'age') as age
+                element_at(map_struct_col['a'], 'name') as name,
+                element_at(map_struct_col['a'], 'age') as age
             FROM nested_types1_orc
             WHERE id = 2
         """
@@ -164,7 +164,7 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q18 """
             SELECT
                 id,
-                struct_element(complex_struct_col, 'a') as array_a
+                element_at(complex_struct_col, 'a') as array_a
             FROM nested_types1_orc
             WHERE id = 1
         """
@@ -172,7 +172,7 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q19 """
             SELECT
                 id,
-                struct_element(complex_struct_col, 'b') as map_b
+                element_at(complex_struct_col, 'b') as map_b
             FROM nested_types1_orc
             WHERE id = 2
         """
@@ -180,7 +180,7 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q20 """
             SELECT
                 id,
-                struct_element(complex_struct_col, 'c') as struct_c
+                element_at(complex_struct_col, 'c') as struct_c
             FROM nested_types1_orc
             WHERE id = 3
         """
@@ -188,7 +188,7 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q21 """
             SELECT
                 id,
-                struct_element(struct_element(complex_struct_col, 'c'), 'x') as array_x
+                element_at(element_at(complex_struct_col, 'c'), 'x') as array_x
             FROM nested_types1_orc
             WHERE id = 1
         """
@@ -196,7 +196,7 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q22 """
             SELECT
                 id,
-                struct_element(struct_element(complex_struct_col, 'c'), 'y') as y_value
+                element_at(element_at(complex_struct_col, 'c'), 'y') as y_value
             FROM nested_types1_orc
             WHERE id = 2
         """
@@ -217,17 +217,17 @@ suite("test_orc_nested_types", "p0,external") {
         order_qt_nested_types1_q25 """
             SELECT
                 id,
-                struct_element(struct_col, 'age') as age
+                element_at(struct_col, 'age') as age
             FROM nested_types1_orc
-            WHERE struct_element(struct_col, 'name') = 'Alice'
+            WHERE element_at(struct_col, 'name') = 'Alice'
         """
         
         order_qt_nested_types1_q26 """
             SELECT
                 id,
-                struct_element(struct_col, 'age') as age
+                element_at(struct_col, 'age') as age
             FROM nested_types1_orc
-            WHERE struct_element(struct_col, 'name') LIKE '%A%'
+            WHERE element_at(struct_col, 'name') LIKE '%A%'
         """
 
         sql """drop catalog ${catalog_name};"""

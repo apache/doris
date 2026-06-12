@@ -45,7 +45,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 PaimonPredicateConverter::PaimonPredicateConverter(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state)
@@ -406,7 +405,7 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         if (slot_primitive == TYPE_INT) {
             return paimon::Literal(static_cast<int32_t>(value));
         }
-        return paimon::Literal(static_cast<int64_t>(value));
+        return paimon::Literal(value);
     }
     case TYPE_DOUBLE: {
         if (literal_primitive != TYPE_DOUBLE && literal_primitive != TYPE_FLOAT) {
@@ -655,5 +654,4 @@ std::optional<paimon::FieldType> PaimonPredicateConverter::_to_paimon_field_type
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

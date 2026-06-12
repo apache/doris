@@ -37,7 +37,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BufferWritable;
 class IColumn;
@@ -51,9 +50,6 @@ public:
 
     const std::string get_family_name() const override { return "JSONB"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
-    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -63,8 +59,6 @@ public:
 
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
-
-    Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override;
 
@@ -81,5 +75,4 @@ private:
     DataTypeString data_type_string;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

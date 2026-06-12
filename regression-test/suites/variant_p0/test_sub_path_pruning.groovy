@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_sub_path_pruning", "variant_type"){
+suite("test_sub_path_pruning", "variant_type"){
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_max_sparse_column_statistics_size = 10000 """

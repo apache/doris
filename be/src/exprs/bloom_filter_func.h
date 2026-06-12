@@ -25,7 +25,6 @@
 #include "exprs/filter_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Only Used In RuntimeFilter
 class BloomFilterFuncBase : public FilterBase {
 public:
@@ -208,5 +207,4 @@ public:
 private:
     using OpV2 = typename BloomFilterTypeTraits<fixed_len_to_uint32_v2, type>::FindOp;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

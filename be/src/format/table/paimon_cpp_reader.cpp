@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <mutex>
+#include <tuple>
+#include <unordered_map>
 #include <utility>
 
 #include "arrow/c/bridge.h"
@@ -27,6 +29,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "format/table/paimon_doris_file_system.h"
+#include "format/table/partition_column_filler.h"
 #include "paimon/defs.h"
 #include "paimon/memory/memory_pool.h"
 #include "paimon/read_context.h"
@@ -36,7 +39,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
@@ -63,6 +65,49 @@ PaimonCppReader::PaimonCppReader(const std::vector<SlotDescriptor*>& file_slot_d
 
 PaimonCppReader::~PaimonCppReader() = default;
 
+Status PaimonCppReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _partition_values.clear();
+    _partition_value_is_null.clear();
+    if (ctx->range == nullptr || ctx->tuple_descriptor == nullptr ||
+        !ctx->range->__isset.columns_from_path_keys) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(ctx->range->__isset.columns_from_path);
+    DORIS_CHECK(ctx->range->columns_from_path.size() == ctx->range->columns_from_path_keys.size());
+    const bool has_null_flags = ctx->range->__isset.columns_from_path_is_null;
+    if (has_null_flags) {
+        DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
+                    ctx->range->columns_from_path_keys.size());
+    }
+
+    std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
+    for (auto* slot : ctx->tuple_descriptor->slots()) {
+        name_to_slot.emplace(slot->col_name(), slot);
+    }
+    for (size_t i = 0; i < ctx->range->columns_from_path_keys.size(); ++i) {
+        const auto& key = ctx->range->columns_from_path_keys[i];
+        auto slot_it = name_to_slot.find(key);
+        if (slot_it == name_to_slot.end()) {
+            continue;
+        }
+        _partition_values.emplace(
+                key, std::make_tuple(ctx->range->columns_from_path[i], slot_it->second));
+        _partition_value_is_null.emplace(
+                key, has_null_flags ? ctx->range->columns_from_path_is_null[i] : false);
+    }
+    return Status::OK();
+}
+
+Status PaimonCppReader::on_after_read_block(Block* block, size_t* read_rows) {
+    if (_column_descs == nullptr || _partition_values.empty() || *read_rows == 0 ||
+        _push_down_agg_type == TPushAggOp::type::COUNT) {
+        return Status::OK();
+    }
+    return _fill_partition_columns(block, *read_rows);
+}
+
 Status PaimonCppReader::init_reader() {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         return Status::OK();
@@ -70,16 +115,16 @@ Status PaimonCppReader::init_reader() {
     return _init_paimon_reader();
 }
 
-Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status PaimonCppReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
         _remaining_table_level_row_count -= rows;
-        auto mutate_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        auto& mutate_columns = mutable_columns_guard.mutable_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         *eof = false;
         if (_remaining_table_level_row_count == 0) {
@@ -118,6 +163,8 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     auto record_batch = std::move(import_result).ValueUnsafe();
     const auto num_rows = static_cast<size_t>(record_batch->num_rows());
     const auto num_columns = record_batch->num_columns();
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
     for (int c = 0; c < num_columns; ++c) {
         const auto& field = record_batch->schema()->field(c);
         if (field->name() == VALUE_KIND_FIELD) {
@@ -129,11 +176,13 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
             // Skip columns that are not in the block (e.g., partition columns handled elsewhere)
             continue;
         }
-        const ColumnWithTypeAndName& column_with_name = block->get_by_position(it->second);
+        const auto block_pos = it->second;
         try {
-            RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                    column_with_name.column->assume_mutable_ref(), record_batch->column(c).get(), 0,
-                    num_rows, _ctzz));
+            RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
+                                    ->get_serde()
+                                    ->read_column_from_arrow(*columns[block_pos],
+                                                             record_batch->column(c).get(), 0,
+                                                             num_rows, _ctzz));
         } catch (Exception& e) {
             return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
         }
@@ -144,10 +193,41 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return Status::OK();
 }
 
-Status PaimonCppReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                    std::unordered_set<std::string>* missing_cols) {
+Status PaimonCppReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
+    }
+    return Status::OK();
+}
+
+Status PaimonCppReader::_fill_partition_columns(Block* block, size_t num_rows) {
+    if (_col_name_to_block_idx.empty()) {
+        _col_name_to_block_idx = block->get_name_to_pos_map();
+    }
+
+    for (const auto& desc : *_column_descs) {
+        if (desc.category != ColumnCategory::PARTITION_KEY) {
+            continue;
+        }
+        auto value_it = _partition_values.find(desc.name);
+        if (value_it == _partition_values.end()) {
+            continue;
+        }
+        auto col_it = _col_name_to_block_idx.find(desc.name);
+        if (col_it == _col_name_to_block_idx.end()) {
+            return Status::InternalError("Missing partition column {} in block {}", desc.name,
+                                         block->dump_structure());
+        }
+
+        auto& column_with_type_and_name = block->get_by_position(col_it->second);
+        auto mutable_column = std::move(*column_with_type_and_name.column).mutate();
+        const auto& [value, slot_desc] = value_it->second;
+        auto null_it = _partition_value_is_null.find(desc.name);
+        DORIS_CHECK(null_it != _partition_value_is_null.end());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(*mutable_column, *slot_desc, value,
+                                                              num_rows, null_it->second));
+        column_with_type_and_name.column = std::move(mutable_column);
     }
     return Status::OK();
 }
@@ -269,8 +349,12 @@ std::vector<std::string> PaimonCppReader::_build_read_columns() const {
 
 std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     std::map<std::string, std::string> options;
-    if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
-        _range.table_format_params.paimon_params.__isset.paimon_options) {
+    if (_range_params && _range_params->__isset.paimon_options &&
+        !_range_params->paimon_options.empty()) {
+        options.insert(_range_params->paimon_options.begin(), _range_params->paimon_options.end());
+    } else if (_range.__isset.table_format_params &&
+               _range.table_format_params.__isset.paimon_params &&
+               _range.table_format_params.paimon_params.__isset.paimon_options) {
         options.insert(_range.table_format_params.paimon_params.paimon_options.begin(),
                        _range.table_format_params.paimon_params.paimon_options.end());
     }
@@ -310,7 +394,6 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     copy_if_missing("fs.s3a.region", "AWS_REGION");
     copy_if_missing("fs.s3a.path.style.access", "use_path_style");
 
-    // FE currently does not pass paimon_options in scan ranges.
     // Backfill file.format/manifest.format from split file_format to avoid
     // paimon-cpp falling back to default manifest.format=avro.
     if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
@@ -331,5 +414,4 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     return options;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

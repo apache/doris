@@ -42,11 +42,11 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.LocalReplica;
@@ -59,7 +59,6 @@ import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.OlapTableFactory;
@@ -84,6 +83,8 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamBuildFactory;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
@@ -100,27 +101,29 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
+import org.apache.doris.common.util.BufferSizeUtil;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.foundation.type.ResultOr;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
+import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateStreamInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -163,7 +166,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import lombok.Getter;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
@@ -194,7 +196,9 @@ import java.util.stream.Collectors;
  * There is only one internal catalog in a cluster. And its id is always 0.
  */
 public class InternalCatalog implements CatalogIf<Database> {
-    public static final String INTERNAL_CATALOG_NAME = "internal";
+    /** @deprecated Use {@link org.apache.doris.catalog.NameSpaceContext#INTERNAL_CATALOG_NAME} instead. */
+    @Deprecated
+    public static final String INTERNAL_CATALOG_NAME = org.apache.doris.catalog.NameSpaceContext.INTERNAL_CATALOG_NAME;
     public static final long INTERNAL_CATALOG_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
@@ -203,9 +207,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     private transient ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
     private transient ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
 
-    // Add transient to fix gson issue.
-    @Getter
-    private transient EsRepository esRepository = new EsRepository();
+
 
     public InternalCatalog() {
         // create internal databases
@@ -538,6 +540,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 3. remove db from catalog
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
             Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
@@ -596,6 +599,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
         } finally {
             unlock();
         }
@@ -645,6 +649,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
+            registerDbFunctionsToNereids(db);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
             db.writeUnlock();
@@ -727,7 +732,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         // add db to catalog
         replayCreateDb(db, newDbName);
         db.unmarkDropped();
+        registerDbFunctionsToNereids(db);
         LOG.info("replay recover db[{}]", dbId);
+    }
+
+    private void registerDbFunctionsToNereids(Database db) {
+        // A recovered database reuses catalog Function objects, so rebuild their Nereids builders.
+        for (Function function : db.getFunctions()) {
+            FunctionUtil.translateToNereids(db.getFullName(), function);
+        }
     }
 
     public void alterDatabaseQuota(String dbName, QuotaType quotaType, long quotaValue) throws DdlException {
@@ -854,7 +867,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
             boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
         StopWatch watch = StopWatch.createStarted();
@@ -897,6 +910,15 @@ public class InternalCatalog implements CatalogIf<Database> {
                         genDropHint(dbName, table));
             } else if (isMtmv && !(table instanceof MTMV)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
+                        genDropHint(dbName, table));
+            }
+
+            // Check if a stream
+            if (!isStream && table instanceof BaseTableStream) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                        genDropHint(dbName, table));
+            } else if (isStream && !(table instanceof BaseTableStream)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE STREAM",
                         genDropHint(dbName, table));
             }
 
@@ -994,6 +1016,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table instanceof OlapTable) {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         }
+        if (table instanceof BaseTableStream) {
+            Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
+        }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
                     table.getId());
@@ -1008,26 +1033,29 @@ public class InternalCatalog implements CatalogIf<Database> {
             type = "MATERIALIZED VIEW";
         } else if (table instanceof OlapTable) {
             type = "TABLE";
+        } else if (table instanceof BaseTableStream) {
+            type = "STREAM";
         }
         return String.format("Use 'DROP %s %s.%s'", type, dbName, table.getName());
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
             long recycleTime) throws DdlException {
-        if (table.getType() == TableType.ELASTICSEARCH) {
-            esRepository.deRegisterTable(table.getId());
-        }
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
         }
         if (table instanceof View) {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
+        if (table instanceof BaseTableStream) {
+            Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
+        }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
-                new TableNameInfo(table), !isForceDrop && !isReplay);
+                TableNameInfoUtils.fromDb(db, table.getName()),
+                !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1244,7 +1272,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             return createOlapTable(db, createTableInfo);
         }
         if (engineName.equals("odbc")) {
-            return createOdbcTable(db, createTableInfo);
+            throw new DdlException(
+                    "ODBC table is no longer supported. Please use JDBC Catalog instead.");
         }
         if (engineName.equals("mysql")) {
             return createMysqlTable(db, createTableInfo);
@@ -1253,14 +1282,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             return createBrokerTable(db, createTableInfo);
         }
         if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
-            return createEsTable(db, createTableInfo);
+            throw new UserException(
+                    "Cannot create Elasticsearch table in internal catalog. Please use ES Catalog instead.");
         }
         if (engineName.equalsIgnoreCase("hive")) {
             // should use hive catalog to create external hive table
             throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
         }
         if (engineName.equalsIgnoreCase("jdbc")) {
-            return createJdbcTable(db, createTableInfo);
+            throw new DdlException(
+                    "JDBC table is no longer supported. Please use JDBC Catalog instead.");
 
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
@@ -1533,9 +1564,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
-                        olapTable.enableSingleReplicaCompaction().toString());
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
+                        olapTable.enableTso().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
@@ -1606,6 +1637,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (hashDistributionInfo.getBucketNum() <= 0) {
                         throw new DdlException("Cannot assign hash distribution buckets less than 1");
                     }
+                    if (Config.max_bucket_num_per_partition > 0
+                            && hashDistributionInfo.getBucketNum() > Config.max_bucket_num_per_partition) {
+                        throw new DdlException(String.format(
+                                "Number of buckets (%d) exceeds the maximum allowed value (%d). "
+                                        + "Generally, a large number of buckets is not needed. "
+                                        + "If you have a specific use case requiring more buckets, "
+                                        + "please review your schema design or modify the FE config "
+                                        + "'max_bucket_num_per_partition' to adjust this limit.",
+                                hashDistributionInfo.getBucketNum(), Config.max_bucket_num_per_partition));
+                    }
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
@@ -1615,6 +1656,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                     RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) distributionInfo;
                     if (randomDistributionInfo.getBucketNum() <= 0) {
                         throw new DdlException("Cannot assign random distribution buckets less than 1");
+                    }
+                    if (Config.max_bucket_num_per_partition > 0
+                            && randomDistributionInfo.getBucketNum() > Config.max_bucket_num_per_partition) {
+                        throw new DdlException(String.format(
+                                "Number of buckets (%d) exceeds the maximum allowed value (%d). "
+                                        + "Generally, a large number of buckets is not needed. "
+                                        + "If you have a specific use case requiring more buckets, "
+                                        + "please review your schema design or modify the FE config "
+                                        + "'max_bucket_num_per_partition' to adjust this limit.",
+                                randomDistributionInfo.getBucketNum(), Config.max_bucket_num_per_partition));
                     }
                 }
             } else {
@@ -1957,6 +2008,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.updateVisibleVersionAndTime(version, versionTime);
             }
         }
+        if (partition != null && !isTempPartition) {
+            SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+        }
 
         // Here, we only wait for the EventProcessor to finish processing the event,
         // but regardless of the success or failure of the result,
@@ -1988,14 +2042,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
+            Partition partition = null;
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
-                Partition partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(),
-                        info.isForceDrop());
+                partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
+            }
+            if (partition != null && !info.isTempPartition()) {
+                SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
             }
             olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
             // Replay set new partition loaded flag to true for auto analyze.
@@ -2109,13 +2166,17 @@ public class InternalCatalog implements CatalogIf<Database> {
                     long backendId = replica.getBackendIdWithoutException();
                     long replicaId = replica.getId();
                     countDownLatch.addMark(backendId, tabletId);
+                    MaterializedIndexMeta rowBinlogIndexMeta = null;
+                    if (tbl.needRowBinlog() && indexId == tbl.getBaseIndexId()) {
+                        rowBinlogIndexMeta = tbl.getRowBinlogMeta();
+                    }
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tbl.getId(), partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             realStorageMedium, schema, bfColumns, tbl.getBfFpp(), countDownLatch,
                             indexes, tbl.isInMemory(), tabletType,
                             tbl.getDataSortInfo(), tbl.getCompressionType(),
                             tbl.getEnableUniqueKeyMergeOnWrite(), storagePolicy, tbl.disableAutoCompaction(),
-                            tbl.enableSingleReplicaCompaction(), tbl.skipWriteIndexOnLoad(),
+                            tbl.skipWriteIndexOnLoad(),
                             tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             tbl.getTimeSeriesCompactionFileCountThreshold(),
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -2128,7 +2189,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
-                            tbl.getVerticalCompactionNumColumnsPerGroup());
+                            tbl.getVerticalCompactionNumColumnsPerGroup(),
+                            rowBinlogIndexMeta);
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2264,10 +2326,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
         createTableBinlogConfig.mergeFromProperties(createTableInfo.getProperties());
-        if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable() && !createTableInfo.isTemp()) {
+        if (dbBinlogConfig.getEnable() && !createTableBinlogConfig.isEnableForCCR() && !createTableInfo.isTemp()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
         }
-        if (createTableInfo.isTemp() && createTableBinlogConfig.isEnable()) {
+        if (createTableInfo.isTemp() && createTableBinlogConfig.isEnableForCCR()) {
             throw new DdlException("Cannot create temporary table with binlog enable");
         }
         createTableInfo.getProperties().putAll(createTableBinlogConfig.toProperties());
@@ -2290,7 +2352,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
 
-        long bufferSize = IdGeneratorUtil.getBufferSizeForCreateTable(createTableInfo, replicaAlloc);
+        long bufferSize = BufferSizeUtil.getBufferSizeForCreateTable(createTableInfo, replicaAlloc);
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
 
         // create partition info
@@ -2615,17 +2677,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableMowLightDelete(enableDeleteOnDeletePredicate);
 
-        boolean enableSingleReplicaCompaction = false;
+        boolean enableTso = false;
         try {
-            enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);
+            enableTso = PropertyAnalyzer.analyzeEnableTso(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        if (enableUniqueKeyMergeOnWrite && enableSingleReplicaCompaction) {
-            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
-                + " property is not supported for merge-on-write table");
-        }
-        olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
+        olapTable.setEnableTso(enableTso);
 
         if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
             // <storageVaultName, storageVaultId>
@@ -2786,6 +2844,27 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (binlogConfigMap != null) {
                 BinlogConfig binlogConfig = new BinlogConfig();
                 binlogConfig.mergeFromProperties(binlogConfigMap);
+                if (binlogConfig.isEnableForStreaming()) {
+                    if (!(keysType == KeysType.DUP_KEYS
+                            || (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite))) {
+                        throw new AnalysisException("Only duplicate and mow table model support binlog<Row>, "
+                                + "if you want to use mor or aggregate table model, "
+                                + "please use binlog with snapshot");
+                    }
+                    if (Config.isCloudMode()) {
+                        throw new AnalysisException("Binlog<Row> is not supported in the cloud mode yet");
+                    }
+                    if (keysType == KeysType.DUP_KEYS && binlogConfig.getNeedHistoricalValue()) {
+                        throw new AnalysisException("Duplicate table model don't support record historical value");
+                    }
+                    for (Column column : baseSchema) {
+                        if (column.isAutoInc()) {
+                            throw new AnalysisException("auto-inc column can't be created on table with binlog<Row>");
+                        } else if (column.getDataType().isVariantType()) {
+                            throw new AnalysisException("variant column can't be created on table with binlog<Row>");
+                        }
+                    }
+                }
                 olapTable.setBinlogConfig(binlogConfig);
             }
         } catch (AnalysisException e) {
@@ -2890,6 +2969,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         int schemaHash = Util.generateSchemaHash();
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
                 baseIndexStorageType, keysType, olapTable.getIndexes());
+
+        if (olapTable.getBinlogConfig().isEnableForStreaming()) {
+            olapTable.createNewRowBinlogMeta(idGeneratorBuffer, db.getId());
+        }
 
         for (AlterOp alterOp : createTableInfo.getAddRollupOps()) {
             if (olapTable.isDuplicateWithoutKey()) {
@@ -3134,6 +3217,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             Pair<Boolean, Boolean> result;
+            boolean holdTableLock = false;
             db.writeLockOrDdlException();
             try {
                 // db name not changed
@@ -3142,51 +3226,76 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 // register table, write create table edit log
                 result = db.createTableWithoutLock(olapTable, false, createTableInfo.isIfNotExists());
+                if (!result.second) {
+                    olapTable.writeLock();
+                    holdTableLock = true;
+                }
             } finally {
                 db.writeUnlock();
             }
-            if (!result.first) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
-            }
-
-            if (result.second) { // table already exists
-                if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
-                    // if this is a colocate table, its table id is already added to colocate group
-                    // so we should remove the tableId here
-                    Env.getCurrentColocateIndex().removeTable(tableId);
+            try {
+                if (!result.first) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
                 }
-                for (Long tabletId : tabletIdSet) {
-                    Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-                }
-                LOG.info("duplicate create table[{};{}] in db[{};{}], skip next steps",
-                        tableName, tableId, db.getName(), db.getId());
-            } else {
-                // if table not exists, then db.createTableWithLock will write an editlog.
-                hadLogEditCreateTable = true;
 
-                // we have added these index to memory, only need to persist here
-                if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
-                    GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
-                    Map<Tag, List<List<Long>>> backendsPerBucketSeq = Env.getCurrentColocateIndex()
-                            .getBackendsPerBucketSeq(groupId);
-                    ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
-                            backendsPerBucketSeq);
-                    Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
-                }
-                LOG.info("successfully create table[{};{}] in db[{};{}]",
-                        tableName, tableId, db.getName(), db.getId());
-                Env.getCurrentEnv().getDynamicPartitionScheduler()
-                    .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
-                // register or remove table from DynamicPartition after table created
-                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
-                Env.getCurrentEnv().getDynamicPartitionScheduler()
-                        .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
-                        TimeUtils.getCurrentFormatTime());
-            }
+                if (result.second) { // table already exists
+                    if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                        // if this is a colocate table, its table id is already added to colocate group
+                        // so we should remove the tableId here
+                        Env.getCurrentColocateIndex().removeTable(tableId);
+                    }
+                    for (Long tabletId : tabletIdSet) {
+                        Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+                    }
+                    LOG.info("duplicate create table[{};{}] in db[{};{}], skip next steps",
+                            tableName, tableId, db.getName(), db.getId());
+                } else {
+                    // if table not exists, then db.createTableWithLock will write an editlog.
+                    hadLogEditCreateTable = true;
 
-            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
-                LOG.info("debug point FE.createOlapTable.exception, throw e");
-                throw new DdlException("debug point FE.createOlapTable.exception");
+                    // we have added these index to memory, only need to persist here
+                    if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                        GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
+                        Map<Tag, List<List<Long>>> backendsPerBucketSeq = Env.getCurrentColocateIndex()
+                                .getBackendsPerBucketSeq(groupId);
+                        ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
+                                backendsPerBucketSeq);
+                        Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
+                    }
+                    LOG.info("successfully create table[{};{}] in db[{};{}]",
+                            tableName, tableId, db.getName(), db.getId());
+
+                    if (DebugPointUtil.isEnable("FE.createOlapTable.beforeFirstTimeDynamicPartition")) {
+                        long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                                "FE.createOlapTable.beforeFirstTimeDynamicPartition", "sleepMs", 0L);
+                        if (sleepMs > 0) {
+                            LOG.info("debug point FE.createOlapTable.beforeFirstTimeDynamicPartition, sleep {}ms",
+                                    sleepMs);
+                            try {
+                                Thread.sleep(sleepMs);
+                            } catch (InterruptedException ignore) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                    }
+
+                    Env.getCurrentEnv().getDynamicPartitionScheduler()
+                            .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
+                    // register or remove table from DynamicPartition after table created
+                    DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
+                    Env.getCurrentEnv().getDynamicPartitionScheduler()
+                            .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
+                                    TimeUtils.getCurrentFormatTime());
+                }
+
+                if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
+                    LOG.info("debug point FE.createOlapTable.exception, throw e");
+                    throw new DdlException("debug point FE.createOlapTable.exception");
+                }
+            } finally {
+                if (holdTableLock) {
+                    olapTable.writeUnlock();
+                }
             }
         } catch (DdlException e) {
             LOG.warn("create table failed {} - {}", tabletIdSet, e.getMessage());
@@ -3228,54 +3337,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         return checkCreateTableResult(tableName, tableId, result);
     }
 
-    private boolean createOdbcTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
-        String tableName = createTableInfo.getTableName();
-        List<Column> columns = createTableInfo.getColumns();
-
-        long tableId = Env.getCurrentEnv().getNextId();
-        OdbcTable odbcTable = new OdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
-        odbcTable.setComment(createTableInfo.getComment());
-        Pair<Boolean, Boolean> result = db.createTableWithLock(odbcTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-    }
-
-    private boolean createEsTable(Database db, CreateTableInfo createTableInfo) throws DdlException, AnalysisException {
-        String tableName = createTableInfo.getTableName();
-
-        // validate props to get column from es.
-        EsTable esTable = new EsTable(tableName, createTableInfo.getProperties());
-
-        // create columns
-        List<Column> baseSchema = createTableInfo.getColumns();
-
-        if (baseSchema.isEmpty()) {
-            baseSchema = esTable.genColumnsFromEs();
-        }
-        validateColumns(baseSchema, true);
-        esTable.setNewFullSchema(baseSchema);
-
-        // create partition info
-        PartitionDesc partitionDesc = createTableInfo.getPartitionDesc();
-        PartitionInfo partitionInfo;
-        Map<String, Long> partitionNameToId = Maps.newHashMap();
-        if (partitionDesc != null) {
-            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
-        } else {
-            long partitionId = Env.getCurrentEnv().getNextId();
-            // use table name as single partition name
-            partitionNameToId.put(tableName, partitionId);
-            partitionInfo = new SinglePartitionInfo();
-        }
-        esTable.setPartitionInfo(partitionInfo);
-
-        long tableId = Env.getCurrentEnv().getNextId();
-        esTable.setId(tableId);
-        esTable.setComment(createTableInfo.getComment());
-        esTable.syncTableMetaData();
-        Pair<Boolean, Boolean> result = db.createTableWithLock(esTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-    }
-
     private boolean createBrokerTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
         String tableName = createTableInfo.getTableName();
 
@@ -3286,20 +3347,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         brokerTable.setComment(createTableInfo.getComment());
         brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
         Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-
-    }
-
-    private boolean createJdbcTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
-        String tableName = createTableInfo.getTableName();
-        List<Column> columns = createTableInfo.getColumns();
-
-        long tableId = Env.getCurrentEnv().getNextId();
-
-        JdbcTable jdbcTable = new JdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
-        jdbcTable.setComment(createTableInfo.getComment());
-        // check table if exists
-        Pair<Boolean, Boolean> result = db.createTableWithLock(jdbcTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
 
@@ -3356,12 +3403,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
+        // tablets list in a single copy-on-write after the loop (O(bucketNum) instead
+        // of O(bucketNum^2)). TabletInvertedIndex registration stays per-iteration
+        // because Tablet.addReplica(...) below needs the tablet present in the
+        // inverted index.
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
             Tablet tablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
 
-            // add tablet to inverted index first
-            index.addTablet(tablet, tabletMeta);
+            invertedIndex.addTablet(tablet.getId(), tabletMeta);
+            bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
             // get BackendIds
@@ -3400,6 +3454,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum(),
                     totalReplicaNum + " vs. " + replicaAlloc.getTotalReplicaNum());
         }
+
+        // Publish all bucket tablets to the materialized index in one batch.
+        index.appendTablets(bucketTablets);
 
         if (groupId != null && chooseBackendsArbitrary) {
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
@@ -3551,7 +3608,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         };
         try {
-            long bufferSize = IdGeneratorUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
+            long bufferSize = BufferSizeUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
             IdGeneratorBuffer idGeneratorBuffer =
                     origPartitions.isEmpty() ? null : Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
 
@@ -3868,8 +3925,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
         recreateTabletInvertIndex();
-        // rebuild es state state
-        getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
     }
@@ -3901,5 +3956,73 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public void onClose() {
         Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
+    }
+
+    public void createTableStream(CreateStreamCommand command) throws DdlException {
+        if (!Config.enable_table_stream) {
+            throw new DdlException("Table Stream is experimental."
+                    + " Please set enable_table_stream=true to enable it.");
+        }
+        CreateStreamInfo createStreamInfo = command.getCreateStreamInfo();
+        String dbName = createStreamInfo.getStreamName().getDb();
+        String streamName = createStreamInfo.getStreamName().getTbl();
+        // check if db exists
+        Database db = getDbOrDdlException(dbName);
+        // check if table exists in db
+        boolean replace = false;
+        if (db.getTable(streamName).isPresent()) {
+            if (createStreamInfo.isIfNotExists()) {
+                LOG.info("create stream[{}] which already exists", streamName);
+                return;
+            } else if (createStreamInfo.isOrReplace()) {
+                replace = true;
+                LOG.info("stream[{}] already exists, need to replace it", streamName);
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, streamName);
+            }
+        }
+        if (replace) {
+            throw new DdlException("do not support replace currently");
+        } else {
+            // get base table
+            CatalogIf baseCatalog;
+            if (Strings.isNullOrEmpty(createStreamInfo.getBaseTableName().getCtl())) {
+                baseCatalog = this;
+            } else {
+                baseCatalog = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrDdlException(createStreamInfo.getBaseTableName().getCtl());
+            }
+            BaseTableStream newStream;
+            TableIf baseTable = baseCatalog.getDbOrDdlException(createStreamInfo.getBaseTableName().getDb())
+                    .getTableOrDdlException(createStreamInfo.getBaseTableName().getTbl());
+            // lock base table for stream init
+            baseTable.readLock();
+            try {
+                Map<String, String> properties = createStreamInfo.getProperties();
+                // build new stream
+                newStream = new TableStreamBuildFactory()
+                        .withName(streamName)
+                        .withBaseTable(baseTable)
+                        .build();
+                newStream.setComment(createStreamInfo.getComment());
+                try {
+                    newStream.setProperties(properties);
+                } catch (AnalysisException e) {
+                    throw new DdlException(e.getMessage(), e);
+                }
+                if (properties != null && !properties.isEmpty()) {
+                    // before here, all properties should be checked
+                    throw new DdlException("Unknown properties: " + properties);
+                }
+                newStream.setId((Env.getCurrentEnv().getNextId()));
+            } finally {
+                baseTable.readUnlock();
+            }
+            if (!db.createTableWithLock(newStream, false, createStreamInfo.isIfNotExists()).first) {
+                throw new DdlException("Failed to create stream[" + streamName + "].");
+            }
+            Env.getCurrentEnv().getTableStreamManager().addTableStream(newStream);
+            LOG.info("successfully create stream[{}]", streamName);
+        }
     }
 }

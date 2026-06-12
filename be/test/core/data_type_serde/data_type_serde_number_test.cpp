@@ -50,6 +50,8 @@ static auto serde_int32 = std::make_shared<DataTypeNumberSerDe<TYPE_INT>>();
 static auto serde_int64 = std::make_shared<DataTypeNumberSerDe<TYPE_BIGINT>>();
 static auto serde_int128 = std::make_shared<DataTypeNumberSerDe<TYPE_LARGEINT>>();
 static auto serde_uint8 = std::make_shared<DataTypeNumberSerDe<TYPE_BOOLEAN>>();
+static auto serde_datev2_num = std::make_shared<DataTypeNumberSerDe<TYPE_DATEV2>>();
+static auto serde_datetimev2_num = std::make_shared<DataTypeNumberSerDe<TYPE_DATETIMEV2>>();
 
 static ColumnFloat32::MutablePtr column_float32;
 static ColumnFloat64::MutablePtr column_float64;
@@ -334,6 +336,40 @@ TEST_F(DataTypeNumberSerDeTest, ArrowMemNotAligned) {
     cctz::time_zone tz;
     auto st = serde_int128->read_column_from_arrow(*column_int128, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
+}
+
+TEST_F(DataTypeNumberSerDeTest, ArrowStringToUnsignedDateLikeTypes) {
+    std::vector<std::string> strings = {"20240102", "20240102112233"};
+    std::vector<int32_t> offsets = {0};
+    int32_t total_length = 0;
+    for (const auto& str : strings) {
+        total_length += static_cast<int32_t>(str.length());
+        offsets.push_back(total_length);
+    }
+
+    std::string value_bytes;
+    value_bytes.reserve(total_length);
+    for (const auto& str : strings) {
+        value_bytes.append(str);
+    }
+
+    auto value_buffer = arrow::Buffer::Wrap(value_bytes.data(), value_bytes.size());
+    auto offset_buffer = arrow::Buffer::Wrap(offsets);
+    auto arr = std::make_shared<arrow::StringArray>(strings.size(), offset_buffer, value_buffer);
+
+    auto datev2_column = ColumnVector<TYPE_DATEV2>::create();
+    auto datetimev2_column = ColumnVector<TYPE_DATETIMEV2>::create();
+    cctz::time_zone tz;
+
+    auto st = serde_datev2_num->read_column_from_arrow(*datev2_column, arr.get(), 0, 1, tz);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(1, datev2_column->size());
+    EXPECT_EQ(20240102U, datev2_column->get_data()[0].to_date_int_val());
+
+    st = serde_datetimev2_num->read_column_from_arrow(*datetimev2_column, arr.get(), 1, 2, tz);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(1, datetimev2_column->size());
+    EXPECT_EQ(20240102112233ULL, datetimev2_column->get_data()[0].to_date_int_val());
 }
 
 } // namespace doris

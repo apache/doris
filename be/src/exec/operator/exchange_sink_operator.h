@@ -22,16 +22,15 @@
 #include <algorithm>
 #include <atomic>
 #include <memory>
-#include <mutex>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "exec/exchange/exchange_writer.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "exec/operator/exchange_sink_buffer.h"
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class TDataSink;
 
@@ -181,8 +180,8 @@ private:
     int _last_local_channel_idx = -1;
 
     std::atomic_int _working_channels_count = 0;
-    std::set<InstanceLoId> _finished_channels;
-    std::mutex _finished_channels_mutex;
+    std::set<InstanceLoId> _finished_channels GUARDED_BY(_finished_channels_mutex);
+    AnnotatedMutex _finished_channels_mutex;
 };
 
 class ExchangeSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -199,7 +198,7 @@ public:
     // TaskExecutionContext.
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     bool is_serial_operator() const override { return true; }
     void set_low_memory_mode(RuntimeState* state) override {
@@ -244,6 +243,8 @@ private:
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;
+    TMergePartitionInfo _merge_partition_info;
+    bool _has_merge_partition_info = false;
 
     const RowDescriptor& _row_desc;
     TTupleId _output_tuple_id = -1;
@@ -285,5 +286,4 @@ private:
     const std::vector<TUniqueId>& _fragment_instance_ids;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

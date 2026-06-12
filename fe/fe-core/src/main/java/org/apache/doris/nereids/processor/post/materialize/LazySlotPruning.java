@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -79,12 +80,23 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
         }
     }
 
-    @Override
+    /**
+     * Whether the given child should be pruned. Default checks if the child's
+     * output contains all lazy slots. Override to bypass when logical properties
+     * are stale after plan restructuring.
+     */
+    protected boolean shouldPruneChild(Plan child, Context context) {
+        return child.getOutput().containsAll(context.lazySlots);
+    }
+
+    /**
+     * visit
+     */
     public Plan visit(Plan plan, Context context) {
         ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
-            if (child.getOutput().containsAll(context.lazySlots)) {
+            if (shouldPruneChild(child, context)) {
                 Plan newChild = child.accept(this, context);
                 if (newChild != child) {
                     hasNewChildren = true;
@@ -190,6 +202,12 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     // stop pruning when meet OutputPrunable plan node
     @Override
     public Plan visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate, Context context) {
+        return aggregate;
+    }
+
+    @Override
+    public Plan visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, Context context) {
         return aggregate;
     }
 

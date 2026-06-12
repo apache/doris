@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -28,7 +27,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
@@ -45,13 +43,14 @@ import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
+import org.apache.doris.filesystem.BlockInfo;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemIOException;
+import org.apache.doris.filesystem.RemoteIterator;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemDirectoryLister;
-import org.apache.doris.fs.FileSystemIOException;
-import org.apache.doris.fs.RemoteIterator;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 
@@ -65,7 +64,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 import lombok.Data;
 import org.apache.hadoop.fs.BlockLocation;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.utils.FileUtils;
@@ -395,28 +393,37 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
                 path.getFsIdentifier(), path.getStorageProperties());
-        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
-                .getRemoteFileSystem(fileSystemCacheKey);
-        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, path.getNormalizedLocation()));
 
         boolean isRecursiveDirectories = Boolean.valueOf(
                 catalog.getProperties().getOrDefault("hive.recursive_directories", "true"));
-        try {
-            RemoteIterator<RemoteFile> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
+        try (FileSystemCache.FileSystemLease fileSystemLease = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
+                .getFileSystem(fileSystemCacheKey)) {
+            FileSystem fs = fileSystemLease.fileSystem();
+            result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, path.getNormalizedLocation()));
+            RemoteIterator<FileEntry> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
                     table, path.getNormalizedLocation());
+            boolean isLzoInputFormat = HiveUtil.isLzoInputFormat(inputFormat);
             while (iterator.hasNext()) {
-                RemoteFile remoteFile = iterator.next();
-                String srcPath = remoteFile.getPath().toString();
+                FileEntry entry = iterator.next();
+                String srcPath = entry.location().uri().toString();
+                // For LZO text InputFormats, only include *.lzo data files.
+                // *.lzo.index sidecar files and any other non-*.lzo files must be excluded,
+                // mirroring the file filtering semantics of Hive's LzoTextInputFormat.listStatus().
+                if (isLzoInputFormat && !HiveUtil.isLzoDataFile(srcPath)) {
+                    continue;
+                }
                 LocationPath locationPath = LocationPath.of(srcPath, path.getStorageProperties());
-                result.addFile(remoteFile, locationPath);
+                result.addFile(entry, locationPath);
             }
         } catch (FileSystemIOException e) {
-            if (e.getErrorCode().isPresent() && e.getErrorCode().get().equals(ErrCode.NOT_FOUND)) {
-                LOG.warn("File {} not exist.", path.getNormalizedLocation());
-                if (!Boolean.valueOf(catalog.getProperties()
+            if (e.getCause() instanceof java.io.FileNotFoundException) {
+                LOG.warn("Partition location {} does not exist.", path.getNormalizedLocation());
+                if (!Boolean.parseBoolean(catalog.getProperties()
                         .getOrDefault("hive.ignore_absent_partitions", "true"))) {
-                    throw new UserException("Partition location does not exist: " + path.getNormalizedLocation());
+                    throw new UserException(
+                            "Partition location does not exist: " + path.getNormalizedLocation());
                 }
+                // hive.ignore_absent_partitions=true: fall through with empty file list
             } else {
                 throw new RuntimeException(e);
             }
@@ -438,7 +445,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                         key.getPartitionValues(), directoryLister, table);
                 for (int i = 0; i < result.getValuesSize(); i++) {
                     if (HIVE_DEFAULT_PARTITION.equals(result.getPartitionValues().get(i))) {
-                        result.getPartitionValues().set(i, FeConstants.null_string);
+                        result.getPartitionValues().set(i, null);
                     }
                 }
 
@@ -650,7 +657,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
 
             fileEntry.invalidateKey(new FileCacheKey(nameMapping.getCtlId(), tableId, partition.getPath(),
-                    null, partition.getPartitionValues()));
+                    partition.getInputFormat(), partition.getPartitionValues()));
             partitionEntry.invalidateKey(partKey);
         }
 
@@ -816,22 +823,24 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 HMSExternalCatalog catalog = hmsCatalog(partition.getNameMapping().getCtlId());
                 LocationPath locationPath = LocationPath.of(partition.getPath(),
                         catalog.getCatalogProperty().getStoragePropertiesMap());
-                RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
-                        .getRemoteFileSystem(new FileSystemCache.FileSystemCacheKey(
-                                locationPath.getNormalizedLocation(),
-                                locationPath.getStorageProperties()));
+                FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
+                        locationPath.getNormalizedLocation(), locationPath.getStorageProperties());
                 AuthenticationConfig authenticationConfig = AuthenticationConfig
                         .getKerberosConfig(locationPath.getStorageProperties().getBackendConfigProperties());
                 HadoopAuthenticator hadoopAuthenticator =
                         HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
 
-                fileCacheValues.add(
-                        hadoopAuthenticator.doAs(() -> AcidUtil.getAcidState(
-                                fileSystem,
-                                partition,
-                                txnValidIds,
-                                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                                isFullAcid)));
+                try (FileSystemCache.FileSystemLease fileSystemLease =
+                        Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getFileSystem(fileSystemCacheKey)) {
+                    FileSystem fileSystem = fileSystemLease.fileSystem();
+                    fileCacheValues.add(
+                            hadoopAuthenticator.doAs(() -> AcidUtil.getAcidState(
+                                    fileSystem,
+                                    partition,
+                                    txnValidIds,
+                                    catalog.getCatalogProperty().getStoragePropertiesMap(),
+                                    isFullAcid)));
+                }
             }
         } catch (Exception e) {
             throw new CacheException("Failed to get input splits %s", e, txnValidIds.toString());
@@ -920,7 +929,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         private long dummyKey = 0;
         private long catalogId;
         private String location;
-        // Not part of cache identity.
+        // inputFormat is part of cache identity because the cached FileCacheValue is
+        // format-dependent: isSplittable() and file-filtering (e.g. LZO *.lzo.index
+        // exclusion) both depend on the InputFormat class name. Two Hive tables that
+        // share the same partition location but declare different InputFormats must
+        // therefore get independent cache entries.
         private String inputFormat;
         // The values of partitions.
         protected List<String> partitionValues;
@@ -955,6 +968,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
             return catalogId == ((FileCacheKey) obj).catalogId
                     && location.equals(((FileCacheKey) obj).location)
+                    && Objects.equals(inputFormat, ((FileCacheKey) obj).inputFormat)
                     && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
@@ -967,7 +981,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             if (dummyKey != 0) {
                 return Objects.hash(dummyKey);
             }
-            return Objects.hash(catalogId, location, partitionValues);
+            return Objects.hash(catalogId, location, inputFormat, partitionValues);
         }
 
         @Override
@@ -984,14 +998,22 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         protected List<String> partitionValues;
         private AcidInfo acidInfo;
 
-        public void addFile(RemoteFile file, LocationPath locationPath) {
-            if (isFileVisible(file.getPath())) {
+        public void addFile(FileEntry entry, LocationPath locationPath) {
+            if (isFileVisible(entry.location().uri().toString())) {
                 HiveFileStatus status = new HiveFileStatus();
-                status.setBlockLocations(file.getBlockLocations());
+                List<BlockInfo> blocks = entry.blocks();
+                if (!blocks.isEmpty()) {
+                    BlockLocation[] blockLocations = new BlockLocation[blocks.size()];
+                    for (int i = 0; i < blocks.size(); i++) {
+                        BlockInfo b = blocks.get(i);
+                        blockLocations[i] = new BlockLocation(null, b.hosts(), b.offset(), b.length());
+                    }
+                    status.setBlockLocations(blockLocations);
+                }
                 status.setPath(locationPath);
-                status.length = file.getSize();
-                status.blockSize = file.getBlockSize();
-                status.modificationTime = file.getModificationTime();
+                status.length = entry.length();
+                status.blockSize = blocks.isEmpty() ? 0 : blocks.get(0).length();
+                status.modificationTime = entry.modificationTime();
                 files.add(status);
             }
         }
@@ -1001,11 +1023,10 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         }
 
         @VisibleForTesting
-        public static boolean isFileVisible(Path path) {
-            if (path == null) {
+        public static boolean isFileVisible(String pathStr) {
+            if (pathStr == null) {
                 return false;
             }
-            String pathStr = path.toUri().toString();
             if (containsHiddenPath(pathStr)) {
                 return false;
             }

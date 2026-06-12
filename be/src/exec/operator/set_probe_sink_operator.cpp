@@ -26,7 +26,6 @@
 #include "exec/pipeline/pipeline_task.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class Block;
@@ -62,7 +61,8 @@ Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status SetProbeSinkOperatorX<is_intersect>::sink_impl(RuntimeState* state, Block* in_block,
+                                                      bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -309,5 +309,4 @@ template class SetProbeSinkLocalState<false>;
 template class SetProbeSinkOperatorX<true>;
 template class SetProbeSinkOperatorX<false>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

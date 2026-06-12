@@ -34,6 +34,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -90,6 +92,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
@@ -703,8 +706,7 @@ public class DatabaseTransactionMgr {
      * @return true if the transaction need to commit, otherwise false
      */
     private boolean checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
-            boolean is2PC, TransactionState transactionState)
-            throws TransactionCommitFailedException {
+            boolean is2PC, TransactionState transactionState) throws UserException {
         if (transactionState == null) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("transaction not found: {}", transactionId);
@@ -777,6 +779,8 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        // check table stream offset if necessary
+        checkStreamOffset(transactionState);
         return true;
     }
 
@@ -815,7 +819,6 @@ public class DatabaseTransactionMgr {
             checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                     tableToPartition, totalInvolvedBackends);
         }
-
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
@@ -1512,7 +1515,11 @@ public class DatabaseTransactionMgr {
         boolean success = true;
         for (int i = 0; i < subTxnIds.size(); i++) {
             PublishVersionTask task = replicaPublishTasks.get(i);
-            success = (task != null && task.isFinished() && task.getSuccTablets().containsKey(tabletId)) || (
+            // Defensive null guard: AgentTaskCleanupDaemon may force-finish a PublishVersionTask
+            // without populating succTablets; MasterImpl.finishPublishVersion may also call
+            // setSuccTablets(null) on a non-OK BE response.
+            Map<Long, Long> succ = (task == null) ? null : task.getSuccTablets();
+            success = (task != null && task.isFinished() && succ != null && succ.containsKey(tabletId)) || (
                     replica.getState() == Replica.ReplicaState.ALTER && (!Config.publish_version_check_alter_replica
                             || subTxnIds.get(i) < alterWaterschedTxnId || alterWaterschedTxnId == -1));
             if (!success) {
@@ -1578,7 +1585,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
                                                 Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) {
+                                                Database db) throws TransactionCommitFailedException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1586,6 +1593,9 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
+        long commitTSO = getCommitTSO(transactionState, db, tableToPartition.keySet());
+        transactionState.setCommitTSO(commitTSO);
+
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
         }
@@ -1593,6 +1603,10 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            if (Config.enable_tso_feature && table.enableTso()) {
+                tableCommitInfo.setCommitTSO(commitTSO);
+            }
+
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
                 tableCommitInfo.addPartitionCommitInfo(
@@ -1611,7 +1625,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
             Map<Long, Set<Long>> subTxnToPartition, Set<Long> totalInvolvedBackends,
-            List<SubTransactionState> subTransactionStates, Database db) {
+            List<SubTransactionState> subTransactionStates, Database db) throws TransactionCommitFailedException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1619,6 +1633,14 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
+        Set<Long> tableIds = new HashSet<>();
+        for (SubTransactionState subTransactionState : subTransactionStates) {
+            long tableId = subTransactionState.getTable().getId();
+            tableIds.add(tableId);
+        }
+        long commitTSO = getCommitTSO(transactionState, db, tableIds);
+        transactionState.setCommitTSO(commitTSO);
+
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
         }
@@ -1646,6 +1668,9 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
+                if (Config.enable_tso_feature && table.enableTso()) {
+                    tableCommitInfo.setCommitTSO(commitTSO);
+                }
 
                 for (long partitionId : partitionIds) {
                     long partitionNextVersion = table.getPartition(partitionId).getNextVersion();
@@ -1673,7 +1698,8 @@ public class DatabaseTransactionMgr {
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
-    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
+    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db)
+            throws TransactionCommitFailedException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
             LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
@@ -1682,6 +1708,9 @@ public class DatabaseTransactionMgr {
         }
         // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
+        long commitTSO = getCommitTSO(transactionState, db, transactionState.getIdToTableCommitInfos().keySet());
+        transactionState.setCommitTSO(commitTSO);
+
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
 
         Iterator<TableCommitInfo> tableCommitInfoIterator
@@ -1697,6 +1726,9 @@ public class DatabaseTransactionMgr {
                         tableId,
                         transactionState);
                 continue;
+            }
+            if (Config.enable_tso_feature && table.enableTso()) {
+                tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
                     = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
@@ -2262,6 +2294,10 @@ public class DatabaseTransactionMgr {
             updatePartitionNextVersion(transactionState, db, isReplay,
                     Lists.newArrayList(transactionState.getIdToTableCommitInfos().values()));
         }
+        // update table stream offset if necessary
+        if (!CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            updateStreamOffset(transactionState, transactionState.getCommitTime());
+        }
     }
 
     private void updatePartitionNextVersion(TransactionState transactionState, Database db, boolean isReplay,
@@ -2628,6 +2664,7 @@ public class DatabaseTransactionMgr {
         if (shouldAddTableListLock) {
             db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
             tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
+            tableList = buildLockTableListNoException(tableList, transactionState);
             tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }
         writeLock();
@@ -3048,6 +3085,94 @@ public class DatabaseTransactionMgr {
             if (entry.getValue() == transactionId) {
                 iterator.remove();
             }
+        }
+    }
+
+    private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds)
+            throws TransactionCommitFailedException {
+        long tso = -1L;
+        if (!Config.enable_tso_feature) {
+            return tso;
+        }
+        if (tableIds == null || tableIds.isEmpty()) {
+            return tso;
+        }
+        boolean anyEnableTso = false;
+        for (long tableId : tableIds) {
+            Table table = db.getTableNullable(tableId);
+            if (table instanceof OlapTable && ((OlapTable) table).enableTso()) {
+                anyEnableTso = true;
+                break;
+            }
+        }
+        if (!anyEnableTso) {
+            return tso;
+        }
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env == null || env.getTSOService() == null) {
+                throw new TransactionCommitFailedException("failed to get TSO for txn "
+                        + transactionState.getTransactionId() + ": TSO service is unavailable");
+            }
+            long fetched = env.getTSOService().getTSO();
+            if (fetched <= 0) {
+                throw new TransactionCommitFailedException("failed to get TSO for txn "
+                        + transactionState.getTransactionId() + ", fetched=" + fetched);
+            }
+            return fetched;
+        } catch (RuntimeException e) {
+            LOG.warn("failed to get TSO for txn {}, abort commit", transactionState.getTransactionId(), e);
+            throw new TransactionCommitFailedException("failed to get TSO for txn "
+                    + transactionState.getTransactionId(), e);
+        }
+    }
+
+    private List<? extends TableIf> buildLockTableListNoException(List<? extends TableIf> tableList,
+                                                                 TransactionState transactionState) {
+        if (transactionState == null || CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            return tableList;
+        }
+        TreeSet<Pair<Long, Long>> tableIfs = new TreeSet<>(new Pair.PairComparator<>());
+        tableList.forEach(table -> tableIfs.add(Pair.of(table.getDatabase().getId(), table.getId())));
+        transactionState.getStreamUpdateInfos()
+                .forEach(info -> tableIfs.add(Pair.of(info.getDbId(), info.getStreamId())));
+        List<Table> newTableList = new ArrayList<>(tableIfs.size());
+        for (Pair<Long, Long> p : tableIfs) {
+            Database db = env.getInternalCatalog().getDbNullable(p.first);
+            if (db == null) {
+                continue;
+            }
+            Table table = db.getTableNullable(p.second);
+            if (table == null) {
+                continue;
+            }
+            newTableList.add(table);
+        }
+        return newTableList;
+    }
+
+    private void checkStreamOffset(TransactionState transactionState) throws UserException {
+        if (CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            return;
+        }
+        for (TableStreamUpdateInfo info : transactionState.getStreamUpdateInfos()) {
+            Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
+            TableIf tableIf = db.getTableOrMetaException(info.getStreamId());
+            ((BaseTableStream) tableIf).unprotectedCheckStreamUpdate(info.getUpdate());
+        }
+    }
+
+    private void updateStreamOffset(TransactionState transactionState, Long ts) {
+        for (TableStreamUpdateInfo info : transactionState.getStreamUpdateInfos()) {
+            Database db = env.getInternalCatalog().getDbNullable(info.getDbId());
+            if (db == null) {
+                continue;
+            }
+            TableIf tableIf = db.getTableNullable(info.getStreamId());
+            if (tableIf == null) {
+                continue;
+            }
+            ((BaseTableStream) tableIf).unprotectedUpdateStreamUpdate(info.getUpdate(), ts);
         }
     }
 }

@@ -21,9 +21,9 @@
 
 #include "core/field.h"
 #include "exec/operator/operator.h"
+#include "exprs/vexpr_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
 
@@ -43,7 +43,7 @@ private:
     friend class SortSinkOperatorX;
 
     // Expressions and parameters used for build _sort_description
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
 
     RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
@@ -76,7 +76,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_is_analytic_sort) {
             return _is_colocate && _require_bucket_distribution
@@ -113,7 +113,7 @@ private:
     ObjectPool* _pool = nullptr;
 
     // Expressions and parameters used for build _sort_description
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
@@ -129,5 +129,4 @@ private:
     const int64_t _max_buffered_bytes;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

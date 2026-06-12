@@ -34,7 +34,6 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Default spill partitioner for initial partitioning (level-0). Repartition
 // paths may use different channel-id policies (e.g. raw-hash mode).
@@ -71,21 +70,6 @@ struct SpillContext {
     }
 };
 
-// helper to execute a spill function synchronously.  The old code used
-// SpillRunnable/SpillSinkRunnable/SpillRecoverRunnable wrappers to track
-// counters and optionally notify a SpillContext.  Since spill operations are
-// now performed synchronously and external code already maintains any
-// necessary counters, those wrappers are no longer necessary.  We keep a
-// small utility to run the provided callbacks and forward cancellation.
-inline Status run_spill_task(RuntimeState* state, std::function<Status()> exec_func,
-                             std::function<Status()> fin_cb = {}) {
-    RETURN_IF_ERROR(exec_func());
-    if (fin_cb) {
-        RETURN_IF_ERROR(fin_cb());
-    }
-    return Status::OK();
-}
-
 template <bool accumulating>
 inline void update_profile_from_inner_profile(const std::string& name,
                                               RuntimeProfile* runtime_profile,
@@ -111,7 +95,5 @@ inline void update_profile_from_inner_profile(const std::string& name,
         counter->set(inner_counter->value());
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

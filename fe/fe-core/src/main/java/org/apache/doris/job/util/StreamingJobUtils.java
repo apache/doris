@@ -25,6 +25,8 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SmallFileMgr;
@@ -36,6 +38,7 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.PostgresResourceValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -98,6 +101,12 @@ public class StreamingJobUtils {
     private static final String SELECT_SPLITS_TABLE_TEMPLATE =
             "SELECT table_name, chunk_list FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' ORDER BY id ASC";
 
+    private static final String SELECT_TABLE_ID_TEMPLATE =
+            "SELECT id FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' AND table_name='%s'";
+
+    private static final String SELECT_MAX_ID_TEMPLATE =
+            "SELECT IFNULL(MAX(id), 0) FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
+
     private static final String DELETE_JOB_META_TEMPLATE =
             "DELETE FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
 
@@ -126,6 +135,13 @@ public class StreamingJobUtils {
     }
 
     public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws JobException {
+        // Meta table is lazy-created on first upsert; skip the internal SQL when absent.
+        Optional<Database> optionalDatabase =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!optionalDatabase.isPresent()
+                || optionalDatabase.get().getTableNullable(INTERNAL_STREAMING_JOB_META_TABLE_NAME) == null) {
+            return new LinkedHashMap<>();
+        }
         List<ResultRow> resultRows;
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
         try (AutoCloseConnectContext context
@@ -160,21 +176,52 @@ public class StreamingJobUtils {
         }
     }
 
-    public static void insertSplitsToMeta(Long jobId, Map<String, List<SnapshotSplit>> tableSplits) throws Exception {
-        List<String> values = new ArrayList<>();
-        int index = 1;
-        for (Map.Entry<String, List<SnapshotSplit>> entry : tableSplits.entrySet()) {
-            Map<String, String> params = new HashMap<>();
-            params.put("id", index + "");
-            params.put("job_id", jobId + "");
-            params.put("table_name", entry.getKey());
-            params.put("chunk_list", objectMapper.writeValueAsString(entry.getValue()));
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            String sql = stringSubstitutor.replace(INSERT_INTO_META_TABLE_TEMPLATE);
-            values.add(sql);
-            index++;
+    /**
+     * UPSERT a single table's chunk_list. id is reused if the table already has a row,
+     * otherwise allocated as MAX(id)+1. Relies on UNIQUE KEY (id, job_id) for in-place override.
+     */
+    public static void upsertChunkList(Long jobId, String tableName, List<SnapshotSplit> chunks) throws Exception {
+        createMetaTableIfNotExist();
+        Integer id = querySingleTableId(jobId, tableName);
+        if (id == null) {
+            id = queryNextAvailableId(jobId);
         }
-        batchInsert(values);
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
+        params.put("job_id", String.valueOf(jobId));
+        params.put("table_name", tableName);
+        params.put("chunk_list", objectMapper.writeValueAsString(chunks));
+        StringSubstitutor sub = new StringSubstitutor(params);
+        String sql = sub.replace(INSERT_INTO_META_TABLE_TEMPLATE);
+        batchInsert(Collections.singletonList(sql));
+    }
+
+    /** Returns id of the row matching (jobId, tableName), or null if no such row exists. */
+    private static Integer querySingleTableId(Long jobId, String tableName) throws JobException {
+        String sql = String.format(SELECT_TABLE_ID_TEMPLATE, jobId, tableName);
+        try (AutoCloseConnectContext ctx = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(ctx.connectContext, sql);
+            List<ResultRow> rows = stmtExecutor.executeInternalQuery();
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return Integer.parseInt(rows.get(0).get(0));
+        } catch (Exception e) {
+            throw new JobException("query table id failed: " + e.getMessage());
+        }
+    }
+
+    /** Returns MAX(id) + 1 for this job, or 1 if no rows yet. */
+    private static int queryNextAvailableId(Long jobId) throws JobException {
+        String sql = String.format(SELECT_MAX_ID_TEMPLATE, jobId);
+        try (AutoCloseConnectContext ctx = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(ctx.connectContext, sql);
+            List<ResultRow> rows = stmtExecutor.executeInternalQuery();
+            int max = (rows == null || rows.isEmpty()) ? 0 : Integer.parseInt(rows.get(0).get(0));
+            return max + 1;
+        } catch (Exception e) {
+            throw new JobException("query next available id failed: " + e.getMessage());
+        }
     }
 
     private static void batchInsert(List<String> values) throws Exception {
@@ -215,7 +262,7 @@ public class StreamingJobUtils {
         return ctx;
     }
 
-    private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
+    public static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
         JdbcClientConfig config = new JdbcClientConfig();
         config.setCatalog(sourceType.name());
         config.setUser(properties.get(DataSourceConfigKeys.USER));
@@ -226,19 +273,29 @@ public class StreamingJobUtils {
         return JdbcClient.createJdbcClient(config);
     }
 
-    public static Backend selectBackend() throws JobException {
-        Backend backend = null;
-        BeSelectionPolicy policy = null;
+    public static Backend selectBackend(String cloudCluster) throws JobException {
+        if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
+            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getBackendsByClusterName(cloudCluster)
+                    .stream()
+                    .filter(Backend::isLoadAvailable)
+                    .collect(Collectors.toList());
+            if (bes.isEmpty()) {
+                throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG
+                        + ", compute_group: " + cloudCluster);
+            }
+            int idx = getLastSelectedBackendIndexAndUpdate();
+            return bes.get(Math.floorMod(idx, bes.size()));
+        }
 
-        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
-
-        List<Long> backendIds;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (backendIds.isEmpty()) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         if (backend == null) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
@@ -448,8 +505,74 @@ public class StreamingJobUtils {
      * The remoteDB implementation differs for each data source;
      * refer to the hierarchical mapping in the JDBC catalog.
      */
-    private static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties)
-            throws JobException {
+    /**
+     * Populate default resource names into properties, then validate. No-op for sources that
+     * don't need it. Mutates properties: callers should expect default values to be inserted.
+     */
+    public static void resolveAndValidateSource(DataSourceType sourceType,
+                                                Map<String, String> properties,
+                                                String jobId,
+                                                List<String> tables) throws JobException {
+        if (sourceType == DataSourceType.POSTGRES) {
+            // PG slot/pub: values equal to default = Doris-owned; any other value = user-owned.
+            // (users cannot specify default names since jobId is unknown pre-CREATE)
+            properties.putIfAbsent(DataSourceConfigKeys.SLOT_NAME,
+                    DataSourceConfigKeys.defaultSlotName(jobId));
+            properties.putIfAbsent(DataSourceConfigKeys.PUBLICATION_NAME,
+                    DataSourceConfigKeys.defaultPublicationName(jobId));
+            validateSource(sourceType, properties, jobId, tables);
+        }
+    }
+
+    public static void validateSource(DataSourceType sourceType,
+            Map<String, String> properties,
+            String jobId,
+            List<String> tables) throws JobException {
+        if (sourceType == DataSourceType.POSTGRES) {
+            PostgresResourceValidator.validate(properties, jobId, tables);
+        }
+    }
+
+    /**
+     * Validate source-side resources for a streaming job backed by a TVF. Only cdc_stream
+     * TVF is subject to source validation (e.g. PG slot/publication ownership); other TVFs
+     * (s3, ...) are no-ops.
+     *
+     * <p>originTvfProps is treated as read-only (Nereids may hand back an immutable map).
+     * Defaults are populated into a temporary copy so ownership checks see the effective
+     * slot/pub names without mutating the caller's map.
+     */
+    public static void validateTvfSource(String tvfType,
+                                         Map<String, String> originTvfProps,
+                                         String jobId) throws JobException {
+        if (!"cdc_stream".equalsIgnoreCase(tvfType)) {
+            return;
+        }
+        DataSourceType sourceType = DataSourceType.valueOf(
+                originTvfProps.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        List<String> tables = Collections.singletonList(
+                originTvfProps.get(DataSourceConfigKeys.TABLE));
+        Map<String, String> effective = new HashMap<>(originTvfProps);
+        populateDefaultSourceProperties(sourceType, effective, jobId);
+        validateSource(sourceType, effective, jobId, tables);
+    }
+
+
+    /** Persist resolved resource names so ownership is self-describing after restart. */
+    public static void populateDefaultSourceProperties(DataSourceType sourceType,
+                                                       Map<String, String> properties,
+                                                       String jobId) {
+        if (sourceType == DataSourceType.POSTGRES) {
+            // PG slot/pub: values equal to default = Doris-owned; any other value = user-owned.
+            // (users cannot specify default names since jobId is unknown pre-CREATE)
+            properties.putIfAbsent(DataSourceConfigKeys.SLOT_NAME,
+                    DataSourceConfigKeys.defaultSlotName(jobId));
+            properties.putIfAbsent(DataSourceConfigKeys.PUBLICATION_NAME,
+                    DataSourceConfigKeys.defaultPublicationName(jobId));
+        }
+    }
+
+    public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties) {
         String remoteDb = null;
         switch (sourceType) {
             case MYSQL:
@@ -461,7 +584,7 @@ public class StreamingJobUtils {
                 Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "schema is required");
                 break;
             default:
-                throw new JobException("Unsupported source type " + sourceType);
+                throw new RuntimeException("Unsupported source type " + sourceType);
         }
         return remoteDb;
     }

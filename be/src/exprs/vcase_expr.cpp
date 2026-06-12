@@ -38,7 +38,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VCaseExpr::VCaseExpr(const TExprNode& node)
         : VExpr(node), _has_else_expr(node.case_expr.has_else_expr) {}
@@ -76,8 +75,9 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-Status VCaseExpr::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                 size_t count, ColumnPtr& result_column) const {
+Status VCaseExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                      const Selector* selector, size_t count,
+                                      ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(count);
         return Status::OK();
@@ -146,5 +146,4 @@ std::string VCaseExpr::debug_string() const {
     return out.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

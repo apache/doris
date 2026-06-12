@@ -34,7 +34,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class BufferWritable;
 class IColumn;
 
@@ -43,9 +42,6 @@ public:
     static constexpr PrimitiveType PType = TYPE_DATE;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATE; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_DATE;
-    }
     const std::string get_family_name() const override { return "Date"; }
     std::string do_get_name() const override { return "Date"; }
 
@@ -60,16 +56,7 @@ public:
     }
 #endif
     static void cast_to_date(VecDateTimeValue& x);
-    Field get_field(const TExprNode& node) const override {
-        VecDateTimeValue value;
-        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
-            value.cast_to_date();
-            return Field::create_field<TYPE_DATE>(std::move(value));
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type Date", node.date_literal.value);
-        }
-    }
+    Field get_field(const TExprNode& node) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -78,5 +65,4 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

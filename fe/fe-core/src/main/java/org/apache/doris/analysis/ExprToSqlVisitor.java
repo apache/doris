@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -183,7 +182,7 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
         } else if (expr.desc == null) {
             return "`" + expr.getCol() + "`";
         } else if (expr.desc.getSourceExprs() != null) {
-            if (!context.disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
+            if (!context.disableTableName) {
                 if (expr.desc.getId().asInt() != 1) {
                     sb.append("<slot ").append(expr.desc.getId().asInt()).append(">");
                 }

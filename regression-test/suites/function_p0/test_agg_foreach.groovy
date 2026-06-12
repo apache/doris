@@ -92,17 +92,40 @@ suite("test_agg_foreach") {
     	exception "errCode"
    	}
 
-   	qt_sql """
-   	select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table;
-   	"""
+        qt_sql """
+        select count_foreach(a), approx_count_distinct_foreach(a) from foreach_table;
+        """
+
+        qt_count_by_enum """
+        select
+            get_json_string(element_at(count_by_enum_foreach(a), 1), '\$.[0].cbe."1"'),
+            get_json_string(element_at(count_by_enum_foreach(a), 1), '\$.[0].cbe."20"'),
+            get_json_string(element_at(count_by_enum_foreach(a), 1), '\$.[0].cbe."100"'),
+            get_json_string(element_at(count_by_enum_foreach(a), 1), '\$.[0].notnull'),
+            get_json_string(element_at(count_by_enum_foreach(a), 1), '\$.[0].null'),
+            get_json_string(element_at(count_by_enum_foreach(a), 1), '\$.[0].all'),
+            get_json_string(element_at(count_by_enum_foreach(a), 2), '\$.[0].cbe."2"'),
+            get_json_string(element_at(count_by_enum_foreach(a), 2), '\$.[0].notnull'),
+            get_json_string(element_at(count_by_enum_foreach(a), 2), '\$.[0].null'),
+            get_json_string(element_at(count_by_enum_foreach(a), 2), '\$.[0].all'),
+            get_json_string(element_at(count_by_enum_foreach(a), 3), '\$.[0].cbe."3"'),
+            get_json_string(element_at(count_by_enum_foreach(a), 3), '\$.[0].notnull'),
+            get_json_string(element_at(count_by_enum_foreach(a), 3), '\$.[0].null'),
+            get_json_string(element_at(count_by_enum_foreach(a), 3), '\$.[0].all')
+        from foreach_table;
+        """
 
     qt_sql """select array_agg_foreach(a) from foreach_table;"""
    	qt_sql """select array_agg_foreach(s) from foreach_table;"""
 
-   	test {
-    	sql """select array_agg_foreach(b) from foreach_table;"""
-    	exception "not support"
-   	}
+    qt_array_agg_nested """
+        select /*+ SET_VAR(parallel_pipeline_task_num=1) */
+            size(array_agg_foreach(b)),
+            size(element_at(array_agg_foreach(b), 1)),
+            size(element_at(array_agg_foreach(b), 2)),
+            size(element_at(array_agg_foreach(b), 3))
+        from foreach_table;
+    """
 
    	qt_sql """
    	select histogram_foreach(a) from foreach_table;

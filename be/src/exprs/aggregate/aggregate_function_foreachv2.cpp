@@ -29,14 +29,13 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // The difference between AggregateFunctionForEachV2 and AggregateFunctionForEach is that its return value array is always an Array<Nullable<T>>.
 // For example, AggregateFunctionForEach's count_foreach([1,2,3]) returns Array<Int64>, which is not ideal
 // because we may have already assumed that the array's elements are always nullable types, and many places have such checks.
 // V1 code is kept to ensure compatibility during upgrades and downgrades.
 // V2 code differs from V1 only in the return type and insert_into logic; all other logic is exactly the same.
-class AggregateFunctionForEachV2 : public AggregateFunctionForEach {
+class AggregateFunctionForEachV2 final : public AggregateFunctionForEach {
 public:
     constexpr static auto AGG_FOREACH_SUFFIX = "_foreachv2";
     AggregateFunctionForEachV2(AggregateFunctionPtr nested_function_, const DataTypes& arguments)
@@ -53,7 +52,7 @@ public:
         auto& offsets_to = arr_to.get_offsets();
         IColumn& elems_nullable = arr_to.get_data();
 
-        DCHECK(elems_nullable.is_nullable());
+        DCHECK(is_column_nullable(elems_nullable));
         auto& elems_to = assert_cast<ColumnNullable&>(elems_nullable).get_nested_column();
         auto& elements_null_map =
                 assert_cast<ColumnNullable&>(elems_nullable).get_null_map_column();

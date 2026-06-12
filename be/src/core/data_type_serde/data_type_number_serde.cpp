@@ -35,15 +35,14 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "storage/olap_common.h"
 #include "storage/types.h"
-#include "util/io_helper.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
+#include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Type map的基本结构
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {
@@ -166,22 +165,25 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
     if constexpr (T == TYPE_IPV6) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
-    } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+    } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2) {
         typename PrimitiveTypeTraits<T>::CppType val = 0;
-        if (!try_read_float_text(val, str_ref)) {
+        CastParameters params;
+        if (!CastToFloat::from_string(str_ref, val, params)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (T == TYPE_BOOLEAN) {
         // Note: here we should handle the bool type
         typename PrimitiveTypeTraits<T>::CppType val = 0;
-        if (!try_read_bool_text(val, str_ref)) {
+        CastParameters params;
+        if (!CastToBool::from_string(str_ref, val, params)) {
             return Status::InvalidArgument("parse boolean fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (is_int_or_bool(T)) {
         typename PrimitiveTypeTraits<T>::CppType val = 0;
-        if (!try_read_int_text(val, str_ref)) {
+        CastParameters params;
+        if (!CastToInt::from_string<false>(str_ref, val, params)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
@@ -207,7 +209,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     row_num = result.second;
     auto data = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
     if constexpr (T == TYPE_IPV6) {
-        std::string hex = int128_to_string(data);
+        std::string hex = CastToString::from_uint128(data);
         bw.write(hex.data(), hex.size());
     } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
         auto str = CastToString::from_number(data);
@@ -248,15 +250,15 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     if (arrow_array->type_id() == arrow::Type::STRING) {
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        CastParameters params;
 
         const auto* offsets_data = concrete_array->value_offsets()->data();
         const size_t offset_size = sizeof(int32_t);
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                int32_t start_offset = 0;
-                int32_t end_offset = 0;
-                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
+                auto end_offset =
+                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 const auto* raw_data = buffer->data() + start_offset;
                 const auto raw_data_len = end_offset - start_offset;
@@ -268,7 +270,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt64 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -278,7 +280,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
                         StringRef str_ref(raw_data, raw_data_len);
                         Int64 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -288,7 +290,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else if constexpr (T == TYPE_DATEV2) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt32 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -298,7 +300,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else {
                         Int128 val = 0;
                         StringRef str_ref(raw_data, raw_data_len);
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -558,7 +560,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& colum
         buf_ret = result.push_float(data[col_index]);
     } else if constexpr (T == TYPE_DOUBLE) {
         buf_ret = result.push_double(data[col_index]);
-    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_TIMEV2) {
         if (std::isnan(data[col_index])) {
             // Handle NaN for double, we should push null value
             buf_ret = result.push_null();
@@ -639,7 +641,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::LongVectorBatch)
     } else if constexpr (T == TYPE_FLOAT) { // float
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::FloatVectorBatch)
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) { // double
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) { // double
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     } else if constexpr (T == TYPE_IPV4) { // ipv4
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
@@ -674,7 +676,7 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
         col.insert_value(arg->unpack<JsonbInt128Val>()->val());
     } else if constexpr (T == TYPE_FLOAT) {
         col.insert_value(arg->unpack<JsonbFloatVal>()->val());
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         col.insert_value(arg->unpack<JsonbDoubleVal>()->val());
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -707,12 +709,14 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
         result.writeInt64(val);
     } else if constexpr (T == TYPE_LARGEINT) {
-        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
+        // data_ref.data may not be 16-byte aligned; dereferencing __int128*
+        // directly is UB and may SIGBUS on alignment-strict platforms.
+        __int128_t val = unaligned_load<__int128_t>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (T == TYPE_FLOAT) {
         float val = *reinterpret_cast<const float*>(data_ref.data);
         result.writeFloat(val);
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         double val = *reinterpret_cast<const double*>(data_ref.data);
         result.writeDouble(val);
     } else {
@@ -725,7 +729,7 @@ template <PrimitiveType PT, bool is_strict_mode>
 bool try_parse_impl(typename PrimitiveTypeTraits<PT>::CppType& x, const StringRef& str_ref,
                     CastParameters& params) {
     if constexpr (is_float_or_double(PT)) {
-        return try_read_float_text(x, str_ref);
+        return CastToFloat::from_string(str_ref, x, params);
     } else if constexpr (PT == TYPE_BOOLEAN) {
         return CastToBool::from_string(str_ref, x, params);
     } else if constexpr (is_int(PT)) {
@@ -979,8 +983,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_BIGINT>(v);
         data += sizeof(Int64);
     } else if constexpr (T == TYPE_LARGEINT) {
-        PackedInt128 pack;
-        memcpy(&pack, data, sizeof(PackedInt128));
+        auto pack = unaligned_load<PackedInt128>(data);
         field = Field::create_field<TYPE_LARGEINT>(Int128(pack.value));
         data += sizeof(PackedInt128);
     } else if constexpr (T == TYPE_FLOAT) {
@@ -996,8 +999,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_IPV4>(v);
         data += sizeof(IPv4);
     } else if constexpr (T == TYPE_IPV6) {
-        PackedUInt128 pack;
-        memcpy(&pack, data, sizeof(PackedUInt128));
+        auto pack = unaligned_load<PackedUInt128>(data);
         auto v = pack.value;
         field = Field::create_field<TYPE_IPV6>(v);
         data += sizeof(PackedUInt128);
@@ -1006,7 +1008,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_DATEV2>(v);
         data += sizeof(UInt32);
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        const uint8_t scale = *data;
         data += sizeof(uint8_t);
         UInt64 v = unaligned_load<UInt64>(data);
         info.precision = -1;
@@ -1033,7 +1035,7 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
         CastToString::push_datetimev2(value, scale, bw);
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         CastToString::push_timestamptz(value, scale, bw, options);
-    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_TIMEV2) {
         CastToString::push_time(value, scale, bw);
     } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
         CastToString::push_ip(value, bw);
@@ -1123,7 +1125,6 @@ template class DataTypeNumberSerDe<TYPE_DATETIME>;
 template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
 template class DataTypeNumberSerDe<TYPE_IPV4>;
 template class DataTypeNumberSerDe<TYPE_IPV6>;
-template class DataTypeNumberSerDe<TYPE_TIME>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
 template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 } // namespace doris

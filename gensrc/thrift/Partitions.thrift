@@ -49,7 +49,10 @@ enum TPartitionType {
   HIVE_TABLE_SINK_HASH_PARTITIONED = 7,
 
   // used for hive unparititoned table
-  HIVE_TABLE_SINK_UNPARTITIONED = 8
+  HIVE_TABLE_SINK_UNPARTITIONED = 8,
+
+  // used for merge partitioning: insert by partition columns, delete by row_id
+  MERGE_PARTITIONED = 9
 }
 
 enum TDistributionType {
@@ -88,6 +91,24 @@ struct TRangePartition {
     4: optional i32 distribute_bucket
 }
 
+// Merge partitioning info for Iceberg update/delete.
+struct TIcebergPartitionField {
+  1: required string transform
+  2: optional i32 param
+  3: required Exprs.TExpr source_expr
+  4: optional string name
+  5: optional i32 source_id
+}
+
+struct TMergePartitionInfo {
+  1: required Exprs.TExpr operation_expr
+  2: optional list<Exprs.TExpr> insert_partition_exprs
+  3: optional list<Exprs.TExpr> delete_partition_exprs
+  4: required bool insert_random
+  5: optional list<TIcebergPartitionField> insert_partition_fields
+  6: optional i32 partition_spec_id
+}
+
 // Specification of how a single logical data stream is partitioned.
 // This leaves out the parameters that determine the physical partition (for hash
 // partitions, the number of partitions; for range partitions, the partitions'
@@ -96,6 +117,5 @@ struct TDataPartition {
   1: required TPartitionType type
   2: optional list<Exprs.TExpr> partition_exprs
   3: optional list<TRangePartition> partition_infos
+  4: optional TMergePartitionInfo merge_partition_info
 }
-
-

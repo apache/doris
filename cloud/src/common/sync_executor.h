@@ -116,7 +116,9 @@ private:
             T t = _callback();
             // We'll return this task result to user even if this task return error
             // So we don't set _valid to false here
-            if (_cancel(t)) {
+            bool bypass_cancel = false;
+            TEST_SYNC_POINT_CALLBACK("SyncExecutor::Task::bypass_cancel", &bypass_cancel);
+            if (!bypass_cancel && _cancel(t)) {
                 stop_token = true;
             }
             _pro.set_value(std::move(t));

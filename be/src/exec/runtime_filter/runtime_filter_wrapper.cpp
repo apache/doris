@@ -20,9 +20,9 @@
 #include "core/data_type/define_primitive_type.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
         : RuntimeFilterWrapper(params->column_return_type, params->filter_type, params->filter_id,
                                State::UNINITED, params->max_in_num) {
@@ -47,11 +47,6 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
         _hybrid_set.reset(create_set(_column_return_type, params->null_aware));
         _bloom_filter_func.reset(create_bloom_filter(_column_return_type, params->null_aware));
         _bloom_filter_func->init_params(params);
-        return;
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        _bitmap_filter_func.reset(create_bitmap_filter(_column_return_type));
-        _bitmap_filter_func->set_not_in(params->bitmap_filter_not_in);
         return;
     }
     default:
@@ -115,27 +110,6 @@ Status RuntimeFilterWrapper::insert(const ColumnPtr& column, size_t start) {
         } else {
             _hybrid_set->insert_fixed_len(column, start);
         }
-        break;
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        std::vector<const BitmapValue*> bitmaps;
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& col = assert_cast<const ColumnBitmap&>(nullable->get_nested_column());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
-            for (size_t i = start; i < column->size(); i++) {
-                if (!nullmap[i]) {
-                    bitmaps.push_back(&(col.get_data()[i]));
-                }
-            }
-        } else {
-            const auto* col = assert_cast<const ColumnBitmap*>(column.get());
-            for (size_t i = start; i < column->size(); i++) {
-                bitmaps.push_back(&(col->get_data()[i]));
-            }
-        }
-        _bitmap_filter_func->insert_many(bitmaps);
         break;
     }
     default:
@@ -226,11 +200,6 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                 RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
             }
         }
-        break;
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        // use input bitmap directly because we assume bitmap filter join always have full data
-        _bitmap_filter_func = other->_bitmap_filter_func;
         break;
     }
     default:
@@ -341,7 +310,10 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             const auto& string_val_ref = column.stringval();
             VecDateTimeValue datetime_val;
-            datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
+            CastParameters params;
+            CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                    {string_val_ref.c_str(), string_val_ref.length()}, datetime_val, nullptr,
+                    params);
             set->insert(&datetime_val);
         });
         break;
@@ -530,8 +502,11 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         const auto& max_val_ref = minmax_filter.max_val().stringval();
         VecDateTimeValue min_val;
         VecDateTimeValue max_val;
-        min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
-        max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
+        CastParameters params;
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {min_val_ref.c_str(), min_val_ref.length()}, min_val, nullptr, params);
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {max_val_ref.c_str(), max_val_ref.length()}, max_val, nullptr, params);
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_DECIMALV2: {
@@ -657,10 +632,6 @@ std::string RuntimeFilterWrapper::debug_string() const {
         }
         if (get_real_type() == RuntimeFilterType::IN_FILTER) {
             result += fmt::format(", size: {}, max_in_num: {}", _hybrid_set->size(), _max_in_num);
-        }
-        if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
-            result += fmt::format(", size: {}, not_in: {}", _bitmap_filter_func->size(),
-                                  _bitmap_filter_func->is_not_in() ? "true" : "false");
         }
     }
 

@@ -46,7 +46,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
 
@@ -138,7 +137,7 @@ public:
         *num_written = to_add;
         if constexpr (single) {
             if constexpr (SIZE_OF_TYPE == 1) {
-                *reinterpret_cast<uint8_t*>(&_data[orig_size]) = *vals;
+                _data[orig_size] = *vals;
                 return Status::OK();
             } else if constexpr (SIZE_OF_TYPE == 2) {
                 *reinterpret_cast<uint16_t*>(&_data[orig_size]) =
@@ -160,10 +159,6 @@ public:
     }
 
     Status finish(OwnedSlice* slice) override {
-        if (_count > 0) {
-            _first_value = cell(0);
-            _last_value = cell(_count - 1);
-        }
         RETURN_IF_CATCH_EXCEPTION({ *slice = _finish(SIZE_OF_TYPE); });
         return Status::OK();
     }
@@ -190,23 +185,6 @@ public:
     uint64_t size() const override { return _buffer.size(); }
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
-
-    Status get_first_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_first_value, SIZE_OF_TYPE);
-        return Status::OK();
-    }
-    Status get_last_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_last_value, SIZE_OF_TYPE);
-        return Status::OK();
-    }
 
 private:
     BitshufflePageBuilder(const PageBuilderOptions& options)
@@ -266,8 +244,6 @@ private:
     bool _finished;
     faststring _data;
     faststring _buffer;
-    CppType _first_value;
-    CppType _last_value;
     uint64_t _raw_data_size = 0;
 };
 
@@ -415,7 +391,7 @@ public:
             return Status::OK();
         }
 
-        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
+        size_t max_fetch = std::min(*n, _num_elements - _cur_index);
 
         dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
         *n = max_fetch;
@@ -491,6 +467,5 @@ private:
     friend class BinaryDictPageDecoder;
 };
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

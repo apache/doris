@@ -19,6 +19,7 @@
 
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/search/Scorer.h>
+#include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
@@ -34,12 +35,17 @@
 #include "common/status.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column_const.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/function/variant_inverted_index_search.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/runtime_profile.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -57,11 +63,11 @@
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/query_v2/wildcard_query/wildcard_query.h"
 #include "storage/index/inverted/util/string_helper.h"
-#include "storage/segment/segment.h"
-#include "storage/segment/variant/nested_group_path.h"
+#include "storage/olap_common.h"
 #include "storage/segment/variant/nested_group_provider.h"
-#include "storage/segment/variant/variant_column_reader.h"
 #include "storage/types.h"
+#include "util/debug_points.h"
+#include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 
@@ -116,235 +122,101 @@ bool is_nested_group_search_supported() {
     return provider != nullptr && provider->should_enable_nested_group_read_path();
 }
 
-class ResolverNullBitmapAdapter final : public query_v2::NullBitmapResolver {
-public:
-    explicit ResolverNullBitmapAdapter(const FieldReaderResolver& resolver) : _resolver(resolver) {}
+query_v2::QueryPtr make_unknown_query(uint32_t num_rows) {
+    auto null_bitmap = std::make_shared<roaring::Roaring>();
+    if (num_rows > 0) {
+        null_bitmap->addRange(0, num_rows);
+    }
+    return std::make_shared<query_v2::BitSetQuery>(std::make_shared<roaring::Roaring>(),
+                                                   std::move(null_bitmap));
+}
 
-    segment_v2::IndexIterator* iterator_for(const query_v2::Scorer& /*scorer*/,
-                                            const std::string& logical_field) const override {
-        if (logical_field.empty()) {
-            return nullptr;
+DataTypePtr unwrap_direct_index_value_type(DataTypePtr column_type) {
+    DataTypePtr value_type = remove_nullable(std::move(column_type));
+    while (value_type != nullptr &&
+           value_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        const auto* array_type = dynamic_cast<const DataTypeArray*>(value_type.get());
+        if (array_type == nullptr) {
+            return value_type;
         }
-        return _resolver.get_iterator(logical_field);
+        value_type = remove_nullable(array_type->get_nested_type());
+    }
+    return value_type;
+}
+
+template <PrimitiveType primitive_type, typename CppType>
+Status parse_integral_search_value(const std::string& value, Field* field) {
+    StringParser::ParseResult parse_result = StringParser::PARSE_FAILURE;
+    CppType parsed =
+            StringParser::string_to_int<CppType>(value.data(), value.size(), &parse_result);
+    if (parse_result != StringParser::PARSE_SUCCESS) {
+        return Status::InvalidArgument("failed to parse '{}' as {}", value,
+                                       type_to_string(primitive_type));
+    }
+    *field = Field::create_field<primitive_type>(parsed);
+    return Status::OK();
+}
+
+Status parse_scalar_search_value(const DataTypePtr& column_type, const std::string& value,
+                                 Field* field) {
+    if (column_type == nullptr || field == nullptr) {
+        return Status::InvalidArgument("missing column type for scalar search value");
     }
 
-private:
-    const FieldReaderResolver& _resolver;
-};
-
-void populate_binding_context(const FieldReaderResolver& resolver,
-                              query_v2::QueryExecutionContext* exec_ctx) {
-    DCHECK(exec_ctx != nullptr);
-    exec_ctx->readers = resolver.readers();
-    exec_ctx->reader_bindings = resolver.reader_bindings();
-    exec_ctx->field_reader_bindings = resolver.field_readers();
-    for (const auto& [binding_key, binding] : resolver.binding_cache()) {
-        if (binding_key.empty()) {
-            continue;
+    switch (column_type->get_storage_field_type()) {
+    case FieldType::OLAP_FIELD_TYPE_BOOL: {
+        StringParser::ParseResult parse_result = StringParser::PARSE_FAILURE;
+        bool parsed = StringParser::string_to_bool(value.data(), value.size(), &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            return Status::InvalidArgument("failed to parse '{}' as bool", value);
         }
-        query_v2::FieldBindingContext binding_ctx;
-        binding_ctx.logical_field_name = binding.logical_field_name;
-        binding_ctx.stored_field_name = binding.stored_field_name;
-        binding_ctx.stored_field_wstr = binding.stored_field_wstr;
-        exec_ctx->binding_fields.emplace(binding_key, std::move(binding_ctx));
+        *field = Field::create_field<TYPE_BOOLEAN>(parsed);
+        return Status::OK();
+    }
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
+        return parse_integral_search_value<TYPE_TINYINT, Int8>(value, field);
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+        return parse_integral_search_value<TYPE_SMALLINT, Int16>(value, field);
+    case FieldType::OLAP_FIELD_TYPE_INT:
+        return parse_integral_search_value<TYPE_INT, Int32>(value, field);
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
+        return parse_integral_search_value<TYPE_BIGINT, Int64>(value, field);
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+        return parse_integral_search_value<TYPE_LARGEINT, Int128>(value, field);
+    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
+        StringParser::ParseResult parse_result = StringParser::PARSE_FAILURE;
+        Float32 parsed =
+                StringParser::string_to_float<Float32>(value.data(), value.size(), &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            return Status::InvalidArgument("failed to parse '{}' as float", value);
+        }
+        *field = Field::create_field<TYPE_FLOAT>(parsed);
+        return Status::OK();
+    }
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
+        StringParser::ParseResult parse_result = StringParser::PARSE_FAILURE;
+        Float64 parsed =
+                StringParser::string_to_float<Float64>(value.data(), value.size(), &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            return Status::InvalidArgument("failed to parse '{}' as double", value);
+        }
+        *field = Field::create_field<TYPE_DOUBLE>(parsed);
+        return Status::OK();
+    }
+    default:
+        return Status::NotSupported("scalar search does not support storage field type {}",
+                                    static_cast<int>(column_type->get_storage_field_type()));
     }
 }
 
-query_v2::QueryExecutionContext build_query_execution_context(
-        uint32_t segment_num_rows, const FieldReaderResolver& resolver,
-        query_v2::NullBitmapResolver* null_resolver) {
-    query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = segment_num_rows;
-    populate_binding_context(resolver, &exec_ctx);
-    exec_ctx.null_resolver = null_resolver;
-    return exec_ctx;
+InvertedIndexQueryType direct_index_query_type_for_clause(const std::string& clause_type) {
+    if (clause_type == "TERM" || clause_type == "EXACT") {
+        return InvertedIndexQueryType::EQUAL_QUERY;
+    }
+    return InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
 } // namespace
-
-Status FieldReaderResolver::resolve(const std::string& field_name,
-                                    InvertedIndexQueryType query_type,
-                                    FieldReaderBinding* binding) {
-    DCHECK(binding != nullptr);
-
-    // Check if this is a variant subcolumn
-    bool is_variant_sub = is_variant_subcolumn(field_name);
-
-    auto data_it = _data_type_with_names.find(field_name);
-    if (data_it == _data_type_with_names.end()) {
-        // For variant subcolumns, not finding the index is normal (the subcolumn may not exist in this segment)
-        // Return OK but with null binding to signal "no match"
-        if (is_variant_sub) {
-            VLOG_DEBUG << "Variant subcolumn '" << field_name
-                       << "' not found in this segment, treating as no match";
-            *binding = FieldReaderBinding();
-            return Status::OK();
-        }
-        // For normal fields, this is an error
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "field '{}' not found in inverted index metadata", field_name);
-    }
-
-    const auto& stored_field_name = data_it->second.first;
-    const auto binding_key = binding_key_for(stored_field_name, query_type);
-
-    auto cache_it = _cache.find(binding_key);
-    if (cache_it != _cache.end()) {
-        *binding = cache_it->second;
-        return Status::OK();
-    }
-
-    auto iterator_it = _iterators.find(field_name);
-    if (iterator_it == _iterators.end() || iterator_it->second == nullptr) {
-        // For variant subcolumns, not finding the iterator is normal
-        if (is_variant_sub) {
-            VLOG_DEBUG << "Variant subcolumn '" << field_name
-                       << "' iterator not found in this segment, treating as no match";
-            *binding = FieldReaderBinding();
-            return Status::OK();
-        }
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "iterator not found for field '{}'", field_name);
-    }
-
-    auto* inverted_iterator = dynamic_cast<InvertedIndexIterator*>(iterator_it->second);
-    if (inverted_iterator == nullptr) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "iterator for field '{}' is not InvertedIndexIterator", field_name);
-    }
-
-    // For variant subcolumns, FE resolves the field pattern to a specific index and sends
-    // its index_properties via TSearchFieldBinding. When FE picks an analyzer-based index,
-    // upgrade EQUAL_QUERY/WILDCARD_QUERY to MATCH_ANY_QUERY so select_best_reader picks the
-    // FULLTEXT reader instead of STRING_TYPE. Without this upgrade:
-    // - TERM (EQUAL_QUERY) clauses would open the wrong (untokenized) index directory
-    // - WILDCARD clauses would enumerate terms from the wrong index, returning empty results
-    //
-    // For regular (non-variant) columns with multiple indexes, the caller (build_leaf_query)
-    // is responsible for passing the appropriate query_type: MATCH_ANY_QUERY for tokenized
-    // queries (TERM) and EQUAL_QUERY for exact-match queries (EXACT). This ensures
-    // select_best_reader picks FULLTEXT vs STRING_TYPE correctly without needing an explicit
-    // analyzer key, since the query_type alone drives the reader type preference.
-    InvertedIndexQueryType effective_query_type = query_type;
-    auto fb_it = _field_binding_map.find(field_name);
-    std::string analyzer_key;
-    if (is_variant_sub && fb_it != _field_binding_map.end() &&
-        fb_it->second->__isset.index_properties && !fb_it->second->index_properties.empty()) {
-        analyzer_key = normalize_analyzer_key(
-                build_analyzer_key_from_properties(fb_it->second->index_properties));
-        if (inverted_index::InvertedIndexAnalyzer::should_analyzer(
-                    fb_it->second->index_properties) &&
-            (effective_query_type == InvertedIndexQueryType::EQUAL_QUERY ||
-             effective_query_type == InvertedIndexQueryType::WILDCARD_QUERY)) {
-            effective_query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
-        }
-    }
-
-    Result<InvertedIndexReaderPtr> reader_result;
-    const auto& column_type = data_it->second.second;
-    if (column_type) {
-        reader_result = inverted_iterator->select_best_reader(column_type, effective_query_type,
-                                                              analyzer_key);
-    } else {
-        reader_result = inverted_iterator->select_best_reader(analyzer_key);
-    }
-
-    if (!reader_result.has_value()) {
-        return reader_result.error();
-    }
-
-    auto inverted_reader = reader_result.value();
-    if (inverted_reader == nullptr) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "selected reader is null for field '{}'", field_name);
-    }
-
-    auto index_file_reader = inverted_reader->get_index_file_reader();
-    if (index_file_reader == nullptr) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "index file reader is null for field '{}'", field_name);
-    }
-
-    // Use InvertedIndexSearcherCache to avoid re-opening index files repeatedly
-    auto index_file_key =
-            index_file_reader->get_index_file_cache_key(&inverted_reader->get_index_meta());
-    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
-    InvertedIndexCacheHandle searcher_cache_handle;
-    bool cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
-                                                                    &searcher_cache_handle);
-
-    std::shared_ptr<lucene::index::IndexReader> reader_holder;
-    if (cache_hit) {
-        auto searcher_variant = searcher_cache_handle.get_index_searcher();
-        auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
-        if (searcher_ptr != nullptr && *searcher_ptr != nullptr) {
-            reader_holder = std::shared_ptr<lucene::index::IndexReader>(
-                    (*searcher_ptr)->getReader(),
-                    [](lucene::index::IndexReader*) { /* lifetime managed by searcher cache */ });
-        }
-    }
-
-    if (!reader_holder) {
-        // Cache miss: open directory, build IndexSearcher, insert into cache
-        RETURN_IF_ERROR(
-                index_file_reader->init(config::inverted_index_read_buffer_size, _context->io_ctx));
-        auto directory = DORIS_TRY(
-                index_file_reader->open(&inverted_reader->get_index_meta(), _context->io_ctx));
-
-        auto index_searcher_builder = DORIS_TRY(
-                IndexSearcherBuilder::create_index_searcher_builder(inverted_reader->type()));
-        auto searcher_result =
-                DORIS_TRY(index_searcher_builder->get_index_searcher(directory.get()));
-        auto reader_size = index_searcher_builder->get_reader_size();
-
-        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher_result),
-                                                                       reader_size, UnixMillis());
-        InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
-                                                       &searcher_cache_handle);
-
-        auto new_variant = searcher_cache_handle.get_index_searcher();
-        auto* new_ptr = std::get_if<FulltextIndexSearcherPtr>(&new_variant);
-        if (new_ptr != nullptr && *new_ptr != nullptr) {
-            reader_holder = std::shared_ptr<lucene::index::IndexReader>(
-                    (*new_ptr)->getReader(),
-                    [](lucene::index::IndexReader*) { /* lifetime managed by searcher cache */ });
-        }
-
-        if (!reader_holder) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "failed to build IndexSearcher for field '{}'", field_name);
-        }
-    }
-
-    _searcher_cache_handles.push_back(std::move(searcher_cache_handle));
-
-    FieldReaderBinding resolved;
-    resolved.logical_field_name = field_name;
-    resolved.stored_field_name = stored_field_name;
-    resolved.stored_field_wstr = StringHelper::to_wstring(resolved.stored_field_name);
-    resolved.column_type = column_type;
-    resolved.query_type = effective_query_type;
-    resolved.inverted_reader = inverted_reader;
-    resolved.lucene_reader = reader_holder;
-    // Prefer FE-provided index_properties (needed for variant subcolumn field_pattern matching)
-    // Reuse fb_it from earlier lookup above.
-    if (fb_it != _field_binding_map.end() && fb_it->second->__isset.index_properties &&
-        !fb_it->second->index_properties.empty()) {
-        resolved.index_properties = fb_it->second->index_properties;
-    } else {
-        resolved.index_properties = inverted_reader->get_index_properties();
-    }
-    resolved.binding_key = binding_key;
-    resolved.analyzer_key =
-            normalize_analyzer_key(build_analyzer_key_from_properties(resolved.index_properties));
-
-    _binding_readers[binding_key] = reader_holder;
-    _field_readers[resolved.stored_field_wstr] = reader_holder;
-    _readers.emplace_back(reader_holder);
-    _cache.emplace(binding_key, resolved);
-    *binding = resolved;
-    return Status::OK();
-}
 
 Status FunctionSearch::execute_impl(FunctionContext* /*context*/, Block& /*block*/,
                                     const ColumnNumbers& /*arguments*/, uint32_t /*result*/,
@@ -395,6 +267,13 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
+    // Track overall query time (equivalent to inverted_index_query_timer in MATCH path).
+    // Must be declared before the DSL cache lookup so that cache-hit fast paths are
+    // also covered by the timer.
+    int64_t query_timer_dummy = 0;
+    OlapReaderStatistics* outer_stats = index_query_context ? index_query_context->stats : nullptr;
+    SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
+
     // DSL result cache: reuse InvertedIndexQueryCache with SEARCH_DSL_QUERY type
     auto* dsl_cache = enable_cache ? InvertedIndexQueryCache::instance() : nullptr;
     std::string seg_prefix;
@@ -410,9 +289,19 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                     dsl_sig};
             cache_usable = true;
             InvertedIndexQueryCacheHandle dsl_cache_handle;
-            if (dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle)) {
+            bool dsl_hit = false;
+            {
+                int64_t lookup_dummy = 0;
+                SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_lookup_timer
+                                             : &lookup_dummy);
+                dsl_hit = dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle);
+            }
+            if (dsl_hit) {
                 auto cached_bitmap = dsl_cache_handle.get_bitmap();
                 if (cached_bitmap) {
+                    if (outer_stats) {
+                        outer_stats->inverted_index_query_cache_hit++;
+                    }
                     // Also retrieve cached null bitmap for three-valued SQL logic
                     // (needed by compound operators NOT, OR, AND in VCompoundPred)
                     auto null_cache_key = InvertedIndexQueryCache::CacheKey {
@@ -431,6 +320,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                     return Status::OK();
                 }
             }
+            if (outer_stats) {
+                outer_stats->inverted_index_query_cache_miss++;
+            }
         }
     }
 
@@ -443,78 +335,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         context->collection_similarity = std::make_shared<CollectionSimilarity>();
     }
 
-    // NESTED() queries evaluate predicates on the flattened "element space" of a nested group.
-    // For VARIANT nested groups, the indexed lucene field (stored_field_name) uses:
-    //   parent_unique_id + "." + <variant-relative nested path>
-    // where the nested path is rooted at either:
-    //   - "__D0_root__" for top-level array<object> (NESTED(data, ...))
-    //   - "<nested_path_after_variant_root>" for object fields (NESTED(data.items, ...))
-    //
-    // FE field bindings are expressed using logical column paths (e.g. "data.items.msg"), so for
-    // NESTED() we normalize stored_field_name suffix to be consistent with the nested group root.
-    std::unordered_map<std::string, IndexFieldNameAndTypePair> patched_data_type_with_names;
     const auto* effective_data_type_with_names = &data_type_with_names;
-    if (is_nested_query && search_param.root.__isset.nested_path) {
-        const std::string& nested_path = search_param.root.nested_path;
-        const auto dot_pos = nested_path.find('.');
-        const std::string root_field =
-                (dot_pos == std::string::npos) ? nested_path : nested_path.substr(0, dot_pos);
-        const std::string root_prefix = root_field + ".";
-        const std::string array_path = (dot_pos == std::string::npos)
-                                               ? std::string(segment_v2::kRootNestedGroupPath)
-                                               : nested_path.substr(dot_pos + 1);
-
-        bool copied = false;
-        for (const auto& fb : search_param.field_bindings) {
-            if (!fb.__isset.is_variant_subcolumn || !fb.is_variant_subcolumn) {
-                continue;
-            }
-            if (fb.field_name.empty()) {
-                continue;
-            }
-            const auto it_orig = data_type_with_names.find(fb.field_name);
-            if (it_orig == data_type_with_names.end()) {
-                continue;
-            }
-            const std::string& old_stored = it_orig->second.first;
-            const auto first_dot = old_stored.find('.');
-            if (first_dot == std::string::npos) {
-                continue;
-            }
-            std::string sub_path;
-            if (fb.__isset.subcolumn_path && !fb.subcolumn_path.empty()) {
-                sub_path = fb.subcolumn_path;
-            } else if (fb.field_name.starts_with(nested_path + ".")) {
-                sub_path = fb.field_name.substr(nested_path.size() + 1);
-            } else if (fb.field_name.starts_with(root_prefix)) {
-                sub_path = fb.field_name.substr(root_prefix.size());
-            } else {
-                sub_path = fb.field_name;
-            }
-            if (sub_path.empty()) {
-                continue;
-            }
-            const std::string array_prefix = array_path + ".";
-            const std::string suffix_path =
-                    sub_path.starts_with(array_prefix) ? sub_path : (array_prefix + sub_path);
-            const std::string parent_uid = old_stored.substr(0, first_dot);
-            const std::string expected_stored = parent_uid + "." + suffix_path;
-            if (old_stored == expected_stored) {
-                continue;
-            }
-
-            if (!copied) {
-                patched_data_type_with_names = data_type_with_names;
-                effective_data_type_with_names = &patched_data_type_with_names;
-                copied = true;
-            }
-            auto it = patched_data_type_with_names.find(fb.field_name);
-            if (it == patched_data_type_with_names.end()) {
-                continue;
-            }
-            it->second.first = expected_stored;
-        }
-    }
 
     // Pass field_bindings to resolver for variant subcolumn detection
     FieldReaderResolver resolver(*effective_data_type_with_names, iterators, context,
@@ -522,9 +343,10 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     if (is_nested_query) {
         std::shared_ptr<roaring::Roaring> row_bitmap;
-        RETURN_IF_ERROR(evaluate_nested_query(search_param, search_param.root, context, resolver,
-                                              num_rows, index_exec_ctx, field_name_to_column_id,
-                                              row_bitmap));
+        VariantNestedSearchEvaluator nested_evaluator(*this);
+        RETURN_IF_ERROR(nested_evaluator.evaluate(search_param, search_param.root, context,
+                                                  resolver, num_rows, index_exec_ctx,
+                                                  field_name_to_column_id, row_bitmap));
         bitmap_result = InvertedIndexResultBitmap(std::move(row_bitmap),
                                                   std::make_shared<roaring::Roaring>());
         bitmap_result.mask_out_null();
@@ -542,11 +364,19 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         minimum_should_match = search_param.minimum_should_match;
     }
 
+    auto* stats = context->stats;
+    int64_t dummy_timer = 0;
+    SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_timer : &dummy_timer);
+
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
-    RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
-                                          &root_binding_key, default_operator,
-                                          minimum_should_match));
+    {
+        int64_t init_dummy = 0;
+        SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_init_timer : &init_dummy);
+        RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
+                                              &root_binding_key, default_operator,
+                                              minimum_should_match, num_rows));
+    }
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
                   << search_param.original_dsl;
@@ -555,9 +385,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
-    ResolverNullBitmapAdapter null_resolver(resolver);
+    VariantSearchNullBitmapAdapter null_resolver(resolver);
     query_v2::QueryExecutionContext exec_ctx =
-            build_query_execution_context(num_rows, resolver, &null_resolver);
+            build_variant_search_query_execution_context(num_rows, resolver, &null_resolver);
 
     bool enable_scoring = false;
     bool is_asc = false;
@@ -577,17 +407,22 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     }
 
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    if (enable_scoring && !is_asc && top_k > 0) {
-        bool use_wand = index_query_context->runtime_state != nullptr &&
-                        index_query_context->runtime_state->query_options()
-                                .enable_inverted_index_wand_query;
-        query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k, roaring,
-                                              index_query_context->collection_similarity, use_wand);
-    } else {
-        query_v2::collect_multi_segment_doc_set(
-                weight, exec_ctx, root_binding_key, roaring,
-                index_query_context ? index_query_context->collection_similarity : nullptr,
-                enable_scoring);
+    {
+        int64_t exec_dummy = 0;
+        SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_exec_timer : &exec_dummy);
+        if (enable_scoring && !is_asc && top_k > 0) {
+            bool use_wand = index_query_context->runtime_state != nullptr &&
+                            index_query_context->runtime_state->query_options()
+                                    .enable_inverted_index_wand_query;
+            query_v2::collect_multi_segment_top_k(
+                    weight, exec_ctx, root_binding_key, top_k, roaring,
+                    index_query_context->collection_similarity, use_wand);
+        } else {
+            query_v2::collect_multi_segment_doc_set(
+                    weight, exec_ctx, root_binding_key, roaring,
+                    index_query_context ? index_query_context->collection_similarity : nullptr,
+                    enable_scoring);
+        }
     }
 
     VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
@@ -633,139 +468,6 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         }
     }
 
-    return Status::OK();
-}
-
-Status FunctionSearch::evaluate_nested_query(
-        const TSearchParam& search_param, const TSearchClause& nested_clause,
-        const std::shared_ptr<IndexQueryContext>& context, FieldReaderResolver& resolver,
-        uint32_t num_rows, const IndexExecContext* index_exec_ctx,
-        const std::unordered_map<std::string, int>& field_name_to_column_id,
-        std::shared_ptr<roaring::Roaring>& result_bitmap) const {
-    (void)field_name_to_column_id;
-    if (!(nested_clause.__isset.nested_path)) {
-        return Status::InvalidArgument("NESTED clause missing nested_path");
-    }
-    if (!(nested_clause.__isset.children) || nested_clause.children.empty()) {
-        return Status::InvalidArgument("NESTED clause missing inner query");
-    }
-    if (result_bitmap == nullptr) {
-        result_bitmap = std::make_shared<roaring::Roaring>();
-    } else {
-        *result_bitmap = roaring::Roaring();
-    }
-
-    // 1. Get the nested group chain directly
-    std::string root_field = nested_clause.nested_path;
-    auto dot_pos = nested_clause.nested_path.find('.');
-    if (dot_pos != std::string::npos) {
-        root_field = nested_clause.nested_path.substr(0, dot_pos);
-    }
-    if (index_exec_ctx == nullptr || index_exec_ctx->segment() == nullptr) {
-        return Status::InvalidArgument("NESTED query requires IndexExecContext with valid segment");
-    }
-    auto* segment = index_exec_ctx->segment();
-    const int32_t ordinal = segment->tablet_schema()->field_index(root_field);
-    if (ordinal < 0) {
-        return Status::InvalidArgument("Column '{}' not found in tablet schema for nested query",
-                                       root_field);
-    }
-    const ColumnId column_id = static_cast<ColumnId>(ordinal);
-
-    std::shared_ptr<segment_v2::ColumnReader> column_reader;
-    RETURN_IF_ERROR(segment->get_column_reader(segment->tablet_schema()->column(column_id),
-                                               &column_reader,
-                                               index_exec_ctx->column_iter_opts().stats));
-    auto* variant_reader = dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
-    if (variant_reader == nullptr) {
-        return Status::InvalidArgument("Column '{}' is not VARIANT for nested query", root_field);
-    }
-
-    std::string array_path;
-    if (dot_pos == std::string::npos) {
-        array_path = std::string(segment_v2::kRootNestedGroupPath);
-    } else {
-        array_path = nested_clause.nested_path.substr(dot_pos + 1);
-    }
-
-    auto [found, group_chain, _] = variant_reader->collect_nested_group_chain(array_path);
-    if (!found || group_chain.empty()) {
-        return Status::OK();
-    }
-
-    // Use the read provider for element counting and bitmap mapping.
-    auto read_provider = segment_v2::create_nested_group_read_provider();
-    if (!read_provider || !read_provider->should_enable_nested_group_read_path()) {
-        return Status::NotSupported(
-                "NestedGroup search is an enterprise capability, not available in this build");
-    }
-
-    auto& leaf_group = group_chain.back();
-    uint64_t total_elements = 0;
-    RETURN_IF_ERROR(read_provider->get_total_elements(index_exec_ctx->column_iter_opts(),
-                                                      leaf_group, &total_elements));
-    if (total_elements == 0) {
-        return Status::OK();
-    }
-
-    // 3. Evaluate inner query
-    std::string default_operator = "or";
-    if (search_param.__isset.default_operator && !search_param.default_operator.empty()) {
-        default_operator = search_param.default_operator;
-    }
-    int32_t minimum_should_match = -1;
-    if (search_param.__isset.minimum_should_match) {
-        minimum_should_match = search_param.minimum_should_match;
-    }
-
-    query_v2::QueryPtr inner_query;
-    std::string inner_binding_key;
-    RETURN_IF_ERROR(build_query_recursive(nested_clause.children[0], context, resolver,
-                                          &inner_query, &inner_binding_key, default_operator,
-                                          minimum_should_match));
-    if (inner_query == nullptr) {
-        return Status::OK();
-    }
-
-    if (total_elements > std::numeric_limits<uint32_t>::max()) {
-        return Status::InvalidArgument("nested element_count exceeds uint32_t max");
-    }
-
-    ResolverNullBitmapAdapter null_resolver(resolver);
-    query_v2::QueryExecutionContext exec_ctx = build_query_execution_context(
-            static_cast<uint32_t>(total_elements), resolver, &null_resolver);
-
-    auto weight = inner_query->weight(false);
-    if (!weight) {
-        return Status::OK();
-    }
-    auto scorer = weight->scorer(exec_ctx, inner_binding_key);
-    if (!scorer) {
-        return Status::OK();
-    }
-
-    roaring::Roaring element_bitmap;
-    uint32_t doc = scorer->doc();
-    while (doc != query_v2::TERMINATED) {
-        element_bitmap.add(doc);
-        doc = scorer->advance();
-    }
-
-    if (scorer->has_null_bitmap(exec_ctx.null_resolver)) {
-        const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
-        if (bitmap != nullptr && !bitmap->isEmpty()) {
-            element_bitmap -= *bitmap;
-        }
-    }
-
-    // 4. Map element-level hits back to row-level hits through NestedGroup chain.
-    if (result_bitmap == nullptr) {
-        result_bitmap = std::make_shared<roaring::Roaring>();
-    }
-    roaring::Roaring parent_bitmap;
-    RETURN_IF_ERROR(read_provider->map_elements_to_parent_ords(
-            group_chain, index_exec_ctx->column_iter_opts(), element_bitmap, &parent_bitmap));
-    *result_bitmap = std::move(parent_bitmap);
     return Status::OK();
 }
 
@@ -878,13 +580,11 @@ static query_v2::Occur map_thrift_occur(TSearchOccur::type thrift_occur) {
     }
 }
 
-Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
-                                             const std::shared_ptr<IndexQueryContext>& context,
-                                             FieldReaderResolver& resolver,
-                                             inverted_index::query_v2::QueryPtr* out,
-                                             std::string* binding_key,
-                                             const std::string& default_operator,
-                                             int32_t minimum_should_match) const {
+Status FunctionSearch::build_query_recursive(
+        const TSearchClause& clause, const std::shared_ptr<IndexQueryContext>& context,
+        FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
+        std::string* binding_key, const std::string& default_operator, int32_t minimum_should_match,
+        uint32_t num_rows) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -914,7 +614,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
                                                       &child_binding_key, default_operator,
-                                                      minimum_should_match));
+                                                      minimum_should_match, num_rows));
 
                 // Determine occur type from child clause
                 query_v2::Occur occur = query_v2::Occur::MUST; // default
@@ -950,7 +650,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
                                                       &child_binding_key, default_operator,
-                                                      minimum_should_match));
+                                                      minimum_should_match, num_rows));
                 // Add all children including empty BitSetQuery
                 // BooleanQuery will handle the logic:
                 // - AND with empty bitmap → result is empty
@@ -965,7 +665,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
     }
 
     return build_leaf_query(clause, context, resolver, out, binding_key, default_operator,
-                            minimum_should_match);
+                            minimum_should_match, num_rows);
 }
 
 Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
@@ -974,7 +674,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                                         inverted_index::query_v2::QueryPtr* out,
                                         std::string* binding_key,
                                         const std::string& default_operator,
-                                        int32_t minimum_should_match) const {
+                                        int32_t minimum_should_match, uint32_t num_rows) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -1006,24 +706,73 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
     }
 
+    auto finish_leaf_query = [&](query_v2::QueryPtr query) -> Status {
+        *out = std::move(query);
+        return resolver.map_leaf_query(field_name, out);
+    };
+
     FieldReaderBinding binding;
     RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
 
-    // Check if binding is empty (variant subcolumn not found in this segment)
-    if (binding.lucene_reader == nullptr) {
+    if (!binding.is_bound()) {
         LOG(INFO) << "search: No inverted index for field '" << field_name
                   << "' in this segment, clause_type='" << clause_type
-                  << "', query_type=" << static_cast<int>(query_type) << ", returning no matches";
-        // Variant subcolumn doesn't exist - create empty BitSetQuery (no matches)
-        *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
+                  << "', query_type=" << static_cast<int>(query_type)
+                  << ", returning UNKNOWN bitmap";
         if (binding_key) {
             binding_key->clear();
         }
-        return Status::OK();
+        return finish_leaf_query(make_unknown_query(num_rows));
     }
 
     if (binding_key) {
         *binding_key = binding.binding_key;
+    }
+
+    if (binding.use_direct_index_reader()) {
+        auto direct_query_type = direct_index_query_type_for_clause(clause_type);
+        if (direct_query_type == InvertedIndexQueryType::UNKNOWN_QUERY) {
+            return finish_leaf_query(make_unknown_query(num_rows));
+        }
+
+        auto value_type = unwrap_direct_index_value_type(binding.column_type);
+        Field param_value;
+        auto parse_status = parse_scalar_search_value(value_type, value, &param_value);
+        if (!parse_status.ok()) {
+            LOG(INFO) << "search: scalar leaf value is unsupported, field=" << field_name
+                      << ", value='" << value << "', reason=" << parse_status.to_string();
+            return finish_leaf_query(make_unknown_query(num_rows));
+        }
+
+        auto* iterator = resolver.get_iterator(field_name);
+        if (iterator == nullptr) {
+            return finish_leaf_query(make_unknown_query(num_rows));
+        }
+
+        segment_v2::InvertedIndexParam param;
+        param.column_name = binding.stored_field_name;
+        param.column_type = value_type;
+        param.query_value = param_value;
+        param.query_type = direct_query_type;
+        param.num_rows = num_rows;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iterator->read_from_index(segment_v2::IndexParam {&param}));
+
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+        auto has_null = iterator->has_null();
+        if (has_null.has_value() && has_null.value()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+            if (auto bitmap = null_bitmap_cache_handle.get_bitmap(); bitmap != nullptr) {
+                null_bitmap = bitmap;
+            }
+        }
+        return finish_leaf_query(std::make_shared<query_v2::BitSetQuery>(std::move(param.roaring),
+                                                                         std::move(null_bitmap)));
+    }
+
+    if (binding.lucene_reader == nullptr) {
+        return finish_leaf_query(make_unknown_query(num_rows));
     }
 
     FunctionSearch::ClauseTypeCategory category = get_clause_type_category(clause_type);
@@ -1041,8 +790,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             if (binding.index_properties.empty()) {
                 LOG(WARNING) << "search: analyzer required but index properties empty for field '"
                              << field_name << "'";
-                *out = make_term_query(value_wstr);
-                return Status::OK();
+                return finish_leaf_query(make_term_query(value_wstr));
             }
 
             std::vector<TermInfo> term_infos =
@@ -1052,14 +800,13 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 LOG(WARNING) << "search: No terms found after tokenization for TERM query, field="
                              << field_name << ", value='" << value
                              << "', returning empty BitSetQuery";
-                *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
-                return Status::OK();
+                return finish_leaf_query(
+                        std::make_shared<query_v2::BitSetQuery>(roaring::Roaring()));
             }
 
             if (term_infos.size() == 1) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_infos[0].get_single_term());
-                *out = make_term_query(term_wstr);
-                return Status::OK();
+                return finish_leaf_query(make_term_query(term_wstr));
             }
 
             // When minimum_should_match is specified, use OccurBooleanQuery
@@ -1074,8 +821,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                     std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
                     builder->add(make_term_query(term_wstr), occur);
                 }
-                *out = builder->build();
-                return Status::OK();
+                return finish_leaf_query(builder->build());
             }
 
             // Use default_operator to determine how to combine tokenized terms
@@ -1088,12 +834,10 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 builder->add(make_term_query(term_wstr), binding.binding_key);
             }
 
-            *out = builder->build();
-            return Status::OK();
+            return finish_leaf_query(builder->build());
         }
 
-        *out = make_term_query(value_wstr);
-        return Status::OK();
+        return finish_leaf_query(make_term_query(value_wstr));
     }
 
     if (category == FunctionSearch::ClauseTypeCategory::TOKENIZED) {
@@ -1103,16 +847,14 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             if (!should_analyze) {
                 VLOG_DEBUG << "search: PHRASE on non-tokenized field '" << field_name
                            << "', falling back to TERM";
-                *out = make_term_query(value_wstr);
-                return Status::OK();
+                return finish_leaf_query(make_term_query(value_wstr));
             }
 
             if (binding.index_properties.empty()) {
                 LOG(WARNING) << "search: analyzer required but index properties empty for PHRASE "
                                 "query on field '"
                              << field_name << "'";
-                *out = make_term_query(value_wstr);
-                return Status::OK();
+                return finish_leaf_query(make_term_query(value_wstr));
             }
 
             std::vector<TermInfo> term_infos =
@@ -1122,8 +864,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 LOG(WARNING) << "search: No terms found after tokenization for PHRASE query, field="
                              << field_name << ", value='" << value
                              << "', returning empty BitSetQuery";
-                *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
-                return Status::OK();
+                return finish_leaf_query(
+                        std::make_shared<query_v2::BitSetQuery>(roaring::Roaring()));
             }
 
             std::vector<TermInfo> phrase_term_infos =
@@ -1132,7 +874,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 const auto& term_info = phrase_term_infos[0];
                 if (term_info.is_single_term()) {
                     std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
-                    *out = std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
+                    return finish_leaf_query(
+                            std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr));
                 } else {
                     auto builder =
                             create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
@@ -1140,15 +883,15 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                         std::wstring term_wstr = StringHelper::to_wstring(term);
                         builder->add(make_term_query(term_wstr), binding.binding_key);
                     }
-                    *out = builder->build();
+                    return finish_leaf_query(builder->build());
                 }
             } else {
                 if (QueryHelper::is_simple_phrase(phrase_term_infos)) {
-                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr,
-                                                                   phrase_term_infos);
+                    return finish_leaf_query(std::make_shared<query_v2::PhraseQuery>(
+                            context, field_wstr, phrase_term_infos));
                 } else {
-                    *out = std::make_shared<query_v2::MultiPhraseQuery>(context, field_wstr,
-                                                                        phrase_term_infos);
+                    return finish_leaf_query(std::make_shared<query_v2::MultiPhraseQuery>(
+                            context, field_wstr, phrase_term_infos));
                 }
             }
 
@@ -1156,23 +899,20 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         }
         if (clause_type == "MATCH") {
             VLOG_DEBUG << "search: MATCH clause not implemented, fallback to TERM";
-            *out = make_term_query(value_wstr);
-            return Status::OK();
+            return finish_leaf_query(make_term_query(value_wstr));
         }
 
         if (clause_type == "ANY" || clause_type == "ALL") {
             bool should_analyze = inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     binding.index_properties);
             if (!should_analyze) {
-                *out = make_term_query(value_wstr);
-                return Status::OK();
+                return finish_leaf_query(make_term_query(value_wstr));
             }
 
             if (binding.index_properties.empty()) {
                 LOG(WARNING) << "search: index properties empty for tokenized clause '"
                              << clause_type << "' field=" << field_name;
-                *out = make_term_query(value_wstr);
-                return Status::OK();
+                return finish_leaf_query(make_term_query(value_wstr));
             }
 
             std::vector<TermInfo> term_infos =
@@ -1181,8 +921,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: tokenization yielded no terms for clause '" << clause_type
                              << "', field=" << field_name << ", returning empty BitSetQuery";
-                *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
-                return Status::OK();
+                return finish_leaf_query(
+                        std::make_shared<query_v2::BitSetQuery>(roaring::Roaring()));
             }
 
             query_v2::OperatorType bool_type = query_v2::OperatorType::OP_OR;
@@ -1192,8 +932,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             if (term_infos.size() == 1) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_infos[0].get_single_term());
-                *out = make_term_query(term_wstr);
-                return Status::OK();
+                return finish_leaf_query(make_term_query(term_wstr));
             }
 
             auto builder = create_operator_boolean_query_builder(bool_type);
@@ -1201,13 +940,11 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
                 builder->add(make_term_query(term_wstr), binding.binding_key);
             }
-            *out = builder->build();
-            return Status::OK();
+            return finish_leaf_query(builder->build());
         }
 
         // Default tokenized clause fallback
-        *out = make_term_query(value_wstr);
-        return Status::OK();
+        return finish_leaf_query(make_term_query(value_wstr));
     }
 
     if (category == FunctionSearch::ClauseTypeCategory::NON_TOKENIZED) {
@@ -1216,10 +953,9 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             // Note: EXACT prefers untokenized index (STRING_TYPE) which doesn't support lowercase
             // If only tokenized index exists, EXACT may return empty results because
             // tokenized indexes store individual tokens, not complete strings
-            *out = make_term_query(value_wstr);
             VLOG_DEBUG << "search: EXACT clause processed, field=" << field_name << ", value='"
                        << value << "'";
-            return Status::OK();
+            return finish_leaf_query(make_term_query(value_wstr));
         }
         if (clause_type == "PREFIX") {
             // Apply lowercase only if:
@@ -1231,21 +967,20 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                     get_parser_lowercase_from_properties(binding.index_properties);
             bool should_lowercase = has_parser && (lowercase_setting == INVERTED_INDEX_PARSER_TRUE);
             std::string pattern = should_lowercase ? to_lower(value) : value;
-            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern);
             VLOG_DEBUG << "search: PREFIX clause processed, field=" << field_name << ", pattern='"
                        << pattern << "' (original='" << value << "', has_parser=" << has_parser
                        << ", lower_case=" << lowercase_setting << ")";
-            return Status::OK();
+            return finish_leaf_query(
+                    std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern));
         }
 
         if (clause_type == "WILDCARD") {
             // Standalone wildcard "*" matches all non-null values for this field
             // Consistent with ES query_string behavior where field:* becomes FieldExistsQuery
             if (value == "*") {
-                *out = std::make_shared<query_v2::AllQuery>(field_wstr, true);
                 VLOG_DEBUG << "search: WILDCARD '*' converted to AllQuery(nullable=true), field="
                            << field_name;
-                return Status::OK();
+                return finish_leaf_query(std::make_shared<query_v2::AllQuery>(field_wstr, true));
             }
             // Apply lowercase only if:
             // 1. There's a parser/analyzer (otherwise lower_case has no effect on indexing)
@@ -1256,33 +991,31 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                     get_parser_lowercase_from_properties(binding.index_properties);
             bool should_lowercase = has_parser && (lowercase_setting == INVERTED_INDEX_PARSER_TRUE);
             std::string pattern = should_lowercase ? to_lower(value) : value;
-            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern);
             VLOG_DEBUG << "search: WILDCARD clause processed, field=" << field_name << ", pattern='"
                        << pattern << "' (original='" << value << "', has_parser=" << has_parser
                        << ", lower_case=" << lowercase_setting << ")";
-            return Status::OK();
+            return finish_leaf_query(
+                    std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern));
         }
 
         if (clause_type == "REGEXP") {
             // ES-compatible: regex patterns are NOT lowercased (case-sensitive matching)
             // This matches ES query_string behavior where regex patterns bypass analysis
-            *out = std::make_shared<query_v2::RegexpQuery>(context, field_wstr, value);
             VLOG_DEBUG << "search: REGEXP clause processed, field=" << field_name << ", pattern='"
                        << value << "'";
-            return Status::OK();
+            return finish_leaf_query(
+                    std::make_shared<query_v2::RegexpQuery>(context, field_wstr, value));
         }
 
         if (clause_type == "RANGE" || clause_type == "LIST") {
             VLOG_DEBUG << "search: clause type '" << clause_type
                        << "' not implemented, fallback to TERM";
         }
-        *out = make_term_query(value_wstr);
-        return Status::OK();
+        return finish_leaf_query(make_term_query(value_wstr));
     }
 
     LOG(WARNING) << "search: Unexpected clause type '" << clause_type << "', using TERM fallback";
-    *out = make_term_query(value_wstr);
-    return Status::OK();
+    return finish_leaf_query(make_term_query(value_wstr));
 }
 
 void register_function_search(SimpleFunctionFactory& factory) {

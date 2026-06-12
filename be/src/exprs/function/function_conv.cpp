@@ -48,7 +48,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -96,17 +95,14 @@ public:
                             argument_columns[0].get()),
                     assert_cast<const ColumnInt8*>(argument_columns[1].get())->get_element(0),
                     assert_cast<const ColumnInt8*>(argument_columns[2].get())->get_element(0),
-                    assert_cast<ColumnString*>(result_column.get()),
-                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                    input_rows_count);
+                    result_column.get(), result_null_map_column->get_data(), input_rows_count);
         } else {
             execute_straight(context,
                              assert_cast<const typename Impl::DataType::ColumnType*>(
                                      argument_columns[0].get()),
                              assert_cast<const ColumnInt8*>(argument_columns[1].get()),
                              assert_cast<const ColumnInt8*>(argument_columns[2].get()),
-                             assert_cast<ColumnString*>(result_column.get()),
-                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                             result_column.get(), result_null_map_column->get_data(),
                              input_rows_count);
         }
 
@@ -179,7 +175,7 @@ struct ConvInt64Impl {
             }
         }
         StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-        result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
+        result_column->insert_data(str.data, str.size);
     }
 };
 
@@ -215,7 +211,7 @@ struct ConvStringImpl {
             result_column->insert_data("0", 1);
         } else {
             StringRef str_base = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str_base.data), str_base.size);
+            result_column->insert_data(str_base.data, str_base.size);
         }
     }
 };

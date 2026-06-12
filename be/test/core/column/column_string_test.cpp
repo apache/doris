@@ -32,10 +32,15 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "exprs/function/function_string.h"
+#include "exprs/function/function_string_concat.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 using namespace doris;
 namespace doris {
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
+
 static std::string test_data_dir;
 static std::string test_result_dir;
 static DataTypePtr dt_str =
@@ -476,7 +481,7 @@ TEST_F(ColumnStringTest, insert_many_continuous_binary_data) {
     auto test_func = [&](size_t clone_count, auto x, const auto& source_column) {
         using ColumnType = decltype(x);
         auto src_size = source_column->size();
-        auto* col_vec_src = assert_cast<ColumnType*>(source_column.get());
+        auto* col_vec_src = source_column.get();
         size_t actual_clone_count = std::min(clone_count, src_size);
 
         auto target_column = source_column->clone_resized(actual_clone_count);
@@ -1136,6 +1141,15 @@ TEST_F(ColumnStringTest, compare_internal) {
     column_string_common_test(assert_column_vector_compare_internal_callback, false);
 }
 TEST_F(ColumnStringTest, convert_column_if_overflow) {
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
+                                             {{"max_string_size", "10"}});
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
+        config::enable_debug_points = origin_enable_debug_points;
+    });
+
     {
         auto tmp_col = ColumnString::create();
         tmp_col->insert_data("abc", 3);
@@ -1152,7 +1166,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
         auto src_size = column_str32->size();
         auto chars_size = column_str32->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str32, 0, column_str32->size());
             chars_size = tmp_col_str32->get_chars().size();
@@ -1173,7 +1187,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
         auto src_size = column_str32_json->size();
         auto chars_size = column_str32_json->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str32_json, 0,
                                                        column_str32_json->size());
@@ -1197,7 +1211,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str64 = assert_cast<ColumnString64*>(tmp_col.get());
         auto src_size = column_str64_json->size();
         auto chars_size = column_str64_json->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str64_json, 0,
                                                        column_str64_json->size());
@@ -1312,28 +1326,6 @@ TEST_F(ColumnStringTest, TestStringInsert) {
         }
     }
 }
-TEST_F(ColumnStringTest, shrink_padding_chars) {
-    ColumnString::MutablePtr col = ColumnString::create();
-    col->shrink_padding_chars();
-
-    col->insert_data("123\0   ", 7);
-    col->insert_data("456\0xx", 6);
-    col->insert_data("78", 2);
-    col->shrink_padding_chars();
-
-    EXPECT_EQ(col->size(), 3);
-    EXPECT_EQ(col->get_data_at(0), StringRef("123"));
-    EXPECT_EQ(col->get_data_at(0).size, 3);
-    EXPECT_EQ(col->get_data_at(1), StringRef("456"));
-    EXPECT_EQ(col->get_data_at(1).size, 3);
-    EXPECT_EQ(col->get_data_at(2), StringRef("78"));
-    EXPECT_EQ(col->get_data_at(2).size, 2);
-
-    col->insert_data("xyz", 2); // only xy
-
-    EXPECT_EQ(col->size(), 4);
-    EXPECT_EQ(col->get_data_at(3), StringRef("xy"));
-}
 TEST_F(ColumnStringTest, sort_column) {
     column_string_common_test(assert_sort_column_callback, false);
 }
@@ -1422,6 +1414,91 @@ TEST_F(ColumnStringTest, is_ascii) {
         std::vector<StringRef> data = {StringRef(""), StringRef(""), StringRef(""),
                                        StringRef(""), StringRef(""), StringRef("")};
         EXPECT_TRUE(column->is_ascii());
+    }
+}
+
+TEST_F(ColumnStringTest, is_valid_utf8) {
+    // all ASCII strings are valid UTF-8
+    {
+        auto column = ColumnString::create();
+        column->insert_data("hello", 5);
+        column->insert_data("world", 5);
+        column->insert_data("123!@#", 6);
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // empty column is valid
+    {
+        auto column = ColumnString::create();
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // empty strings are valid UTF-8
+    {
+        auto column = ColumnString::create();
+        column->insert_data("", 0);
+        column->insert_data("", 0);
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // multi-byte UTF-8 characters
+    {
+        auto column = ColumnString::create();
+        column->insert_data("Hello, 世界", strlen("Hello, 世界"));
+        column->insert_data("こんにちは", strlen("こんにちは"));
+        column->insert_data("😀", strlen("😀"));
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // invalid: lone continuation byte 0x80
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\x80'};
+        column->insert_data(data, 1);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: bad 2-byte sequence 0xC3 0x28
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xc3', '\x28'};
+        column->insert_data(data, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: overlong encoding 0xC0 0xAF
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xc0', '\xaf'};
+        column->insert_data(data, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: 0xFE byte
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xfe'};
+        column->insert_data(data, 1);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: truncated 3-byte sequence 0xE4 0xB8
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xe4', '\xb8'};
+        column->insert_data(data, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // mixed: one invalid byte makes the whole column invalid
+    {
+        auto column = ColumnString::create();
+        column->insert_data("hello", 5);
+        const char bad[] = {'\xff'};
+        column->insert_data(bad, 1);
+        column->insert_data("world", 5);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // cross-row concatenation: "\xE4" + "\xB8\x96" form valid UTF-8 (世) when
+    // concatenated, but each row is invalid individually. Must validate per-row.
+    {
+        auto column = ColumnString::create();
+        const char row1[] = {'\xe4'};
+        const char row2[] = {'\xb8', '\x96'};
+        column->insert_data(row1, 1);
+        column->insert_data(row2, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
     }
 }
 

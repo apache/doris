@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-#include "common/compile_check_begin.h"
 template <bool is_intersect>
 class SetSourceOperatorX;
 
@@ -86,7 +85,7 @@ public:
                             : DataDistribution(ExchangeType::HASH_SHUFFLE);
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     Status set_child(OperatorPtr child) override {
         Base::_child = child;
         return Status::OK();
@@ -104,5 +103,4 @@ private:
     const size_t _child_quantity;
     const bool _is_colocate;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

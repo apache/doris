@@ -55,7 +55,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -128,8 +127,6 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_IPV4;
     case PrimitiveType::TYPE_IPV6:
         return FieldType::OLAP_FIELD_TYPE_IPV6;
-    case PrimitiveType::TYPE_LAMBDA_FUNCTION:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
     case PrimitiveType::TYPE_AGG_STATE:
         return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     default:
@@ -554,7 +551,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
     _aggregation = agg;
     _type = filed_type;
-    _length = cast_set<int32_t>(get_scalar_type_info(filed_type)->size());
+    _length = cast_set<int32_t>(field_type_size(filed_type));
     _is_nullable = is_nullable;
 }
 
@@ -689,7 +686,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
                                                               const std::vector<std::string>& paths,
                                                               int32_t parent_unique_id,
-                                                              int32_t max_subcolumns_count) {
+                                                              int32_t max_subcolumns_count,
+                                                              bool enable_doc_mode) {
     TabletColumn subcol;
     subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     subcol.set_is_nullable(true);
@@ -699,6 +697,7 @@ TabletColumn TabletColumn::create_materialized_variant_column(const std::string&
     subcol.set_path_info(path);
     subcol.set_name(path.get_path());
     subcol.set_variant_max_subcolumns_count(max_subcolumns_count);
+    subcol.set_variant_enable_doc_mode(enable_doc_mode);
     return subcol;
 }
 
@@ -1208,7 +1207,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     }
     _is_in_memory = schema.is_in_memory();
     _disable_auto_compaction = schema.disable_auto_compaction();
-    _enable_single_replica_compaction = schema.enable_single_replica_compaction();
     _store_row_column = schema.store_row_column();
     _skip_write_index_on_load = schema.skip_write_index_on_load();
     _delete_sign_idx = schema.delete_sign_idx();
@@ -1290,16 +1288,16 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _deprecated_enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
-    if (schema.has_is_external_segment_column_meta_used()) {
-        _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
+    if (schema.has_storage_format()) {
+        _storage_format = schema.storage_format();
+    } else if (schema.is_external_segment_column_meta_used() ||
+               schema.integer_type_default_use_plain_encoding() ||
+               schema.binary_plain_encoding_default_impl() ==
+                       BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2) {
+        // Old PB without storage_format: any of the three legacy V3-flavor flags implies V3.
+        _storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3;
     } else {
-        _is_external_segment_column_meta_used = false;
-    }
-    if (schema.has_integer_type_default_use_plain_encoding()) {
-        _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
-    }
-    if (schema.has_binary_plain_encoding_default_impl()) {
-        _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
+        _storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
     }
     update_metadata_size();
 }
@@ -1363,7 +1361,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
-    _enable_single_replica_compaction = ori_tablet_schema.enable_single_replica_compaction();
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
@@ -1554,7 +1551,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_next_column_unique_id(cast_set<uint32_t>(_next_column_unique_id));
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
-    tablet_schema_pb->set_enable_single_replica_compaction(_enable_single_replica_compaction);
     tablet_schema_pb->set_store_row_column(_store_row_column);
     tablet_schema_pb->set_skip_write_index_on_load(_skip_write_index_on_load);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
@@ -1572,11 +1568,19 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
     tablet_schema_pb->set_enable_variant_flatten_nested(_deprecated_enable_variant_flatten_nested);
-    tablet_schema_pb->set_is_external_segment_column_meta_used(
-            _is_external_segment_column_meta_used);
-    tablet_schema_pb->set_integer_type_default_use_plain_encoding(
-            _integer_type_default_use_plain_encoding);
-    tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
+    tablet_schema_pb->set_storage_format(_storage_format);
+    // Backward downgrade safety: if a new BE rewrites tablet_meta.json carrying only
+    // storage_format and the deployment is then rolled back to an old BE, the old BE
+    // does not know the new field and would default-derive V2 for a V3 tablet, causing
+    // it to write V2-encoded segments into a V3 tablet. Redundantly emit the three
+    // legacy V3-flavor flags so old BEs can recover the format via the prior "any of
+    // these implies V3" rule. ~3 bytes per schema PB; only paid for V3 tablets.
+    if (_storage_format == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3) {
+        tablet_schema_pb->set_is_external_segment_column_meta_used(true);
+        tablet_schema_pb->set_integer_type_default_use_plain_encoding(true);
+        tablet_schema_pb->set_binary_plain_encoding_default_impl(
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+    }
     auto column_groups_pb = tablet_schema_pb->mutable_seq_map();
     for (const auto& it : _seq_col_uid_to_value_cols_uid) {
         uint32_t key = it.first;
@@ -1959,7 +1963,6 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._is_in_memory != b._is_in_memory) return false;
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
-    if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
     if (a._storage_page_size != b._storage_page_size) return false;
@@ -1969,17 +1972,11 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
         b._deprecated_enable_variant_flatten_nested) {
         return false;
     }
-    if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
-        return false;
-    if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
-        return false;
-    if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
-        return false;
+    if (a._storage_format != b._storage_format) return false;
     return true;
 }
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -25,12 +25,13 @@
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
         : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent),
           _process_hashtable_ctx_variants(std::make_unique<HashTableCtxVariants>()) {}
@@ -233,7 +234,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
 
     local_state._join_block.clear_column_data();
 
-    MutableBlock mutable_join_block(&local_state._join_block);
+    ScopedMutableBlock scoped_mutable_join_block(&local_state._join_block);
+    auto& mutable_join_block = scoped_mutable_join_block.mutable_block();
     Block temp_block;
 
     Status st;
@@ -314,8 +316,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
             state, output_block, eos, &temp_block,
             !local_state._shared_state->left_semi_direct_return));
     // Here make _join_block release the columns' ptr
+    scoped_mutable_join_block.restore();
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
-    mutable_join_block.clear();
     return Status::OK();
 }
 
@@ -349,15 +351,21 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
 
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (!column->is_nullable() &&
-            _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
+        const auto& column_ptr = block.get_by_position(res_col_ids[i]).column;
+        const auto* column = column_ptr.get();
+        const bool serialize_null_into_key =
+                _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i];
+        // _do_evaluate() must have materialized Const(Nullable) probe keys. If this check fails,
+        // is_nullable() no longer implies a physical ColumnNullable for the logic below.
+        const auto* const_column = check_and_get_column<ColumnConst>(*column);
+        DORIS_CHECK(const_column == nullptr ||
+                    !is_column_nullable(const_column->get_data_column()));
+        if (!column->is_nullable() && serialize_null_into_key) {
             _key_columns_holder.emplace_back(
                     make_nullable(block.get_by_position(res_col_ids[i]).column));
             _probe_columns[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
-                   nullable &&
-                   !_parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
+                   nullable && !serialize_null_into_key) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
@@ -420,7 +428,9 @@ Status HashJoinProbeOperatorX::_do_evaluate(Block& block, VExprContextSPtrs& exp
             RETURN_IF_ERROR(exprs[i]->execute(&block, &result_col_id));
         }
 
-        // TODO: opt the column is const
+        // _extract_join_column() handles physical ColumnNullable only, so probe-key const
+        // columns, including Const(Nullable), must be materialized before probing.
+        // TODO: if const-key optimization is added, update _extract_join_column() together.
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         res_col_ids[i] = result_col_id;

@@ -27,7 +27,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 inline Status materialize_block(const VExprContextSPtrs& exprs, Block* src_block, Block* res_block,
@@ -100,7 +99,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override {
         if (_cur_child_id > 0) {
@@ -158,8 +157,9 @@ private:
         DCHECK_LT(child_id, _child_size);
         DCHECK(!is_child_passthrough(child_id));
         if (input_block->rows() > 0) {
-            MutableBlock mblock =
-                    VectorizedUtils::build_mutable_mem_reuse_block(output_block, row_descriptor());
+            auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                    output_block, row_descriptor());
+            auto& mblock = scoped_mutable_block.mutable_block();
             Block res;
             auto& local_state = get_local_state(state);
             {
@@ -174,5 +174,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

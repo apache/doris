@@ -76,3 +76,29 @@ A	30	30
 B	70	70
 C	50	50
 
+-- !test_empty_parallel --
+0
+
+-- !test_global_empty_parallel --
+0
+
+-- !test_largeint1 --
+1000
+
+-- !test_largeint2 --
+A	300
+B	700
+
+-- !test_ipv4_udaf1 --
+3
+
+-- !test_ipv4_udaf2 --
+A	2
+B	1
+
+-- !test_ipv6_udaf1 --
+1
+
+-- !test_ipv6_udaf2 --
+A	1
+B	0

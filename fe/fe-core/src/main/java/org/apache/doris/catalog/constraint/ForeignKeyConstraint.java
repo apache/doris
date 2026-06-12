@@ -20,7 +20,7 @@ package org.apache.doris.catalog.constraint;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.base.Preconditions;
@@ -60,7 +60,10 @@ public class ForeignKeyConstraint extends Constraint implements GsonPostProcessa
         Preconditions.checkArgument(ImmutableSet.copyOf(referencedColumns).size() == referencedColumns.size(),
                 "Reference keys contains duplicate slots.");
         this.referencedTable = new TableIdentifier(refTable);
-        this.referencedTableInfo = new TableNameInfo(refTable);
+        this.referencedTableInfo = new TableNameInfo(
+                refTable.getDatabase().getCatalog().getName(),
+                refTable.getDatabase().getFullName(),
+                refTable.getName());
         this.referencedTableNameStr = referencedTableInfo.getCtl() + "."
                 + referencedTableInfo.getDb() + "." + referencedTableInfo.getTbl();
         for (int i = 0; i < columns.size(); i++) {

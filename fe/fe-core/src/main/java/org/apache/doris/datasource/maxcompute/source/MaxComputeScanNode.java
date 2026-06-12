@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -508,7 +509,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         if (odpsPredicate == null) {
             throw new AnalysisException("Do not support convert ["
-                    + expr.getExprName() + "] in convertExprToOdpsPredicate.");
+                    + expr.accept(ExprToExprNameVisitor.INSTANCE, null)
+                    + "] in convertExprToOdpsPredicate.");
         }
         return odpsPredicate;
     }
@@ -519,14 +521,16 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
 
         throw new AnalysisException("Do not support convert ["
-                + expr.getExprName() + "] in convertSlotRefToAttribute.");
+                + expr.accept(ExprToExprNameVisitor.INSTANCE, null)
+                + "] in convertSlotRefToAttribute.");
 
     }
 
     private String convertLiteralToOdpsValues(OdpsType odpsType, Expr expr) throws AnalysisException {
         if (!(expr instanceof LiteralExpr)) {
             throw new AnalysisException("Do not support convert ["
-                    + expr.getExprName() + "] in convertSlotRefToAttribute.");
+                    + expr.accept(ExprToExprNameVisitor.INSTANCE, null)
+                    + "] in convertSlotRefToAttribute.");
         }
         LiteralExpr literalExpr = (LiteralExpr) expr;
 
@@ -702,6 +706,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
         long getOdpsTableTime = System.currentTimeMillis();
         LOG.info("MaxComputeScanNode getSplits: getOdpsTable cost {} ms", getOdpsTableTime - startTime);
+
+        if (MaxComputeExternalTable.isUnsupportedOdpsTable(odpsTable)) {
+            throw new UserException("Reading MaxCompute external table or logical view is not supported: "
+                    + table.getDbName() + "." + table.getName());
+        }
 
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;

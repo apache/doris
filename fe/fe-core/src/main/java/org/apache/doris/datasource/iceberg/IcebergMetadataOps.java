@@ -44,6 +44,11 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -52,13 +57,16 @@ import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
@@ -73,11 +81,11 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -92,6 +100,8 @@ import java.util.stream.Stream;
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
+    private static final String NAMESPACE_LOCATION_PROP = "location";
+    private static final List<String> ICEBERG_TABLE_LOCATION_CHILD_DIRS = Arrays.asList("data", "metadata");
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -191,7 +201,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 // IcebergMetadataOps handles listTableNames and listViewNames separately.
                 // listTableNames should only focus on the table type,
                 // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
-                if (catalog instanceof ViewCatalog) {
+                if (isViewCatalogEnabled()) {
                     views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
                             .stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
@@ -298,7 +308,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 return;
             }
         }
-        nsCatalog.dropNamespace(getNamespace(dorisDb.getRemoteName()));
+        Namespace namespace = getNamespace(dorisDb.getRemoteName());
+        Optional<String> namespaceLocation = shouldCleanupManagedLocation()
+                ? loadNamespaceLocation(namespace) : Optional.empty();
+        nsCatalog.dropNamespace(namespace);
+        namespaceLocation.ifPresent(location -> cleanupEmptyLocation(location, "database", dbName, false));
     }
 
     @Override
@@ -359,6 +373,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
+        properties.putIfAbsent(TableProperties.FORMAT_VERSION, "2");
+        properties.putIfAbsent(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        properties.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        properties.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createTableInfo.getPartitionDesc(),
                 schema);
         // Build and create table with optional sort order
@@ -422,7 +440,103 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, remoteTblName, remoteDbName);
             }
         }
-        catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), true);
+        TableIdentifier tableIdentifier = getTableIdentifier(remoteDbName, remoteTblName);
+        Optional<String> tableLocation = shouldCleanupManagedLocation()
+                ? loadTableLocation(tableIdentifier) : Optional.empty();
+        catalog.dropTable(tableIdentifier, true);
+        tableLocation.ifPresent(location ->
+                cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName, true));
+    }
+
+    private Optional<String> loadNamespaceLocation(Namespace namespace) {
+        Map<String, String> namespaceMetadata = nsCatalog.loadNamespaceMetadata(namespace);
+        String location = namespaceMetadata.get(NAMESPACE_LOCATION_PROP);
+        return StringUtils.isBlank(location) ? Optional.empty() : Optional.of(location);
+    }
+
+    private Optional<String> loadTableLocation(TableIdentifier tableIdentifier) {
+        String location = catalog.loadTable(tableIdentifier).location();
+        return StringUtils.isBlank(location) ? Optional.empty() : Optional.of(location);
+    }
+
+    private void cleanupEmptyLocation(
+            String location, String objectType, String objectName, boolean cleanupIcebergTableChildren) {
+        if (!shouldCleanupManagedLocation() || StringUtils.isBlank(location)) {
+            return;
+        }
+        try (FileSystem fs = createCleanupFileSystem()) {
+            boolean deleted = cleanupIcebergTableChildren
+                    ? deleteEmptyTableLocation(fs, Location.of(location))
+                    : deleteEmptyDirectory(fs, Location.of(location));
+            if (deleted) {
+                LOG.info("Cleaned empty Iceberg {} location {} for {}", objectType, location, objectName);
+            } else {
+                LOG.info("Skip cleaning Iceberg {} location {} for {}, because it still contains files",
+                        objectType, location, objectName);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to clean Iceberg {} location {} for {} after drop",
+                    objectType, location, objectName, e);
+        }
+    }
+
+    private boolean shouldCleanupManagedLocation() {
+        // Only cleanup HMS-Iceberg location
+        return dorisCatalog instanceof IcebergExternalCatalog
+                && IcebergExternalCatalog.ICEBERG_HMS.equals(
+                        ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType());
+    }
+
+    @VisibleForTesting
+    protected FileSystem createCleanupFileSystem() {
+        return new SpiSwitchingFileSystem(dorisCatalog.getCatalogProperty().getStoragePropertiesMap());
+    }
+
+    @VisibleForTesting
+    static boolean deleteEmptyDirectory(FileSystem fs, Location location) throws IOException {
+        if (!fs.exists(location)) {
+            return true;
+        }
+        List<Location> childDirectories = new ArrayList<>();
+        try (FileIterator iterator = fs.list(location)) {
+            while (iterator.hasNext()) {
+                FileEntry entry = iterator.next();
+                if (!entry.isDirectory()) {
+                    return false;
+                }
+                childDirectories.add(entry.location());
+            }
+        }
+        for (Location childDirectory : childDirectories) {
+            if (!deleteEmptyDirectory(fs, childDirectory)) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectoryMarker(fs, location);
+    }
+
+    @VisibleForTesting
+    static boolean deleteEmptyTableLocation(FileSystem fs, Location location) throws IOException {
+        for (String childDir : ICEBERG_TABLE_LOCATION_CHILD_DIRS) {
+            if (!deleteEmptyDirectory(fs, location.resolve(childDir))) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectory(fs, location);
+    }
+
+    private static boolean deleteEmptyDirectoryMarker(FileSystem fs, Location location) throws IOException {
+        Location directoryMarker = Location.of(withTrailingSlash(location.uri()));
+        try {
+            fs.delete(directoryMarker, false);
+        } catch (IOException e) {
+            return !fs.exists(location);
+        }
+        return !fs.exists(location);
+    }
+
+    private static String withTrailingSlash(String uri) {
+        return uri.endsWith("/") ? uri : uri + "/";
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
@@ -1127,7 +1241,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean viewExists(String remoteDbName, String remoteViewName) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return false;
         }
         try {
@@ -1140,8 +1254,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public View loadView(String dbName, String tblName) {
-        if (!(catalog instanceof ViewCatalog)) {
+    public Object loadView(String dbName, String tblName) {
+        if (!isViewCatalogEnabled()) {
             return null;
         }
         try {
@@ -1155,7 +1269,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listViewNames(String db) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return Collections.emptyList();
         }
         try {
@@ -1193,12 +1307,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return externalCatalogName.map(Namespace::of).orElseGet(() -> Namespace.empty());
     }
 
+    private boolean isViewCatalogEnabled() {
+        if (!(catalog instanceof ViewCatalog)) {
+            return false;
+        }
+        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
+            MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
+            if (metaProps instanceof IcebergRestProperties) {
+                return ((IcebergRestProperties) metaProps).isIcebergRestViewEnabled();
+            }
+        }
+        return true;
+    }
+
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
         return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             throw new DdlException("Drop Iceberg view is not supported with not view catalog.");
         }
         ViewCatalog viewCatalog = (ViewCatalog) catalog;

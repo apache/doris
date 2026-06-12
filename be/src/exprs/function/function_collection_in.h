@@ -40,7 +40,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct ColumnRowRef {
     ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
@@ -114,8 +113,7 @@ public:
             // Types like struct, array, and map only support constant expressions.
             DCHECK(const_column_ptr != nullptr);
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
-            if (col->is_nullable()) {
-                const auto* null_col = check_and_get_column<ColumnNullable>(col.get());
+            if (const auto* null_col = check_and_get_column<ColumnNullable>(col.get())) {
                 if (null_col->has_null()) {
                     state->null_in_set = true;
                 } else {
@@ -137,7 +135,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto in_state = reinterpret_cast<CollectionInState*>(
+        auto* in_state = reinterpret_cast<CollectionInState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
             return Status::RuntimeError("function context for function '{}' must have Set;",
@@ -156,14 +154,15 @@ public:
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
         auto materialized_column_not_null = materialized_column;
-        if (materialized_column_not_null->is_nullable()) {
-            materialized_column_not_null = assert_cast<ColumnPtr>(
-                    check_and_get_column<ColumnNullable>(materialized_column_not_null.get())
-                            ->get_nested_column_ptr());
+        if (is_column_nullable(*materialized_column_not_null)) {
+            materialized_column_not_null =
+                    assert_cast<const ColumnNullable*>(materialized_column_not_null.get())
+                            ->get_nested_column_ptr();
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            bool find = args_set.find({materialized_column_not_null, i}) != args_set.end();
+            bool find = args_set.contains(
+                    {materialized_column_not_null, index_check_const(i, col_const)});
 
             if constexpr (negative) {
                 vec_res[i] = !find;
@@ -189,5 +188,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

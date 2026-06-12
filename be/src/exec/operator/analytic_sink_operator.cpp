@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
@@ -341,8 +340,9 @@ bool AnalyticSinkLocalState::_get_next_for_range_between(int64_t current_block_r
     return false;
 }
 
-Status AnalyticSinkLocalState::_execute_impl() {
+Status AnalyticSinkLocalState::_execute_impl(RuntimeState* state) {
     while (_output_block_index < _input_blocks.size()) {
+        RETURN_IF_CANCELLED(state);
         {
             _get_partition_by_end();
             // streaming_mode means no need get all parition data, could calculate data when it's arrived
@@ -461,7 +461,7 @@ void AnalyticSinkLocalState::_init_result_columns() {
 void AnalyticSinkLocalState::_refresh_buffer_and_dependency_state(Block* block) {
     size_t buffer_size = 0;
     {
-        std::unique_lock<std::mutex> lc(_shared_state->buffer_mutex);
+        LockGuard lc(_shared_state->buffer_mutex);
         _shared_state->blocks_buffer.push(std::move(*block));
         buffer_size = _shared_state->blocks_buffer.size();
     }
@@ -745,7 +745,7 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_block, bool eos) {
+Status AnalyticSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -754,9 +754,9 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_bloc
     local_state._reserve_mem_size = 0;
     SCOPED_PEAK_MEM(&local_state._reserve_mem_size);
     RETURN_IF_ERROR(_add_input_block(state, input_block));
-    RETURN_IF_ERROR(local_state._execute_impl());
+    RETURN_IF_ERROR(local_state._execute_impl(state));
     if (local_state._input_eos) {
-        std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+        LockGuard lc(local_state._shared_state->sink_eos_lock);
         local_state._shared_state->sink_eos = true;
         local_state._dependency->set_ready_to_read(); // ready for source to read
     }

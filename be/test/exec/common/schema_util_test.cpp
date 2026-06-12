@@ -61,6 +61,21 @@ void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t 
     tablet_index->add_col_unique_id(col_unique_id);
 }
 
+void append_inverted_index_for_path(TabletSchemaSPtr schema, int64_t index_id,
+                                    const std::string& index_name, int32_t col_unique_id,
+                                    const std::string& suffix_path) {
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(index_id);
+    index_pb.set_index_name(index_name);
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(col_unique_id);
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    index.set_escaped_escaped_index_suffix_path(suffix_path);
+    schema->append_index(std::move(index));
+}
+
 void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type, int32_t col_unique_id,
                          std::string_view path, std::vector<TabletColumn>* subcolumns) {
     TabletColumn subcol;
@@ -707,8 +722,8 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     Block block;
 
     // Create a variant column with JSON string data
-    auto variant_type = std::make_shared<DataTypeVariant>(10);
-    auto variant_column = ColumnVariant::create(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
+    auto variant_column = ColumnVariant::create(10, false);
     auto root_column = ColumnString::create();
     root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
@@ -773,12 +788,10 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     EXPECT_EQ(result->size(), 1);
 
     // Test casting to variant type
-    auto variant_type = std::make_shared<DataTypeVariant>(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
     auto nullable_array_type =
             make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
-    auto array_column =
-            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
-    auto nullable_array_column = make_nullable(array_column->get_ptr());
+    ColumnPtr nullable_array_column = nullable_array_type->create_column()->get_ptr();
 
     ColumnWithTypeAndName array_col;
     array_col.type = nullable_array_type;
@@ -801,8 +814,9 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     EXPECT_TRUE(result1->is_nullable());
 
     // Test casting from variant to variant
-    auto variant_column = ColumnVariant::create(10);
-    variant_column->create_root(nullable_array_type, nullable_array_column->assume_mutable());
+    auto variant_column = ColumnVariant::create(10, false);
+    // nullable_array_column is also stored in array_col.column (use_count=2), so mutate() clones it.
+    variant_column->create_root(nullable_array_type, IColumn::mutate(nullable_array_column));
 
     ColumnWithTypeAndName variant_col;
     variant_col.type = variant_type;
@@ -821,8 +835,8 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
     auto simple_type = std::make_shared<DataTypeJsonb>();
 
     // Insert some test dataset
-    auto nested_array =
-            ColumnArray::create(ColumnIPv4::create(), ColumnArray::ColumnOffsets::create());
+    auto nested_array = ColumnArray::create(make_nullable(ColumnIPv4::create()),
+                                            ColumnArray::ColumnOffsets::create());
     nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(1))));
     nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(2))));
 
@@ -1178,6 +1192,50 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
     EXPECT_EQ(variant_col.get_sub_columns().size(), 0);
 }
 
+TEST_F(SchemaUtilTest,
+       get_extended_compaction_schema_nested_group_ignores_existing_extracted_subcolumns) {
+    TabletColumn variant;
+    variant.set_unique_id(1);
+    variant.set_name("v1");
+    variant.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant.set_is_nullable(true);
+    variant.set_variant_enable_nested_group(true);
+    variant.set_variant_max_subcolumns_count(0);
+
+    TabletColumn typed_subcolumn;
+    typed_subcolumn.set_unique_id(-1);
+    typed_subcolumn.set_name("v1.owner");
+    typed_subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    typed_subcolumn.set_is_nullable(true);
+    typed_subcolumn.set_parent_unique_id(1);
+    typed_subcolumn.set_path_info(PathInData("v1.owner", true));
+
+    TabletSchemaSPtr target_schema = std::make_shared<TabletSchema>();
+    target_schema->append_column(variant);
+    target_schema->append_column(typed_subcolumn);
+    append_inverted_index_for_path(target_schema, 30000, "v1_owner_idx", 1, "v1.owner");
+
+    auto source_indexes = target_schema->inverted_indexs(typed_subcolumn);
+    ASSERT_EQ(source_indexes.size(), 1);
+    EXPECT_EQ(source_indexes[0]->index_name(), "v1_owner_idx");
+
+    std::vector<RowsetSharedPtr> rowsets;
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            rowsets, target_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    // get_extended_compaction_schema rebuilds from the base columns. Real compaction targets do
+    // not carry pre-existing extracted columns, so NG compaction must rely on rowset metadata for
+    // regular paths and on get_compaction_typed_columns() for typed paths.
+    EXPECT_EQ(target_schema->num_columns(), 1);
+    const PathInData typed_path("v1.owner", true);
+    EXPECT_EQ(target_schema->field_index(typed_path), -1);
+
+    const auto* path_set_info = target_schema->try_path_set_info(1);
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_FALSE(path_set_info->typed_path_set.contains("owner"));
+}
+
 TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
     // Create test subcolumns
     ColumnVariant::Subcolumns subcolumns;
@@ -1215,8 +1273,8 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     Block block;
 
     // Test parsing from string to variant
-    auto variant_type = std::make_shared<DataTypeVariant>(10);
-    auto variant_column = ColumnVariant::create(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
+    auto variant_column = ColumnVariant::create(10, false);
     auto root_column = ColumnString::create();
 
     // Add some test JSON data
@@ -1239,7 +1297,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'x': 1}"));
 
-    auto variant_column2 = ColumnVariant::create(10);
+    auto variant_column2 = ColumnVariant::create(10, false);
     variant_column2->create_root(jsonb_type, jsonb_column->get_ptr());
 
     Block block2;
@@ -1249,7 +1307,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     EXPECT_TRUE(status.ok());
 
     // Test parsing already parsed variant
-    auto variant_column3 = ColumnVariant::create(10);
+    auto variant_column3 = ColumnVariant::create(10, false);
     variant_column3->finalize();
 
     Block block3;
@@ -1263,15 +1321,15 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     Block block;
 
     // Create a nullable variant column
-    auto variant_type = make_nullable(std::make_shared<DataTypeVariant>(10));
+    auto variant_type = make_nullable(std::make_shared<DataTypeVariant>(10, false));
     auto string_type = make_nullable(std::make_shared<DataTypeString>());
 
     auto string_column = ColumnString::create();
     string_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1}"));
     auto nullable_string = make_nullable(string_column->get_ptr());
 
-    auto variant_column = ColumnVariant::create(10);
-    variant_column->create_root(string_type, nullable_string->assume_mutable());
+    auto variant_column = ColumnVariant::create(10, false);
+    variant_column->create_root(string_type, nullable_string->assert_mutable());
     auto nullable_variant = make_nullable(variant_column->get_ptr());
 
     block.insert({nullable_variant, variant_type, "nullable_variant"});
@@ -1553,6 +1611,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>(),
                                            std::make_shared<DataTypeInt64>()};  // -> BIGINT
     path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()}; // -> STRING
+    path_to_data_types[PathInData("typed", true)] = {std::make_shared<DataTypeString>()};
+    path_to_data_types[PathInData("shared")] = {std::make_shared<DataTypeInt32>()};
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo paths_set_info;
@@ -1560,22 +1620,36 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             paths_set_info, parent_column, target, path_to_data_types, output_schema);
 
-    EXPECT_EQ(output_schema->num_columns(), 2);
-    bool found_a = false, found_b = false;
+    EXPECT_EQ(output_schema->num_columns(), 3);
+    bool found_a = false, found_b = false, found_typed = false, found_shared = false;
     for (const auto& col : output_schema->columns()) {
         if (col->name() == "v1.a") {
             found_a = true;
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
             EXPECT_EQ(col->parent_unique_id(), 1);
             EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.a");
+            EXPECT_FALSE(col->path_info_ptr()->get_is_typed());
         } else if (col->name() == "v1.b") {
             found_b = true;
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
             EXPECT_EQ(col->parent_unique_id(), 1);
             EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.b");
+            EXPECT_FALSE(col->path_info_ptr()->get_is_typed());
+        } else if (col->name() == "v1.typed") {
+            found_typed = true;
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
+            EXPECT_EQ(col->parent_unique_id(), 1);
+            EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.typed");
+            EXPECT_TRUE(col->path_info_ptr()->get_is_typed());
+        } else if (col->name() == "v1.shared" && !col->path_info_ptr()->get_is_typed()) {
+            found_shared = true;
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_INT);
+            EXPECT_EQ(col->parent_unique_id(), 1);
+            EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.shared");
         }
     }
-    EXPECT_TRUE(found_a && found_b);
+    EXPECT_TRUE(found_a && found_b && found_shared);
+    EXPECT_FALSE(found_typed);
 
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.find("a") !=
                 paths_set_info.subcolumn_indexes.end());
@@ -1583,6 +1657,14 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
                 paths_set_info.subcolumn_indexes.end());
     EXPECT_EQ(paths_set_info.subcolumn_indexes["a"].size(), 1);
     EXPECT_EQ(paths_set_info.subcolumn_indexes["b"].size(), 1);
+    EXPECT_FALSE(paths_set_info.subcolumn_indexes.contains("typed"));
+    ASSERT_TRUE(paths_set_info.subcolumn_indexes.contains("shared"));
+    EXPECT_EQ(paths_set_info.subcolumn_indexes.at("shared").size(), 1);
+    EXPECT_FALSE(paths_set_info.typed_path_set.contains("typed"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("a"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("b"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("shared"));
+    EXPECT_FALSE(paths_set_info.sub_path_set.contains("typed"));
 }
 
 // Test has_different_structure_in_same_path function indirectly through check_variant_has_no_ambiguous_paths
@@ -1864,14 +1946,14 @@ TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
     // Prepare the variant column with the string column as root
     ColumnVariant::Subcolumns dynamic_subcolumns;
     dynamic_subcolumns.create_root(
-            ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
+            ColumnVariant::Subcolumn(std::move(string_col), string_type, true));
 
-    auto variant_col = ColumnVariant::create(0, std::move(dynamic_subcolumns));
+    auto variant_col = ColumnVariant::create(0, false, std::move(dynamic_subcolumns));
     auto variant_type = std::make_shared<DataTypeVariant>();
 
     // Construct the block
     Block block;
-    block.insert(ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
+    block.insert(ColumnWithTypeAndName(std::move(variant_col), variant_type, "v"));
 
     // The variant column is at index 0
     std::vector<uint32_t> variant_pos = {0};

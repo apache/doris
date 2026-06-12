@@ -32,6 +32,9 @@
 #include <vector>
 
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_ms_rpc_rate_limit_services.h"
+#include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -44,9 +47,8 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
-#include "exec/pipeline/pipeline_tracing.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/scan/scanner_scheduler.h"
@@ -97,9 +99,10 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/id_manager.h"
+#include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
@@ -139,7 +142,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
 
@@ -315,7 +317,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_file_cache_factory(cache_paths);
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
-    _pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>(); // before query
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();
@@ -433,6 +434,17 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
         // Start cluster info background worker for compaction read-write separation
         static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
+
+        // Initialize MS RPC rate limiters and table-level backpressure handling.
+        _ms_rpc_rate_limit_services = std::make_unique<MSRpcRateLimitServices>();
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_host_level_ms_rpc_rate_limiters(
+                        _ms_rpc_rate_limit_services->host_level_ms_rpc_rate_limiters());
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_ms_backpressure_handler(
+                        _ms_rpc_rate_limit_services->ms_backpressure_handler());
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
@@ -580,6 +592,20 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
+    // Init ANN index IVF list cache (dedicated cache for IVF on disk)
+    {
+        int64_t ann_cache_limit = ParseUtil::parse_mem_spec(config::ann_index_ivf_list_cache_limit,
+                                                            MemInfo::mem_limit(),
+                                                            MemInfo::physical_mem(), &is_percent);
+        while (!is_percent && ann_cache_limit > MemInfo::mem_limit() / 2) {
+            ann_cache_limit = ann_cache_limit / 2;
+        }
+        _ann_index_ivf_list_cache = AnnIndexIVFListCache::create_global_cache(ann_cache_limit);
+        LOG(INFO) << "ANN index IVF list cache memory limit: "
+                  << PrettyPrinter::print(ann_cache_limit, TUnit::BYTES)
+                  << ", origin config value: " << config::ann_index_ivf_list_cache_limit;
+    }
+
     // Init row cache
     int64_t row_cache_mem_limit =
             ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
@@ -627,8 +653,6 @@ Status ExecEnv::init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << segment_cache_mem_limit;
 
-    _schema_cache = new SchemaCache(config::schema_cache_capacity);
-
     size_t block_file_cache_fd_cache_size =
             std::min((uint64_t)config::file_cache_max_file_reader_cache_size, fd_number / 3);
     LOG(INFO) << "max file reader cache size is: " << block_file_cache_fd_cache_size
@@ -669,6 +693,16 @@ Status ExecEnv::init_mem_env() {
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_query_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
+
+    // ANN index topn result cache
+    int64_t ann_topn_cache_limit =
+            ParseUtil::parse_mem_spec(config::ann_index_result_cache_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    _ann_index_result_cache =
+            segment_v2::AnnIndexResultCache::create_global_cache(ann_topn_cache_limit);
+    LOG(INFO) << "ANN index topn result cache memory limit: "
+              << PrettyPrinter::print(ann_topn_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::ann_index_result_cache_limit;
 
     // use memory limit
     int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;
@@ -711,7 +745,7 @@ void ExecEnv::init_mem_tracker() {
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, "SegCompaction");
     _tablets_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::METADATA, "Tablets(not in SchemaCache, TabletSchemaCache)");
+            MemTrackerLimiter::Type::METADATA, "Tablets(not in TabletSchemaCache)");
     _segments_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::METADATA, "Segments(not in SegmentCache)");
     _rowsets_no_cache_mem_tracker =
@@ -846,7 +880,7 @@ void ExecEnv::destroy() {
         static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
     }
 
-    // StorageEngine must be destoried before _cache_manager destory
+    // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
@@ -871,7 +905,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_condition_cache);
     SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
-    SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
@@ -883,6 +916,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_column_object_pool);
 
     // _storage_page_cache must be destoried before _cache_manager
+    SAFE_DELETE(_ann_index_ivf_list_cache);
     SAFE_DELETE(_storage_page_cache);
 
     SAFE_DELETE(_small_file_mgr);
@@ -979,6 +1013,34 @@ void ExecEnv::destroy() {
 } // namespace doris
 
 namespace doris::config {
+namespace {
+
+void refresh_ms_rpc_rate_limiters() {
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->reset_host_level_rate_limiters();
+    }
+}
+
+void refresh_ms_backpressure_throttle_params() {
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->update_backpressure_throttle_params(ms_backpressure_upgrade_top_k,
+                                                      ms_backpressure_throttle_ratio,
+                                                      ms_rpc_table_qps_limit_floor);
+    }
+}
+
+void refresh_ms_backpressure_coordinator_params() {
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->update_backpressure_coordinator_params(ms_backpressure_upgrade_interval_ms,
+                                                         ms_backpressure_downgrade_interval_ms);
+    }
+}
+
+} // namespace
+
 // Callback to update warmup download rate limiter when config changes is registered
 DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
                  [](int64_t old_val, int64_t new_val) {
@@ -996,4 +1058,45 @@ DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
                          }
                      }
                  });
+
+DEFINE_ON_UPDATE(ms_rpc_qps_default, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_rpc_rate_limiters();
+    }
+});
+
+#define DEFINE_MS_RPC_QPS_ON_UPDATE(enum_name, config_suffix, display_name)             \
+    DEFINE_ON_UPDATE(ms_rpc_qps_##config_suffix, [](int32_t old_val, int32_t new_val) { \
+        if (old_val != new_val) {                                                       \
+            refresh_ms_rpc_rate_limiters();                                             \
+        }                                                                               \
+    });
+META_SERVICE_RPC_TYPES(DEFINE_MS_RPC_QPS_ON_UPDATE)
+#undef DEFINE_MS_RPC_QPS_ON_UPDATE
+
+DEFINE_ON_UPDATE(ms_backpressure_upgrade_interval_ms, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_coordinator_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_downgrade_interval_ms, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_coordinator_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_upgrade_top_k, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_throttle_ratio, [](double old_val, double new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_rpc_table_qps_limit_floor, [](double old_val, double new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
 } // namespace doris::config

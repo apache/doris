@@ -21,7 +21,8 @@ suite("test_es_flatten_type", "p0,external") {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String es_7_port = context.config.otherConfigs.get("es_7_port")
 
-        sql """drop catalog if exists test_es7_flatten_type;"""
+        sql """drop catalog if exists test_es_query_es7_false;"""
+        sql """drop catalog if exists test_es_query_es7_true;"""
 
         sql """create catalog test_es_query_es7_false properties(
             "type"="es",

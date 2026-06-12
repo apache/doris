@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/common/stringop_substring.h"
-#include "exprs/function/function_string.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -28,8 +31,6 @@ namespace iceberg {
 class Type;
 class PartitionField;
 }; // namespace iceberg
-
-#include "common/compile_check_begin.h"
 
 class IColumn;
 class PartitionColumnTransform;
@@ -49,7 +50,9 @@ public:
         static DateV2Value<DateV2ValueType> epoch_date;
         static bool initialized = false;
         if (!initialized) {
-            epoch_date.from_date_str("1970-01-01 00:00:00", 19);
+            CastParameters params;
+            DORIS_CHECK((CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"1970-01-01 00:00:00", 19}, epoch_date, nullptr, params)));
             initialized = true;
         }
         return epoch_date;
@@ -59,7 +62,9 @@ public:
         static DateV2Value<DateTimeV2ValueType> epoch_datetime;
         static bool initialized = false;
         if (!initialized) {
-            epoch_datetime.from_date_str("1970-01-01 00:00:00", 19);
+            CastParameters params;
+            DORIS_CHECK((CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"1970-01-01 00:00:00", 19}, epoch_datetime, nullptr, -1, params)));
             initialized = true;
         }
         return epoch_datetime;
@@ -212,7 +217,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -269,7 +274,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -335,7 +340,7 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
+        const auto* const decimal_col = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
         auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
@@ -387,7 +392,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -448,7 +453,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -511,7 +516,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -585,7 +590,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -651,7 +656,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -729,7 +734,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -791,7 +796,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -860,7 +865,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -929,7 +934,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -998,7 +1003,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1067,7 +1072,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1141,7 +1146,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1214,7 +1219,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1296,4 +1301,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -42,6 +42,12 @@ under the License.
             <scope>provided</scope>
         </dependency>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
             <version>${maxcompute.version}</version>
@@ -101,7 +107,6 @@ under the License.
                     <forkCount>${fe_ut_parallel}</forkCount>
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
-                    <argLine>-javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar</argLine>
                 </configuration>
             </plugin>
         </plugins>

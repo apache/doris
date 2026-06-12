@@ -49,6 +49,18 @@ suite("test_variant_predefine_index_type", "p0"){
     sql """ set inverted_index_skip_threshold = 0 """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
+
+    sql """ set enable_segment_limit_pushdown = false """
+    qt_count_on_index_with_segment_limit_disabled """
+        select count() from ${tableName} where cast(var['path']['int'] as int) = 789
+    """
+    sql """ set enable_count_on_index_pushdown = false """
+    qt_match_with_segment_limit_disabled """
+        select id from ${tableName} where var['path']['string'] match 'hello' order by id
+    """
+    sql """ set enable_count_on_index_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
+
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
     qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
     qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """
@@ -88,7 +100,6 @@ suite("test_variant_predefine_index_type", "p0"){
         "storage_format" = "V2",
         "inverted_index_storage_format" = "V2",
         "light_schema_change" = "true",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "disable_auto_compaction" = "true"

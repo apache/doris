@@ -20,10 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -46,7 +46,7 @@ public class PauseMTMVInfo {
      * @param ctx ConnectContext
      */
     public void analyze(ConnectContext ctx) {
-        mvName.analyze(ctx);
+        mvName.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.CREATE)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",

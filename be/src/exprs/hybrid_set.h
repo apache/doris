@@ -27,10 +27,10 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/runtime_filter/utils.h"
+#include "exprs/bitset_container.h"
 #include "exprs/filter_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
 /**
@@ -72,65 +72,20 @@ public:
     // Use '|' instead of '||' has better performance by test.
     ALWAYS_INLINE bool find(const T& value) const {
         DCHECK_EQ(N, _size);
-        if constexpr (N == 0) {
-            return false;
-        }
-        if constexpr (N == 1) {
-            return (Compare::equal(value, _data[0]));
-        }
-        if constexpr (N == 2) {
-            return (uint8_t)(Compare::equal(value, _data[0])) |
-                   (uint8_t)(Compare::equal(value, _data[1]));
-        }
-        if constexpr (N == 3) {
-            return (uint8_t)(Compare::equal(value, _data[0])) |
-                   (uint8_t)(Compare::equal(value, _data[1])) |
-                   (uint8_t)(Compare::equal(value, _data[2]));
-        }
-        if constexpr (N == 4) {
-            return (uint8_t)(Compare::equal(value, _data[0])) |
-                   (uint8_t)(Compare::equal(value, _data[1])) |
-                   (uint8_t)(Compare::equal(value, _data[2])) |
-                   (uint8_t)(Compare::equal(value, _data[3]));
-        }
-        if constexpr (N == 5) {
-            return (uint8_t)(Compare::equal(value, _data[0])) |
-                   (uint8_t)(Compare::equal(value, _data[1])) |
-                   (uint8_t)(Compare::equal(value, _data[2])) |
-                   (uint8_t)(Compare::equal(value, _data[3])) |
-                   (uint8_t)(Compare::equal(value, _data[4]));
-        }
-        if constexpr (N == 6) {
-            return (uint8_t)(Compare::equal(value, _data[0])) |
-                   (uint8_t)(Compare::equal(value, _data[1])) |
-                   (uint8_t)(Compare::equal(value, _data[2])) |
-                   (uint8_t)(Compare::equal(value, _data[3])) |
-                   (uint8_t)(Compare::equal(value, _data[4])) |
-                   (uint8_t)(Compare::equal(value, _data[5]));
-        }
-        if constexpr (N == 7) {
-            return (uint8_t)(Compare::equal(value, _data[0])) |
-                   (uint8_t)(Compare::equal(value, _data[1])) |
-                   (uint8_t)(Compare::equal(value, _data[2])) |
-                   (uint8_t)(Compare::equal(value, _data[3])) |
-                   (uint8_t)(Compare::equal(value, _data[4])) |
-                   (uint8_t)(Compare::equal(value, _data[5])) |
-                   (uint8_t)(Compare::equal(value, _data[6]));
-        }
-        if constexpr (N == FIXED_CONTAINER_MAX_SIZE) {
-            return (uint8_t)(Compare::equal(value, _data[0])) |
-                   (uint8_t)(Compare::equal(value, _data[1])) |
-                   (uint8_t)(Compare::equal(value, _data[2])) |
-                   (uint8_t)(Compare::equal(value, _data[3])) |
-                   (uint8_t)(Compare::equal(value, _data[4])) |
-                   (uint8_t)(Compare::equal(value, _data[5])) |
-                   (uint8_t)(Compare::equal(value, _data[6])) |
-                   (uint8_t)(Compare::equal(value, _data[7]));
-        }
-        CHECK(false) << "unreachable path";
-        return false;
+        return _find_impl(value, std::make_index_sequence<N> {});
     }
 
+private:
+    template <size_t... I>
+    ALWAYS_INLINE bool _find_impl(const T& value, std::index_sequence<I...>) const {
+        if constexpr (sizeof...(I) == 0) {
+            return false;
+        } else {
+            return (... | (uint8_t)(Compare::equal(value, _data[I])));
+        }
+    }
+
+public:
     size_t size() const { return _size; }
 
     class Iterator {
@@ -180,6 +135,12 @@ struct IsFixedContainer : std::false_type {};
 
 template <typename T, size_t N>
 struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
+
+template <typename T>
+struct IsBitSetContainer : std::false_type {};
+
+template <typename T>
+struct IsBitSetContainer<BitSetContainer<T>> : std::true_type {};
 
 /**
  * Dynamic Container uses phmap::flat_hash_set.
@@ -307,11 +268,10 @@ public:
                                    "HybridSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
             for (size_t i = start; i < end; i++) {
@@ -500,10 +460,9 @@ public:
                                    "StringSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString64&>(nullable->get_nested_column()),
@@ -704,10 +663,9 @@ public:
                                    "StringSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString64&>(nullable->get_nested_column()),
@@ -853,5 +811,4 @@ private:
     ContainerType _set;
     ObjectPool _pool;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

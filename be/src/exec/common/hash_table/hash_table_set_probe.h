@@ -19,7 +19,6 @@
 #include "exec/operator/set_probe_sink_operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <class HashTableContext, bool is_intersected>
 struct HashTableProbe {
     template <typename Parent>
@@ -57,5 +56,4 @@ private:
     ColumnRawPtrs& _probe_raw_ptrs;
     std::vector<StringRef> _probe_keys;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

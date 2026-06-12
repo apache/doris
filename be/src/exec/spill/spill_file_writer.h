@@ -26,7 +26,6 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/workload_management/resource_context.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class SpillDataDir;
@@ -90,9 +89,6 @@ private:
     size_t _part_max_sub_block_size = 0;
     std::string _part_meta;
 
-    // ── Cumulative state ──
-    int64_t _total_written_bytes = 0;
-    size_t _total_parts = 0;
     bool _closed = false;
 
     // ── Counters ──
@@ -110,5 +106,3 @@ private:
 };
 using SpillFileWriterSPtr = std::shared_ptr<SpillFileWriter>;
 } // namespace doris
-
-#include "common/compile_check_end.h"

@@ -162,6 +162,6 @@ suite("test_p_seq_publish_read_from_old") {
     wait_for_publish(txnId2, 60)
 
     sql "sync;"
-    qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
-    inspectRows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;"
+    qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__;"
+    inspectRows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,v1,v2,v3,v4,v5,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;"
 }

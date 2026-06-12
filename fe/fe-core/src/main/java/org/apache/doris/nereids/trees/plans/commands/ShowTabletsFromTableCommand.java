@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -36,7 +37,6 @@ import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -105,7 +105,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLETS");
         }
 
-        dbTableName.analyze(ctx);
+        dbTableName.analyze(ctx.getNameSpaceContext());
         Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
 
         if (partitionNames != null) {

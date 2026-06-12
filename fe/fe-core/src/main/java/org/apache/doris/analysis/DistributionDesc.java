@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
@@ -30,7 +29,6 @@ import java.util.List;
 import java.util.Set;
 
 public class DistributionDesc {
-    protected DistributionInfoType type;
     protected int numBucket;
     protected boolean autoBucket;
 

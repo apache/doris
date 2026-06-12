@@ -34,7 +34,6 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
@@ -50,7 +49,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
@@ -98,9 +96,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.block_row_max = read_context->batch_size;
+    _read_options.preferred_block_size_bytes = read_context->preferred_block_size_bytes;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
-    _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
     _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
 
@@ -114,8 +112,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.collection_statistics = _read_context->collection_statistics;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
+    _read_options.commit_tso = _rowset->rowset_meta()->commit_tso();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
-    _read_options.topn_limit = _topn_limit;
+    _read_options.read_limit = _topn_limit;
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),
@@ -214,6 +213,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
+    _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
@@ -363,5 +363,4 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
             _read_context->enable_unique_key_merge_on_write ||
             _read_context->enable_mor_value_predicate_pushdown);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

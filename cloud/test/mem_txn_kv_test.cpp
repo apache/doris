@@ -25,6 +25,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/util.h"
 #include "meta-service/doris_txn.h"
 #include "meta-store/codec.h"
@@ -47,6 +48,9 @@ int main(int argc, char** argv) {
         std::cout << "exit inti FdbTxnKv error" << std::endl;
         return -1;
     }
+    DORIS_CLOUD_DEFER {
+        fdb_txn_kv.reset();
+    };
 
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
@@ -1301,7 +1305,7 @@ TEST(TxnMemKvTest, ReverseFullRangeGet) {
             std::string begin = range_begin, end = range_end;
 
             std::unique_ptr<RangeGetIterator> it;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 err = txn->get(begin, end, &it, options);
                 ASSERT_EQ(err, TxnErrorCode::TXN_OK);
 
@@ -1312,7 +1316,7 @@ TEST(TxnMemKvTest, ReverseFullRangeGet) {
                 // Get next begin key for reverse range get
                 end = it->last_key();
                 options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
-            } while (it->more());
+            }
         }
 
         std::vector<std::string> actual_keys;

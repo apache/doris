@@ -41,7 +41,6 @@
 using std::string;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace Jni {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
@@ -209,7 +208,7 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
     std::string return_msg;
     auto* msg_str = env->GetStringUTFChars(msg, nullptr);
     return_msg += msg_str;
-    env->ReleaseStringUTFChars((jstring)msg, msg_str);
+    env->ReleaseStringUTFChars(msg, msg_str);
 
     if (log_stack) {
         jstring stack = static_cast<jstring>(
@@ -425,5 +424,4 @@ Status Util::_init_register_natives() {
 }
 
 } // namespace Jni
-#include "common/compile_check_end.h"
 } // namespace doris

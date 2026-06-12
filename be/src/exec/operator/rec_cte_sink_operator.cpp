@@ -18,7 +18,6 @@
 #include "exec/operator/rec_cte_sink_operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status RecCTESinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());

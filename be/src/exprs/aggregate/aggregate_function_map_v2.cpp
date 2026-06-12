@@ -20,7 +20,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_agg_function_map_agg_v2(const DataTypes& argument_types,
                                                     const bool result_is_nullable,
@@ -55,6 +54,7 @@ AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& nam
     case PrimitiveType::TYPE_DATEV2:
     case PrimitiveType::TYPE_DATETIMEV2:
     case PrimitiveType::TYPE_TIMEV2:
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
         return create_agg_function_map_agg_v2(argument_types, result_is_nullable, attr);
     default:
         LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",

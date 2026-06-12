@@ -27,7 +27,6 @@
 #include "load/group_commit/group_commit_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class GroupCommitOperatorX;
 class GroupCommitLocalState final : public ScanLocalState<GroupCommitLocalState> {
@@ -55,12 +54,11 @@ public:
     GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs, int parallel_tasks);
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
 protected:
     friend class GroupCommitLocalState;
     const int64_t _table_id;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

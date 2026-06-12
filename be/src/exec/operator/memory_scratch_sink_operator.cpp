@@ -28,7 +28,6 @@
 #include "runtime/record_batch_queue.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status MemoryScratchSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -87,7 +86,7 @@ Status MemoryScratchSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
+Status MemoryScratchSinkOperatorX::sink_impl(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (nullptr == input_block || 0 == input_block->rows()) {

@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -69,6 +70,8 @@ import java.util.stream.Collectors;
 public abstract class FileScanNode extends ExternalScanNode {
     // For explain
     protected long totalFileSize = 0;
+    // -1 means unknown (batch-mode scans don't materialize splits on FE).
+    protected int selectedFileNum = -1;
     protected long totalPartitionNum = 0;
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
@@ -106,6 +109,10 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public long getTotalFileSize() {
         return totalFileSize;
+    }
+
+    public int getSelectedFileNum() {
+        return selectedFileNum;
     }
 
     /**
@@ -252,7 +259,16 @@ public abstract class FileScanNode extends ExternalScanNode {
             nameToSlotDesc.put(slot.getColumn().getName(), slot);
         }
 
-        for (Column column : getColumns()) {
+        // Build slot_id -> index map for required_slots to set default_value_expr inline.
+        Map<Integer, Integer> slotIdToRequiredIdx = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (int i = 0; i < params.getRequiredSlots().size(); i++) {
+                TFileScanSlotInfo slotInfo = params.getRequiredSlots().get(i);
+                slotIdToRequiredIdx.put(slotInfo.getSlotId(), i);
+            }
+        }
+
+        for (Column column : desc.getTable().getFullSchema()) {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {
@@ -293,18 +309,27 @@ public abstract class FileScanNode extends ExternalScanNode {
             // default value.
             // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
+                TExpr defaultExpr;
                 if (expression != null) {
                     expression = TypeCoercionUtils.castIfNotSameType(expression,
                             DataType.fromCatalogType(slotDesc.getType()));
                     expr = ExpressionTranslator.translate(expression,
                             new PlanTranslatorContext(CascadesContext.initTempContext()));
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), ExprToThriftVisitor.treeToThrift(expr));
+                    defaultExpr = ExprToThriftVisitor.treeToThrift(expr);
                 } else {
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                    defaultExpr = tExpr;
+                }
+                // Populate legacy map (for backward compatibility with old BE)
+                params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), defaultExpr);
+                // Also embed default expr directly in the TFileScanSlotInfo
+                Integer idx = slotIdToRequiredIdx.get(slotDesc.getId().asInt());
+                if (idx != null) {
+                    params.getRequiredSlots().get(idx).setDefaultValueExpr(defaultExpr);
                 }
             }
         }
     }
+
 
     protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason, double durationMs) {
         String admissionStatus = admitted ? "ADMITTED" : "DENIED";

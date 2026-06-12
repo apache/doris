@@ -46,6 +46,54 @@ protected:
     PartitionedAggregationTestHelper _helper;
 };
 
+namespace {
+
+constexpr auto CANCEL_REASON = "partitioned aggregation source cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
+} // namespace
+
+TEST_F(PartitionedAggregationSourceOperatorTest, RecoverBlocksFromPartitionReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_source_local_state(_helper.runtime_state.get(),
+                                                          source_operator.get(), shared_state);
+    AggSpillPartitionInfo partition;
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(
+            local_state->_recover_blocks_from_partition(_helper.runtime_state.get(), partition));
+}
+
+TEST_F(PartitionedAggregationSourceOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_source_local_state(_helper.runtime_state.get(),
+                                                          source_operator.get(), shared_state);
+    ASSERT_NE(local_state, nullptr);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(source_operator->revoke_memory(_helper.runtime_state.get()));
+}
+
+TEST_F(PartitionedAggregationSourceOperatorTest, FlushAndRepartitionReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_source_local_state(_helper.runtime_state.get(),
+                                                          source_operator.get(), shared_state);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(local_state->_flush_and_repartition(_helper.runtime_state.get()));
+}
+
 TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
     auto [source_operator, sink_operator] = _helper.create_operators();
     ASSERT_TRUE(source_operator != nullptr);
@@ -735,6 +783,44 @@ TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeWithAggContaine
     local_state->_current_partition.spill_file = spill_file;
 
     EXPECT_EQ(source_operator->revocable_mem_size(_helper.runtime_state.get()), container_bytes);
+}
+
+// Condition: partition (level + 1) >= _repartition_max_depth → 0 (not revocable).
+TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeAtMaxDepthReturnsZero) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    const auto tnode = _helper.create_test_plan_node();
+    ASSERT_TRUE(source_operator->init(tnode, _helper.runtime_state.get()).ok());
+    ASSERT_TRUE(source_operator->prepare(_helper.runtime_state.get()).ok());
+
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_source_local_state(_helper.runtime_state.get(),
+                                                          source_operator.get(), shared_state);
+
+    // Add a large block so that without the depth check, revocable_mem_size would be > 0.
+    std::vector<int32_t> large_data(300000);
+    std::iota(large_data.begin(), large_data.end(), 0);
+    auto large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
+    ASSERT_GT(large_block.allocated_bytes(), 1UL << 20);
+    local_state->_blocks.push_back(std::move(large_block));
+
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(ExecEnv::GetInstance()
+                        ->spill_file_mgr()
+                        ->create_spill_file("ut/revocable_max_depth", spill_file)
+                        .ok());
+    local_state->_current_partition.spill_file = spill_file;
+
+    ASSERT_GE(source_operator->_repartition_max_depth, 2);
+
+    // Set partition level to max depth → not revocable.
+    local_state->_current_partition.level =
+            static_cast<int>(source_operator->_repartition_max_depth) - 1;
+    EXPECT_EQ(source_operator->revocable_mem_size(_helper.runtime_state.get()), 0UL);
+
+    // Also verify level == max_depth - 2 IS still revocable.
+    local_state->_current_partition.level =
+            static_cast<int>(source_operator->_repartition_max_depth) - 2;
+    EXPECT_GT(source_operator->revocable_mem_size(_helper.runtime_state.get()), 0UL);
 }
 
 // --- Tests for PartitionedAggSourceOperatorX::revoke_memory ---

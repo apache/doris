@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -70,5 +74,33 @@ class CountLiteralRewriteTest extends TestWithFeService implements MemoPatternMa
                 .rewrite()
                 .matches(logicalAggregate().when(agg -> agg.getExpressions().stream().noneMatch(Count.class::isInstance)))
                 .printlnTree();
+    }
+
+    @Test
+    void testCountNullIsNotCountStar() {
+        // count(null) should NOT be treated as count(*)
+        Count countNull = new Count(NullLiteral.INSTANCE);
+        Assertions.assertFalse(countNull.isCountStar(),
+                "count(null) should not be count star, because count(null) is always 0");
+
+        // typed null literal: count(CAST(null AS BIGINT)) should NOT be count(*)
+        Count countTypedNull = new Count(new NullLiteral(BigIntType.INSTANCE));
+        Assertions.assertFalse(countTypedNull.isCountStar(),
+                "count(typed null) should not be count star");
+
+        // count(distinct null) should NOT be treated as count(*)
+        Count countDistinctNull = new Count(true, NullLiteral.INSTANCE);
+        Assertions.assertFalse(countDistinctNull.isCountStar(),
+                "count(distinct null) should not be count star");
+
+        // count(1) should be treated as count(*)
+        Count countOne = new Count(new BigIntLiteral(1));
+        Assertions.assertTrue(countOne.isCountStar(),
+                "count(1) should be count star");
+
+        // count(*) should be treated as count(*)
+        Count countStar = new Count();
+        Assertions.assertTrue(countStar.isCountStar(),
+                "count(*) should be count star");
     }
 }

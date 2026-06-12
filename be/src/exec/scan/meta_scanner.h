@@ -43,7 +43,6 @@ class VExprContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class MetaScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(MetaScanner);
 
@@ -98,5 +97,4 @@ private:
 
     std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

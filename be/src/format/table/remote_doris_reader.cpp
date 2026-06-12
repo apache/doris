@@ -44,7 +44,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 RemoteDorisReader::RemoteDorisReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                      RuntimeState* state, RuntimeProfile* profile,
@@ -59,7 +58,7 @@ Status RemoteDorisReader::init_reader() {
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     arrow::flight::FlightStreamChunk chunk;
     RETURN_DORIS_STATUS_IF_ERROR(_stream->Next().Value(&chunk));
 
@@ -73,20 +72,24 @@ Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* 
     auto batch = chunk.data;
     auto num_rows = batch->num_rows();
     auto num_columns = batch->num_columns();
+    const auto block_structure = block->dump_structure();
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
     for (int c = 0; c < num_columns; ++c) {
         arrow::Array* column = batch->column(c).get();
 
         std::string column_name = batch->schema()->field(c)->name();
         if (!_col_name_to_block_idx->contains(column_name)) {
             return Status::InternalError("column {} not found in block {}", column_name,
-                                         block->dump_structure());
+                                         block_structure);
         }
 
         try {
-            const ColumnWithTypeAndName& column_with_name =
-                    block->get_by_position((*_col_name_to_block_idx)[column_name]);
-            RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                    column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz));
+            auto block_pos = (*_col_name_to_block_idx)[column_name];
+            RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
+                                    ->get_serde()
+                                    ->read_column_from_arrow(*columns[block_pos], column, 0,
+                                                             num_rows, _ctzz));
         } catch (Exception& e) {
             return Status::InternalError(
                     "Failed to convert from arrow to block, column_name: {}, e: {}", column_name,
@@ -95,11 +98,12 @@ Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* 
     }
 
     *read_rows += num_rows;
+
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                      std::unordered_set<std::string>* missing_cols) {
+Status RemoteDorisReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
@@ -124,5 +128,4 @@ arrow::Status RemoteDorisReader::init_stream() {
     return arrow::Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

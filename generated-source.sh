@@ -45,8 +45,6 @@ rm -rf "${DORIS_HOME}/fe/fe-thrift/src/main/java/org/apache/doris/thrift" "${DOR
 rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
 rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet"
 
-cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-thrift/src/main/java/org/apache/doris"
-cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-thrift/src/main/java/org/apache/"
 cd "${DORIS_HOME}/"
 echo "Done"
 exit 0

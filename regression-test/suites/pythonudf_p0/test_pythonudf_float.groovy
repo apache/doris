@@ -18,7 +18,7 @@
 suite("test_pythonudf_float") {
     def pyPath   = """${context.file.parent}/udf_scripts/pyudf.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python Zip path: ${pyPath}".toString())
     try {
         sql """ DROP TABLE IF EXISTS test_pythonudf_float """
@@ -53,7 +53,8 @@ suite("test_pythonudf_float") {
             "symbol"="float_test.evaluate",
             "type"="PYTHON_UDF",
             "runtime_version" = "${runtime_version}",
-            "always_nullable" = "true"
+            "always_nullable" = "true",
+            "volatility" = "immutable"
         ); """
 
         qt_select """ SELECT python_udf_float_test(cast(2.83645 as float),cast(111.1111111 as float)) as result; """

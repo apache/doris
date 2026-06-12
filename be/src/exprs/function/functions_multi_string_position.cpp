@@ -54,7 +54,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -82,27 +81,14 @@ public:
         auto haystack_column = block.get_by_position(arguments[0]).column;
         auto needles_column = block.get_by_position(arguments[1]).column;
 
-        bool haystack_nullable = false;
-        bool needles_nullable = false;
-
-        if (haystack_column->is_nullable()) {
-            haystack_nullable = true;
-        }
-
-        if (needles_column->is_nullable()) {
-            needles_nullable = true;
-        }
-
         auto haystack_ptr = remove_nullable(haystack_column);
         auto needles_ptr = remove_nullable(needles_column);
 
-        const ColumnString* col_haystack_vector =
-                check_and_get_column<ColumnString>(&*haystack_ptr);
+        const auto* col_haystack_vector = check_and_get_column<ColumnString>(&*haystack_ptr);
         const ColumnConst* col_haystack_const =
                 check_and_get_column_const<ColumnString>(&*haystack_ptr);
 
-        const ColumnArray* col_needles_vector =
-                check_and_get_column<ColumnArray>(needles_ptr.get());
+        const auto* col_needles_vector = check_and_get_column<ColumnArray>(needles_ptr.get());
         const ColumnConst* col_needles_const =
                 check_and_get_column_const<ColumnArray>(needles_ptr.get());
 
@@ -141,35 +127,44 @@ public:
             return status;
         }
 
-        if (haystack_nullable) {
-            auto column_nullable = check_and_get_column<ColumnNullable>(haystack_column.get());
-            auto& null_map = column_nullable->get_null_map_data();
-            for (size_t i = 0; i != input_rows_count; ++i) {
-                if (null_map[i] == 1) {
-                    for (size_t offset = offsets_res[i - 1]; offset != offsets_res[i]; ++offset) {
-                        vec_res[offset] = 0;
-                    }
-                }
-            }
-        }
-
-        if (needles_nullable) {
-            auto column_nullable = check_and_get_column<ColumnNullable>(needles_column.get());
-            auto& null_map = column_nullable->get_null_map_data();
-            for (size_t i = 0; i != input_rows_count; ++i) {
-                if (null_map[i] == 1) {
-                    for (size_t offset = offsets_res[i - 1]; offset != offsets_res[i]; ++offset) {
-                        vec_res[offset] = 0;
-                    }
-                }
-            }
-        }
+        handle_nullable_column(haystack_column, vec_res, offsets_res, input_rows_count);
+        handle_nullable_column(needles_column, vec_res, offsets_res, input_rows_count);
 
         auto nullable_col =
                 ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_res->size(), 0));
         block.get_by_position(result).column =
                 ColumnArray::create(std::move(nullable_col), std::move(col_offsets));
         return status;
+    }
+
+private:
+    using ResultContainer = typename ColumnVector<Impl::ResultType>::Container;
+
+    void fill_result_row_with_zero(ResultContainer& vec_res,
+                                   const PaddedPODArray<UInt64>& offsets_res, size_t row) const {
+        for (size_t offset = offsets_res[row - 1]; offset != offsets_res[row]; ++offset) {
+            vec_res[offset] = 0;
+        }
+    }
+
+    void handle_nullable_column(const ColumnPtr& column, ResultContainer& vec_res,
+                                const PaddedPODArray<UInt64>& offsets_res,
+                                size_t input_rows_count) const {
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+            const auto& null_map = nullable->get_null_map_data();
+            for (size_t i = 0; i != input_rows_count; ++i) {
+                if (null_map[i]) {
+                    fill_result_row_with_zero(vec_res, offsets_res, i);
+                }
+            }
+        } else if (const auto* const_column = check_and_get_column<ColumnConst>(column.get());
+                   const_column && is_column_nullable(const_column->get_data_column())) {
+            const auto& const_nullable =
+                    assert_cast<const ColumnNullable&>(const_column->get_data_column());
+            if (const_nullable.get_null_map_data()[0]) {
+                std::fill(vec_res.begin(), vec_res.end(), 0);
+            }
+        }
     }
 };
 
@@ -248,9 +243,8 @@ public:
         offsets_res.reserve(haystack_data.size());
         uint64_t offset_now = 0;
 
-        auto& nested_column =
-                check_and_get_column<ColumnNullable>(needles_data)->get_nested_column();
-        const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
+        auto& nested_column = assert_cast<const ColumnNullable&>(needles_data).get_nested_column();
+        const ColumnString* needles_data_string = assert_cast<const ColumnString*>(&nested_column);
 
         std::vector<StringRef> needles_for_row;
         // haystack first, row by row.
@@ -315,5 +309,4 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiSearchAllPositions>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

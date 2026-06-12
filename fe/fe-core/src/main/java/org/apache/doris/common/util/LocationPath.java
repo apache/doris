@@ -20,16 +20,14 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.foundation.property.StoragePropertiesException;
-import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.fs.SchemaTypeMapper;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.Path;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -58,7 +56,6 @@ import java.util.UUID;
  * This class is often used by Frontend to pass normalized locations and storage metadata to Backend (BE).
  */
 public class LocationPath {
-    private static final Logger LOG = LogManager.getLogger(LocationPath.class);
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
 
@@ -149,6 +146,9 @@ public class LocationPath {
         String encodedLocation = encodedLocation(normalizedLocation);
         URI uri = URI.create(encodedLocation);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
+        if (StringUtils.isBlank(schema)) {
+            schema = Strings.nullToEmpty(uri.getScheme());
+        }
 
         return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
     }
@@ -193,6 +193,9 @@ public class LocationPath {
             URI uri = URI.create(encodedLocation);
             String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
                     + Strings.nullToEmpty(uri.getAuthority());
+            if (StringUtils.isBlank(schema)) {
+                schema = Strings.nullToEmpty(uri.getScheme());
+            }
             return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
         } catch (UserException e) {
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
@@ -234,6 +237,7 @@ public class LocationPath {
             String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
 
             String fsIdentifier;
+            String schema = cachedSchema;
             if (cachedFsIdPrefix != null && normalizedLocation.startsWith(cachedFsIdPrefix)) {
                 // Fast path: extract authority from normalized location without full URI parsing
                 int authorityStart = cachedFsIdPrefix.length();
@@ -246,6 +250,9 @@ public class LocationPath {
                     throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
                 }
                 fsIdentifier = cachedFsIdPrefix + authority;
+                if (StringUtils.isBlank(schema)) {
+                    schema = cachedFsIdPrefix.substring(0, cachedFsIdPrefix.length() - SCHEME_DELIM.length());
+                }
             } else {
                 // Fallback to full URI parsing
                 String encodedLocation = encodedLocation(normalizedLocation);
@@ -256,9 +263,11 @@ public class LocationPath {
                 }
                 fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
                         + authority;
+                if (StringUtils.isBlank(schema)) {
+                    schema = Strings.nullToEmpty(uri.getScheme());
+                }
             }
 
-            String schema = cachedSchema != null ? cachedSchema : extractScheme(location);
             return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
         } catch (UserException e) {
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);

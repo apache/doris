@@ -30,6 +30,10 @@ public:
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
+        // Fix _data_type to match the lambda body's actual return type.
+        // The initial _data_type was set to DataTypeString as a placeholder during
+        // VExpr(TExprNode) construction; override it with the body's real type.
+        data_type() = get_child(0)->data_type();
         _prepare_finished = true;
         return Status::OK();
     }
@@ -42,8 +46,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         DCHECK(_open_finished || block == nullptr);
         return get_child(0)->execute_column(context, block, selector, count, result_column);
     }

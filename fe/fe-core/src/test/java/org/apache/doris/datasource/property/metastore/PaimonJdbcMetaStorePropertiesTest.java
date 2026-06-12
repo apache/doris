@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 
 import org.apache.paimon.options.CatalogOptions;
@@ -151,5 +152,41 @@ public class PaimonJdbcMetaStorePropertiesTest {
         jdbcProps.initNormalizeAndCheckProps();
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> jdbcProps.initializeCatalog("paimon_catalog", Collections.emptyList()));
+    }
+
+    @Test
+    public void testGetBackendPaimonOptions() throws Exception {
+        String driverUrl = "file:///tmp/postgresql-42.5.0.jar";
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
+        props.put("warehouse", "s3://warehouse/path");
+        props.put("paimon.jdbc.driver_url", driverUrl);
+        props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+
+        PaimonJdbcMetaStoreProperties jdbcProps = (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+        Map<String, String> backendOptions = jdbcProps.getBackendPaimonOptions();
+
+        Assertions.assertEquals(
+                JdbcResource.getFullDriverUrl(driverUrl),
+                backendOptions.get("jdbc.driver_url"));
+        Assertions.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
+        Assertions.assertEquals(2, backendOptions.size());
+    }
+
+    @Test
+    public void testGetBackendPaimonOptionsRequiresDriverClass() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
+        props.put("warehouse", "s3://warehouse/path");
+        props.put("paimon.jdbc.driver_url", "file:///tmp/postgresql-42.5.0.jar");
+
+        PaimonJdbcMetaStoreProperties jdbcProps = (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                jdbcProps::getBackendPaimonOptions);
+        Assertions.assertTrue(exception.getMessage().contains("driver_class"));
     }
 }

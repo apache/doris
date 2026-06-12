@@ -23,7 +23,9 @@
 #include <string>
 
 #include "common/exception.h"
+#include "core/data_type_serde/datelike_serde_common.hpp"
 #include "core/types.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -160,6 +162,196 @@ TEST(VDateTimeValueTest, datetime_v2_from_uint64_test) {
         EXPECT_TRUE(datetime_v2.second() == second);
         EXPECT_TRUE(datetime_v2.microsecond() == microsecond);
     }
+}
+
+TEST(VDateTimeValueTest, datelike_fast_parse_ascii_helpers) {
+    EXPECT_TRUE(is_fixed_two_digit_ascii("00"));
+    EXPECT_TRUE(is_fixed_two_digit_ascii("42"));
+    EXPECT_FALSE(is_fixed_two_digit_ascii("4x"));
+    EXPECT_FALSE(is_fixed_two_digit_ascii("x2"));
+
+    EXPECT_TRUE(is_fixed_four_digit_ascii("2024"));
+    EXPECT_TRUE(is_fixed_four_digit_ascii("0000"));
+    EXPECT_FALSE(is_fixed_four_digit_ascii("202x"));
+    EXPECT_FALSE(is_fixed_four_digit_ascii("20x4"));
+
+    EXPECT_EQ(parse_fixed_two_digit_ascii("00"), 0);
+    EXPECT_EQ(parse_fixed_two_digit_ascii("59"), 59);
+    EXPECT_EQ(parse_fixed_four_digit_ascii("0000"), 0);
+    EXPECT_EQ(parse_fixed_four_digit_ascii("2024"), 2024);
+}
+
+TEST(VDateTimeValueTest, datelike_fast_parse_supported_types) {
+    EXPECT_TRUE(can_fast_parse_fixed_canonical_time<VecDateTimeValue>);
+    EXPECT_TRUE(can_fast_parse_fixed_canonical_time<DateV2Value<DateTimeV2ValueType>>);
+    EXPECT_TRUE(can_fast_parse_fixed_canonical_time<DateV2Value<DateV2ValueType>>);
+    EXPECT_FALSE(can_fast_parse_fixed_canonical_time<int>);
+}
+
+TEST(VDateTimeValueTest, datetime_v2_try_parse_fixed_canonical_datelike_prefix) {
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02", 10, dt),
+                  DatelikeFastParseResult::DATE_ONLY);
+        EXPECT_EQ(dt.to_string(), "2024-01-02 00:00:00");
+        EXPECT_EQ(dt.microsecond(), 0);
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 03:04:05", 19, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        EXPECT_EQ(dt.to_string(), "2024-01-02 03:04:05");
+        EXPECT_EQ(dt.microsecond(), 0);
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02T03:04:05", 19, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        EXPECT_EQ(dt.to_string(), "2024-01-02 03:04:05");
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 03:04:05.123456", 26, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        EXPECT_EQ(dt.to_string(6), "2024-01-02 03:04:05.000000");
+    }
+}
+
+TEST(VDateTimeValueTest, date_v2_try_parse_fixed_canonical_datelike_prefix) {
+    {
+        DateV2Value<DateV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02", 10, dt),
+                  DatelikeFastParseResult::DATE_ONLY);
+        EXPECT_EQ(dt.to_string(), "2024-01-02");
+    }
+
+    {
+        DateV2Value<DateV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 03:04:05", 19, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        EXPECT_EQ(dt.to_string(), "2024-01-02");
+        EXPECT_EQ(dt.hour(), 0);
+        EXPECT_EQ(dt.minute(), 0);
+        EXPECT_EQ(dt.second(), 0);
+    }
+
+    {
+        DateV2Value<DateV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 03:04:05 +08:00", 26, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        EXPECT_EQ(dt.to_string(), "2024-01-02");
+    }
+}
+
+TEST(VDateTimeValueTest, datetime_try_parse_fixed_canonical_datelike_prefix) {
+    {
+        VecDateTimeValue dt;
+        dt.set_type(TIME_DATETIME);
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02", 10, dt),
+                  DatelikeFastParseResult::DATE_ONLY);
+        char buf[64];
+        dt.to_string(buf);
+        EXPECT_EQ(std::string(buf), "2024-01-02 00:00:00");
+    }
+
+    {
+        VecDateTimeValue dt;
+        dt.set_type(TIME_DATETIME);
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 03:04:05", 19, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        char buf[64];
+        dt.to_string(buf);
+        EXPECT_EQ(std::string(buf), "2024-01-02 03:04:05");
+    }
+
+    {
+        VecDateTimeValue dt;
+        dt.set_type(TIME_DATE);
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 03:04:05", 19, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        char buf[64];
+        dt.to_string(buf);
+        EXPECT_EQ(std::string(buf), "2024-01-02");
+        EXPECT_EQ(dt.hour(), 3);
+        EXPECT_EQ(dt.minute(), 4);
+        EXPECT_EQ(dt.second(), 5);
+    }
+}
+
+TEST(VDateTimeValueTest, datelike_try_parse_fixed_canonical_datelike_prefix_failures) {
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-1-02", 9, dt),
+                  DatelikeFastParseResult::FAIL);
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024/01/02", 10, dt),
+                  DatelikeFastParseResult::FAIL);
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-0x-02", 10, dt),
+                  DatelikeFastParseResult::FAIL);
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-13-02", 10, dt),
+                  DatelikeFastParseResult::FAIL);
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 25:04:05", 19, dt),
+                  DatelikeFastParseResult::FAIL);
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 03:04", 16, dt),
+                  DatelikeFastParseResult::DATE_ONLY);
+        EXPECT_EQ(dt.to_string(), "2024-01-02 00:00:00");
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("2024-01-02 3:04:05", 18, dt),
+                  DatelikeFastParseResult::DATE_ONLY);
+        EXPECT_EQ(dt.to_string(), "2024-01-02 00:00:00");
+    }
+}
+
+TEST(VDateTimeValueTest, datelike_try_parse_fixed_canonical_datelike_prefix_zero_date) {
+    const bool old_allow_zero_date = config::allow_zero_date;
+
+    config::allow_zero_date = true;
+    {
+        DateV2Value<DateV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("0000-00-00", 10, dt),
+                  DatelikeFastParseResult::DATE_ONLY);
+        EXPECT_EQ(dt.to_string(), "0000-01-01");
+    }
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("0000-00-00 11:22:33", 19, dt),
+                  DatelikeFastParseResult::DATE_TIME);
+        EXPECT_EQ(dt.to_string(), "0000-01-01 11:22:33");
+    }
+
+    config::allow_zero_date = false;
+    {
+        DateV2Value<DateV2ValueType> dt;
+        EXPECT_EQ(try_parse_fixed_canonical_datelike_prefix("0000-00-00", 10, dt),
+                  DatelikeFastParseResult::FAIL);
+    }
+
+    config::allow_zero_date = old_allow_zero_date;
 }
 
 TEST(VDateTimeValueTest, date_v2_from_date_format_str_test) {
@@ -882,7 +1074,11 @@ TEST(VDateTimeValueTest, datetime_diff_test) {
 
 TEST(VDateTimeValueTest, date_add_interval_positive_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-01-15 10:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-01-15 10:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit
     {
@@ -991,7 +1187,11 @@ TEST(VDateTimeValueTest, date_add_interval_positive_test) {
 
 TEST(VDateTimeValueTest, date_add_interval_negative_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-06-15 15:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-06-15 15:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit (negative)
     {
@@ -1074,7 +1274,11 @@ TEST(VDateTimeValueTest, date_add_interval_negative_test) {
 
 TEST(VDateTimeValueTest, date_set_interval_positive_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-06-12 15:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-06-12 15:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit
     {
@@ -1192,7 +1396,11 @@ TEST(VDateTimeValueTest, date_set_interval_positive_test) {
 
 TEST(VDateTimeValueTest, date_set_interval_negative_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-06-15 15:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-06-15 15:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit with negative interval (should throw)
     {
@@ -1266,7 +1474,11 @@ TEST(VDateTimeValueTest, date_set_interval_negative_test) {
 
     {
         VecDateTimeValue data;
-        dt.from_date_str("2022-06-15 15:30:45", 19);
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2022-06-15 15:30:45", 19}, dt, nullptr, -1, p);
+        }
         VecDateTimeValue result = data;
         TimeInterval interval;
         interval.year = 1;
@@ -1280,7 +1492,11 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
     // Test leap year handling
     {
         DateV2Value<DateTimeV2ValueType> dt;
-        dt.from_date_str("2020-02-29 12:00:00", 19); // Leap year
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2020-02-29 12:00:00", 19}, dt, nullptr, -1, p);
+        } // Leap year
         TimeInterval interval(TimeUnit::YEAR, 1, false);
         EXPECT_TRUE(dt.date_add_interval<TimeUnit::YEAR>(interval));
         EXPECT_EQ(dt.year(), 2021);
@@ -1291,7 +1507,11 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
     // Test month overflow
     {
         DateV2Value<DateTimeV2ValueType> dt;
-        dt.from_date_str("2022-01-31 12:00:00", 19);
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2022-01-31 12:00:00", 19}, dt, nullptr, -1, p);
+        }
         TimeInterval interval(TimeUnit::MONTH, 1, false);
         EXPECT_TRUE(dt.date_add_interval<TimeUnit::MONTH>(interval));
         EXPECT_EQ(dt.year(), 2022);
@@ -1302,7 +1522,11 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
     // Test day overflow causing month change
     {
         DateV2Value<DateTimeV2ValueType> dt;
-        dt.from_date_str("2022-01-25 20:00:00", 19);
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2022-01-25 20:00:00", 19}, dt, nullptr, -1, p);
+        }
         TimeInterval interval(TimeUnit::HOUR, 100, false); // 100 hours = 4+ days
         EXPECT_TRUE(dt.date_add_interval<TimeUnit::HOUR>(interval));
         EXPECT_EQ(dt.year(), 2022);

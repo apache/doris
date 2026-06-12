@@ -24,7 +24,6 @@
 #include "exec/runtime_filter/runtime_filter_producer_helper_cross.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class NestedLoopJoinBuildSinkOperatorX;
 
@@ -65,7 +64,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -80,9 +79,7 @@ private:
 
     VExprContextSPtrs _filter_src_expr_ctxs;
 
-    const bool _is_output_probe_side_only;
     RowDescriptor _row_descriptor;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -32,7 +32,6 @@
 #include "core/uint24.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * used to keep predicate column in storage layer
@@ -105,11 +104,7 @@ public:
 
     StringRef get_data_at(size_t n) const override {
         if constexpr (std::is_same_v<T, StringRef>) {
-            auto res = reinterpret_cast<const StringRef&>(data[n]);
-            if constexpr (Type == TYPE_CHAR) {
-                res.size = strnlen(res.data, res.size);
-            }
-            return res;
+            return reinterpret_cast<const StringRef&>(data[n]);
         } else {
             throw doris::Exception(
                     ErrorCode::INTERNAL_ERROR,
@@ -294,6 +289,41 @@ public:
         }
     }
 
+    // Insert `num` entries with only length information (no actual char data).
+    // The chars buffer is zero-filled so that filter_by_selector can safely
+    // memcpy without reading meaningful content. Used in OFFSET_ONLY reading
+    // mode where only string lengths (for length() function) are needed.
+    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) override {
+        if constexpr (std::is_same_v<T, StringRef>) {
+            if (UNLIKELY(num == 0)) {
+                return;
+            }
+            size_t total_bytes = 0;
+            for (size_t i = 0; i < num; ++i) {
+                total_bytes += lengths[i];
+            }
+            // Allocate and zero-fill a single backing buffer so that each StringRef
+            // points to valid (though meaningless) memory. filter_by_selector will
+            // memcpy from these pointers, so they must not be null for non-zero lengths.
+            char* buf = total_bytes > 0 ? _arena.alloc(total_bytes) : nullptr;
+            if (total_bytes > 0) {
+                memset(buf, 0, total_bytes);
+            }
+            size_t org_elem_num = data.size();
+            data.resize(org_elem_num + num);
+            size_t offset = 0;
+            for (size_t i = 0; i < num; ++i) {
+                // For zero-length strings, data pointer is null; insert_many_strings
+                // and filter_by_selector both guard on size > 0 before dereferencing.
+                data[org_elem_num + i].data = (lengths[i] > 0) ? (buf + offset) : nullptr;
+                data[org_elem_num + i].size = lengths[i];
+                offset += lengths[i];
+            }
+        } else {
+            IColumn::insert_offsets_from_lengths(lengths, num);
+        }
+    }
+
     void insert_default() override { data.push_back(T()); }
 
     void clear() override {
@@ -326,7 +356,7 @@ public:
             for (size_t i = 0; i < n; i++) {
                 memcpy(dst, str.data(), str.size());
                 insert_string_value(dst, str.size());
-                dst += i * str.size();
+                dst += str.size();
             }
         } else if constexpr (Type == TYPE_LARGEINT) {
             const auto& v = x.get<TYPE_LARGEINT>();
@@ -434,5 +464,4 @@ private:
     std::vector<StringRef> _refs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

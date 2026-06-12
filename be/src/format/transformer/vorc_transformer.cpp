@@ -61,7 +61,6 @@
 #include "util/debug_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -589,7 +588,7 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
     case TYPE_STRUCT: {
         auto* struct_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
         const auto& struct_col =
-                column.is_nullable()
+                is_column_nullable(column)
                         ? assert_cast<const ColumnStruct&>(
                                   assert_cast<const ColumnNullable&>(column).get_nested_column())
                         : assert_cast<const ColumnStruct&>(column);
@@ -606,7 +605,7 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
     case TYPE_MAP: {
         auto* map_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
         const auto& map_column =
-                column.is_nullable()
+                is_column_nullable(column)
                         ? assert_cast<const ColumnMap&>(
                                   assert_cast<const ColumnNullable&>(column).get_nested_column())
                         : assert_cast<const ColumnMap&>(column);
@@ -628,7 +627,7 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
     case TYPE_ARRAY: {
         auto* list_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
         const auto& array_col =
-                column.is_nullable()
+                is_column_nullable(column)
                         ? assert_cast<const ColumnArray&>(
                                   assert_cast<const ColumnNullable&>(column).get_nested_column())
                         : assert_cast<const ColumnArray&>(column);

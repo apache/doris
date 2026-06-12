@@ -33,6 +33,8 @@
 #include "storage/segment/binary_plain_page.h"
 #include "storage/segment/binary_plain_page_v2.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
+#include "storage/segment/binary_plain_page_v3.h"
+#include "storage/segment/binary_plain_page_v3_pre_decoder.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
 #include "storage/types.h"
@@ -72,9 +74,16 @@ public:
     std::unique_ptr<PageDecoder> create_dict_page_decoder(Slice& dict_slice,
                                                           EncodingTypePB encoding_type,
                                                           std::unique_ptr<DataPage>& decoded_page) {
-        // Apply pre-decode for BinaryPlainPageV2
+        // Apply pre-decode for BinaryPlainPageV2 / V3 (both convert to V1 layout).
         if (encoding_type == PLAIN_ENCODING_V2) {
-            BinaryPlainPageV2PreDecoder pre_decoder;
+            BinaryPlainPageV2PreDecoder<false> pre_decoder;
+            Status status = pre_decoder.decode(&decoded_page, &dict_slice, 0, false,
+                                               PageTypePB::DATA_PAGE, "");
+            if (!status.ok()) {
+                return nullptr;
+            }
+        } else if (encoding_type == PLAIN_ENCODING_V3) {
+            BinaryPlainPageV3PreDecoder<false> pre_decoder;
             Status status = pre_decoder.decode(&decoded_page, &dict_slice, 0, false,
                                                PageTypePB::DATA_PAGE, "");
             if (!status.ok()) {
@@ -92,6 +101,10 @@ public:
             dict_page_decoder.reset(
                     new BinaryPlainPageV2Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
                             dict_slice, dict_decoder_options));
+        } else if (encoding_type == PLAIN_ENCODING_V3) {
+            dict_page_decoder.reset(
+                    new BinaryPlainPageV3Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
+                            dict_slice, dict_decoder_options));
         } else {
             return nullptr;
         }
@@ -107,7 +120,7 @@ public:
     // Apply pre-decode for BinaryDictPage data pages
     // This method handles all encoding types (bitshuffle, plain V1, plain V2)
     Status apply_pre_decode(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
-        BinaryDictPagePreDecoder pre_decoder;
+        BinaryDictPagePreDecoder</*IS_CHAR=*/false> pre_decoder;
         return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE, "");
     }
 
@@ -143,9 +156,7 @@ public:
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         options.dict_page_size = 256 * 1024;
-        options.encoding_preference.binary_plain_encoding_default_impl =
-                use_v2 ? BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                       : BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+        options.dict_binary_plain_encoding = use_v2 ? PLAIN_ENCODING_V2 : PLAIN_ENCODING;
 
         auto page_builder = create_and_add_data(slices, options);
         ASSERT_NE(nullptr, page_builder);
@@ -164,12 +175,12 @@ public:
     }
 
     void test_by_small_data_size(const std::vector<Slice>& slices,
-                                 EncodingPreference encoding_preference = EncodingPreference()) {
+                                 EncodingTypePB dict_enc = PLAIN_ENCODING) {
         // Encode
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         options.dict_page_size = 256 * 1024;
-        options.encoding_preference = encoding_preference;
+        options.dict_binary_plain_encoding = dict_enc;
 
         PageBuilder* builder_ptr = nullptr;
         Status ret0 = BinaryDictPageBuilder::create(&builder_ptr, options);
@@ -188,16 +199,6 @@ public:
         EXPECT_TRUE(ret.ok());
         EXPECT_EQ(slices.size(), page_builder->count());
         EXPECT_FALSE(page_builder->is_page_full());
-
-        // Check first value and last value
-        Slice first_value;
-        ret = page_builder->get_first_value(&first_value);
-        EXPECT_TRUE(ret.ok());
-        EXPECT_EQ(slices[0], first_value);
-        Slice last_value;
-        ret = page_builder->get_last_value(&last_value);
-        EXPECT_TRUE(ret.ok());
-        EXPECT_EQ(slices[count - 1], last_value);
 
         // Construct dict page
         OwnedSlice dict_slice;
@@ -296,14 +297,14 @@ public:
     }
 
     void test_with_large_data_size(const std::vector<Slice>& contents,
-                                   EncodingPreference encoding_preference = EncodingPreference()) {
+                                   EncodingTypePB dict_enc = PLAIN_ENCODING) {
         // Encode
         PageBuilderOptions options;
         // Use smaller page sizes to ensure we trigger fallback scenario
         // where dictionary gets full and we switch to plain encoding
         options.data_page_size = 64 * 1024; // 64KB data page
         options.dict_page_size = 1024;      // 1KB dict page to trigger fallback
-        options.encoding_preference = encoding_preference;
+        options.dict_binary_plain_encoding = dict_enc;
 
         PageBuilder* builder_ptr = nullptr;
         Status ret0 = BinaryDictPageBuilder::create(&builder_ptr, options);
@@ -613,8 +614,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsDictionaryPageEncoding) {
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         options.dict_page_size = 256 * 1024;
-        options.encoding_preference.binary_plain_encoding_default_impl =
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+        options.dict_binary_plain_encoding = PLAIN_ENCODING;
 
         PageBuilder* builder_ptr = nullptr;
         Status status = BinaryDictPageBuilder::create(&builder_ptr, options);
@@ -654,8 +654,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsDictionaryPageEncoding) {
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         options.dict_page_size = 256 * 1024;
-        options.encoding_preference.binary_plain_encoding_default_impl =
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
+        options.dict_binary_plain_encoding = PLAIN_ENCODING_V2;
 
         PageBuilder* builder_ptr = nullptr;
         Status status = BinaryDictPageBuilder::create(&builder_ptr, options);
@@ -684,7 +683,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsDictionaryPageEncoding) {
         // First apply pre-decode for BinaryPlainPageV2
         Slice dict_page_slice = dict_slice.slice();
         std::unique_ptr<DataPage> decoded_page;
-        BinaryPlainPageV2PreDecoder pre_decoder;
+        BinaryPlainPageV2PreDecoder<false> pre_decoder;
         status = pre_decoder.decode(&decoded_page, &dict_page_slice, 0, false,
                                     PageTypePB::DATA_PAGE, "");
         EXPECT_TRUE(status.ok());
@@ -717,8 +716,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsFallbackEncoding) {
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         options.dict_page_size = 128; // Small dict size to force fallback
-        options.encoding_preference.binary_plain_encoding_default_impl =
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+        options.dict_binary_plain_encoding = PLAIN_ENCODING;
 
         PageBuilder* builder_ptr = nullptr;
         Status status = BinaryDictPageBuilder::create(&builder_ptr, options);
@@ -749,13 +747,9 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsFallbackEncoding) {
         status = page_builder->reset();
         EXPECT_TRUE(status.ok());
 
-        // Access private member _fallback_binary_encoding_type to verify
-        EXPECT_EQ(PLAIN_ENCODING, page_builder->_fallback_binary_encoding_type)
-                << "Fallback encoding should be PLAIN_ENCODING with V1 preference";
-
-        // Also check the dict word page encoding type
-        EXPECT_EQ(PLAIN_ENCODING, page_builder->_dict_word_page_encoding_type)
-                << "Dict word page encoding should be PLAIN_ENCODING with V1 preference";
+        // Verify the binary-plain flavor (used for both dict word page and fallback data page).
+        EXPECT_EQ(PLAIN_ENCODING, page_builder->_binary_plain_encoding_type)
+                << "Binary plain encoding should be PLAIN_ENCODING with V1 preference";
 
         // Check the actual encoding type used (should have fallen back)
         EXPECT_EQ(PLAIN_ENCODING, page_builder->_encoding_type)
@@ -767,8 +761,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsFallbackEncoding) {
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         options.dict_page_size = 128; // Small dict size to force fallback
-        options.encoding_preference.binary_plain_encoding_default_impl =
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
+        options.dict_binary_plain_encoding = PLAIN_ENCODING_V2;
 
         PageBuilder* builder_ptr = nullptr;
         Status status = BinaryDictPageBuilder::create(&builder_ptr, options);
@@ -799,13 +792,9 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsFallbackEncoding) {
         status = page_builder->reset();
         EXPECT_TRUE(status.ok());
 
-        // Access private member _fallback_binary_encoding_type to verify
-        EXPECT_EQ(PLAIN_ENCODING_V2, page_builder->_fallback_binary_encoding_type)
-                << "Fallback encoding should be PLAIN_ENCODING_V2 with V2 preference";
-
-        // Also check the dict word page encoding type
-        EXPECT_EQ(PLAIN_ENCODING_V2, page_builder->_dict_word_page_encoding_type)
-                << "Dict word page encoding should be PLAIN_ENCODING_V2 with V2 preference";
+        // Verify the binary-plain flavor (used for both dict word page and fallback data page).
+        EXPECT_EQ(PLAIN_ENCODING_V2, page_builder->_binary_plain_encoding_type)
+                << "Binary plain encoding should be PLAIN_ENCODING_V2 with V2 preference";
 
         // Check the actual encoding type used (should have fallen back)
         EXPECT_EQ(PLAIN_ENCODING_V2, page_builder->_encoding_type)
@@ -834,10 +823,7 @@ TEST_F(BinaryDictPageTest, TestSmallDataWithConfigFalse) {
         slices.emplace_back(str);
     }
 
-    EncodingPreference encoding_preference;
-    encoding_preference.binary_plain_encoding_default_impl =
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
-    test_by_small_data_size(slices, encoding_preference);
+    test_by_small_data_size(slices, PLAIN_ENCODING);
 }
 
 TEST_F(BinaryDictPageTest, TestSmallDataWithConfigTrue) {
@@ -847,10 +833,7 @@ TEST_F(BinaryDictPageTest, TestSmallDataWithConfigTrue) {
         slices.emplace_back(str);
     }
 
-    EncodingPreference encoding_preference;
-    encoding_preference.binary_plain_encoding_default_impl =
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
-    test_by_small_data_size(slices, encoding_preference);
+    test_by_small_data_size(slices, PLAIN_ENCODING_V2);
 }
 
 TEST_F(BinaryDictPageTest, TestLargeDataWithConfigFalse) {
@@ -870,11 +853,8 @@ TEST_F(BinaryDictPageTest, TestLargeDataWithConfigFalse) {
         slices.push_back(str);
     }
 
-    EncodingPreference encoding_preference;
-    encoding_preference.binary_plain_encoding_default_impl =
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
     LOG(INFO) << "Testing large data with V1 preference, entry count: " << slices.size();
-    test_with_large_data_size(slices, encoding_preference);
+    test_with_large_data_size(slices, PLAIN_ENCODING);
 }
 
 TEST_F(BinaryDictPageTest, TestLargeDataWithConfigTrue) {
@@ -894,11 +874,56 @@ TEST_F(BinaryDictPageTest, TestLargeDataWithConfigTrue) {
         slices.push_back(str);
     }
 
-    EncodingPreference encoding_preference;
-    encoding_preference.binary_plain_encoding_default_impl =
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
     LOG(INFO) << "Testing large data with V2 preference, entry count: " << slices.size();
-    test_with_large_data_size(slices, encoding_preference);
+    test_with_large_data_size(slices, PLAIN_ENCODING_V2);
+}
+
+// V3 dictionary internal encoding: the dictionary word page (small data) and the
+// dict-overflow fallback plain page (large data) round-trip through the V3 layout.
+TEST_F(BinaryDictPageTest, TestSmallDataWithV3) {
+    auto src_strings = generate_test_data(50, "test_");
+    std::vector<Slice> slices;
+    for (const auto& str : src_strings) {
+        slices.emplace_back(str);
+    }
+
+    test_by_small_data_size(slices, PLAIN_ENCODING_V3);
+}
+
+TEST_F(BinaryDictPageTest, TestLargeDataWithV3) {
+    std::vector<std::string> src_strings;
+    auto unique_strings = generate_test_data(1000, "data_", 10, 50);
+    for (int i = 0; i < 100; ++i) {
+        for (const auto& str : unique_strings) {
+            src_strings.push_back(str);
+        }
+    }
+
+    std::vector<Slice> slices;
+    for (const auto& str : src_strings) {
+        slices.push_back(str);
+    }
+
+    LOG(INFO) << "Testing large data with V3 preference, entry count: " << slices.size();
+    test_with_large_data_size(slices, PLAIN_ENCODING_V3);
+}
+
+TEST_F(BinaryDictPageTest, TestConfigUseBinaryV3DictWordPageEncoding) {
+    auto src_strings = generate_test_data(50, "test_");
+    std::vector<Slice> slices;
+    for (const auto& str : src_strings) {
+        slices.emplace_back(str);
+    }
+    PageBuilderOptions options;
+    options.data_page_size = 256 * 1024;
+    options.dict_page_size = 256 * 1024;
+    options.dict_binary_plain_encoding = PLAIN_ENCODING_V3;
+
+    auto page_builder = create_and_add_data(slices, options);
+    ASSERT_NE(nullptr, page_builder);
+    EncodingTypePB dict_encoding_type;
+    ASSERT_TRUE(page_builder->get_dictionary_page_encoding(&dict_encoding_type).ok());
+    EXPECT_EQ(PLAIN_ENCODING_V3, dict_encoding_type);
 }
 
 } // namespace segment_v2

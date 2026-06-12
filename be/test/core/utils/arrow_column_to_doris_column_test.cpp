@@ -58,6 +58,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -65,7 +66,20 @@ namespace doris {
 template <typename ArrowType, typename ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType>
 ArrowCppType string_to_arrow_datetime(std::shared_ptr<ArrowType> type, const std::string& value) {
     VecDateTimeValue tv;
-    tv.from_date_str(value.c_str(), value.size());
+    {
+        CastParameters p;
+        if constexpr (std::is_same_v<ArrowType, arrow::Date32Type>) {
+            tv.set_type(TimeType::TIME_DATE);
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE>(
+                    {value.c_str(), value.size()}, tv, nullptr, p);
+            tv.cast_to_date();
+        } else {
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE_TIME>(
+                    {value.c_str(), value.size()}, tv, nullptr, p);
+        }
+    }
     int64_t unix_seconds = 0;
     tv.unix_timestamp(&unix_seconds, "UTC");
     if constexpr (std::is_same_v<ArrowType, arrow::TimestampType>) {
@@ -190,7 +204,19 @@ void test_datetime(std::shared_ptr<ArrowType> type, const std::vector<std::strin
         } else {
             tv.set_type(TimeType::TIME_DATETIME);
         }
-        tv.from_date_str(value.c_str(), value.size());
+        {
+            CastParameters p;
+            if constexpr (std::is_same_v<ArrowType, arrow::Date32Type>) {
+                CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                              DatelikeTargetType::DATE>(
+                        {value.c_str(), value.size()}, tv, nullptr, p);
+                tv.cast_to_date();
+            } else {
+                CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                              DatelikeTargetType::DATE_TIME>(
+                        {value.c_str(), value.size()}, tv, nullptr, p);
+            }
+        }
         test_arrow_to_datetime_column<ArrowType, ColumnType, is_nullable>(
                 type, column, num_elements, arrow_datetime, tv, counter);
     }

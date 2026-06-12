@@ -23,12 +23,7 @@ import java.util.Collection;
 
 // Response handler contain a listener
 public class AckResponseHandler extends ResponseHandler {
-    private Listener listener;
-
-    public AckResponseHandler(Collection<Backend> nodes, Listener listener) {
-        super(nodes);
-        this.listener = listener;
-    }
+    private final Listener listener;
 
     public AckResponseHandler(Collection<Backend> nodes) {
         super(nodes);

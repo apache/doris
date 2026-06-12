@@ -23,7 +23,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,6 +32,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -402,20 +402,11 @@ class ProfileManagerTest {
             TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
             List<Integer> fragments = new ArrayList<>();
             profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
+            profile = Mockito.spy(profile);
             if (i % 2 == 0) {
-                new Expectations(profile) {
-                    {
-                        profile.shouldStoreToStorage();
-                        result = true;
-                    }
-                };
+                Mockito.doReturn(true).when(profile).shouldStoreToStorage();
             } else {
-                new Expectations(profile) {
-                    {
-                        profile.shouldStoreToStorage();
-                        result = false;
-                    }
-                };
+                Mockito.doReturn(false).when(profile).shouldStoreToStorage();
             }
             profileManager.pushProfile(profile);
         }
@@ -428,6 +419,7 @@ class ProfileManagerTest {
 
     @Test
     void testWriteProfileToStorage() throws InterruptedException {
+        List<Profile> spyProfiles = new ArrayList<>();
         // Create some test profile files
         for (int i = 0; i < 30; i++) {
             // Sleep 200 ms, so that query finish time is different.
@@ -444,19 +436,19 @@ class ProfileManagerTest {
             }
 
             // Make sure all profile is released
-            new Expectations(profile) {
-                {
-                    profile.shouldStoreToStorage();
-                    result = true;
-                    profile.releaseMemory();
-                    times = 1;
-                }
-            };
+            profile = Mockito.spy(profile);
+            Mockito.doReturn(true).when(profile).shouldStoreToStorage();
+            Mockito.doNothing().when(profile).releaseMemory();
 
+            spyProfiles.add(profile);
             profileManager.pushProfile(profile);
         }
 
         profileManager.writeProfileToStorage();
+
+        for (Profile spy : spyProfiles) {
+            Mockito.verify(spy, Mockito.times(1)).releaseMemory();
+        }
 
         // Verify result
         File[] files = tempDir.listFiles();
@@ -487,12 +479,8 @@ class ProfileManagerTest {
                 for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
                     profileManager.addExecutionProfile(executionProfile);
                 }
-                new Expectations(profile) {
-                    {
-                        profile.profileHasBeenStored();
-                        result = true;
-                    }
-                };
+                profile = Mockito.spy(profile);
+                Mockito.doReturn(true).when(profile).profileHasBeenStored();
 
                 profileManager.pushProfile(profile);
             }
@@ -531,21 +519,17 @@ class ProfileManagerTest {
             Config.max_spilled_profile_num = 10;
 
             // Create test profiles
+            List<Profile> spyProfiles = new ArrayList<>();
             for (int i = 0; i < 30; i++) {
                 Thread.sleep(100);
                 Profile profile = ProfilePersistentTest.constructRandomProfile(1);
                 profile.isQueryFinished = true;
                 profile.setQueryFinishTimestamp(System.currentTimeMillis());
-                int finalI = i;
-                new Expectations(profile) {
-                    {
-                        profile.profileHasBeenStored();
-                        result = true;
-                        profile.deleteFromStorage();
-                        times = finalI < 20 ? 1 : 0; // First 20 should be deleted
-                    }
-                };
+                profile = Mockito.spy(profile);
+                Mockito.doReturn(true).when(profile).profileHasBeenStored();
+                Mockito.doNothing().when(profile).deleteFromStorage();
 
+                spyProfiles.add(profile);
                 profileManager.pushProfile(profile);
             }
 
@@ -555,6 +539,9 @@ class ProfileManagerTest {
 
             // Verify correct profiles were deleted
             Assertions.assertEquals(10, profileManager.queryIdToProfileMap.size());
+            for (int j = 0; j < spyProfiles.size(); j++) {
+                Mockito.verify(spyProfiles.get(j), Mockito.times(j < 20 ? 1 : 0)).deleteFromStorage();
+            }
 
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
@@ -874,12 +861,8 @@ class ProfileManagerTest {
                 profile.isQueryFinished = true;
                 profile.setQueryFinishTimestamp(System.currentTimeMillis());
 
-                new Expectations(profile) {
-                    {
-                        profile.profileHasBeenStored();
-                        result = true;
-                    }
-                };
+                profile = Mockito.spy(profile);
+                Mockito.doReturn(true).when(profile).profileHasBeenStored();
 
                 profileManager.pushProfile(profile);
                 profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
@@ -938,22 +921,18 @@ class ProfileManagerTest {
             Config.max_spilled_profile_num = 5;
 
             // Create and store profiles
+            List<Profile> spyProfiles = new ArrayList<>();
             for (int i = 0; i < 10; i++) {
                 Thread.sleep(100);
                 Profile profile = ProfilePersistentTest.constructRandomProfile(1);
                 profile.isQueryFinished = true;
                 profile.setQueryFinishTimestamp(System.currentTimeMillis());
 
-                int finalI = i;
-                new Expectations(profile) {
-                    {
-                        profile.profileHasBeenStored();
-                        result = true;
-                        profile.deleteFromStorage();
-                        times = finalI < 5 ? 1 : 0; // First 5 should be deleted
-                    }
-                };
+                profile = Mockito.spy(profile);
+                Mockito.doReturn(true).when(profile).profileHasBeenStored();
+                Mockito.doNothing().when(profile).deleteFromStorage();
 
+                spyProfiles.add(profile);
                 profileManager.pushProfile(profile);
                 profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
             }
@@ -961,6 +940,11 @@ class ProfileManagerTest {
             // Trigger cleanup - should directly delete old profiles
             profileManager.isProfileLoaded = true;
             profileManager.deleteOutdatedProfilesFromStorage();
+
+            // Verify delete invocations
+            for (int j = 0; j < spyProfiles.size(); j++) {
+                Mockito.verify(spyProfiles.get(j), Mockito.times(j < 5 ? 1 : 0)).deleteFromStorage();
+            }
 
             // Verify no pending or archive directories were created
             File pendingDir = new File(ProfileManager.PROFILE_STORAGE_PATH + "/pending");

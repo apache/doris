@@ -22,16 +22,19 @@
 #include <map>
 #include <ostream>
 #include <sstream>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
 
 #include "core/block/block.h"
 #include "core/types.h"
 #include "format/jni/jni_data_bridge.h"
+#include "format/table/partition_column_filler.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -68,6 +71,52 @@ JniReader::JniReader(std::string connector_class, std::map<std::string, std::str
     _connector_name = split(_connector_class, "/").back();
 }
 
+Status JniReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    if (_col_name_to_block_idx == nullptr) {
+        _col_name_to_block_idx = ctx->col_name_to_block_idx;
+    }
+    _partition_values.clear();
+    _partition_value_is_null.clear();
+    if (ctx->range == nullptr || ctx->tuple_descriptor == nullptr ||
+        !ctx->range->__isset.columns_from_path_keys) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(ctx->range->__isset.columns_from_path);
+    DORIS_CHECK(ctx->range->columns_from_path.size() == ctx->range->columns_from_path_keys.size());
+    const bool has_null_flags = ctx->range->__isset.columns_from_path_is_null;
+    if (has_null_flags) {
+        DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
+                    ctx->range->columns_from_path_keys.size());
+    }
+
+    std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
+    for (auto* slot : ctx->tuple_descriptor->slots()) {
+        name_to_slot.emplace(slot->col_name(), slot);
+    }
+    for (size_t i = 0; i < ctx->range->columns_from_path_keys.size(); ++i) {
+        const auto& key = ctx->range->columns_from_path_keys[i];
+        auto slot_it = name_to_slot.find(key);
+        if (slot_it == name_to_slot.end()) {
+            continue;
+        }
+        _partition_values.emplace(
+                key, std::make_tuple(ctx->range->columns_from_path[i], slot_it->second));
+        _partition_value_is_null.emplace(
+                key, has_null_flags ? ctx->range->columns_from_path_is_null[i] : false);
+    }
+    return Status::OK();
+}
+
+Status JniReader::on_after_read_block(Block* block, size_t* read_rows) {
+    if (_column_descs == nullptr || _partition_values.empty() || *read_rows == 0 ||
+        _push_down_agg_type == TPushAggOp::type::COUNT) {
+        return Status::OK();
+    }
+    return _fill_partition_columns(block, *read_rows);
+}
+
 // =========================================================================
 // JniReader::open  (merged from JniConnector::open)
 // =========================================================================
@@ -95,6 +144,7 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     if (!_is_table_schema && _state) {
         batch_size = _state->batch_size();
     }
+    _batch_size = batch_size;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     if (_state) {
@@ -110,10 +160,10 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 // =========================================================================
-// JniReader::get_next_block  (merged from JniConnector::get_next_block)
+// JniReader::_do_get_next_block  (merged from JniConnector::get_next_block)
 // =========================================================================
 
-Status JniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status JniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     long meta_address = 0;
@@ -209,6 +259,32 @@ Status JniReader::close() {
 }
 
 // =========================================================================
+// JniReader::set_batch_size
+// =========================================================================
+
+void JniReader::set_batch_size(size_t batch_size) {
+    DCHECK_GT(batch_size, 0);
+    if (_batch_size == batch_size) {
+        return;
+    }
+    _batch_size = batch_size;
+    if (_scanner_opened) {
+        JNIEnv* env = nullptr;
+        Status st = Jni::Env::Get(&env);
+        if (!st) {
+            LOG(WARNING) << "failed to get jni env when set_batch_size: " << st;
+            return;
+        }
+        st = _jni_scanner_obj.call_void_method(env, _jni_scanner_set_batch_size)
+                     .with_arg(static_cast<int>(_batch_size))
+                     .call();
+        if (!st) {
+            LOG(WARNING) << "failed to call setBatchSize: " << st;
+        }
+    }
+}
+
+// =========================================================================
 // JniReader::_init_jni_scanner  (merged from JniConnector::_init_jni_scanner)
 // =========================================================================
 
@@ -244,6 +320,8 @@ Status JniReader::_init_jni_scanner(JNIEnv* env, int batch_size) {
             _jni_scanner_cls.get_method(env, "releaseTable", "()V", &_jni_scanner_release_table));
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
                                                 &_jni_scanner_get_statistics));
+    RETURN_IF_ERROR(
+            _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
     return Status::OK();
 }
 
@@ -273,6 +351,40 @@ Status JniReader::_fill_block(Block* block, size_t num_rows) {
                                 .with_arg(i)
                                 .call());
         RETURN_ERROR_IF_EXC(env);
+    }
+    return Status::OK();
+}
+
+Status JniReader::_fill_partition_columns(Block* block, size_t num_rows) {
+    std::unordered_map<std::string, uint32_t> local_name_to_idx;
+    const std::unordered_map<std::string, uint32_t>* col_map = _col_name_to_block_idx;
+    if (col_map == nullptr) {
+        local_name_to_idx = block->get_name_to_pos_map();
+        col_map = &local_name_to_idx;
+    }
+
+    for (const auto& desc : *_column_descs) {
+        if (desc.category != ColumnCategory::PARTITION_KEY) {
+            continue;
+        }
+        auto value_it = _partition_values.find(desc.name);
+        if (value_it == _partition_values.end()) {
+            continue;
+        }
+        auto col_it = col_map->find(desc.name);
+        if (col_it == col_map->end()) {
+            return Status::InternalError("Missing partition column {} in block {}", desc.name,
+                                         block->dump_structure());
+        }
+
+        auto& column_with_type_and_name = block->get_by_position(col_it->second);
+        auto mutable_column = std::move(*column_with_type_and_name.column).mutate();
+        const auto& [value, slot_desc] = value_it->second;
+        auto null_it = _partition_value_is_null.find(desc.name);
+        DORIS_CHECK(null_it != _partition_value_is_null.end());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(*mutable_column, *slot_desc, value,
+                                                              num_rows, null_it->second));
+        column_with_type_and_name.column = std::move(mutable_column);
     }
     return Status::OK();
 }
@@ -380,5 +492,4 @@ Status MockJniReader::init_reader() {
     return open(_state, _profile);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

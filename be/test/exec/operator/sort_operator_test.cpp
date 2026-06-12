@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <random>
 
 #include "core/block/block.h"
 #include "exec/operator/repeat_operator.h"
@@ -36,7 +37,9 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -50,7 +53,7 @@ private:
 struct SortOperatorTest : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
         _child_op = std::make_unique<MockOperator>();
     }
 
@@ -59,12 +62,7 @@ struct SortOperatorTest : public ::testing::Test {
 
         sink->_is_asc_order = {true};
         sink->_nulls_first = {false};
-        sink->_vsort_exec_exprs._sort_tuple_slot_expr_ctxs =
-                MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
-
-        sink->_vsort_exec_exprs._materialize_tuple = false;
-
-        sink->_vsort_exec_exprs._ordering_expr_ctxs =
+        sink->_ordering_expr_ctxs =
                 MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
         _child_op->_mock_row_desc.reset(
@@ -197,21 +195,20 @@ TEST_F(SortOperatorTest, test_dep) {
     EXPECT_TRUE(is_ready(source_local_state->dependencies()));
 
     {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        MutableBlock merged_block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
-        auto st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_FALSE(eos);
+        while (!eos) {
+            Block block;
+            auto st = source->get_block(state.get(), &block, &eos);
+            EXPECT_TRUE(st.ok()) << st.msg();
+            EXPECT_TRUE(merged_block.merge(block));
+        }
+
+        auto block = merged_block.to_block();
         EXPECT_EQ(block.rows(), 6);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6})));
-
-        block.clear();
-        st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_TRUE(eos);
-        EXPECT_EQ(block.rows(), 0);
     }
 }
 
@@ -225,7 +222,7 @@ TEST_F(SortOperatorTest, test_sort_type) {
         for (int i = 0; i < 100; i++) {
             vec.push_back(i);
         }
-        std::random_shuffle(vec.begin(), vec.end());
+        std::shuffle(vec.begin(), vec.end(), std::mt19937 {std::random_device {}()});
 
         {
             Block block = ColumnHelper::create_block<DataTypeInt64>(vec);

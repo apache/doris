@@ -17,17 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.obj.ObjStorage;
-import org.apache.doris.fs.obj.RemoteObjects;
-import org.apache.doris.fs.obj.S3ObjStorage;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RequestBody;
+import org.apache.doris.filesystem.spi.UploadPartResult;
+import org.apache.doris.fs.FileSystemFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -39,7 +38,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,53 +123,96 @@ public class S3Resource extends Resource {
 
     protected static void pingS3(String bucketName, String rootPath, Map<String, String> newProperties)
             throws DdlException {
+        // Normalize rootPath: strip leading slashes to avoid "s3://bucket//path" double-slash
+        if (rootPath != null) {
+            rootPath = rootPath.replaceAll("^/+", "");
+        }
 
         Long timestamp = System.currentTimeMillis();
         String prefix = "s3://" + bucketName + "/" + rootPath;
         String testObj = prefix + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
 
-        byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
+        // 5MB per chunk — same as the multipart upload minimum
+        final int chunkSize = 5 * 1024 * 1024;
+        byte[] contentData = new byte[2 * chunkSize];
         Arrays.fill(contentData, (byte) 'A');
-        S3ObjStorage s3ObjStorage = new S3ObjStorage((AbstractS3CompatibleProperties) StorageProperties
-                .createPrimary(newProperties));
 
-        Status status = s3ObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
-        if (!Status.OK.equals(status)) {
-            String errMsg = "pingS3 failed(put),"
-                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false);
-            throw new DdlException(errMsg);
-        }
+        try {
+            org.apache.doris.filesystem.FileSystem fileSystem =
+                    FileSystemFactory.getFileSystem(newProperties);
+            Preconditions.checkState(fileSystem instanceof ObjFileSystem,
+                    "Expected object-storage filesystem for S3 resource");
+            ObjStorage<?> objStorage = ((ObjFileSystem) fileSystem).getObjStorage();
 
-        status = s3ObjStorage.headObject(testObj);
-        if (!Status.OK.equals(status)) {
-            String errMsg = "pingS3 failed(head),"
-                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false);
-            throw new DdlException(errMsg);
-        }
+            try {
+                objStorage.putObject(testObj,
+                        RequestBody.of(new ByteArrayInputStream(contentData), contentData.length));
+            } catch (IOException e) {
+                throw new DdlException("pingS3 failed(put),"
+                        + " please check your endpoint, ak/sk or permissions"
+                        + "(put/head/delete/list/multipartUpload),"
+                        + " err: " + e.getMessage() + ", properties: "
+                        + new DatasourcePrintableMap<>(newProperties, "=", true, false, true, false));
+            }
 
-        RemoteObjects remoteObjects = s3ObjStorage.listObjects(testObj, null);
-        LOG.info("remoteObjects: {}", remoteObjects);
+            try {
+                objStorage.headObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("pingS3 failed(head),"
+                        + " please check your endpoint, ak/sk or permissions"
+                        + "(put/head/delete/list/multipartUpload),"
+                        + " err: " + e.getMessage() + ", properties: "
+                        + new DatasourcePrintableMap<>(newProperties, "=", true, false, true, false));
+            }
 
-        status = s3ObjStorage.multipartUpload(testObj, new ByteArrayInputStream(contentData), contentData.length);
-        if (!Status.OK.equals(status)) {
-            String errMsg = "pingS3 failed(multipartUpload),"
-                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false);
-            throw new DdlException(errMsg);
-        }
+            try {
+                org.apache.doris.filesystem.spi.RemoteObjects remoteObjects =
+                        objStorage.listObjects(testObj, null);
+                LOG.info("remoteObjects: {}", remoteObjects);
+            } catch (IOException e) {
+                throw new DdlException("pingS3 failed(list),"
+                        + " please check your endpoint, ak/sk or permissions"
+                        + "(put/head/delete/list/multipartUpload),"
+                        + " err: " + e.getMessage() + ", properties: "
+                        + new DatasourcePrintableMap<>(newProperties, "=", true, false, true, false));
+            }
 
-        status = s3ObjStorage.deleteObject(testObj);
-        if (!Status.OK.equals(status)) {
-            String errMsg = "pingS3 failed(delete),"
-                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false);
-            throw new DdlException(errMsg);
+            // multipart upload: initiate → upload one part → complete
+            try {
+                String uploadId = objStorage.initiateMultipartUpload(testObj);
+                try {
+                    UploadPartResult partResult = objStorage.uploadPart(testObj, uploadId, 1,
+                            RequestBody.of(new ByteArrayInputStream(contentData), contentData.length));
+                    objStorage.completeMultipartUpload(testObj, uploadId, Collections.singletonList(partResult));
+                } catch (IOException e) {
+                    try {
+                        objStorage.abortMultipartUpload(testObj, uploadId);
+                    } catch (Exception ignored) {
+                        // best-effort cleanup
+                    }
+                    throw e;
+                }
+            } catch (IOException e) {
+                throw new DdlException("pingS3 failed(multipartUpload),"
+                        + " please check your endpoint, ak/sk or permissions"
+                        + "(put/head/delete/list/multipartUpload),"
+                        + " err: " + e.getMessage() + ", properties: "
+                        + new DatasourcePrintableMap<>(newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                objStorage.deleteObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("pingS3 failed(delete),"
+                        + " please check your endpoint, ak/sk or permissions"
+                        + "(put/head/delete/list/multipartUpload),"
+                        + " err: " + e.getMessage() + ", properties: "
+                        + new DatasourcePrintableMap<>(newProperties, "=", true, false, true, false));
+            }
+        } catch (DdlException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new DdlException("pingS3 failed: " + e.getMessage());
         }
 
         LOG.info("success to ping s3");

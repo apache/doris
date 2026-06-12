@@ -37,12 +37,13 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "exec/common/variant_util.h"
 #include "exprs/score_runtime.h"
 #include "exprs/vexpr_fwd.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "runtime/runtime_profile.h"
-#include "storage/field.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_iterator.h"
 #include "storage/iterators.h"
@@ -50,8 +51,8 @@
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
-#include "storage/row_cursor_cell.h"
 #include "storage/schema.h"
+#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
 #include "util/slice.h"
@@ -203,11 +204,6 @@ private:
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
-    // TODO: Fix Me
-    // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
-    // so segment iterator need to shrink char column before output it. only use in vec query engine.
-    void _vec_init_char_column_id(Block* block);
-    bool _has_char_type(const StorageField& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -219,10 +215,13 @@ private:
                                        MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
+    void _update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
+    void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     void _collect_runtime_filter_predicate();
     Status _output_non_pred_columns(Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
@@ -251,8 +250,7 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            DataTypePtr storage_type =
-                    _segment->get_data_type_of(_schema->column(cid)->get_desc(), _opts);
+            DataTypePtr storage_type = _segment->get_data_type_of(*_schema->column(cid), _opts);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 MutableColumnPtr tmp = storage_type->create_column();
@@ -264,7 +262,7 @@ private:
                         &block->get_by_position(block_cid).column));
             } else {
                 MutableColumnPtr output_column =
-                        block->get_by_position(block_cid).column->assume_mutable();
+                        block->get_by_position(block_cid).column->assert_mutable();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              output_column, sel_rowid_idx,
                                                              select_size, _opts.block_row_max));
@@ -301,49 +299,12 @@ private:
 
     Status _construct_compound_expr_context();
 
-    // todo(wb) remove this method after RowCursor is removed
-    void NO_SANITIZE_UNDEFINED _convert_rowcursor_to_short_key(const RowCursor& key,
-                                                               size_t num_keys) {
-        if (_short_key.size() == 0) {
-            _short_key.resize(num_keys);
-            for (auto cid = 0; cid < num_keys; cid++) {
-                auto* field = key.schema()->column(cid);
-                _short_key[cid] = Schema::get_column_by_field(*field);
-            }
-        } else {
-            for (int i = 0; i < num_keys; i++) {
-                _short_key[i]->clear();
-            }
-        }
-
-        for (auto cid = 0; cid < num_keys; cid++) {
-            auto field = key.schema()->column(cid);
-            if (field == nullptr) {
-                break;
-            }
-            auto cell = key.cell(cid);
-            if (cell.is_null()) {
-                _short_key[cid]->insert_default();
-            } else {
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
-                    field->type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
-                    field->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
-                    const Slice* slice = reinterpret_cast<const Slice*>(cell.cell_ptr());
-                    _short_key[cid]->insert_data(slice->data, slice->size);
-                } else {
-                    _short_key[cid]->insert_many_fix_len_data(
-                            reinterpret_cast<const char*>(cell.cell_ptr()), 1);
-                }
-            }
-        }
-    }
-
-    int _compare_short_key_with_seek_block(const std::vector<ColumnId>& col_ids) {
+    int _compare_short_key_with_seek_block(const RowCursor& key,
+                                           const std::vector<ColumnId>& col_ids) {
         for (auto cid : col_ids) {
-            // todo(wb) simd compare when memory layout in row
-            auto res = _short_key[cid]->compare_at(0, 0, *_seek_block[cid], -1);
-            if (res != 0) {
-                return res;
+            auto ord = key.field(cid) <=> (*_seek_block[cid])[0];
+            if (ord != std::strong_ordering::equal) {
+                return ord < 0 ? -1 : 1;
             }
         }
         return 0;
@@ -355,13 +316,13 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
-    bool _can_opt_topn_reads();
+    bool _can_opt_limit_reads();
 
     void _initialize_predicate_results();
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                 bool default_return = false);
 
-    void _calculate_expr_in_remaining_conjunct_root();
+    void _calculate_common_expr_index_exec_status();
 
     Status _process_eof(Block* block);
 
@@ -442,11 +403,18 @@ private:
     bool _inited;
 
     StorageReadOptions _opts;
+    // Adaptive batch size predictor; null when the feature is disabled.
+    std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
+    // Build the AdaptiveBlockSizePredictor for this segment based on segment footer
+    // metadata for the projected output columns. Returns nullptr if the feature is
+    // disabled or the byte budget is non-positive.
+    std::unique_ptr<AdaptiveBlockSizePredictor> _make_block_size_predictor() const;
+    // Snapshot of _opts.block_row_max at init time; used as the hard upper bound so that
+    // dynamic adjustments never exceed the capacity of pre-allocated buffers.
+    uint32_t _initial_block_row_max = 0;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
     VExprContextSPtrs _common_expr_ctxs_push_down;
-    bool _enable_common_expr_pushdown = false;
-    std::vector<VExprSPtr> _remaining_conjunct_roots;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek
@@ -456,18 +424,15 @@ private:
     // only used in `_get_row_ranges_by_keys`
     MutableColumns _seek_block;
 
-    //todo(wb) remove this field after Rowcursor is removed
-    MutableColumns _short_key;
-
     io::FileReaderSPtr _file_reader;
-
-    // char_type or array<char> type columns cid
-    std::vector<size_t> _char_type_idx;
-    std::vector<bool> _is_char_type;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
+
+    // Rows already produced by this iterator. Used together with
+    // _opts.read_limit to compute the remaining per-batch budget.
+    size_t _rows_returned = 0;
 
     std::unique_ptr<ObjectPool> _pool;
 

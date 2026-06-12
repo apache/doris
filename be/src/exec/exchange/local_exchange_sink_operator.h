@@ -63,7 +63,7 @@ private:
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
     std::unique_ptr<PartitionerBase> _partitioner = nullptr;
-
+    int _ins_idx = 0;
     // Used by random passthrough exchanger
     int _channel_id = 0;
 };
@@ -103,7 +103,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);

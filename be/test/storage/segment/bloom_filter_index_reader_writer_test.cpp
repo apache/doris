@@ -66,7 +66,6 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
                                      size_t value_count, size_t null_count,
                                      ColumnIndexMetaPB* index_meta,
                                      bool use_primary_key_bloom_filter = false, double fpp = 0.05) {
-    const auto* type_info = get_scalar_type_info<type>();
     using CppType = typename CppTypeTraits<type>::CppType;
     std::string fname = dname + "/" + file_name;
     auto fs = io::global_local_filesystem();
@@ -80,10 +79,10 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
         bf_options.fpp = fpp; // Set the expected FPP
         if (use_primary_key_bloom_filter) {
             RETURN_IF_ERROR(PrimaryKeyBloomFilterIndexWriterImpl::create(
-                    bf_options, type_info, &bloom_filter_index_writer));
+                    bf_options, type, &bloom_filter_index_writer));
         } else {
-            RETURN_IF_ERROR(BloomFilterIndexWriter::create(bf_options, type_info,
-                                                           &bloom_filter_index_writer));
+            RETURN_IF_ERROR(
+                    BloomFilterIndexWriter::create(bf_options, type, &bloom_filter_index_writer));
         }
 
         const CppType* vals = (const CppType*)values;
@@ -616,7 +615,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
 
 template <FieldType type>
 Status write_ngram_bloom_filter_index_file(const std::string& file_name, Slice* values,
-                                           size_t num_values, const TypeInfo* type_info,
+                                           size_t num_values,
                                            BloomFilterIndexWriter* bf_index_writer,
                                            ColumnIndexMetaPB* meta) {
     auto fs = io::global_local_filesystem();
@@ -685,16 +684,15 @@ template <FieldType type>
 Status test_ngram_bloom_filter_index_reader_writer(const std::string& file_name, Slice* values,
                                                    size_t num_values, uint8_t gram_size,
                                                    uint16_t bf_size) {
-    const auto* type_info = get_scalar_type_info<type>();
     ColumnIndexMetaPB meta;
 
     BloomFilterOptions bf_options;
     std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
-    RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size,
-                                                            bf_size, &bf_index_writer));
+    RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(bf_options, type, gram_size, bf_size,
+                                                            &bf_index_writer));
 
-    RETURN_IF_ERROR(write_ngram_bloom_filter_index_file<type>(
-            file_name, values, num_values, type_info, bf_index_writer.get(), &meta));
+    RETURN_IF_ERROR(write_ngram_bloom_filter_index_file<type>(file_name, values, num_values,
+                                                              bf_index_writer.get(), &meta));
 
     std::vector<std::string> test_patterns = {"ngram15", "ngram1000", "ngram1499",
                                               "non-existent-string"};
@@ -734,7 +732,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter) {
     EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
 }
 void test_ngram_bloom_filter_with_size(uint16_t bf_size) {
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
     ColumnIndexMetaPB meta;
 
     BloomFilterOptions bf_options;
@@ -751,13 +749,13 @@ void test_ngram_bloom_filter_with_size(uint16_t bf_size) {
     uint8_t gram_size = 5;
 
     std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
-    auto st = NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size, bf_size,
+    auto st = NGramBloomFilterIndexWriterImpl::create(bf_options, type, gram_size, bf_size,
                                                       &bf_index_writer);
     EXPECT_TRUE(st.ok());
 
     std::string file_name = "bloom_filter_ngram_varchar_size_" + std::to_string(bf_size);
-    st = write_ngram_bloom_filter_index_file<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
-            file_name, slices.data(), num, type_info, bf_index_writer.get(), &meta);
+    st = write_ngram_bloom_filter_index_file<type>(file_name, slices.data(), num,
+                                                   bf_index_writer.get(), &meta);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(bf_index_writer->size(), static_cast<uint64_t>(bf_size) * total_pages);
 }
@@ -770,10 +768,10 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter_size) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_unsupported_type) {
-    auto type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_FLOAT>();
     BloomFilterOptions bf_options;
     std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
-    auto st = BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer);
+    auto st = BloomFilterIndexWriter::create(bf_options, FieldType::OLAP_FIELD_TYPE_FLOAT,
+                                             &bloom_filter_index_writer);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
 }

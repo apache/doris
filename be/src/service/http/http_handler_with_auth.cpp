@@ -44,6 +44,10 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
         return 0;
     }
 
+    // When enable_all_http_auth is true, even NONE type APIs require authentication
+    // (enable_all_http_auth means "enable authentication for ALL HTTP APIs")
+    // Note: This overrides the default behavior where NONE type APIs bypass auth
+
     if (!parse_basic_auth(*req, &auth_info)) {
         LOG(WARNING) << "parse basic authorization failed"
                      << ", request: " << req->debug_string();

@@ -21,7 +21,36 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
-file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
+file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
+    agent/*.cpp
+    ai/*.cpp
+    cloud/*.cpp
+    common/*.cpp
+    core/*.cpp
+    exec/*.cpp
+    exprs/*.cpp
+    format/*.cpp
+    gutil/*.cpp
+    io/*.cpp
+    load/*.cpp
+    runtime/*.cpp
+    service/*.cpp
+    storage/*.cpp
+    testutil/*.cpp
+    tools/*.cpp
+    util/*.cpp
+    vec/*.cpp
+)
+
+if (ENABLE_TDE)
+    file(GLOB_RECURSE TDE_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TDE_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TDE_UT_FILES})
+endif()
+
+if (ENABLE_TLS)
+    file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TLS_UT_FILES})
+endif()
 
 # Remove all cpp files from vector search (ANN index) subdirectory
 # Since cpp files in vector search subdirs use header files from faiss.
@@ -29,6 +58,12 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 # So vector_search cpp files are compiled in a separate library using different compile options.
 file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS storage/index/ann/*.cpp)
 list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
+
+# Lance reader tests require Rust static library (BUILD_RUST_READERS=ON)
+if (NOT BUILD_RUST_READERS)
+    file(GLOB_RECURSE LANCE_TEST_FILES CONFIGURE_DEPENDS format/lance/*.cpp)
+    list(REMOVE_ITEM UT_FILES ${LANCE_TEST_FILES})
+endif()
 
 if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)

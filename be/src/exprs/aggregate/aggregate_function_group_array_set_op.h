@@ -34,7 +34,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/hybrid_set.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -406,7 +405,7 @@ struct GroupArrayStringUnionData : public GroupArraySetOpStringBaseData {
 
 /// Puts all values to the hybrid set. Returns an array of unique values
 template <typename ImplData>
-class AggregateFunctionGroupArraySetOp
+class AggregateFunctionGroupArraySetOp final
         : public IAggregateFunctionDataHelper<ImplData, AggregateFunctionGroupArraySetOp<ImplData>>,
           UnaryExpression,
           NotNullableAggregateFunction {
@@ -433,7 +432,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
-        const bool col_is_nullable = (*columns[0]).is_nullable();
+        const bool col_is_nullable = is_column_nullable(*columns[0]);
         const ColumnArray& column =
                 col_is_nullable
                         ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
@@ -475,5 +474,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

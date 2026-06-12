@@ -46,11 +46,9 @@
 #include "core/value/decimalv2_value.h"
 #include "exec/common/int_exp.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
     auto transform = [&](DataTypePtr t) -> DataTypePtr {
@@ -70,8 +68,7 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
             DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
 
             return res;
-        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
-                   t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
+        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY) {
             return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
         } else {
             return t;
@@ -200,18 +197,13 @@ template <PrimitiveType T>
 void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     if constexpr (T == TYPE_DECIMALV2) {
-        const auto* real_type_t = assert_cast<const DataTypeDecimalV2*>(this);
+        const auto* real_type_t = this;
         col_meta->mutable_decimal_param()->set_precision(real_type_t->get_original_precision());
         col_meta->mutable_decimal_param()->set_scale(real_type_t->get_original_scale());
     } else {
         col_meta->mutable_decimal_param()->set_precision(precision);
         col_meta->mutable_decimal_param()->set_scale(scale);
     }
-}
-
-template <PrimitiveType T>
-Field DataTypeDecimal<T>::get_default() const {
-    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType());
 }
 
 template <PrimitiveType T>
@@ -247,7 +239,7 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
                                min_decimal_precision(), max_precision);
     }
 
-    if (static_cast<UInt64>(scale_value) > precision_value) {
+    if (scale_value > precision_value) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Negative scales and scales larger than precision are not "
                                "supported, scale_value: {}, precision_value: {}",

@@ -106,6 +106,7 @@ public class Interval extends Expression implements UnaryExpression, AlwaysNotNu
         MINUTE_SECOND("MINUTE_SECOND", false, 200),
         MINUTE_MICROSECOND("MINUTE_MICROSECOND", false, 200),
         SECOND("SECOND", true, 100),
+        MICROSECOND("MICROSECOND", true, 0),
         SECOND_MICROSECOND("SECOND_MICROSECOND", true, 100);
 
         private final String description;

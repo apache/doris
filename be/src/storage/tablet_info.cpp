@@ -51,16 +51,21 @@
 #include "util/string_util.h"
 // NOLINTNEXTLINE(unused-includes)
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_timestamptz.h"
 #include "exprs/vexpr_context.h" // IWYU pragma: keep
 #include "exprs/vliteral.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
     pindex->set_schema_hash(schema_hash);
+    if (row_binlog_id > 0) {
+        pindex->set_row_binlog_id(row_binlog_id);
+    }
     for (auto* slot : slots) {
         pindex->add_columns(slot->col_name());
     }
@@ -180,6 +185,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
+        if (p_index.has_row_binlog_id()) {
+            index->row_binlog_id = p_index.row_binlog_id();
+        }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
@@ -215,6 +223,27 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             index->indexes.emplace_back(ti);
         }
         _indexes.emplace_back(index);
+    }
+
+    if (pschema.has_row_binlog_index_schema()) {
+        const auto& p_index = pschema.row_binlog_index_schema();
+        auto* index = _obj_pool.add(new OlapTableIndexSchema());
+        index->index_id = p_index.id();
+        index->schema_hash = p_index.schema_hash();
+        if (p_index.has_row_binlog_id()) {
+            index->row_binlog_id = p_index.row_binlog_id();
+        }
+        for (const auto& pcolumn_desc : p_index.columns_desc()) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_pb(pcolumn_desc);
+            index->columns.emplace_back(tc);
+        }
+        for (const auto& pindex_desc : p_index.indexes_desc()) {
+            TabletIndex* ti = _obj_pool.add(new TabletIndex());
+            ti->init_from_pb(pindex_desc);
+            index->indexes.emplace_back(ti);
+        }
+        _row_binlog_index_schema = index;
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -318,6 +347,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
+        if (t_index.__isset.row_binlog_id) {
+            index->row_binlog_id = t_index.row_binlog_id;
+        }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
@@ -370,6 +402,22 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _indexes.emplace_back(index);
     }
 
+    if (tschema.__isset.row_binlog_index_schema) {
+        const auto& t_index = tschema.row_binlog_index_schema;
+        auto* index = _obj_pool.add(new OlapTableIndexSchema());
+        index->index_id = t_index.id;
+        index->schema_hash = t_index.schema_hash;
+        if (t_index.__isset.row_binlog_id) {
+            index->row_binlog_id = t_index.row_binlog_id;
+        }
+        for (const auto& tcolumn_desc : t_index.columns_desc) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_thrift(tcolumn_desc);
+            index->columns.emplace_back(tc);
+        }
+        _row_binlog_index_schema = index;
+    }
+
     std::sort(_indexes.begin(), _indexes.end(),
               [](const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
                   return lhs->index_id < rhs->index_id;
@@ -403,6 +451,9 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     }
     for (auto* index : _indexes) {
         index->to_protobuf(pschema->add_indexes());
+    }
+    if (_row_binlog_index_schema != nullptr) {
+        _row_binlog_index_schema->to_protobuf(pschema->mutable_row_binlog_index_schema());
     }
 }
 
@@ -559,15 +610,16 @@ bool VOlapTablePartitionParam::_part_contains(VOlapTablePartition* part,
 // NOLINTBEGIN(readability-function-size)
 static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos) {
     auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
-    //TODO: use assert_cast before insert_data
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         auto primitive_type =
                 DataTypeFactory::instance().create_data_type(t_expr.type)->get_primitive_type();
         if (primitive_type == TYPE_DATEV2) {
             DateV2Value<DateV2ValueType> dt;
-            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                                  t_expr.date_literal.value.size())) {
+            CastParameters params;
+            if (!CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                        {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, dt,
+                        nullptr, params)) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
@@ -577,8 +629,10 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             DateV2Value<DateTimeV2ValueType> dt;
             const int32_t scale =
                     t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
-            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                                  t_expr.date_literal.value.size(), scale)) {
+            CastParameters params;
+            if (!CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                        {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, dt,
+                        nullptr, scale, params)) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
@@ -589,27 +643,27 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             CastParameters params {.status = Status::OK(), .is_strict = true};
             const int32_t scale =
                     t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
-            if (!CastToTimstampTz::from_string(
+            if (!CastToTimestampTz::from_string(
                         {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, res,
                         params, nullptr, scale)) [[unlikely]] {
                 std::stringstream ss;
                 ss << "invalid timestamptz literal in partition column, value="
                    << t_expr.date_literal;
                 return Status::InternalError(ss.str());
-            } else {
-                column->insert_data(reinterpret_cast<const char*>(&res), 0);
             }
+            column->insert_data(reinterpret_cast<const char*>(&res), 0);
         } else {
-            // TYPE_DATE (DATEV1) or TYPE_DATETIME (DATETIMEV1)
             VecDateTimeValue dt;
-            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                                  t_expr.date_literal.value.size())) {
+            CastParameters params;
+            if (!CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                               DatelikeTargetType::DATE_TIME>(
+                        {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, dt,
+                        nullptr, params)) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
             }
-            if (DataTypeFactory::instance().create_data_type(t_expr.type)->get_primitive_type() ==
-                TYPE_DATE) {
+            if (primitive_type == TYPE_DATE) {
                 dt.cast_to_date();
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
@@ -905,6 +959,5 @@ Status VOlapTablePartitionParam::replace_partitions(
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

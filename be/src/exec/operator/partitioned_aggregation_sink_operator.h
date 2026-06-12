@@ -29,7 +29,6 @@
 #include "exprs/vexpr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PartitionedAggSinkOperatorX;
 class PartitionedAggSinkLocalState
         : public PipelineXSpillSinkLocalState<PartitionedAggSharedState> {
@@ -115,7 +114,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
                          bool require_bucket_distribution) override {
@@ -150,5 +149,4 @@ private:
     // each operator tracks its own partition count for spilling
     size_t _partition_count = 32;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

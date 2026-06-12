@@ -17,14 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -38,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -63,7 +58,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.roaringbitmap.RoaringBitmap;
 
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -274,8 +268,14 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     @Override
+    public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+            PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(cteAnchor);
+    }
+
+    @Override
     public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
-        return skipPruneThis(cteProducer);
+        return skipPruneThisAndFirstLevelChildren(cteProducer);
     }
 
     @Override
@@ -318,6 +318,10 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     private Plan skipPruneThis(Plan plan) {
         return pruneChildren(plan, plan.getOutputExprIdBitSet());
+    }
+
+    private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
+        return pruneChildren(plan, plan.getChildrenOutputExprIdBitSet());
     }
 
     // some rules want to match the aggregate which contains all the group by keys and aggregate functions
@@ -550,37 +554,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             this.childRequiredSlots = childRequiredSlots;
             this.requiredSlotsIds = requiredSlotsIds;
             this.needPrune = needPrune;
-        }
-    }
-
-    private Set<String> computeUsedColumns(Plan plan, RoaringBitmap requiredSlotsIds) {
-        Set<String> usedColumnNames = new LinkedHashSet<>();
-        for (Slot outputSlot : plan.getOutput()) {
-            if (!requiredSlotsIds.contains(outputSlot.getExprId().asInt())) {
-                continue;
-            }
-            // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
-            if (outputSlot instanceof SlotReference && ((SlotReference) outputSlot).getOriginalColumn().isPresent()
-                    && !((SlotReference) outputSlot).getOriginalColumn().get().isVisible()) {
-                continue;
-            }
-            usedColumnNames.add(outputSlot.getName());
-        }
-        return usedColumnNames;
-    }
-
-    private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {
-        CascadesContext cascadesContext = jobContext.getCascadesContext();
-        ConnectContext connectContext = cascadesContext.getConnectContext();
-        try {
-            UserAuthentication.checkPermission(table, connectContext, usedColumns);
-        } catch (UserException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-        StatementContext statementContext = cascadesContext.getStatementContext();
-        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-        if (sqlCacheContext.isPresent()) {
-            sqlCacheContext.get().addCheckPrivilegeTablesOrViews(table, usedColumns);
         }
     }
 }

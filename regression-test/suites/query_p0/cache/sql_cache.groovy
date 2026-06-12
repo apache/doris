@@ -167,8 +167,6 @@ suite("sql_cache") {
                     )
                 """
 
-        sql "SET enable_nereids_planner=true"
-        sql "SET enable_fallback_to_original_planner=false"
 
         qt_sql_cache6 """
                     select

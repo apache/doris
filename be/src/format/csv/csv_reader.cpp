@@ -26,11 +26,13 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <ostream>
 #include <regex>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -62,7 +64,19 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
+
+namespace {
+
+size_t columns_byte_size(const std::vector<MutableColumnPtr>& columns) {
+    size_t bytes = 0;
+    for (const auto& column : columns) {
+        DCHECK(column.get() != nullptr);
+        bytes += column->byte_size();
+    }
+    return bytes;
+}
+
+} // namespace
 
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
@@ -171,8 +185,8 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx,
-                     std::shared_ptr<io::IOContext> io_ctx_holder)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+                     io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
         : _profile(profile),
           _params(params),
           _file_reader(nullptr),
@@ -185,7 +199,8 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _line_reader_eof(false),
           _skip_lines(0),
           _io_ctx(io_ctx),
-          _io_ctx_holder(std::move(io_ctx_holder)) {
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _batch_size(std::max(batch_size, 1UL)) {
     if (_io_ctx == nullptr && _io_ctx_holder) {
         _io_ctx = _io_ctx_holder.get();
     }
@@ -307,14 +322,93 @@ Status CsvReader::init_reader(bool is_load) {
     return Status::OK();
 }
 
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
+
+Status CsvReader::_open_file_reader(ReaderInitContext* base_ctx) {
+    _start_offset = _range.start_offset;
+    if (_start_offset == 0) {
+        if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
+            !_params.file_attributes.header_type.empty()) {
+            std::string header_type = to_lower(_params.file_attributes.header_type);
+            if (header_type == BeConsts::CSV_WITH_NAMES) {
+                _skip_lines = 1;
+            } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
+                _skip_lines = 2;
+            }
+        } else if (_params.file_attributes.__isset.skip_lines) {
+            _skip_lines = _params.file_attributes.skip_lines;
+        }
+    } else if (_start_offset != 0) {
+        if ((_file_compress_type != TFileCompressType::PLAIN) ||
+            (_file_compress_type == TFileCompressType::UNKNOWN &&
+             _file_format_type != TFileFormatType::FORMAT_CSV_PLAIN)) {
+            return Status::InternalError<false>("For now we do not support split compressed file");
+        }
+        int64_t pre_read_len = std::min(
+                static_cast<int64_t>(_params.file_attributes.text_params.line_delimiter.size()),
+                _start_offset);
+        _start_offset -= pre_read_len;
+        _size += pre_read_len;
+        _skip_lines = 1;
+    }
+
+    RETURN_IF_ERROR(_init_options());
+    RETURN_IF_ERROR(_create_file_reader(false));
+    return Status::OK();
+}
+
+Status CsvReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<CsvInitContext>(base_ctx);
+    _is_load = ctx->is_load;
+
+    _use_nullable_string_opt.resize(_file_slot_descs.size());
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        if (data_type_ptr->is_nullable() && is_string_type(data_type_ptr->get_primitive_type())) {
+            _use_nullable_string_opt[i] = 1;
+        }
+    }
+
+    RETURN_IF_ERROR(_create_decompressor());
+    RETURN_IF_ERROR(_create_line_reader());
+
+    if (!_is_load) {
+        DCHECK(_params.__isset.column_idxs);
+        _col_idxs = _params.column_idxs;
+        int idx = 0;
+        for (const auto& slot_info : _params.required_slots) {
+            if (slot_info.is_file_slot) {
+                _file_slot_idx_map.push_back(idx);
+            }
+            idx++;
+        }
+    } else {
+        int i = 0;
+        for (const auto& desc [[maybe_unused]] : _file_slot_descs) {
+            _col_idxs.push_back(i++);
+        }
+    }
+    _line_reader_eof = false;
+    return Status::OK();
+}
+
+void CsvReader::set_batch_size(size_t batch_size) {
+    // 0 means "not set" / "use default" for the row-based readers; we must
+    // never let _batch_size be 0 because _do_get_next_block uses it as the
+    // upper bound of a `while (rows < _batch_size)` loop and a 0 would make
+    // the reader return empty blocks and incorrectly signal EOF.
+    _batch_size = std::max(batch_size, 1UL);
+}
+
 // !FIXME: Here we should use MutableBlock
-Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_line_reader_eof) {
         *eof = true;
         return Status::OK();
     }
 
-    const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    const size_t batch_size = _batch_size;
+    const auto max_block_bytes = _state->preferred_block_size_bytes();
     size_t rows = 0;
 
     bool success = false;
@@ -349,14 +443,16 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-        auto mutate_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        auto& mutate_columns = mutable_columns_guard.mutable_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
     } else {
-        auto columns = block->mutate_columns();
-        while (rows < batch_size && !_line_reader_eof) {
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
+        while (rows < batch_size && !_line_reader_eof &&
+               (columns_byte_size(columns) < max_block_bytes)) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
@@ -376,7 +472,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             }
             if (size == 0) {
                 if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    RETURN_IF_ERROR(_fill_empty_line(block, columns, &rows));
+                    RETURN_IF_ERROR(_fill_empty_line(columns, &rows));
                 }
                 // Read empty line, continue
                 continue;
@@ -386,9 +482,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             if (!success) {
                 continue;
             }
-            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), columns, &rows));
         }
-        block->set_columns(std::move(columns));
     }
 
     *eof = (rows == 0);
@@ -397,8 +492,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status CsvReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                              std::unordered_set<std::string>* missing_cols) {
+Status CsvReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
@@ -572,7 +666,8 @@ Status CsvReader::_create_file_reader(bool need_schema) {
                     io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                     io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
         }
-        _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+        _file_reader = _io_ctx && _io_ctx->file_reader_stats
+                               ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
                                : file_reader;
     }
@@ -639,8 +734,8 @@ Status CsvReader::_deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column
     return serde->deserialize_one_cell_from_csv(column, slice, _options);
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
-                                     std::vector<MutableColumnPtr>& columns, size_t* rows) {
+Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns,
+                                     size_t* rows) {
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
@@ -658,10 +753,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            // block is a Block*, and get_by_position returns a ColumnPtr,
-            // which is a const pointer. Therefore, using const_cast is permissible.
-            col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            col_ptr = columns[_file_slot_idx_map[i]].get();
         }
 
         if (_use_nullable_string_opt[i]) {
@@ -678,15 +770,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     return Status::OK();
 }
 
-Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
-                                   size_t* rows) {
+Status CsvReader::_fill_empty_line(std::vector<MutableColumnPtr>& columns, size_t* rows) {
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            // block is a Block*, and get_by_position returns a ColumnPtr,
-            // which is a const pointer. Therefore, using const_cast is permissible.
-            col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            col_ptr = columns[_file_slot_idx_map[i]].get();
         }
         auto& null_column = assert_cast<ColumnNullable&>(*col_ptr);
         null_column.insert_data(nullptr, 0);
@@ -845,5 +933,4 @@ Status CsvReader::close() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

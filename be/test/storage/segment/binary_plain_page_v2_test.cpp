@@ -27,6 +27,8 @@
 #include "core/column/column_string.h"
 #include "storage/cache/page_cache.h"
 #include "storage/olap_common.h"
+#include "storage/segment/binary_plain_page.h"
+#include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
@@ -43,7 +45,7 @@ public:
     // Helper method to apply pre-decode step for BinaryPlainPageV2
     // Similar to decode_bitshuffle_page in BinaryDictPageTest
     Status apply_pre_decode(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
-        BinaryPlainPageV2PreDecoder pre_decoder;
+        BinaryPlainPageV2PreDecoder<false> pre_decoder;
         return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE, "");
     }
 
@@ -74,17 +76,6 @@ public:
         status = page_builder->finish(&owned_slice);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(slices.size(), page_builder->count());
-
-        // Check first and last value
-        Slice first_value;
-        status = page_builder->get_first_value(&first_value);
-        EXPECT_TRUE(status.ok());
-        EXPECT_EQ(slices[0], first_value);
-
-        Slice last_value;
-        status = page_builder->get_last_value(&last_value);
-        EXPECT_TRUE(status.ok());
-        EXPECT_EQ(slices[slices.size() - 1], last_value);
 
         // Decode the page
         // First apply pre-decode to convert V2 format to V1 format
@@ -251,14 +242,6 @@ public:
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(0, page_builder->count());
 
-        // Try to get first/last value from empty page
-        Slice value;
-        status = page_builder->get_first_value(&value);
-        EXPECT_FALSE(status.ok());
-
-        status = page_builder->get_last_value(&value);
-        EXPECT_FALSE(status.ok());
-
         // Decode empty page
         // First apply pre-decode to convert V2 format to V1 format
         Slice page_slice = owned_slice.slice();
@@ -347,47 +330,6 @@ public:
         src_strings.push_back("中文测试");
 
         test_encode_decode_page<Type>(src_strings);
-    }
-
-    template <FieldType Type>
-    void test_get_dict_word() {
-        std::vector<std::string> src_strings = {"apple", "banana", "cherry", "date"};
-        std::vector<Slice> slices;
-        for (const auto& str : src_strings) {
-            slices.emplace_back(str);
-        }
-
-        // Build the page
-        PageBuilderOptions builder_options;
-        builder_options.data_page_size = 256 * 1024;
-
-        PageBuilder* builder_ptr = nullptr;
-        Status status = BinaryPlainPageV2Builder<Type>::create(&builder_ptr, builder_options);
-        EXPECT_TRUE(status.ok());
-        std::unique_ptr<PageBuilder> page_builder_wrapper(builder_ptr);
-        auto* page_builder = static_cast<BinaryPlainPageV2Builder<Type>*>(builder_ptr);
-
-        size_t count = slices.size();
-        const Slice* ptr = slices.data();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
-        EXPECT_TRUE(status.ok());
-
-        // Test get_dict_word before finish
-        for (uint32_t i = 0; i < slices.size(); ++i) {
-            Slice word;
-            status = page_builder->get_dict_word(i, &word);
-            EXPECT_TRUE(status.ok());
-            EXPECT_EQ(src_strings[i], word.to_string()) << "Mismatch at index " << i;
-        }
-
-        // Test invalid value_code
-        Slice word;
-        status = page_builder->get_dict_word(slices.size(), &word);
-        EXPECT_FALSE(status.ok());
-
-        OwnedSlice owned_slice;
-        status = page_builder->finish(&owned_slice);
-        EXPECT_TRUE(status.ok());
     }
 
     template <FieldType Type>
@@ -506,10 +448,6 @@ TEST_F(BinaryPlainPageV2Test, TestVariousLengthStringsVarchar) {
     test_various_length_strings<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
 }
 
-TEST_F(BinaryPlainPageV2Test, TestGetDictWordVarchar) {
-    test_get_dict_word<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
-}
-
 TEST_F(BinaryPlainPageV2Test, TestResetVarchar) {
     test_reset<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
 }
@@ -615,6 +553,147 @@ TEST_F(BinaryPlainPageV2Test, TestSeekAndRead) {
     EXPECT_EQ("c", string_column->get_data_at(0).to_string());
     EXPECT_EQ("d", string_column->get_data_at(1).to_string());
     EXPECT_EQ("e", string_column->get_data_at(2).to_string());
+}
+
+// CHAR-specific roundtrip: write padded slices (the on-disk format produced
+// by OlapColumnDataConvertorChar) through both CHAR-strip pre-decoders and
+// confirm the post-decode column surfaces the unpadded logical content.
+
+namespace {
+
+// Build padded slices of fixed width `pad_len`: each input `s` is copied into
+// a buffer of size pad_len with trailing '\0' fill.
+// Build a vector of zero-padded buffers of fixed width `pad_len`. The caller
+// builds Slices into the returned buffers AFTER the vector is settled — keep
+// Slice creation outside this helper so the buffers' addresses don't move
+// underneath the Slices.
+std::vector<std::string> make_padded_buffers(const std::vector<std::string>& logical,
+                                             size_t pad_len) {
+    std::vector<std::string> buffers;
+    buffers.reserve(logical.size());
+    for (const auto& s : logical) {
+        EXPECT_LE(s.size(), pad_len);
+        std::string buf = s;
+        buf.resize(pad_len, '\0');
+        buffers.push_back(std::move(buf));
+    }
+    return buffers;
+}
+
+std::vector<Slice> slices_from(const std::vector<std::string>& buffers, size_t pad_len) {
+    std::vector<Slice> slices;
+    slices.reserve(buffers.size());
+    for (const auto& b : buffers) {
+        slices.emplace_back(b.data(), pad_len);
+    }
+    return slices;
+}
+
+void verify_unpadded_column(MutableColumnPtr& column, const std::vector<std::string>& expected) {
+    auto* str_col = assert_cast<ColumnString*>(column.get());
+    ASSERT_EQ(expected.size(), str_col->size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        auto got = str_col->get_data_at(i).to_string();
+        EXPECT_EQ(expected[i], got) << "row " << i;
+    }
+}
+
+} // namespace
+
+// V2 plain page with padded CHAR slices → BinaryPlainPageV2PreDecoder<true>
+// → BinaryPlainPageDecoder → strings come out unpadded.
+TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V2_RoundtripPaddedSlices) {
+    constexpr size_t pad_len = 8;
+    std::vector<std::string> logical = {"a", "bc", "", "alpha", "alpaca12"};
+    auto buffers = make_padded_buffers(logical, pad_len);
+    auto slices = slices_from(buffers, pad_len);
+
+    PageBuilderOptions builder_options;
+    builder_options.data_page_size = 256 * 1024;
+    PageBuilder* builder_ptr = nullptr;
+    ASSERT_TRUE(BinaryPlainPageV2Builder<FieldType::OLAP_FIELD_TYPE_CHAR>::create(&builder_ptr,
+                                                                                  builder_options)
+                        .ok());
+    std::unique_ptr<PageBuilder> wrapper(builder_ptr);
+    auto* page_builder =
+            static_cast<BinaryPlainPageV2Builder<FieldType::OLAP_FIELD_TYPE_CHAR>*>(builder_ptr);
+    size_t count = slices.size();
+    ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count).ok());
+    ASSERT_EQ(slices.size(), count);
+
+    OwnedSlice owned_slice;
+    ASSERT_TRUE(page_builder->finish(&owned_slice).ok());
+
+    // Run the CHAR-strip pre-decoder (the one EncodingInfo would pick for a
+    // CHAR PLAIN_ENCODING_V2 page).
+    Slice page_slice = owned_slice.slice();
+    std::unique_ptr<DataPage> decoded_page;
+    BinaryPlainPageV2PreDecoder<true> pre_decoder;
+    ASSERT_TRUE(pre_decoder
+                        .decode(&decoded_page, &page_slice, /*size_of_tail=*/0,
+                                /*use_cache=*/false, PageTypePB::DATA_PAGE, "")
+                        .ok());
+
+    // Decode the resulting V1 layout and verify rows are unpadded.
+    PageDecoderOptions decoder_options;
+    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_CHAR> page_decoder(page_slice,
+                                                                         decoder_options);
+    ASSERT_TRUE(page_decoder.init().ok());
+    ASSERT_EQ(logical.size(), page_decoder.count());
+
+    MutableColumnPtr column = ColumnString::create();
+    size_t num_to_read = logical.size();
+    ASSERT_TRUE(page_decoder.next_batch(&num_to_read, column).ok());
+    ASSERT_EQ(logical.size(), num_to_read);
+    verify_unpadded_column(column, logical);
+}
+
+// V1 plain page with padded CHAR slices → BinaryPlainPageCharStripPreDecoder
+// → BinaryPlainPageDecoder → strings come out unpadded. This mirrors the
+// V2 case above for the PLAIN_ENCODING path.
+TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V1_RoundtripPaddedSlices) {
+    constexpr size_t pad_len = 6;
+    std::vector<std::string> logical = {"x", "abcd", "", "zzzzzz", "qw"};
+    auto buffers = make_padded_buffers(logical, pad_len);
+    auto slices = slices_from(buffers, pad_len);
+
+    // Build a V1 plain page (no varint length prefixes — data + offsets +
+    // num_elems trailer).
+    PageBuilderOptions builder_options;
+    builder_options.data_page_size = 256 * 1024;
+    PageBuilder* builder_ptr = nullptr;
+    ASSERT_TRUE(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_CHAR>::create(&builder_ptr,
+                                                                                builder_options)
+                        .ok());
+    std::unique_ptr<PageBuilder> wrapper(builder_ptr);
+    auto* page_builder =
+            static_cast<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_CHAR>*>(builder_ptr);
+    size_t count = slices.size();
+    ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count).ok());
+    ASSERT_EQ(slices.size(), count);
+
+    OwnedSlice owned_slice;
+    ASSERT_TRUE(page_builder->finish(&owned_slice).ok());
+
+    Slice page_slice = owned_slice.slice();
+    std::unique_ptr<DataPage> decoded_page;
+    BinaryPlainPageCharStripPreDecoder pre_decoder;
+    ASSERT_TRUE(pre_decoder
+                        .decode(&decoded_page, &page_slice, /*size_of_tail=*/0,
+                                /*use_cache=*/false, PageTypePB::DATA_PAGE, "")
+                        .ok());
+
+    PageDecoderOptions decoder_options;
+    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_CHAR> page_decoder(page_slice,
+                                                                         decoder_options);
+    ASSERT_TRUE(page_decoder.init().ok());
+    ASSERT_EQ(logical.size(), page_decoder.count());
+
+    MutableColumnPtr column = ColumnString::create();
+    size_t num_to_read = logical.size();
+    ASSERT_TRUE(page_decoder.next_batch(&num_to_read, column).ok());
+    ASSERT_EQ(logical.size(), num_to_read);
+    verify_unpadded_column(column, logical);
 }
 
 } // namespace segment_v2

@@ -25,7 +25,7 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
+
 Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
     std::shared_ptr<PBackendService_Stub> stub(
             state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
@@ -35,13 +35,13 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     }
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
-    auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
+    merge_filter_request->set_stage(_stage);
+    _merge_filter_callback = HandleErrorBrpcCallback<PMergeFilterResponse>::create_shared(
+            state->query_options().ignore_runtime_filter_error ? std::weak_ptr<QueryContext> {}
+                                                               : state->get_query_ctx_weak());
     auto merge_filter_closure =
-            AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
-                    create_unique(merge_filter_request, merge_filter_callback,
-                                  state->query_options().ignore_runtime_filter_error
-                                          ? std::weak_ptr<QueryContext> {}
-                                          : state->get_query_ctx_weak());
+            AutoReleaseClosure<PMergeFilterRequest, HandleErrorBrpcCallback<PMergeFilterResponse>>::
+                    create_unique(merge_filter_request, _merge_filter_callback);
     void* data = nullptr;
     int len = 0;
 
@@ -53,10 +53,10 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
     pfragment_instance_id->set_lo((int64_t)this);
 
-    merge_filter_callback->cntl_->set_timeout_ms(
+    _merge_filter_callback->cntl_->set_timeout_ms(
             get_execution_rpc_timeout_ms(state->get_query_ctx()->execution_timeout()));
     if (config::execution_ignore_eovercrowded) {
-        merge_filter_callback->cntl_->ignore_eovercrowded();
+        _merge_filter_callback->cntl_->ignore_eovercrowded();
     }
 
     RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
@@ -66,9 +66,8 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
             return Status::InternalError(
                     "data is nullptr after serialization with len > 0, filter: {}", debug_string());
         }
-        merge_filter_callback->cntl_->request_attachment().append(data, len);
+        _merge_filter_callback->cntl_->request_attachment().append(data, len);
     }
-
     stub->merge_filter(merge_filter_closure->cntl_.get(), merge_filter_closure->request_.get(),
                        merge_filter_closure->response_.get(), merge_filter_closure.get());
     // the closure will be released by brpc during closure->Run.
@@ -80,6 +79,9 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
                                       const TQueryOptions* options) {
     VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(VExpr::create_expr_tree(desc->src_expr, build_ctx));
+    if (build_ctx == nullptr) {
+        return Status::InternalError("runtime filter {} has empty src_expr", desc->filter_id);
+    }
 
     RuntimeFilterParams params;
     params.filter_id = desc->filter_id;
@@ -101,33 +103,14 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
     params.null_aware = desc->__isset.null_aware && desc->null_aware;
-    if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
-        if (_has_remote_target) {
-            return Status::InternalError("bitmap filter do not support remote target");
-        }
-        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_BITMAP) {
-            return Status::InternalError("Unexpected src expr type:{} for bitmap filter.",
-                                         build_ctx->root()->data_type()->get_name());
-        }
-        if (!desc->__isset.bitmap_target_expr) {
-            return Status::InternalError("Unknown bitmap filter target expr.");
-        }
-        VExprContextSPtr bitmap_target_ctx;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
-        params.column_return_type = bitmap_target_ctx->root()->data_type()->get_primitive_type();
-
-        if (desc->__isset.bitmap_filter_not_in) {
-            params.bitmap_filter_not_in = desc->bitmap_filter_not_in;
-        }
-    }
-
     _wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
     return Status::OK();
 }
 
 std::string RuntimeFilter::_debug_string() const {
-    return fmt::format("{}, mode: {}", _wrapper ? _wrapper->debug_string() : "<null wrapper>",
-                       _has_remote_target ? "GLOBAL" : "LOCAL");
+    return fmt::format("{}, mode: {}, stage: {}",
+                       _wrapper ? _wrapper->debug_string() : "<null wrapper>",
+                       _has_remote_target ? "GLOBAL" : "LOCAL", _stage);
 }
 
 void RuntimeFilter::_check_wrapper_state(

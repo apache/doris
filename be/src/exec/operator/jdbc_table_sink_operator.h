@@ -23,7 +23,6 @@
 #include "exec/sink/writer/vjdbc_table_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class JdbcTableSinkOperatorX;
 class JdbcTableSinkLocalState final
@@ -46,7 +45,7 @@ public:
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class JdbcTableSinkLocalState;
@@ -59,5 +58,4 @@ private:
     VExprContextSPtrs _output_vexpr_ctxs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

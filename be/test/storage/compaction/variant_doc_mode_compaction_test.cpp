@@ -251,7 +251,7 @@ protected:
         auto rowset_writer = std::move(res).value();
 
         Block block = tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
         auto* variant_col = assert_cast<ColumnVariant*>(columns[1].get());
         auto raw_json_column = ColumnString::create();
         raw_json_column->reserve(kRowsPerSegment);

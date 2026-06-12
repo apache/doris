@@ -26,7 +26,6 @@
 #include "exprs/function/dictionary.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 ComplexHashMapDictionary::~ComplexHashMapDictionary() {
     if (_mem_tracker) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
@@ -147,7 +146,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
     std::vector<const ColumnNullable*> nullable_key_raw_columns;
     for (const auto& column : key_columns) {
         key_raw_columns.push_back(remove_nullable(column).get());
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             key_hash_nullable = true;
             nullable_key_raw_columns.push_back(assert_cast<const ColumnNullable*>(column.get()));
         }
@@ -229,5 +228,4 @@ ColumnPtr ComplexHashMapDictionary::get_single_value_column(
 
     return ColumnNullable::create(std::move(res_column), std::move(res_null));
 }
-#include "common/compile_check_end.h"
 } // namespace doris

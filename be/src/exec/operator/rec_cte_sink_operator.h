@@ -26,7 +26,6 @@
 #include "exec/pipeline/rec_cte_shared_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class DataQueue;
@@ -81,7 +80,7 @@ public:
         return {ExchangeType::NOOP};
     }
 
-    Status sink(RuntimeState* state, Block* input_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
 
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -98,5 +97,4 @@ private:
     VExprContextSPtrs _child_expr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

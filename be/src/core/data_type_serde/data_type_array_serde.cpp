@@ -26,6 +26,7 @@
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/get_least_supertype.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
@@ -34,7 +35,6 @@
 
 namespace doris {
 class Arena;
-#include "common/compile_check_begin.h"
 
 Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                     int64_t end_idx, BufferWritable& bw,
@@ -85,7 +85,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
-    DCHECK(nested_column.is_nullable());
+    DORIS_CHECK(nested_column.is_nullable());
     if (slice[0] != '[') {
         return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
                                        slice[0]);
@@ -163,7 +163,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
-    DCHECK(nested_column.is_nullable());
+    DORIS_CHECK(nested_column.is_nullable());
 
     char collection_delimiter =
             options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
@@ -328,17 +328,14 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
     auto prev_size = offsets_data.back();
     const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
     const size_t offset_element_size = sizeof(int32_t);
-    int32_t arrow_nested_start_offset = 0;
-    int32_t arrow_nested_end_offset = 0;
     const uint8_t* start_offset_ptr = base_offsets_ptr + start * offset_element_size;
     const uint8_t* end_offset_ptr = base_offsets_ptr + end * offset_element_size;
-    memcpy(&arrow_nested_start_offset, start_offset_ptr, offset_element_size);
-    memcpy(&arrow_nested_end_offset, end_offset_ptr, offset_element_size);
+    auto arrow_nested_start_offset = unaligned_load<int32_t>(start_offset_ptr);
+    auto arrow_nested_end_offset = unaligned_load<int32_t>(end_offset_ptr);
 
     for (auto i = start + 1; i < end + 1; ++i) {
-        int32_t current_offset = 0;
         const uint8_t* current_offset_ptr = base_offsets_ptr + i * offset_element_size;
-        memcpy(&current_offset, current_offset_ptr, offset_element_size);
+        auto current_offset = unaligned_load<int32_t>(current_offset_ptr);
         // convert to doris offset, start from offsets.back()
         offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
     }
@@ -508,16 +505,29 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
     info.num_dimensions++;
     auto& array = field.get<TYPE_ARRAY>();
-    PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
+    // Element type is the common type of all elements, not the last element's type.
+    // For a mixed-type array like ["1", 2, 1.1] the last-element rule picks array<double>
+    // and loses the string, which crashes later when the field is re-inserted.
+    PrimitiveTypeSet element_types;
     for (size_t i = 0; i < nested_size; ++i) {
         Field nested_field;
         data = DataTypeSerDe::deserialize_binary_to_field(data, nested_field, info);
         array[i] = std::move(nested_field);
         if (info.scalar_type_id != PrimitiveType::TYPE_NULL) {
-            nested_type = info.scalar_type_id;
+            element_types.insert(info.scalar_type_id);
         }
     }
-    info.scalar_type_id = nested_type;
+    if (element_types.empty()) {
+        info.scalar_type_id = PrimitiveType::TYPE_NULL;
+    } else if (element_types.size() == 1) {
+        info.scalar_type_id = *element_types.begin();
+    } else {
+        DataTypePtr common_type;
+        get_least_supertype_jsonb(element_types, &common_type);
+        info.scalar_type_id = common_type->get_primitive_type();
+        // Mixed-type elements need converting to the common type on insert.
+        info.need_convert = true;
+    }
     return data;
 }
 

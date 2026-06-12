@@ -26,7 +26,6 @@
 #include "exprs/function/ip_address_dictionary.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DictSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -159,7 +158,7 @@ Status DictSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status DictSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status DictSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -182,4 +181,3 @@ Status DictSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

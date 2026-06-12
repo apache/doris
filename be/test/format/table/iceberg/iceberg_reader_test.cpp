@@ -37,6 +37,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -44,6 +45,9 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/column_descriptor.h"
+#include "format/orc/vorc_reader.h"
+#include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -56,6 +60,11 @@
 
 namespace doris {
 
+class IcebergReaderTestHelper : public IcebergTableReader {
+public:
+    using IcebergTableReader::_is_fully_dictionary_encoded;
+};
+
 class IcebergReaderTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -67,6 +76,55 @@ protected:
     }
 
     void TearDown() override { cache.reset(); }
+
+    std::string mixed_position_delete_file() const {
+        return "./be/test/exec/test_data/iceberg_mixed_position_delete_parquet/"
+               "mixed_encoding_position_delete.parquet";
+    }
+
+    std::unique_ptr<ParquetReader> create_delete_file_parquet_reader(
+            RuntimeProfile* profile, RuntimeState* runtime_state, TFileScanRangeParams* scan_params,
+            TFileRangeDesc* scan_range, io::FileReaderSPtr* file_reader,
+            const tparquet::FileMetaData** file_meta_data) {
+        auto local_fs = io::global_local_filesystem();
+        auto st = local_fs->open_file(mixed_position_delete_file(), file_reader);
+        EXPECT_TRUE(st.ok()) << st;
+        if (!st.ok()) {
+            return nullptr;
+        }
+
+        scan_params->format_type = TFileFormatType::FORMAT_PARQUET;
+
+        scan_range->start_offset = 0;
+        scan_range->size = (*file_reader)->size();
+        scan_range->path = mixed_position_delete_file();
+
+        auto parquet_reader =
+                ParquetReader::create_unique(profile, *scan_params, *scan_range, 1024,
+                                             &timezone_obj, nullptr, runtime_state, cache.get());
+        EXPECT_NE(parquet_reader, nullptr);
+        if (parquet_reader == nullptr) {
+            return nullptr;
+        }
+
+        parquet_reader->set_file_reader(*file_reader);
+
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_names = delete_file_column_names;
+        pq_ctx.col_name_to_block_idx = &delete_file_col_name_to_block_idx;
+        pq_ctx.params = scan_params;
+        pq_ctx.range = scan_range;
+        st = parquet_reader->init_reader(&pq_ctx);
+        EXPECT_TRUE(st.ok()) << st;
+        if (!st.ok()) {
+            return nullptr;
+        }
+
+        // Partition/missing column logic is now inlined in _do_init_reader.
+
+        *file_meta_data = parquet_reader->get_meta_data();
+        return parquet_reader;
+    }
 
     // Helper function to create complex struct types for testing
     void create_complex_struct_types(DataTypePtr& coordinates_struct_type,
@@ -415,7 +473,8 @@ protected:
                     EXPECT_GT(col->size(), 0) << name << " column/subcolumn size should be > 0";
 
                     // Check if it's a nullable column
-                    if (const auto* nullable_col = typeid_cast<const ColumnNullable*>(col.get())) {
+                    if (const auto* nullable_col =
+                                check_and_get_column<ColumnNullable>(col.get())) {
                         auto nested_type =
                                 assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
 
@@ -432,7 +491,8 @@ protected:
                                           nested_name, depth + (is_complex_type ? 1 : 0));
                     }
                     // Check if it's a struct column
-                    else if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
+                    else if (const auto* struct_col =
+                                     check_and_get_column<ColumnStruct>(col.get())) {
                         auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
                         for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
                             std::string field_name = struct_type->get_element_name(i);
@@ -442,7 +502,7 @@ protected:
                         }
                     }
                     // Check if it's an array column
-                    else if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
+                    else if (const auto* array_col = check_and_get_column<ColumnArray>(col.get())) {
                         auto array_type = assert_cast<const DataTypeArray*>(type.get());
                         auto element_type = array_type->get_nested_type();
                         print_column_rows(array_col->get_data_ptr(), element_type, name + ".data",
@@ -462,7 +522,123 @@ protected:
 
     std::unique_ptr<doris::FileMetaCache> cache;
     cctz::time_zone timezone_obj;
+    std::vector<std::string> delete_file_column_names = {"file_path", "pos"};
+    std::unordered_map<std::string, uint32_t> delete_file_col_name_to_block_idx = {{"file_path", 0},
+                                                                                   {"pos", 1}};
 };
+
+TEST_F(IcebergReaderTest, detects_fully_dictionary_encoded_parquet_column) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 3;
+
+    column_metadata.encoding_stats = {dict_page};
+
+    EXPECT_TRUE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, rejects_mixed_dictionary_and_plain_parquet_column) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 2;
+
+    tparquet::PageEncodingStats plain_page;
+    plain_page.page_type = tparquet::PageType::DATA_PAGE;
+    plain_page.encoding = tparquet::Encoding::PLAIN;
+    plain_page.count = 1;
+
+    column_metadata.encoding_stats = {dict_page, plain_page};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, rejects_mixed_dictionary_and_plain_parquet_v2_column) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 2;
+
+    tparquet::PageEncodingStats plain_page;
+    plain_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    plain_page.encoding = tparquet::Encoding::PLAIN;
+    plain_page.count = 1;
+
+    column_metadata.encoding_stats = {dict_page, plain_page};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, rejects_non_dictionary_encoding_without_encoding_stats) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = false;
+    column_metadata.encodings = {tparquet::Encoding::PLAIN_DICTIONARY, tparquet::Encoding::PLAIN,
+                                 tparquet::Encoding::RLE};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, falls_back_to_encodings_when_data_page_stats_are_missing) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page_header;
+    dict_page_header.page_type = tparquet::PageType::DICTIONARY_PAGE;
+    dict_page_header.encoding = tparquet::Encoding::PLAIN;
+    dict_page_header.count = 1;
+    column_metadata.encoding_stats = {dict_page_header};
+
+    column_metadata.encodings = {tparquet::Encoding::PLAIN, tparquet::Encoding::RLE,
+                                 tparquet::Encoding::RLE_DICTIONARY};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    io::FileReaderSPtr file_reader;
+    const tparquet::FileMetaData* file_meta_data = nullptr;
+    auto parquet_reader = create_delete_file_parquet_reader(
+            &profile, &runtime_state, &scan_params, &scan_range, &file_reader, &file_meta_data);
+    ASSERT_NE(parquet_reader, nullptr);
+    ASSERT_NE(file_meta_data, nullptr);
+    ASSERT_EQ(file_meta_data->row_groups.size(), 1);
+
+    const auto& file_path_meta = file_meta_data->row_groups[0].columns[0].meta_data;
+    EXPECT_TRUE(file_meta_data->row_groups[0].columns[0].__isset.meta_data);
+    EXPECT_TRUE(has_dict_page(file_path_meta));
+    bool has_plain_encoding = false;
+    bool has_dictionary_encoding = false;
+    for (const auto encoding : file_path_meta.encodings) {
+        if (encoding == tparquet::Encoding::PLAIN) {
+            has_plain_encoding = true;
+        }
+        if (encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
+            encoding == tparquet::Encoding::RLE_DICTIONARY) {
+            has_dictionary_encoding = true;
+        }
+    }
+    EXPECT_TRUE(has_plain_encoding);
+    EXPECT_TRUE(has_dictionary_encoding);
+}
 
 // Test reading real Iceberg Parquet file using IcebergTableReader
 TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
@@ -528,22 +704,17 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     // Create mock profile
     RuntimeProfile profile("test_profile");
 
-    // Create ParquetReader as the underlying file format reader
+    // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-    auto generic_reader = ParquetReader::create_unique(&profile, scan_params, scan_range, 1024,
-                                                       &ctz, nullptr, &runtime_state, cache.get());
-    ASSERT_NE(generic_reader, nullptr);
-
-    // Set file reader for the generic reader
-    auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
-    parquet_reader->set_file_reader(file_reader);
-
-    // Create IcebergParquetReader
     auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-            std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-            nullptr, cache.get());
+            nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
+            nullptr /* io_ctx */, &runtime_state, cache.get());
+    ASSERT_NE(iceberg_reader, nullptr);
+
+    // Set file reader for the iceberg reader (it IS the ParquetReader)
+    iceberg_reader->set_file_reader(file_reader);
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
@@ -561,27 +732,29 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     const TupleDescriptor* tuple_descriptor =
             create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
 
-    VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
             {"name", 0},
             {"profile", 1},
     };
-    const RowDescriptor* row_descriptor = nullptr;
-    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
-    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
-    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts, tmp,
-                                     tuple_descriptor, row_descriptor, colname_to_slot_id,
-                                     not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    std::vector<ColumnDescriptor> column_descs;
+    for (const auto& name : table_col_names) {
+        ColumnDescriptor desc;
+        desc.name = name;
+        column_descs.push_back(desc);
+    }
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_descs = &column_descs;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.tuple_descriptor = tuple_descriptor;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = iceberg_reader->init_reader(&pq_ctx);
     ASSERT_TRUE(st.ok()) << st;
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    ASSERT_TRUE(iceberg_reader->set_fill_columns(partition_columns, missing_columns).ok());
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
 
     // Create block for reading nested structure (not flattened)
     Block block;
@@ -668,18 +841,11 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     // Create mock profile
     RuntimeProfile profile("test_profile");
 
-    // Create OrcReader as the underlying file format reader
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-
-    auto generic_reader = OrcReader::create_unique(&profile, &runtime_state, scan_params,
-                                                   scan_range, 1024, "CST", nullptr, cache.get());
-    ASSERT_NE(generic_reader, nullptr);
-
-    // Create IcebergOrcReader
+    // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
     auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-            std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-            nullptr, cache.get());
+            nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range, 1024, "CST",
+            nullptr /* io_ctx */, cache.get());
+    ASSERT_NE(iceberg_reader, nullptr);
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
@@ -697,26 +863,31 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     const TupleDescriptor* tuple_descriptor =
             create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
 
-    VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
     const RowDescriptor* row_descriptor = nullptr;
-    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
             {"name", 0},
             {"profile", 1},
     };
-    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
-    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts,
-                                     tuple_descriptor, row_descriptor, colname_to_slot_id,
-                                     not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    std::vector<ColumnDescriptor> column_descs;
+    for (const auto& name : table_col_names) {
+        ColumnDescriptor desc;
+        desc.name = name;
+        column_descs.push_back(desc);
+    }
+    OrcInitContext orc_ctx;
+    orc_ctx.column_descs = &column_descs;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_descriptor;
+    orc_ctx.row_descriptor = row_descriptor;
+    orc_ctx.params = &scan_params;
+    orc_ctx.range = &scan_range;
+    st = iceberg_reader->init_reader(&orc_ctx);
     ASSERT_TRUE(st.ok()) << st;
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    ASSERT_TRUE(iceberg_reader->set_fill_columns(partition_columns, missing_columns).ok());
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
 
     // Create block for reading nested structure (not flattened)
     Block block;

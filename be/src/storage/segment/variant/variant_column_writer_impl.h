@@ -41,8 +41,6 @@ class ColumnVariant;
 class OlapBlockDataConvertor;
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 class ColumnWriter;
 class ScalarColumnWriter;
 
@@ -194,8 +192,14 @@ private:
     bool _has_extracted_variant_columns() const;
     Status _process_root_column(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                 size_t num_rows, int& column_id);
+    // Write parse-time subcolumns. This remains the path for nested group, legacy flatten nested,
+    // and ordinary VARIANT writes that do not use temporary doc-value staging.
     Status _process_subcolumns(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                size_t num_rows, int& column_id);
+    // Write plain non-doc VARIANT temporary doc-value staging: selected paths become materialized
+    // subcolumns and the remaining paths are emitted to sparse payload columns.
+    Status _process_regular_doc_value_staging(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
+                                              size_t num_rows, int& column_id);
     Status _process_doc_value_column(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                      size_t num_rows, int& column_id);
 
@@ -225,8 +229,7 @@ private:
 
 class VariantDocCompactWriter : public ColumnWriter {
 public:
-    explicit VariantDocCompactWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                     std::unique_ptr<StorageField> field);
+    explicit VariantDocCompactWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
     ~VariantDocCompactWriter() override = default;
 
@@ -281,9 +284,9 @@ private:
 
     ordinal_t _next_rowid = 0;
     MutableColumnPtr _column;
-    const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     bool _is_finalized = false;
+    bool _data_written = false;
     std::unique_ptr<ColumnWriter> _doc_value_column_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<TabletIndexes> _subcolumns_indexes;
@@ -291,9 +294,7 @@ private:
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                       CompressionTypePB compression_type);
-
-#include "common/compile_check_end.h"
+                       const ColumnWriterOptions& opts);
 
 } // namespace segment_v2
 } // namespace doris

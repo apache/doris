@@ -71,7 +71,6 @@ class TExprNode;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string AGG_STATE_SUFFIX = "_state";
 
@@ -209,9 +208,9 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, Selector* selector,
-                                     size_t count, ColumnPtr& result_column,
-                                     ColumnPtr* arg_column) const {
+Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column, ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();
@@ -301,9 +300,9 @@ Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Blo
     return _do_execute(context, block, nullptr, count, result_column, arg_column);
 }
 
-Status VectorizedFnCall::execute_column(VExprContext* context, const Block* block,
-                                        Selector* selector, size_t count,
-                                        ColumnPtr& result_column) const {
+Status VectorizedFnCall::execute_column_impl(VExprContext* context, const Block* block,
+                                             const Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
     return _do_execute(context, block, selector, count, result_column, nullptr);
 }
 
@@ -557,7 +556,9 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+        bool enable_result_cache, AnnRangeSearchEvaluationResult& evaluation_result) {
+    evaluation_result = {};
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
     }
@@ -566,8 +567,8 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                               range_search_runtime.to_string());
     size_t origin_num = row_bitmap.cardinality();
 
-    int idx_in_block = static_cast<int>(range_search_runtime.src_col_idx);
-    DCHECK(idx_in_block < idx_to_cid.size())
+    const auto idx_in_block = range_search_runtime.src_col_idx;
+    DCHECK_LT(idx_in_block, idx_to_cid.size())
             << "idx_in_block: " << idx_in_block << ", idx_to_cid.size(): " << idx_to_cid.size();
 
     ColumnId src_col_cid = idx_to_cid[idx_in_block];
@@ -610,13 +611,28 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                 range_search_runtime.dim, index_dim);
     }
 
+    auto stats = std::make_unique<segment_v2::AnnIndexStats>();
+    // Track load index timing
+    {
+        SCOPED_TIMER(&(stats->load_index_costs_ns));
+        if (!ann_index_iterator->try_load_index()) {
+            VLOG_DEBUG << "ANN range search skipped: "
+                       << fmt::format("Failed to load ANN index for column cid {}", src_col_cid);
+            ann_index_stats.fall_back_brute_force_cnt += 1;
+            return Status::OK();
+        }
+        double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000000.0;
+        DorisMetrics::instance()->ann_index_load_costs_ms->increment(
+                static_cast<int64_t>(load_costs_ms));
+    }
+
     AnnRangeSearchParams params = range_search_runtime.to_range_search_params();
 
     params.roaring = &row_bitmap;
+    params.enable_result_cache = enable_result_cache;
     DCHECK(params.roaring != nullptr);
     DCHECK(params.query_value != nullptr);
     segment_v2::AnnRangeSearchResult result;
-    auto stats = std::make_unique<segment_v2::AnnIndexStats>();
     RETURN_IF_ERROR(ann_index_iterator->range_search(params, range_search_runtime.user_params,
                                                      &result, stats.get()));
 
@@ -634,6 +650,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     row_bitmap = *result.roaring;
 
     // Process virtual column
+    bool dist_fulfilled = false;
     if (range_search_runtime.dst_col_idx >= 0) {
         // Prepare materialization if we can use result from index.
         // Typical situation: range search and operator is LE or LT.
@@ -657,7 +674,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             }
             virtual_column_iterator->prepare_materialization(std::move(distance_col),
                                                              std::move(result.row_ids));
-            _virtual_column_is_fulfilled = true;
+            dist_fulfilled = true;
         } else {
             // Whether the ANN index should have produced distance depends on metric and operator:
             //  - L2: distance is produced for LE/LT; not produced for GE/GT
@@ -671,17 +688,17 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             // If we expected distance but didn't get it, assert in debug to catch logic errors.
             DCHECK(!should_have_distance) << "Expected distance from ANN index but got none";
 #endif
-            _virtual_column_is_fulfilled = false;
         }
     } else {
         // Dest is not virtual column.
-        _virtual_column_is_fulfilled = true;
+        dist_fulfilled = true;
     }
 
-    _has_been_executed = true;
+    evaluation_result.executed = true;
+    evaluation_result.dist_fulfilled = dist_fulfilled;
     VLOG_DEBUG << fmt::format(
             "Ann range search filtered {} rows, origin {} rows, virtual column is full-filled: {}",
-            origin_num - row_bitmap.cardinality(), origin_num, _virtual_column_is_fulfilled);
+            origin_num - row_bitmap.cardinality(), origin_num, dist_fulfilled);
 
     ann_index_stats = *stats;
     return Status::OK();
@@ -699,5 +716,4 @@ double VectorizedFnCall::execute_cost() const {
     return cost;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

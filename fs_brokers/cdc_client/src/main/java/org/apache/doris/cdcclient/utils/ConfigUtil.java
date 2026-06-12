@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.utils;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -43,8 +44,29 @@ public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
-    public static String getServerId(long jobId) {
-        return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
+    // Resolve user-configured range, or derive from jobId hash with width = parallelism.
+    // Value validation lives in FE DataSourceConfigValidator; here we trust the input.
+    public static ServerIdRange resolveServerIdRange(
+            String jobId, int snapshotParallelism, String userInput) {
+        ServerIdRange userRange = userInput == null ? null : ServerIdRange.from(userInput.trim());
+        if (userRange != null) {
+            if (userRange.getNumberOfServerIds() < snapshotParallelism) {
+                throw new IllegalArgumentException(
+                        "server_id range size "
+                                + userRange.getNumberOfServerIds()
+                                + " must be >= snapshot_parallelism "
+                                + snapshotParallelism);
+            }
+            return userRange;
+        }
+        int hash = jobId.hashCode() & Integer.MAX_VALUE;
+        int safeMax = Integer.MAX_VALUE - snapshotParallelism + 1;
+        // Use `>` (not `>=`) so parallelism=1 preserves hash==MAX_VALUE for back-compat.
+        int base = hash > safeMax ? hash % safeMax : hash;
+        if (base == 0) {
+            base = 1;
+        }
+        return new ServerIdRange(base, base + snapshotParallelism - 1);
     }
 
     public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {
@@ -105,6 +127,21 @@ public class ConfigUtil {
     public static Properties getDefaultDebeziumProps() {
         Properties properties = new Properties();
         return properties;
+    }
+
+    public static String[] getTableList(String schema, Map<String, String> cdcConfig) {
+        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
+        String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+        if (StringUtils.isNotEmpty(includingTables)) {
+            return Arrays.stream(includingTables.split(","))
+                    .map(t -> schema + "." + t.trim())
+                    .toArray(String[]::new);
+        } else if (StringUtils.isNotEmpty(table)) {
+            Preconditions.checkArgument(!table.contains(","), "table only supports one table");
+            return new String[] {schema + "." + table.trim()};
+        } else {
+            return new String[0];
+        }
     }
 
     public static boolean is13Timestamp(String s) {

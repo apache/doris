@@ -41,6 +41,7 @@ enum EncodingTypePB {
     BIT_SHUFFLE = 6;
     FOR_ENCODING = 7; // Frame-Of-Reference
     PLAIN_ENCODING_V2 = 8; // Binary plain with varuint length prefix
+    PLAIN_ENCODING_V3 = 9; // Binary plain with contiguous data + contiguous varuint lengths trailer
 }
 
 enum CompressionTypePB {
@@ -230,6 +231,7 @@ message ColumnMetaPB {
     optional uint64 compressed_data_bytes = 24;
     optional uint64 uncompressed_data_bytes = 25;
     optional uint64 raw_data_bytes = 26;
+    optional bool variant_enable_doc_mode = 27 [default = false];
 }
 
 // External column meta entry describing one top-level column's externalized

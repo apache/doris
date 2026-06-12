@@ -36,13 +36,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class CheckAnalysisTest {
-    @Mocked
-    private CascadesContext cascadesContext;
+    private CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
 
     private GroupExpression ge = new GroupExpression(
             new LogicalOneRowRelation(

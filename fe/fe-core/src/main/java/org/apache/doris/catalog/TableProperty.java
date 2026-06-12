@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -96,7 +97,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean variantEnableFlattenNested = false;
 
-    private boolean enableSingleReplicaCompaction = false;
+    private boolean enableTso = false;
 
     private int verticalCompactionNumColumnsPerGroup = 5;
 
@@ -168,7 +169,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionFileCountThreshold();
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
-                buildEnableSingleReplicaCompaction();
+                buildEnableTso();
                 buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
@@ -191,6 +192,17 @@ public class TableProperty implements GsonPostProcessable {
      */
     public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
                                                    ReplicaAllocation replicaAlloc) {
+        if (Config.isCloudMode()) {
+            // In cloud mode, rewrite all unsupported or forced properties from the source cluster.
+            // These properties (e.g., replication_num, replication_allocation, storage_policy,
+            // storage_medium, in_memory, etc.) are not applicable in cloud mode. If kept, they would
+            // cause some critical problems.
+            PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
+            buildInMemory();
+            buildStorageMedium();
+            buildStoragePolicy();
+            buildMinLoadReplicaNum();
+        }
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             if (!reserveDynamicPartitionEnable) {
@@ -347,14 +359,13 @@ public class TableProperty implements GsonPostProcessable {
         return variantEnableFlattenNested;
     }
 
-    public TableProperty buildEnableSingleReplicaCompaction() {
-        enableSingleReplicaCompaction = Boolean.parseBoolean(
-                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION, "false"));
+    public TableProperty buildEnableTso() {
+        enableTso = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_TSO, "false"));
         return this;
     }
 
-    public boolean enableSingleReplicaCompaction() {
-        return enableSingleReplicaCompaction;
+    public boolean enableTso() {
+        return enableTso;
     }
 
     public TableProperty buildVerticalCompactionNumColumnsPerGroup() {
@@ -580,8 +591,15 @@ public class TableProperty implements GsonPostProcessable {
             binlogConfig.setMaxHistoryNums(
                     Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)));
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.valueOf(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            binlogConfig.setNeedHistoricalValue(Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)));
+        }
         this.binlogConfig = binlogConfig;
-
         return this;
     }
 
@@ -594,13 +612,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public void setBinlogConfig(BinlogConfig newBinlogConfig) {
         Map<String, String> binlogProperties = Maps.newHashMap();
-        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.isEnable()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.getEnable()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS,
                 String.valueOf(newBinlogConfig.getTtlSeconds()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES,
                 String.valueOf(newBinlogConfig.getMaxBytes()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS,
                 String.valueOf(newBinlogConfig.getMaxHistoryNums()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT,
+                String.valueOf(newBinlogConfig.getBinlogFormat()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                String.valueOf(newBinlogConfig.getNeedHistoricalValue()));
         modifyTableProperties(binlogProperties);
         this.binlogConfig = newBinlogConfig;
     }
@@ -917,7 +939,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionFileCountThreshold();
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
-        buildEnableSingleReplicaCompaction();
+        buildEnableTso();
         buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();

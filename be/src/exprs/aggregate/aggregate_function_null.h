@@ -37,7 +37,6 @@
 #include "exprs/aggregate/aggregate_function_distinct.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename NestFunction, bool result_is_nullable, typename Derived>
 class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived> {
@@ -466,7 +465,7 @@ public:
             return;
         }
 
-        DCHECK(columns[0]->is_nullable()) << columns[0]->get_name();
+        DCHECK(is_column_nullable(*columns[0])) << columns[0]->get_name();
         const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
 
@@ -606,5 +605,3 @@ private:
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
 };
 } // namespace doris
-
-#include "common/compile_check_end.h"

@@ -24,7 +24,7 @@
 #include "core/column/predicate_column.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/bloom_filter_func.h"
-#include "exprs/vruntimefilter_wrapper.h"
+#include "exprs/runtime_filter_expr.h"
 #include "storage/predicate/column_predicate.h"
 
 namespace doris {
@@ -96,7 +96,7 @@ private:
 template <PrimitiveType T>
 uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t* sel,
                                                         uint16_t size) const {
-    if (column.is_nullable()) {
+    if (is_column_nullable(column)) {
         const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
         const auto& null_map_data = nullable_col->get_null_map_column().get_data();
         return evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);

@@ -19,6 +19,7 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include "common/atomic_shared_ptr.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "exec/sink/writer/async_result_writer.h"
@@ -55,17 +56,28 @@ public:
 
     Status write(RuntimeState* state, Block& block) override;
 
+    Status write_prepared_block(Block& block);
+
     Status close(Status) override;
+
+    bool is_rewrite_compaction() const { return _write_type == TIcebergWriteType::REWRITE; }
+
+    TIcebergWriteType::type write_type() const { return _write_type; }
 
     // Getter for the current partition writer.
     // Used by SpillIcebergTableSinkLocalState to access the current writer for
     // memory management operations (get_reserve_mem_size, revocable_mem_size, etc.).
-    const std::shared_ptr<IPartitionWriterBase>& current_writer() const { return _current_writer; }
+    // Returns a snapshot by value: the async writer thread updates _current_writer
+    // concurrently with the spill/revoke path, so callers must hold their own copy
+    // while operating on it instead of dereferencing the underlying member directly.
+    std::shared_ptr<IPartitionWriterBase> current_writer() const { return _current_writer.load(); }
 
 private:
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.
-    std::shared_ptr<IPartitionWriterBase> _current_writer;
+    // Wrapped in atomic_shared_ptr because revoke_memory / get_revocable_mem_size run on
+    // a different thread than the async writer that assigns to it.
+    doris::atomic_shared_ptr<IPartitionWriterBase> _current_writer;
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
@@ -123,12 +135,18 @@ private:
     Status _filter_block(doris::Block& block, const IColumn::Filter* filter,
                          doris::Block* output_block);
 
+    Status _write_prepared_block(Block& output_block);
+    Status _process_row_lineage_columns(Block& block);
+
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
 
     // Target file size in bytes for controlling when to split files
     int64_t _target_file_size_bytes = 0;
+    TIcebergWriteType::type _write_type = TIcebergWriteType::INSERT;
+    int _row_id_column_idx = -1;
+    int _last_updated_seq_num_column_idx = -1;
 
     std::shared_ptr<doris::iceberg::Schema> _schema;
     std::unique_ptr<doris::iceberg::PartitionSpec> _partition_spec;

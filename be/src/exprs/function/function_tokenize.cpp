@@ -30,6 +30,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/string_ref.h"
@@ -38,7 +39,6 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace doris::segment_v2::inverted_index;
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
@@ -135,7 +135,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
                                       const ColumnNumbers& arguments, uint32_t result,
-                                      size_t /*input_rows_count*/) const {
+                                      size_t input_rows_count) const {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =
             unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -166,7 +166,13 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             if (config.analyzer_name.empty() &&
                 config.parser_type == InvertedIndexParserType::PARSER_NONE) {
                 _do_tokenize_none(*col_left, dest_column_ptr);
-                block.replace_by_position(result, std::move(dest_column_ptr));
+                if (left_const) {
+                    block.replace_by_position(
+                            result,
+                            ColumnConst::create(std::move(dest_column_ptr), input_rows_count));
+                } else {
+                    block.replace_by_position(result, std::move(dest_column_ptr));
+                }
                 return Status::OK();
             }
 
@@ -197,7 +203,12 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             analyzer_ctx.analyzer = analyzer_holder;
             _do_tokenize(*col_left, analyzer_ctx, support_phrase, dest_column_ptr);
 
-            block.replace_by_position(result, std::move(dest_column_ptr));
+            if (left_const) {
+                block.replace_by_position(
+                        result, ColumnConst::create(std::move(dest_column_ptr), input_rows_count));
+            } else {
+                block.replace_by_position(result, std::move(dest_column_ptr));
+            }
             return Status::OK();
         }
     }
@@ -208,5 +219,4 @@ void register_function_tokenize(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTokenize>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

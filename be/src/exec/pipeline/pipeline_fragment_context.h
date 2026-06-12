@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <brpc/closure_guard.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -26,6 +27,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,6 +39,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
 #include "util/stopwatch.hpp"
+#include "util/uid_util.h"
 
 namespace doris {
 struct ReportStatusRequest;
@@ -50,18 +53,9 @@ class Dependency;
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
     ENABLE_FACTORY_CREATOR(PipelineFragmentContext);
-    // Callback to report execution status of plan fragment.
-    // 'profile' is the cumulative profile, 'done' indicates whether the execution
-    // is done or still continuing.
-    // Note: this does not take a const RuntimeProfile&, because it might need to call
-    // functions like PrettyPrint() or to_thrift(), neither of which is const
-    // because they take locks.
-    using report_status_callback = std::function<Status(
-            const ReportStatusRequest, std::shared_ptr<PipelineFragmentContext>&&)>;
     PipelineFragmentContext(TUniqueId query_id, const TPipelineFragmentParams& request,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
-                            const std::function<void(RuntimeState*, Status*)>& call_back,
-                            report_status_callback report_status_cb);
+                            const std::function<void(RuntimeState*, Status*)>& call_back);
 
     ~PipelineFragmentContext() override;
 
@@ -89,11 +83,16 @@ public:
 
     void cancel(const Status reason);
 
+    bool notify_close();
+
     TUniqueId get_query_id() const { return _query_id; }
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
     void decrement_running_task(PipelineId pipeline_id);
+
+    uint32_t rec_cte_stage() const { return _rec_cte_stage; }
+    void set_rec_cte_stage(uint32_t stage) { _rec_cte_stage = stage; }
 
     Status send_report(bool);
 
@@ -126,13 +125,33 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
-    Status wait_close(bool close);
-    Status rebuild(ThreadPool* thread_pool);
-    Status set_to_rerun();
+    std::set<int> get_deregister_runtime_filter() const;
 
-    bool need_notify_close() const { return _need_notify_close; }
+    // Store the brpc ClosureGuard so the RPC response is deferred until this PFC is destroyed.
+    // When need_send_report_on_destruction is true (final_close), send the report immediately
+    // and do not store the guard (let it fire on return to complete the RPC).
+    //
+    // Thread safety: This method is NOT thread-safe. It reads/writes _wait_close_guard without
+    // synchronization. Currently it is only called from rerun_fragment() which is invoked
+    // sequentially by RecCTESourceOperatorX (a serial operator) — one opcode at a time per
+    // fragment. Do NOT call this concurrently from multiple threads.
+    Status listen_wait_close(const std::shared_ptr<brpc::ClosureGuard>& guard,
+                             bool need_send_report_on_destruction) {
+        if (_wait_close_guard) {
+            return Status::InternalError("Already listening wait close");
+        }
+        if (need_send_report_on_destruction) {
+            return send_report(true);
+        } else {
+            _wait_close_guard = guard;
+        }
+        return Status::OK();
+    }
 
 private:
+    void _coordinator_callback(const ReportStatusRequest& req);
+    std::string _to_http_path(const std::string& file_name) const;
+
     void _release_resource();
 
     Status _build_and_prepare_full_pipeline(ThreadPool* thread_pool);
@@ -148,7 +167,7 @@ private:
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
                             OperatorPtr& op, PipelinePtr& cur_pipe, int parent_idx, int child_idx,
                             const bool followed_by_shuffled_join,
-                            const bool require_bucket_distribution);
+                            const bool require_bucket_distribution, OperatorPtr& cache_op);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
@@ -183,7 +202,11 @@ private:
     Status _build_pipeline_tasks_for_instance(
             int instance_idx,
             const std::vector<std::shared_ptr<RuntimeProfile>>& pipeline_id_to_profile);
-    void _close_fragment_instance();
+    // Close the fragment instance and return true if the caller should call
+    // remove_pipeline_context() **after** releasing _task_mutex. This avoids
+    // holding _task_mutex while acquiring _pipeline_map's shard lock, which
+    // would create an ABBA deadlock with dump_pipeline_tasks().
+    bool _close_fragment_instance();
     void _init_next_report_time();
 
     // Id of this query
@@ -228,14 +251,6 @@ private:
     // 0 indicates reporting is in progress or not required
     std::atomic_bool _disable_period_report = true;
     std::atomic_uint64_t _previous_report_time = 0;
-
-    // This callback is used to notify the FE of the status of the fragment.
-    // For example:
-    // 1. when the fragment is cancelled, it will be called.
-    // 2. when the fragment is finished, it will be called. especially, when the fragment is
-    // a insert into select statement, it should notfiy FE every fragment's status.
-    // And also, this callback is called periodly to notify FE the load process.
-    report_status_callback _report_status_cb;
 
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
@@ -339,6 +354,16 @@ private:
     TPipelineFragmentParams _params;
     int32_t _parallel_instances = 0;
 
-    bool _need_notify_close = false;
+    std::atomic<bool> _need_notify_close = false;
+    // Holds the brpc ClosureGuard for async wait-close during recursive CTE rerun.
+    // When the PFC finishes closing and is destroyed, the shared_ptr destructor fires
+    // the ClosureGuard, which completes the brpc response to the RecCTESourceOperatorX.
+    // Only written by listen_wait_close() from a single rerun_fragment RPC thread.
+    std::shared_ptr<brpc::ClosureGuard> _wait_close_guard = nullptr;
+
+    // The recursion round number for recursive CTE fragments.
+    // Incremented each time the fragment is rebuilt via rerun_fragment(rebuild).
+    // Used to stamp runtime filter RPCs so stale messages from old rounds are discarded.
+    uint32_t _rec_cte_stage = 0;
 };
 } // namespace doris

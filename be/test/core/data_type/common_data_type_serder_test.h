@@ -112,6 +112,11 @@ public:
                     }
                 }
             }
+        } else {
+            auto err_code = errno;
+            auto* err_msg = std::strerror(err_code);
+            throw doris::Exception(err_code, "can not open the file: {} , error: {} ",
+                                   column_data_file, err_msg);
         }
 
         // Step 2: Validate the data in `column` matches `expected_data`
@@ -272,7 +277,7 @@ public:
         jsonb_column->reserve(load_cols[0]->size());
         MutableColumns assert_cols;
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            assert_cols.push_back(load_cols[i]->assume_mutable());
+            assert_cols.push_back(load_cols[i]->clone_empty());
         }
         DataTypeSerDe::FormatOptions options;
         auto tz = cctz::utc_time_zone();
@@ -391,7 +396,9 @@ public:
                                                  column_with_type_and_name.type, rows, "UTC");
             // do check data
             std::cout << "arrow_column_to_doris_column done, column data: "
-                      << column_with_type_and_name.to_string(0).substr(0, 256)
+                      << (column_with_type_and_name.column->empty()
+                                  ? "empty"
+                                  : column_with_type_and_name.to_string(0).substr(0, 256))
                       << ", column size: " << column_with_type_and_name.column->size() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
         }

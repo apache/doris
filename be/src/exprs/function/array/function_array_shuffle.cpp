@@ -44,7 +44,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionArrayShuffle : public IFunction {
 public:

@@ -105,7 +105,7 @@ suite("test_hive_parquet_skip_page", "p0,external") {
                 "format" = "parquet") where a = 1024 or a = 4049
                 order by a;"""
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "${hivePrefix}_test_parquet_skip_page"

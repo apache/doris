@@ -391,14 +391,6 @@ public:
     // Given days since 0000-01-01, construct the datetime value.
     bool from_date_daynr(uint64_t);
 
-    // Construct Date/Datetime type value from string.
-    // At least the following formats are recognised (based on number of digits)
-    // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
-    // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
-    // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, size_t len);
-    bool from_date_str(const char* str, size_t len, const cctz::time_zone& local_time_zone);
-
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
     bool from_date_int64(int64_t value);
@@ -699,9 +691,8 @@ public:
     uint32_t to_date_v2() const { return (year() << 9 | month() << 5 | day()); }
 
     uint64_t to_datetime_v2() const {
-        return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
-                          ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
-                          ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
+        return (((uint64_t)year() << 46) | ((uint64_t)month() << 42) | ((uint64_t)day() << 37) |
+                ((uint64_t)hour() << 32) | ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
     }
 
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
@@ -933,15 +924,6 @@ public:
             date_v2_value_.microsecond_ = src.microsecond();
         }
     }
-
-    // Construct Date/Datetime type value from string.
-    // At least the following formats are recognised (based on number of digits)
-    // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
-    // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
-    // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, size_t len, int scale = -1, bool convert_zero = false);
-    bool from_date_str(const char* str, size_t len, const cctz::time_zone& local_time_zone,
-                       int scale = -1, bool convert_zero = false);
 
     // Convert this value to string
     // this will check type to decide which format to convert

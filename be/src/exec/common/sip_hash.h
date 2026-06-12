@@ -33,6 +33,7 @@
   * (~ 700 MB/sec, 15 million strings per second)
   */
 
+#include <cstddef>
 #include <string>
 #include <type_traits>
 
@@ -41,7 +42,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 #define ROTL(x, b) static_cast<UInt64>(((x) << (b)) | ((x) >> (64 - (b))))
 
 #define SIPROUND           \
@@ -210,12 +210,9 @@ public:
 #undef ROTL
 #undef SIPROUND
 
-#include <cstddef>
-
 inline void sip_hash128(const char* data, const size_t size, char* out) {
     SipHash hash;
     hash.update(data, size);
     hash.get128(out);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

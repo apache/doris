@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-#include "common/compile_check_begin.h"
 class AggSourceOperatorX;
 
 class AggLocalState MOCK_REMOVE(final) : public PipelineXLocalState<AggSharedState> {
@@ -103,7 +102,7 @@ public:
     AggSourceOperatorX() = default;
 #endif
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -132,4 +131,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

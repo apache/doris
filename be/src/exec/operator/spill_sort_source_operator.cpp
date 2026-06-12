@@ -33,7 +33,6 @@
 #include "runtime/fragment_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 SpillSortLocalState::SpillSortLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
 
@@ -51,10 +50,6 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 Status SpillSortLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    if (_opened) {
-        return Status::OK();
-    }
-
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
     return Base::open(state);
 }
@@ -83,6 +78,7 @@ int SpillSortLocalState::_calc_spill_blocks_to_merge(RuntimeState* state) const 
 }
 
 Status SpillSortLocalState::execute_merge_sort_spill_files(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     auto& parent = Base::_parent->template cast<Parent>();
     SCOPED_TIMER(_spill_merge_sort_timer);
     Status status;
@@ -245,7 +241,7 @@ Status SpillSortSourceOperatorX::close(RuntimeState* state) {
     return _sort_source_operator->close(state);
 }
 
-Status SpillSortSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status SpillSortSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
@@ -263,5 +259,4 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, Block* block, bo
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

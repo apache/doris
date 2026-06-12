@@ -65,8 +65,11 @@ public class PaimonJniScanner extends JniScanner {
             LOG.debug("params:{}", params);
         }
         this.params = params;
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] requiredTypes = params.get("columns_types").split("#");
+        String[] requiredFields = splitParam(params.get("required_fields"), ",");
+        String[] requiredTypes = splitParam(params.get("columns_types"), "#");
+        Preconditions.checkArgument(requiredFields.length == requiredTypes.length,
+                "required_fields size %s does not match columns_types size %s",
+                requiredFields.length, requiredTypes.length);
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
@@ -92,6 +95,7 @@ public class PaimonJniScanner extends JniScanner {
             // so we need to provide a classloader, otherwise it will cause NPE.
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
+                PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
                 initTable();
                 initReader();
                 return null;
@@ -122,7 +126,11 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private int[] getProjected() {
-        return Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+        return Arrays.stream(fields).mapToInt(fieldName -> {
+            int index = paimonAllFieldNames.indexOf(fieldName);
+            Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fieldName);
+            return index;
+        }).toArray();
     }
 
     private List<Predicate> getPredicates() {
@@ -183,6 +191,9 @@ public class PaimonJniScanner extends JniScanner {
                         appendData(i, columnValue);
                     }
                     if (rows >= batchSize) {
+                        if (fields.length == 0) {
+                            vectorTable.appendVirtualData(rows);
+                        }
                         appendDataTime += System.nanoTime() - startTime;
                         return rows;
                     }
@@ -191,6 +202,9 @@ public class PaimonJniScanner extends JniScanner {
 
                 recordIterator.releaseBatch();
                 recordIterator = reader.readBatch();
+            }
+            if (fields.length == 0 && rows > 0) {
+                vectorTable.appendVirtualData(rows);
             }
         } catch (Exception e) {
             close();
@@ -226,5 +240,11 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-}
+    private static String[] splitParam(String value, String delimiter) {
+        if (value == null || value.isEmpty()) {
+            return new String[0];
+        }
+        return value.split(delimiter);
+    }
 
+}

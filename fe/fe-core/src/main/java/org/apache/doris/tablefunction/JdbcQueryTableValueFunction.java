@@ -19,11 +19,14 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
-import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
+import org.apache.doris.datasource.ConnectorColumnConverter;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
@@ -44,18 +47,20 @@ public class JdbcQueryTableValueFunction extends QueryTableValueFunction {
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        JdbcExternalCatalog catalog = (JdbcExternalCatalog) catalogIf;
-        return catalog.getColumnsFromQuery(query);
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalogIf;
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+        ConnectorTableSchema schema = metadata.getColumnsFromQuery(session, query);
+        return ConnectorColumnConverter.convertColumns(schema.getColumns());
     }
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        JdbcExternalCatalog catalog = (JdbcExternalCatalog) catalogIf;
-        JdbcTable jdbcTable = new JdbcTable(desc.getId().asInt(), desc.getTable().getName(),
-                desc.getTable().getFullSchema(), TableType.JDBC);
-        catalog.configureJdbcTable(jdbcTable, desc.getTable().getName());
-        desc.setTable(jdbcTable);
-        return new JdbcScanNode(id, desc, true, query,
-                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalogIf;
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        PassthroughQueryTableHandle queryHandle = new PassthroughQueryTableHandle(query);
+        return new PluginDrivenScanNode(id, desc, false, sv,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build(),
+                pluginCatalog.getConnector(), session, queryHandle);
     }
 }

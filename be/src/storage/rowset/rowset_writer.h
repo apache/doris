@@ -114,7 +114,7 @@ public:
         *index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
                 _context.tablet_schema->get_inverted_index_storage_format(),
-                std::move(idx_file_v2_ptr), can_use_ram_dir);
+                std::move(idx_file_v2_ptr), can_use_ram_dir, _context.tablet_id);
         return Status::OK();
     }
 
@@ -172,8 +172,17 @@ public:
 
     virtual int32_t allocate_segment_id() = 0;
 
+    // Return the next segment id to be allocated without advancing internal state.
+    // NOTE: This value equals the one that would be returned by the next
+    // `allocate_segment_id()` call.
+    virtual int32_t get_allocated_segment_id() = 0;
+
     virtual void set_segment_start_id(int num_segment) {
         throw Exception(Status::FatalError("not supported!"));
+    }
+
+    virtual Status force_rollback() {
+        return Status::NotSupported("RowsetWriter::force_rollback not supported");
     }
 
     virtual int64_t delete_bitmap_ns() { return 0; }

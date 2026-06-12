@@ -30,7 +30,6 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        const std::string& name) {
@@ -79,7 +78,7 @@ void Dependency::set_ready() {
     for (auto task : local_block_task) {
         if (auto t = task.lock()) {
             std::unique_lock<std::mutex> lc(_task_lock);
-            THROW_IF_ERROR(t->wake_up(this, lc));
+            t->wake_up(this, lc);
         }
     }
 }
@@ -277,40 +276,48 @@ bool AggSharedState::do_limit_filter(Block* block, size_t num_rows,
 
 Status AggSharedState::reset_hash_table() {
     return std::visit(
-            Overload {[&](std::monostate& arg) -> Status {
-                          return Status::InternalError("Uninited hash table");
-                      },
-                      [&](auto& agg_method) {
-                          auto& hash_table = *agg_method.hash_table;
-                          using HashTableType = std::decay_t<decltype(hash_table)>;
+            Overload {
+                    [&](std::monostate& arg) -> Status {
+                        return Status::InternalError("Uninited hash table");
+                    },
+                    [&](auto& agg_method) {
+                        auto& hash_table = *agg_method.hash_table;
+                        using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                          agg_method.arena.clear();
-                          agg_method.inited_iterator = false;
+                        agg_method.arena.clear();
+                        agg_method.inited_iterator = false;
 
-                          hash_table.for_each_mapped([&](auto& mapped) {
-                              if (mapped) {
-                                  _destroy_agg_status(mapped);
-                                  mapped = nullptr;
-                              }
-                          });
+                        if (!use_simple_count) {
+                            hash_table.for_each_mapped([&](auto& mapped) {
+                                if (mapped) {
+                                    _destroy_agg_status(mapped);
+                                    mapped = nullptr;
+                                }
+                            });
 
-                          if (hash_table.has_null_key_data()) {
-                              _destroy_agg_status(
-                                      hash_table.template get_null_key_data<AggregateDataPtr>());
-                          }
+                            if (hash_table.has_null_key_data()) {
+                                _destroy_agg_status(
+                                        hash_table.template get_null_key_data<AggregateDataPtr>());
+                            }
 
-                          aggregate_data_container.reset(new AggregateDataContainer(
-                                  sizeof(typename HashTableType::key_type),
-                                  ((total_size_of_aggregate_states + align_aggregate_states - 1) /
-                                   align_aggregate_states) *
-                                          align_aggregate_states));
-                          agg_method.hash_table.reset(new HashTableType());
-                          return Status::OK();
-                      }},
+                            aggregate_data_container.reset(new AggregateDataContainer(
+                                    sizeof(typename HashTableType::key_type),
+                                    ((total_size_of_aggregate_states + align_aggregate_states - 1) /
+                                     align_aggregate_states) *
+                                            align_aggregate_states));
+                        }
+                        agg_method.hash_table.reset(new HashTableType());
+                        return Status::OK();
+                    }},
             agg_data->method_variant);
 }
 
 void PartitionedAggSharedState::close() {
+    bool false_close = false;
+    if (!is_closed.compare_exchange_strong(false_close, true)) {
+        return;
+    }
+
     for (auto& partition : _spill_partitions) {
         if (partition) {
             ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(partition);
@@ -343,6 +350,13 @@ int AggSharedState::get_slot_column_id(const AggFnEvaluator* evaluator) {
 }
 
 void AggSharedState::_destroy_agg_status(AggregateDataPtr data) {
+    for (int i = 0; i < aggregate_evaluators.size(); ++i) {
+        aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+    }
+}
+
+void BucketedAggSharedState::_destroy_agg_status(AggregateDataPtr data) {
+    DCHECK(!use_simple_count) << "should not call _destroy_agg_status when use_simple_count";
     for (int i = 0; i < aggregate_evaluators.size(); ++i) {
         aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
     }

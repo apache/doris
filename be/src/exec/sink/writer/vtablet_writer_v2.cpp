@@ -55,7 +55,6 @@
 #include "exec/sink/vtablet_finder.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
 
@@ -494,6 +493,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
+    const bool is_replaying_batched_block = _row_distribution._deal_batched;
     auto input_rows = input_block.rows();
     auto input_bytes = input_block.bytes();
     if (UNLIKELY(input_rows == 0)) {
@@ -505,8 +505,10 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(input_rows);
     _state->update_num_bytes_load_total(input_bytes);
-    DorisMetrics::instance()->load_rows->increment(input_rows);
-    DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    if (!is_replaying_batched_block) {
+        DorisMetrics::instance()->load_rows->increment(input_rows);
+        DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    }
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
@@ -621,10 +623,12 @@ Status VTabletWriterV2::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
+        Defer recover_batching_block([&]() {
+            _row_distribution._batching_block->set_mutable_columns(
+                    std::move(tmp_block).mutate_columns());
+            _row_distribution._batching_block->clear_column_data();
+        });
         RETURN_IF_ERROR(this->write(_state, tmp_block));
-        _row_distribution._batching_block->set_mutable_columns(
-                tmp_block.mutate_columns()); // Recovery back
-        _row_distribution._batching_block->clear_column_data();
         _row_distribution._deal_batched = false;
     }
     return Status::OK();

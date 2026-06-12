@@ -20,6 +20,9 @@
 #include "core/types.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
 
 namespace doris {
@@ -89,7 +92,12 @@ TEST(CastToStringTest, test) {
     {
         VecDateTimeValue date;
         std::string from_str = "2024-01-01 12:34:56";
-        date.from_date_str(from_str.c_str(), from_str.size());
+        {
+            CastParameters p;
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE_TIME>(
+                    {from_str.c_str(), from_str.size()}, date, nullptr, p);
+        }
         date.cast_to_date();
         std::string str = CastToString::from_date_or_datetime(date);
         EXPECT_EQ(str, "2024-01-01");
@@ -97,7 +105,12 @@ TEST(CastToStringTest, test) {
     {
         VecDateTimeValue datetime;
         std::string from_str = "2024-01-01 12:34:56";
-        datetime.from_date_str(from_str.c_str(), from_str.size());
+        {
+            CastParameters p;
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE_TIME>(
+                    {from_str.c_str(), from_str.size()}, datetime, nullptr, p);
+        }
         std::string str = CastToString::from_date_or_datetime(datetime);
         EXPECT_EQ(str, "2024-01-01 12:34:56");
     }
@@ -105,14 +118,22 @@ TEST(CastToStringTest, test) {
     {
         DateV2Value<DateV2ValueType> datev2;
         std::string from_str = "2024-01-01";
-        datev2.from_date_str(from_str.c_str(), from_str.size());
+        {
+            CastParameters p;
+            CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {from_str.c_str(), from_str.size()}, datev2, nullptr, p);
+        }
         std::string str = CastToString::from_datev2(datev2);
         EXPECT_EQ(str, "2024-01-01");
     }
     {
         DateV2Value<DateTimeV2ValueType> datetimev2;
         std::string from_str = "2024-01-01 12:34:56.123456";
-        datetimev2.from_date_str(from_str.c_str(), from_str.size(), 6);
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {from_str.c_str(), from_str.size()}, datetimev2, nullptr, 6, p);
+        }
         std::string str = CastToString::from_datetimev2(datetimev2, 6);
         EXPECT_EQ(str, "2024-01-01 12:34:56.123456");
     }
@@ -136,6 +157,18 @@ TEST(CastToStringTest, test) {
         std::string str = CastToString::from_ip(ip.value());
         EXPECT_EQ(str, "2001:db8:85a3::8a2e:370:7334");
     }
+}
+
+TEST(CastToStringTest, from_int128_overloads) {
+    EXPECT_EQ(CastToString::from_int128(static_cast<int128_t>(-1234567890123456789LL)),
+              "-1234567890123456789");
+    EXPECT_EQ(CastToString::from_uint128(static_cast<uint128_t>(12345678901234567890ULL)),
+              "12345678901234567890");
+
+    UInt128 value;
+    value.items[0] = 0x0123456789ABCDEFULL;
+    value.items[1] = 0x0FEDCBA987654321ULL;
+    EXPECT_EQ(CastToString::from_uint128(value), "0123456789abcdeffedcba987654321");
 }
 
 } // namespace doris

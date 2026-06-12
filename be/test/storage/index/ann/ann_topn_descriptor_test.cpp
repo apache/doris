@@ -116,8 +116,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
 
-    const ColumnFloat32* query_column =
-            assert_cast<const ColumnFloat32*>(predicate->_query_array.get());
+    const auto& query_column = predicate->_query_array;
     const float* query_value = query_column->get_data().data();
     const size_t query_value_size = predicate->_query_array->size();
     ASSERT_EQ(query_value_size, 8);
@@ -157,24 +156,24 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
             .Times(1)
             .WillOnce(testing::Invoke([](const segment_v2::IndexParam& value) {
                 auto* ann_param = std::get<segment_v2::AnnTopNParam*>(value);
-                ann_param->distance = std::make_unique<std::vector<float>>();
-                ann_param->row_ids = std::make_unique<std::vector<uint64_t>>();
+                ann_param->distance = std::shared_ptr<float[]>(new float[10]);
+                ann_param->row_ids = std::make_shared<std::vector<uint64_t>>();
                 for (size_t i = 0; i < 10; ++i) {
-                    ann_param->distance->push_back(static_cast<float>(i));
+                    ann_param->distance[i] = static_cast<float>(i);
                     ann_param->row_ids->push_back(i);
                 }
                 return Status::OK();
             }));
 
     _result_column = ColumnFloat32::create(0, 0);
-    std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
+    std::shared_ptr<std::vector<uint64_t>> row_ids = std::make_shared<std::vector<uint64_t>>();
 
     roaring::Roaring roaring;
     doris::segment_v2::AnnIndexStats ann_index_stats;
     // rows_of_segment is mocked as 10 to align with mocked iterator outputs
     size_t rows_of_segment = 10;
     st = predicate->evaluate_vector_ann_search(_ann_index_iterator.get(), &roaring, rows_of_segment,
-                                               _result_column, row_ids, ann_index_stats);
+                                               false, _result_column, row_ids, ann_index_stats);
     ColumnFloat32* result_column_float = assert_cast<ColumnFloat32*>(_result_column.get());
     for (size_t i = 0; i < query_vector->size(); ++i) {
         EXPECT_EQ(result_column_float->get_data()[i], (*query_vector)[i]);

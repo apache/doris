@@ -19,12 +19,8 @@ package org.apache.doris.common.util;
 
 
 public class OrderByPair {
-    private int index;
-    private boolean isDesc;
-
-    public OrderByPair(int index) {
-        this(index, false);
-    }
+    private final int index;
+    private final boolean isDesc;
 
     public OrderByPair(int index, boolean isDesc) {
         this.index = index;

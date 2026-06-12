@@ -33,7 +33,6 @@
 #include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
 #include "service/http/action/adjust_log_level.h"
-#include "service/http/action/adjust_tracing_dump.h"
 #include "service/http/action/batch_download_action.h"
 #include "service/http/action/be_proc_thread_action.h"
 #include "service/http/action/calc_file_crc_action.h"
@@ -43,6 +42,7 @@
 #include "service/http/action/checksum_action.h"
 #include "service/http/action/clear_cache_action.h"
 #include "service/http/action/compaction_action.h"
+#include "service/http/action/compaction_profile_action.h"
 #include "service/http/action/compaction_score_action.h"
 #include "service/http/action/config_action.h"
 #include "service/http/action/debug_point_action.h"
@@ -84,7 +84,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace {
 std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* event_base) {
     auto rate_limit = config::download_binlog_rate_limit_kbs;
@@ -112,6 +111,11 @@ std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* e
 HttpService::HttpService(ExecEnv* env, int port, int num_threads)
         : _env(env),
           _ev_http_server(new EvHttpServer(port, num_threads)),
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
+
+HttpService::HttpService(ExecEnv* env, std::unique_ptr<EvHttpServer> http_server)
+        : _env(env),
+          _ev_http_server(std::move(http_server)),
           _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
 HttpService::~HttpService() {
@@ -155,11 +159,6 @@ Status HttpService::start() {
 
     AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
-
-    //TODO: add query GET interface
-    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump(_env));
-    _ev_http_server->register_handler(HttpMethod::POST, "api/pipeline/tracing",
-                                      adjust_tracing_dump);
 
     // Register BE version action
     VersionAction* version_action =
@@ -408,6 +407,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
+    CompactionProfileAction* compaction_profile_action = _pool.add(
+            new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
+                                      compaction_profile_action);
+
     DeleteBitmapAction* count_delete_bitmap_action =
             _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -471,6 +475,12 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+
+    CompactionProfileAction* compaction_profile_action = _pool.add(
+            new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
+                                      compaction_profile_action);
+
     DeleteBitmapAction* count_local_delete_bitmap_action =
             _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -529,5 +539,4 @@ int HttpService::get_real_port() const {
     return _ev_http_server->get_real_port();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -23,10 +23,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FieldDescriptor;
 struct FieldSchema;
@@ -38,5 +37,4 @@ public:
                                           std::set<uint64_t>& column_ids);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

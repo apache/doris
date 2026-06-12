@@ -29,7 +29,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExplodeMapTableFunction::VExplodeMapTableFunction() {
     _fn_name = "vexplode_map";
@@ -38,7 +37,7 @@ VExplodeMapTableFunction::VExplodeMapTableFunction() {
 bool extract_column_map_info(const IColumn& src, ColumnMapExecutionData& data) {
     const IColumn* map_col = &src;
     // extract array nullable info
-    if (src.is_nullable()) {
+    if (is_column_nullable(src)) {
         const auto& null_col = reinterpret_cast<const ColumnNullable&>(src);
         // map column's nullmap
         data.map_nullmap_data = null_col.get_null_map_data().data();
@@ -58,16 +57,15 @@ Status VExplodeMapTableFunction::process_init(Block* block, RuntimeState* state)
             << "VExplodeMapTableFunction only support 1 child but has "
             << _expr_context->root()->children().size();
 
-    int value_column_idx = -1;
-    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
-                                                                  &value_column_idx));
+    ColumnPtr value_column;
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
+            _expr_context.get(), block, nullptr, block->rows(), value_column));
 
-    _collection_column =
-            block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
+    _collection_column = value_column->convert_to_full_column_if_const();
 
     if (!extract_column_map_info(*_collection_column, _map_detail)) {
         return Status::NotSupported("column type {} not supported now, only support array or map",
-                                    block->get_by_position(value_column_idx).column->get_name());
+                                    _collection_column->get_name());
     }
 
     return Status::OK();
@@ -103,8 +101,8 @@ void VExplodeMapTableFunction::get_same_many_values(MutableColumnPtr& column, in
         // make map kv value into struct
         ret = assert_cast<ColumnStruct*>(
                 assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
-        assert_cast<ColumnUInt8*>(
-                assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+        assert_cast<ColumnNullable*>(column.get())
+                ->get_null_map_column_ptr()
                 ->insert_many_defaults(length);
     } else if (is_column<ColumnStruct>(column.get())) {
         ret = assert_cast<ColumnStruct*>(column.get());
@@ -133,8 +131,7 @@ int VExplodeMapTableFunction::get_value(MutableColumnPtr& column, int max_step) 
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             struct_column =
                     assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             // here nullmap_column insert max_step many defaults as if MAP[row_idx] is NULL
             // will be not update value, _cur_size = 0, means current_empty;
             // so here could insert directly
@@ -156,5 +153,4 @@ int VExplodeMapTableFunction::get_value(MutableColumnPtr& column, int max_step) 
     return max_step;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

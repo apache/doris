@@ -18,139 +18,314 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.nio.channels.SocketChannel;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectContextTest {
-    @Mocked
-    private StmtExecutor executor;
-    @Mocked
-    private SocketChannel socketChannel;
-    @Mocked
-    private Env env;
-    @Mocked
-    private ConnectScheduler connectScheduler;
-    @Mocked
-    private Auth auth;
-    @Mocked
-    private String qualifiedUser;
-    @Mocked
-    private CloudSystemInfoService cloudSystemInfoService;
-    @Mocked
-    private AccessControllerManager accessManager;
-    @Mocked
-    private Backend backend;
+    private StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+    private SocketChannel socketChannel = Mockito.mock(SocketChannel.class);
+    private Env env = Mockito.mock(Env.class);
+    private ConnectScheduler connectScheduler = Mockito.mock(ConnectScheduler.class);
+    private Auth auth = Mockito.mock(Auth.class);
+    private String qualifiedUser = "";
+    private CloudSystemInfoService cloudSystemInfoService = Mockito.mock(CloudSystemInfoService.class);
+    private AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+    private Backend backend = Mockito.mock(Backend.class);
+    private InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+
+    private CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
 
     @Before
     public void setUp() throws Exception {
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(internalCatalog);
+    }
+
+    @Test
+    public void testResetConnectionClearsSessionState() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getQueryTimeout("testUser")).thenReturn(123);
+        Mockito.when(auth.getInsertTimeout("testUser")).thenReturn(456);
+        ctx.setUserQueryTimeout(123);
+        ctx.setUserInsertTimeout(456);
+        VariableMgr.setVar(ctx.getSessionVariable(),
+                new SetVar(SessionVariable.SQL_SELECT_LIMIT, new StringLiteral("0")));
+        ctx.getSessionVariable().setQueryTimeoutS(1);
+        ctx.getSessionVariable().setInsertTimeoutS(2);
+        ctx.setUserVar("user_var", new StringLiteral("value"));
+        ctx.changeDefaultCatalog("external_catalog");
+        ctx.currentDb = "test_db";
+        ctx.currentDbId = 10;
+        ctx.addLastDBOfCatalog("external_catalog", "test_db");
+        ctx.addPreparedQuery("1", "select 1");
+        long initialPreparedStmtId = ctx.getPreparedStmtId();
+        ctx.getSessionVariable().enableServeSidePreparedStatement = true;
+        ctx.addPreparedStatementContext(String.valueOf(initialPreparedStmtId),
+                new PreparedStatementContext(null, ctx, null, "select 1"));
+        long nextPreparedStmtId = ctx.getPreparedStmtId();
+        ctx.setRunningQuery("select 1");
+        TUniqueId queryId = new TUniqueId(100, 200);
+        ctx.setQueryId(queryId);
+        ctx.setTraceId("old_trace");
+        ctx.setConnectScheduler(connectScheduler);
+        ctx.setCommand(MysqlCommand.COM_QUERY);
+        ctx.updateReturnRows(10);
+        ctx.setOrUpdateInsertResult(1, "label", "test_db", "test_table", TransactionStatus.VISIBLE, 1, 0);
+
+        Assert.assertEquals(0, ctx.getSessionVariable().getSqlSelectLimit());
+        Assert.assertEquals(1, ctx.getSessionVariable().getQueryTimeoutS());
+        Assert.assertEquals(2, ctx.getSessionVariable().getInsertTimeoutS());
+        Assert.assertFalse(ctx.getUserVars().isEmpty());
+        Assert.assertNotNull(ctx.getInsertResult());
+
+        ctx.resetConnection();
+
+        Assert.assertEquals(-1, ctx.getSessionVariable().getSqlSelectLimit());
+        Assert.assertEquals(123, ctx.getSessionVariable().getQueryTimeoutS());
+        Assert.assertEquals(456, ctx.getSessionVariable().getInsertTimeoutS());
+        Assert.assertTrue(ctx.getUserVars().isEmpty());
+        Assert.assertEquals("external_catalog", ctx.getDefaultCatalog());
+        Assert.assertEquals("test_db", ctx.getDatabase());
+        Assert.assertEquals("test_db", ctx.getLastDBOfCatalog("external_catalog"));
+        Assert.assertNull(ctx.getPreparedQuery("1"));
+        Assert.assertNull(ctx.getRunningQuery());
+        Assert.assertNull(ctx.queryId());
+        Assert.assertNull(ctx.getLastQueryId());
+        Assert.assertNull(ctx.traceId());
+        Mockito.verify(connectScheduler).removeOldTraceId("old_trace");
+        Assert.assertEquals(nextPreparedStmtId, ctx.getPreparedStmtId());
+        Assert.assertTrue(initialPreparedStmtId != ctx.getPreparedStmtId());
+        Assert.assertNull(ctx.getInsertResult());
+        Assert.assertEquals(MysqlCommand.COM_SLEEP, ctx.getCommand());
+        Assert.assertEquals(0, ctx.getReturnRows());
+    }
+
+    @Test
+    public void testHandleResetConnectionDoesNotSetServerStatus() {
+        ConnectContext ctx = new ConnectContext();
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleResetConnection();
+
+        Assert.assertEquals(0, ctx.getState().serverStatus);
+    }
+
+    @Test
+    public void testHandleStmtResetReturnsOkForKnownStatement() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().enableServeSidePreparedStatement = true;
+        ctx.addPreparedStatementContext("1", new PreparedStatementContext(null, ctx, null, "select 1"));
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleStmtResetById(1);
+
+        Assert.assertEquals(MysqlStateType.OK, ctx.getState().getStateType());
+    }
+
+    @Test
+    public void testHandleStmtResetReturnsErrorForUnknownStatement() {
+        ConnectContext ctx = new ConnectContext();
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleStmtResetById(1);
+
+        Assert.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_STMT_HANDLER, ctx.getState().getErrorCode());
+        Assert.assertTrue(ctx.getState().getErrorMessage().contains("mysqld_stmt_reset"));
+    }
+
+    @Test
+    public void testHandleResetConnectionReturnsErrorOnResetFailure() {
+        ConnectContext ctx = new ConnectContext() {
+            @Override
+            public void resetConnection() throws DdlException {
+                throw new DdlException("reset connection failed");
+            }
+        };
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleResetConnection();
+
+        Assert.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, ctx.getState().getErrorCode());
+        Assert.assertTrue(ctx.getState().getErrorMessage().contains("reset connection failed"));
+    }
+
+    @Test
+    public void testResetConnectionDropsMultipleTemporaryTables() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+        ctx.addTempTableToDB("test_db", "test_temp_table1");
+        ctx.addTempTableToDB("test_db", "test_temp_table2");
+
+        Database db = Mockito.mock(Database.class);
+        Table table1 = Mockito.mock(Table.class);
+        Table table2 = Mockito.mock(Table.class);
+        AtomicInteger droppedTableCount = new AtomicInteger();
+
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(internalCatalog.getDb("test_db")).thenReturn(Optional.of(db));
+        Mockito.when(db.getTable("test_temp_table1")).thenReturn(Optional.of(table1));
+        Mockito.when(db.getTable("test_temp_table2")).thenReturn(Optional.of(table2));
+        Mockito.doAnswer(invocation -> {
+            Table table = invocation.getArgument(1);
+            if (table == table1) {
+                ctx.removeTempTableFromDB("test_db", "test_temp_table1");
+            } else {
+                ctx.removeTempTableFromDB("test_db", "test_temp_table2");
+            }
+            droppedTableCount.incrementAndGet();
+            return null;
+        }).when(internalCatalog).dropTableWithoutCheck(Mockito.eq(db), Mockito.any(Table.class),
+                Mockito.eq(false), Mockito.eq(true));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ctx.resetConnection();
+        }
+
+        Assert.assertEquals(2, droppedTableCount.get());
+        Assert.assertTrue(ctx.getDbToTempTableNamesMap().isEmpty());
     }
 
     @Test
     public void testNormal() {
-        ConnectContext ctx = new ConnectContext();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSelfNode())
+                    .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
 
-        // State
-        Assert.assertNotNull(ctx.getState());
+            ConnectContext ctx = new ConnectContext();
 
-        // Capability
-        Assert.assertEquals(MysqlCapability.DEFAULT_CAPABILITY, ctx.getServerCapability());
-        ctx.setCapability(new MysqlCapability(10));
-        Assert.assertEquals(new MysqlCapability(10), ctx.getCapability());
+            // State
+            Assert.assertNotNull(ctx.getState());
 
-        // Kill flag
-        Assert.assertFalse(ctx.isKilled());
-        ctx.setKilled();
-        Assert.assertTrue(ctx.isKilled());
+            // Capability
+            Assert.assertEquals(MysqlCapability.DEFAULT_CAPABILITY, ctx.getServerCapability());
+            ctx.setCapability(new MysqlCapability(10));
+            Assert.assertEquals(new MysqlCapability(10), ctx.getCapability());
 
-        // Current db
-        Assert.assertEquals("", ctx.getDatabase());
-        ctx.setDatabase("testDb");
-        Assert.assertEquals("testDb", ctx.getDatabase());
+            // Kill flag
+            Assert.assertFalse(ctx.isKilled());
+            ctx.setKilled();
+            Assert.assertTrue(ctx.isKilled());
 
-        // User
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
-        Assert.assertEquals("testUser", ctx.getQualifiedUser());
+            // Current db
+            Assert.assertEquals("", ctx.getDatabase());
+            ctx.setDatabase("testDb");
+            Assert.assertEquals("testDb", ctx.getDatabase());
 
-        // Serializer
-        Assert.assertNotNull(ctx.getMysqlChannel().getSerializer());
+            // User
+            ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+            Assert.assertEquals("testUser", ctx.getQualifiedUser());
 
-        // Session variable
-        Assert.assertNotNull(ctx.getSessionVariable());
+            // Serializer
+            Assert.assertNotNull(ctx.getMysqlChannel().getSerializer());
 
-        // connect scheduler
-        Assert.assertNull(ctx.getConnectScheduler());
-        ctx.setConnectScheduler(connectScheduler);
-        Assert.assertNotNull(ctx.getConnectScheduler());
+            // Session variable
+            Assert.assertNotNull(ctx.getSessionVariable());
 
-        // connection id
-        ctx.setConnectionId(101);
-        Assert.assertEquals(101, ctx.getConnectionId());
+            // connect scheduler
+            Assert.assertNull(ctx.getConnectScheduler());
+            ctx.setConnectScheduler(connectScheduler);
+            Assert.assertNotNull(ctx.getConnectScheduler());
 
-        // command
-        ctx.setCommand(MysqlCommand.COM_PING);
-        Assert.assertEquals(MysqlCommand.COM_PING, ctx.getCommand());
+            // connection id
+            ctx.setConnectionId(101);
+            Assert.assertEquals(101, ctx.getConnectionId());
 
-        // LoginTime
-        ctx.loginTime = 1694002396223L;
+            // command
+            ctx.setCommand(MysqlCommand.COM_PING);
+            Assert.assertEquals(MysqlCommand.COM_PING, ctx.getCommand());
 
-        // Thread info
-        Assert.assertNotNull(ctx.toThreadInfo(false));
-        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.of("+08:00"));
-        Assert.assertEquals(15, row.size());
-        Assert.assertEquals("Yes", row.get(0));
-        Assert.assertEquals("101", row.get(1));
-        Assert.assertEquals("testUser", row.get(2));
-        Assert.assertEquals("", row.get(3));
-        Assert.assertEquals("2023-09-06 20:13:16", row.get(4));
-        Assert.assertEquals("internal", row.get(5));
-        Assert.assertEquals("testDb", row.get(6));
-        Assert.assertEquals("Ping", row.get(7));
-        Assert.assertEquals("1", row.get(8));
-        Assert.assertEquals("OK", row.get(9));
-        Assert.assertEquals("", row.get(10));
-        Assert.assertEquals("", row.get(11));
+            // LoginTime
+            ctx.loginTime = 1694002396223L;
 
-        // Start time
-        Assert.assertEquals(0, ctx.getStartTime());
-        ctx.setStartTime();
-        Assert.assertNotSame(0, ctx.getStartTime());
+            // Thread info
+            Assert.assertNotNull(ctx.toThreadInfo(false));
+            List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.of("+08:00"));
+            Assert.assertEquals(15, row.size());
+            Assert.assertEquals("Yes", row.get(0));
+            Assert.assertEquals("101", row.get(1));
+            Assert.assertEquals("testUser", row.get(2));
+            Assert.assertEquals("", row.get(3));
+            Assert.assertEquals("2023-09-06 20:13:16", row.get(4));
+            Assert.assertEquals("internal", row.get(5));
+            Assert.assertEquals("testDb", row.get(6));
+            Assert.assertEquals("Ping", row.get(7));
+            Assert.assertEquals("1", row.get(8));
+            Assert.assertEquals("OK", row.get(9));
+            Assert.assertEquals("", row.get(10));
+            Assert.assertEquals("", row.get(11));
 
-        // query id
-        ctx.setQueryId(new TUniqueId(100, 200));
-        Assert.assertEquals(new TUniqueId(100, 200), ctx.queryId());
+            // Start time
+            Assert.assertEquals(0, ctx.getStartTime());
+            ctx.setStartTime();
+            Assert.assertNotSame(0, ctx.getStartTime());
 
-        // Catalog
-        Assert.assertNull(ctx.getEnv());
-        ctx.setEnv(env);
-        Assert.assertNotNull(ctx.getEnv());
+            // query id
+            ctx.setQueryId(new TUniqueId(100, 200));
+            Assert.assertEquals(new TUniqueId(100, 200), ctx.queryId());
 
-        // clean up
-        ctx.cleanup();
+            // Catalog
+            Assert.assertNull(ctx.getEnv());
+            ctx.setEnv(env);
+            Assert.assertNotNull(ctx.getEnv());
+
+            // clean up
+            ctx.cleanup();
+        }
     }
 
     @Test
@@ -236,13 +411,8 @@ public class ConnectContextTest {
         long result = context.getMaxExecMemByte();
         Assert.assertEquals(sessionValue, result);
         // has property
-        new Expectations() {
-            {
-                auth.getExecMemLimit(anyString);
-                minTimes = 0;
-                result = propertyValue;
-            }
-        };
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getExecMemLimit(Mockito.anyString())).thenReturn(propertyValue);
         result = context.getMaxExecMemByte();
         Assert.assertEquals(propertyValue, result);
     }
@@ -259,13 +429,8 @@ public class ConnectContextTest {
         long result = context.getQueryTimeoutS();
         Assert.assertEquals(sessionValue, result);
         // has property
-        new Expectations() {
-            {
-                auth.getQueryTimeout(anyString);
-                minTimes = 0;
-                result = propertyValue;
-            }
-        };
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getQueryTimeout(Mockito.anyString())).thenReturn(propertyValue);
         result = context.getQueryTimeoutS();
         Assert.assertEquals(propertyValue, result);
     }
@@ -282,13 +447,8 @@ public class ConnectContextTest {
         long result = context.getInsertTimeoutS();
         Assert.assertEquals(sessionValue, result);
         // has property
-        new Expectations() {
-            {
-                auth.getInsertTimeout(anyString);
-                minTimes = 0;
-                result = propertyValue;
-            }
-        };
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getInsertTimeout(Mockito.anyString())).thenReturn(propertyValue);
         result = context.getInsertTimeoutS();
         Assert.assertEquals(propertyValue, result);
     }
@@ -321,12 +481,7 @@ public class ConnectContextTest {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
 
-        new Expectations() {
-            {
-                env.changeDb(ctx, "testDb");
-                minTimes = 0;
-            }
-        };
+        // env.changeDb is a void method on a mock - does nothing by default
 
         Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "testDb");
         Assert.assertFalse(result.isPresent());
@@ -337,14 +492,7 @@ public class ConnectContextTest {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
 
-        new Expectations() {
-            {
-                env.changeCatalog(ctx, "catalog1");
-                minTimes = 0;
-                env.changeDb(ctx, "testDb");
-                minTimes = 0;
-            }
-        };
+        // env.changeCatalog and env.changeDb are void methods on a mock - do nothing by default
 
         Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "catalog1.testDb");
         Assert.assertFalse(result.isPresent());
@@ -360,14 +508,7 @@ public class ConnectContextTest {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(env);
 
-            new Expectations() {
-                {
-                    env.changeCatalog(ctx, "catalog1");
-                    minTimes = 0;
-                    env.changeDb(ctx, "ns1.ns2.testDb");
-                    minTimes = 0;
-                }
-            };
+            // env.changeCatalog and env.changeDb are void methods on a mock - do nothing by default
 
             Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx,
                     "catalog1.ns1.ns2.testDb");
@@ -407,14 +548,7 @@ public class ConnectContextTest {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(env);
 
-            new Expectations() {
-                {
-                    env.changeCatalog(ctx, "catalog1");
-                    minTimes = 0;
-                    env.changeDb(ctx, "ns1.ns2.ns3.testDb");
-                    minTimes = 0;
-                }
-            };
+            // env.changeCatalog and env.changeDb are void methods on a mock - do nothing by default
 
             Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx,
                     "catalog1.ns1.ns2.ns3.testDb");
@@ -429,13 +563,7 @@ public class ConnectContextTest {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
 
-        new Expectations() {
-            {
-                env.changeCatalog(ctx, "invalidCatalog");
-                result = new DdlException("Catalog not found");
-                minTimes = 0;
-            }
-        };
+        Mockito.doThrow(new DdlException("Catalog not found")).when(env).changeCatalog(ctx, "invalidCatalog");
 
         Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "invalidCatalog.testDb");
         Assert.assertTrue(result.isPresent());
@@ -447,13 +575,7 @@ public class ConnectContextTest {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
 
-        new Expectations() {
-            {
-                env.changeDb(ctx, "invalidDb");
-                result = new DdlException("Database not found");
-                minTimes = 0;
-            }
-        };
+        Mockito.doThrow(new DdlException("Database not found")).when(env).changeDb(ctx, "invalidDb");
 
         Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "invalidDb");
         Assert.assertTrue(result.isPresent());
@@ -465,12 +587,7 @@ public class ConnectContextTest {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(env);
 
-        new Expectations() {
-            {
-                env.changeDb(ctx, "");
-                minTimes = 0;
-            }
-        };
+        // env.changeDb is a void method on a mock - does nothing by default
 
         Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "");
         Assert.assertFalse(result.isPresent());
@@ -494,8 +611,9 @@ public class ConnectContextTest {
     public void testGetCloudCluster() throws Exception {
         // Setup: enable cloud mode by setting cloud_unique_id
         String originalCloudUniqueId = Config.cloud_unique_id;
-        try {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             Config.cloud_unique_id = "test-cloud-id";
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(env);
@@ -506,12 +624,7 @@ public class ConnectContextTest {
             ctx.setCloudCluster("session_cluster");
             // Verify that setCloudCluster sets session variable
             Assert.assertEquals("session_cluster", ctx.getSessionVariable().getCloudCluster());
-            new Expectations() {
-                {
-                    env.getCurrentSystemInfo();
-                    result = cloudSystemInfoService;
-                }
-            };
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
             String cluster = ctx.getCloudCluster(false);
             Assert.assertEquals("session_cluster", cluster);
 
@@ -519,18 +632,11 @@ public class ConnectContextTest {
             // This tests: "Get cluster from user's default cluster property if set"
             ctx.setCloudCluster(null); // Clear session cluster
             ctx.cloudCluster = null; // Clear cached cluster
-            new Expectations() {
-                {
-                    env.getAuth();
-                    result = auth;
-                    auth.getDefaultCloudCluster("testUser");
-                    result = "user_default_cluster";
-                    env.getCurrentSystemInfo();
-                    result = cloudSystemInfoService;
-                    cloudSystemInfoService.getCloudClusterNames();
-                    result = Lists.newArrayList("user_default_cluster", "other_cluster");
-                }
-            };
+            Mockito.reset(auth, cloudSystemInfoService, accessManager, backend);
+            Mockito.when(env.getAuth()).thenReturn(auth);
+            Mockito.when(auth.getDefaultCloudCluster("testUser")).thenReturn("user_default_cluster");
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
+            Mockito.when(cloudSystemInfoService.getCloudClusterNames()).thenReturn(Lists.newArrayList("user_default_cluster", "other_cluster"));
             cluster = ctx.getCloudCluster(false);
             Assert.assertEquals("user_default_cluster", cluster);
 
@@ -538,16 +644,10 @@ public class ConnectContextTest {
             // This tests: "Get cluster from cached variable (this.cloudCluster) if available"
             ctx.setCloudCluster(null); // Clear session cluster
             ctx.cloudCluster = "cached_cluster"; // Set cached cluster (from previous policy selection)
-            new Expectations() {
-                {
-                    env.getAuth();
-                    result = auth;
-                    auth.getDefaultCloudCluster("testUser");
-                    result = null; // No user default
-                    env.getCurrentSystemInfo();
-                    result = cloudSystemInfoService;
-                }
-            };
+            Mockito.reset(auth, cloudSystemInfoService, accessManager, backend);
+            Mockito.when(env.getAuth()).thenReturn(auth);
+            Mockito.when(auth.getDefaultCloudCluster("testUser")).thenReturn(null);
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
             cluster = ctx.getCloudCluster(false);
             Assert.assertEquals("cached_cluster", cluster);
 
@@ -555,29 +655,17 @@ public class ConnectContextTest {
             // This tests: "Choose an authorized cluster by policy if all preceding conditions failed"
             ctx.setCloudCluster(null); // Clear session cluster
             ctx.cloudCluster = null; // Clear cached cluster
-            new Expectations() {
-                {
-                    env.getAuth();
-                    result = auth;
-                    auth.getDefaultCloudCluster("testUser");
-                    result = null; // No user default
-                    env.getCurrentSystemInfo();
-                    result = cloudSystemInfoService;
-                    cloudSystemInfoService.getCloudClusterNames();
-                    result = Lists.newArrayList("policy_cluster1", "policy_cluster2");
-                    env.getAccessManager();
-                    result = accessManager;
-                    accessManager.checkCloudPriv((UserIdentity) any, "policy_cluster2",
-                            PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
-                    result = true;
-                    cloudSystemInfoService.isStandByComputeGroup("policy_cluster2");
-                    result = false;
-                    cloudSystemInfoService.getBackendsByClusterName("policy_cluster2");
-                    result = Lists.newArrayList(backend);
-                    backend.isAlive();
-                    result = true;
-                }
-            };
+            Mockito.reset(auth, cloudSystemInfoService, accessManager, backend);
+            Mockito.when(env.getAuth()).thenReturn(auth);
+            Mockito.when(auth.getDefaultCloudCluster("testUser")).thenReturn(null);
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
+            Mockito.when(cloudSystemInfoService.getCloudClusterNames()).thenReturn(Lists.newArrayList("policy_cluster1", "policy_cluster2"));
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkCloudPriv(Mockito.any(UserIdentity.class), Mockito.eq("policy_cluster2"),
+                    Mockito.eq(PrivPredicate.USAGE), Mockito.eq(ResourceTypeEnum.CLUSTER))).thenReturn(true);
+            Mockito.when(cloudSystemInfoService.isStandByComputeGroup("policy_cluster2")).thenReturn(false);
+            Mockito.when(cloudSystemInfoService.getBackendsByClusterName("policy_cluster2")).thenReturn(Lists.newArrayList(backend));
+            Mockito.when(backend.isAlive()).thenReturn(true);
             cluster = ctx.getCloudCluster(false);
             Assert.assertEquals("policy_cluster2", cluster);
             // Verify cache is set for subsequent calls
@@ -586,53 +674,33 @@ public class ConnectContextTest {
             // Test 5: Priority order - session variable takes precedence over this.cloudCluster
             ctx.setCloudCluster("session_cluster2");
             ctx.cloudCluster = "cached_cluster2"; // This should be ignored
-            new Expectations() {
-                {
-                    env.getCurrentSystemInfo();
-                    result = cloudSystemInfoService;
-                }
-            };
+            Mockito.reset(auth, cloudSystemInfoService, accessManager, backend);
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
             cluster = ctx.getCloudCluster(false);
             Assert.assertEquals("session_cluster2", cluster); // Session variable wins
 
             // Test 6: Priority order - user this.cloudCluster over default takes precedence
             ctx.setCloudCluster(null); // Clear session cluster
             ctx.cloudCluster = "cached_cluster3"; // This should be ignored
-            new Expectations() {
-                {
-                    env.getAuth();
-                    result = auth;
-                    auth.getDefaultCloudCluster("testUser");
-                    result = "user_default_cluster2";
-                    env.getCurrentSystemInfo();
-                    result = cloudSystemInfoService;
-                    cloudSystemInfoService.getCloudClusterNames();
-                    result = Lists.newArrayList("user_default_cluster2", "other_cluster");
-                }
-            };
+            Mockito.reset(auth, cloudSystemInfoService, accessManager, backend);
+            Mockito.when(env.getAuth()).thenReturn(auth);
+            Mockito.when(auth.getDefaultCloudCluster("testUser")).thenReturn("user_default_cluster2");
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
+            Mockito.when(cloudSystemInfoService.getCloudClusterNames()).thenReturn(Lists.newArrayList("user_default_cluster2", "other_cluster"));
             cluster = ctx.getCloudCluster(false);
             Assert.assertEquals("cached_cluster3", cluster); // User this.cloudCluster wins
 
             // Test 7: No cluster available - should throw exception
             ctx.setCloudCluster(null);
             ctx.cloudCluster = null;
-            new Expectations() {
-                {
-                    env.getAuth();
-                    result = auth;
-                    auth.getDefaultCloudCluster("testUser");
-                    result = null;
-                    env.getCurrentSystemInfo();
-                    result = cloudSystemInfoService;
-                    cloudSystemInfoService.getCloudClusterNames();
-                    result = Lists.newArrayList("unauthorized_cluster");
-                    env.getAccessManager();
-                    result = accessManager;
-                    accessManager.checkCloudPriv((UserIdentity) any, anyString,
-                            PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
-                    result = false; // No authorized cluster
-                }
-            };
+            Mockito.reset(auth, cloudSystemInfoService, accessManager, backend);
+            Mockito.when(env.getAuth()).thenReturn(auth);
+            Mockito.when(auth.getDefaultCloudCluster("testUser")).thenReturn(null);
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
+            Mockito.when(cloudSystemInfoService.getCloudClusterNames()).thenReturn(Lists.newArrayList("unauthorized_cluster"));
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkCloudPriv(Mockito.any(UserIdentity.class), Mockito.anyString(),
+                    Mockito.eq(PrivPredicate.USAGE), Mockito.eq(ResourceTypeEnum.CLUSTER))).thenReturn(false);
             try {
                 ctx.getCloudCluster(true);
                 Assert.fail("Expected ComputeGroupException");
@@ -643,5 +711,46 @@ public class ConnectContextTest {
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testConnectAttributesDefault() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = ctx.getConnectAttributes();
+        Assert.assertNotNull("connectAttributes should never be null", attrs);
+        Assert.assertTrue("connectAttributes should default to empty", attrs.isEmpty());
+    }
+
+    @Test
+    public void testConnectAttributesSetAndGet() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("scheduleInfo", "{\"SKYNET_TASKID\":\"523987416281\"}");
+        attrs.put("_client_name", "dataworks-connector");
+
+        ctx.setConnectAttributes(attrs);
+        Map<String, String> result = ctx.getConnectAttributes();
+        Assert.assertEquals(2, result.size());
+        Assert.assertEquals("{\"SKYNET_TASKID\":\"523987416281\"}", result.get("scheduleInfo"));
+        Assert.assertEquals("dataworks-connector", result.get("_client_name"));
+    }
+
+    @Test
+    public void testConnectAttributesDefensiveCopy() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("scheduleInfo", "original");
+        ctx.setConnectAttributes(attrs);
+
+        attrs.put("scheduleInfo", "modified");
+        Assert.assertEquals("original", ctx.getConnectAttributes().get("scheduleInfo"));
+    }
+
+    @Test
+    public void testConnectAttributesSetNull() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setConnectAttributes(null);
+        Assert.assertNotNull(ctx.getConnectAttributes());
+        Assert.assertTrue(ctx.getConnectAttributes().isEmpty());
     }
 }

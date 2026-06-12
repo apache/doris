@@ -93,7 +93,6 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace {
 
 bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
@@ -245,7 +244,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
                   &total_download_bytes, &total_download_files, &elapsed_time_map]() {
         g_ingest_binlog_latency << watch.elapsed_time_microseconds();
-        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
+        auto elapsed_time_ms = watch.elapsed_time_milliseconds();
         double copy_rate = 0.0;
         if (elapsed_time_ms > 0) {
             copy_rate = (double)total_download_bytes / ((double)elapsed_time_ms) / 1000;
@@ -689,20 +688,8 @@ BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
 
 BackendService::~BackendService() = default;
 
-Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                      std::unique_ptr<ThriftServer>* server,
-                                      std::shared_ptr<doris::BackendService> service) {
-    service->_agent_server->start_workers(engine, exec_env);
-    // TODO: do we want a BoostThreadFactory?
-    // TODO: we want separate thread factories here, so that fe requests can't starve
-    // be requests
-    // std::shared_ptr<TProcessor> be_processor = std::make_shared<BackendServiceProcessor>(service);
-    auto be_processor = std::make_shared<BackendServiceProcessor>(service);
-
-    *server = std::make_unique<ThriftServer>("backend", be_processor, port,
-                                             config::be_service_threads);
-
-    LOG(INFO) << "Doris BackendService listening on " << port;
+Status BackendService::start_thrift_dependencies() {
+    _agent_server->start_workers(_engine, _exec_env);
 
     auto thread_num = config::ingest_binlog_work_pool_size;
     if (thread_num < 0) {
@@ -717,7 +704,7 @@ Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, 
     static_cast<void>(doris::ThreadPoolBuilder("IngestBinlog")
                               .set_min_threads(thread_num)
                               .set_max_threads(thread_num * 2)
-                              .build(&(service->_ingest_binlog_workers)));
+                              .build(&_ingest_binlog_workers));
     LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, in async mode", thread_num);
     return Status::OK();
 }
@@ -1327,5 +1314,4 @@ void BaseBackendService::get_python_packages(std::vector<TPythonPackageInfo>& re
     result = manager.package_infos_to_thrift(packages);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

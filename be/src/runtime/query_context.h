@@ -33,6 +33,7 @@
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/common/memory.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "runtime/exec_env.h"
@@ -47,6 +48,7 @@ namespace doris {
 
 class PipelineFragmentContext;
 class PipelineTask;
+class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
 
@@ -70,7 +72,8 @@ enum class QuerySource {
     STREAM_LOAD,
     GROUP_COMMIT_LOAD,
     ROUTINE_LOAD,
-    EXTERNAL_CONNECTOR
+    EXTERNAL_CONNECTOR,
+    EXTERNAL_FRONTEND
 };
 
 const std::string toString(QuerySource query_source);
@@ -188,12 +191,6 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
     const TQueryOptions& query_options() const { return _query_options; }
-    bool should_be_shuffled_agg(int node_id) const {
-        return _query_options.__isset.shuffled_agg_ids &&
-               std::any_of(_query_options.shuffled_agg_ids.begin(),
-                           _query_options.shuffled_agg_ids.end(),
-                           [&](const int id) -> bool { return id == node_id; });
-    }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -201,6 +198,10 @@ public:
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
     TUniqueId query_id() const { return _query_id; }
+
+    // Expose task-level query progress counters for runtime statistics reporting.
+    void add_total_task_num(int delta);
+    void inc_finished_task_num();
 
     ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
@@ -220,6 +221,7 @@ public:
     }
 
     bool is_nereids() const { return _is_nereids; }
+    std::shared_ptr<MemShareArbitrator> mem_arb() const { return _mem_arb; }
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
@@ -310,6 +312,7 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
+    // Task-level progress counters for current query.
     friend class QueryTaskController;
 
     int _timeout_second;
@@ -394,6 +397,7 @@ private:
     // instance id + node id -> cte scan
     std::map<std::pair<TUniqueId, int>, RecCTEScanLocalState*> _cte_scan;
     std::mutex _cte_scan_lock;
+    std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
@@ -411,7 +415,7 @@ public:
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
 
-    const TQueryOptions get_query_options() const { return _query_options; }
+    TQueryOptions get_query_options() const { return _query_options; }
 };
 
 } // namespace doris

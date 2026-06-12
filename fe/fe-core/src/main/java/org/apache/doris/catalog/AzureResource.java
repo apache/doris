@@ -17,16 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.obj.AzureObjStorage;
-import org.apache.doris.fs.obj.ObjStorage;
-import org.apache.doris.fs.obj.RemoteObjects;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RequestBody;
+import org.apache.doris.filesystem.spi.UploadPartResult;
+import org.apache.doris.fs.FileSystemFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -36,7 +35,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,51 +92,89 @@ public class AzureResource extends Resource {
         String testObj = "s3://" + bucketName + "/" + rootPath
                 + "/doris-test-object-valid-" + timestamp + ".txt";
 
-        byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
+        // 5MB per chunk — same as the multipart upload minimum
+        final int chunkSize = 5 * 1024 * 1024;
+        byte[] contentData = new byte[2 * chunkSize];
         Arrays.fill(contentData, (byte) 'A');
-        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(newProperties);
-        AzureObjStorage azureObjStorage = new AzureObjStorage(azureProperties);
 
-        Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(put), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false));
+        try {
+            org.apache.doris.filesystem.FileSystem fileSystem =
+                    FileSystemFactory.getFileSystem(newProperties);
+            Preconditions.checkState(fileSystem instanceof ObjFileSystem,
+                    "Expected object-storage filesystem for Azure resource");
+            ObjStorage<?> objStorage = ((ObjFileSystem) fileSystem).getObjStorage();
+
+            try {
+                objStorage.putObject(testObj,
+                        RequestBody.of(new ByteArrayInputStream(contentData), contentData.length));
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(put), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                objStorage.headObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(head), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                org.apache.doris.filesystem.spi.RemoteObjects remoteObjects =
+                        objStorage.listObjects(testObj, null);
+                LOG.info("remoteObjects: {}", remoteObjects);
+                Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1,
+                        "remoteObjects.size() must equal 1");
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(list), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                objStorage.deleteObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(delete), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            // multipart upload: initiate → upload one part → complete
+            try {
+                String uploadId = objStorage.initiateMultipartUpload(testObj);
+                try {
+                    UploadPartResult partResult = objStorage.uploadPart(testObj, uploadId, 1,
+                            RequestBody.of(new ByteArrayInputStream(contentData), contentData.length));
+                    objStorage.completeMultipartUpload(testObj, uploadId, Collections.singletonList(partResult));
+                } catch (IOException e) {
+                    try {
+                        objStorage.abortMultipartUpload(testObj, uploadId);
+                    } catch (Exception ignored) {
+                        // best-effort cleanup
+                    }
+                    throw e;
+                }
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(multiPartPut), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                objStorage.deleteObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(delete), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+        } catch (DdlException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new DdlException("ping azure failed: " + e.getMessage());
         }
 
-        status = azureObjStorage.headObject(testObj);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(head), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
-
-        RemoteObjects remoteObjects = azureObjStorage.listObjects(testObj, null);
-        LOG.info("remoteObjects: {}", remoteObjects);
-        Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1, "remoteObjects.size() must equal 1");
-
-        status = azureObjStorage.deleteObject(testObj);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(delete), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
-
-        status = azureObjStorage.multipartUpload(testObj,
-                new ByteArrayInputStream(contentData), contentData.length);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(multiPartPut), status: " + status
-                            + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
-
-        status = azureObjStorage.deleteObject(testObj);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(delete), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
         LOG.info("Success to ping azure blob storage.");
     }
 

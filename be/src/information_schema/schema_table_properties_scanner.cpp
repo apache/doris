@@ -27,7 +27,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaTablePropertiesScanner::_s_tbls_columns = {
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -160,7 +159,8 @@ Status SchemaTablePropertiesScanner::get_next_block_internal(Block* block, bool*
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    MutableBlock mblock = MutableBlock::build_mutable_block(block);
+    ScopedMutableBlock scoped_mblock(block);
+    auto& mblock = scoped_mblock.mutable_block();
     RETURN_IF_ERROR(mblock.add_rows(_tableproperties_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 

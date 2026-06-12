@@ -21,7 +21,6 @@
 #include "exec/sink/writer/vfile_result_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class BroadcastPBlockHolder;
 } // namespace doris
 
@@ -62,7 +61,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class ResultFileSinkLocalState;
@@ -89,5 +88,4 @@ private:
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

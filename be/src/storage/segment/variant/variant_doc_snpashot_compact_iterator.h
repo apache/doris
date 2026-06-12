@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace doris::segment_v2 {
-
-#include "common/compile_check_begin.h"
 #include "core/column/column_variant.h"
 #include "storage/segment/column_reader.h"
+
+namespace doris::segment_v2 {
 
 class VariantDocValueCompactIterator : public ColumnIterator {
 public:
@@ -55,16 +54,14 @@ private:
     Status _set_doc_value_into_variant(MutableColumnPtr& dst, MutableColumnPtr&& doc_value_column,
                                        size_t count) const {
         auto& variant = assert_cast<ColumnVariant&>(*dst);
-        MutableColumnPtr container = ColumnVariant::create(variant.max_subcolumns_count(), count);
-        auto& container_variant = assert_cast<ColumnVariant&>(*container);
-        container_variant.set_doc_value_column(std::move(doc_value_column));
-        variant.insert_range_from(container_variant, 0, count);
+        auto container = ColumnVariant::create(variant.max_subcolumns_count(),
+                                               variant.enable_doc_mode(), count);
+        container->set_doc_value_column(std::move(doc_value_column));
+        variant.insert_range_from(*container, 0, count);
         return Status::OK();
     }
 
     ColumnIteratorUPtr _doc_value_iterator;
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

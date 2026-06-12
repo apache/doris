@@ -38,7 +38,6 @@
 
 namespace doris {
 class Arena;
-#include "common/compile_check_begin.h"
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                        int64_t end_idx, BufferWritable& bw,
                                                        FormatOptions& options) const {
@@ -269,8 +268,7 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
         result.set_has_null(true);
         auto* null_map = result.mutable_null_map();
         null_map->Reserve(row_count);
-        const auto* col = check_and_get_column<ColumnUInt8>(null_col);
-        const auto& data = col->get_data();
+        const auto& data = null_col.get_data();
         null_map->Add(data.begin() + start, data.begin() + end);
     }
     return nested_serde->write_column_to_pb(nullable_col.get_nested_column(), result, start, end);

@@ -20,12 +20,14 @@ package org.apache.doris.cloud.datasource;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToProtobuf;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToPbConvertor;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -39,6 +41,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -51,13 +54,13 @@ import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.cloud.storage.ObjectFile;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.ColumnsUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
@@ -80,6 +83,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -329,22 +333,27 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
         }
 
-        // Enable external column meta layout when storage_format is V3 (Cloud mode).
+        // Persist the storage format directly on the schema so the BE doesn't have to
+        // derive it from the three legacy flags below on the way back from MS. The flags
+        // are still written for backward-compat with BEs that predate the storage_format
+        // schema field; both representations agree on every V3 tablet.
         switch (storageFormat) {
             case V3:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V3);
                 schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
                 schemaBuilder.setIntegerTypeDefaultUsePlainEncoding(true);
                 schemaBuilder.setBinaryPlainEncodingDefaultImpl(
                         OlapFile.BinaryPlainEncodingTypePB.BINARY_PLAIN_ENCODING_V2);
                 break;
             default:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V2);
                 break;
         }
 
         schemaBuilder.setSortColNum(dataSortInfo.getColNum());
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
-            schemaBuilder.addColumn(column.toPb(bfColumns, indexes));
+            schemaBuilder.addColumn(ColumnToProtobuf.toPb(column, bfColumns, indexes));
         }
 
         Map<Integer, Column> columnMap = Maps.newHashMap();
@@ -353,7 +362,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         if (indexes != null) {
             for (Index index : indexes) {
-                schemaBuilder.addIndex(index.toPb(columnMap, index.getColumnUniqueIds(schemaColumns)));
+                schemaBuilder.addIndex(
+                        IndexToPbConvertor.toPb(index, columnMap, index.getColumnUniqueIds(schemaColumns)));
             }
         }
 
@@ -445,11 +455,16 @@ public class CloudInternalCatalog extends InternalCatalog {
     private void createCloudTablets(MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
             TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
+        // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
+        // tablets list in a single copy-on-write after the loop (see
+        // InternalCatalog.createTablets for rationale).
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             Tablet tablet = EnvFactory.getInstance().createTablet(Env.getCurrentEnv().getNextId());
 
-            // add tablet to inverted index first
-            index.addTablet(tablet, tabletMeta);
+            invertedIndex.addTablet(tablet.getId(), tabletMeta);
+            bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
             long replicaId = Env.getCurrentEnv().getNextId();
@@ -458,6 +473,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
             tablet.addReplica(replica);
         }
+        index.appendTablets(bucketTablets);
     }
 
     @Override
@@ -1535,13 +1551,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<ObjectFile> objectFiles)
+    public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<RemoteObject> objectFiles)
             throws DdlException {
         Cloud.FilterCopyFilesRequest.Builder builder = Cloud.FilterCopyFilesRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setStageId(stageId).setTableId(tableId);
-        for (ObjectFile objectFile : objectFiles) {
+        for (RemoteObject objectFile : objectFiles) {
             builder.addObjectFiles(
                     ObjectFilePB.newBuilder().setRelativePath(objectFile.getRelativePath())
                             .setEtag(objectFile.getEtag()).setSize(objectFile.getSize()).build());

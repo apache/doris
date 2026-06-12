@@ -264,6 +264,23 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external") {
     logger.info("Rollback timestamp result: ${rollbackTimestampResult}")
     qt_after_rollback_to_timestamp """SELECT * FROM test_rollback_timestamp ORDER BY id"""
 
+    String epochMillisSnapshotTime = String.valueOf(
+            dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+
+    List<List<Object>> rollbackTimestampEpochResult = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.test_rollback_timestamp
+        EXECUTE rollback_to_timestamp("timestamp" = "${epochMillisSnapshotTime}")
+    """
+    logger.info("Rollback epoch millis result: ${rollbackTimestampEpochResult}")
+
+    List<List<Object>> rowsAfterEpochRollback = sql """
+        SELECT id, version FROM test_rollback_timestamp ORDER BY id
+    """
+    assertTrue(rowsAfterEpochRollback.size() == 2,
+            "Expected rollback_to_timestamp with epoch millis to keep exactly 2 rows")
+    assertTrue(rowsAfterEpochRollback[0][0] == 1 && rowsAfterEpochRollback[1][0] == 2,
+            "Expected rollback_to_timestamp with epoch millis to restore the first two snapshots")
+
 
     // =====================================================================================
     // Test Case 3: set_current_snapshot action
@@ -482,6 +499,19 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external") {
             ("target-file-size-bytes" = "not-a-number")
         """
         exception "Invalid target-file-size-bytes format: not-a-number"
+    }
+
+    // Test rewrite_data_files with invalid min/max file size relationship
+    test {
+        sql """
+            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE rewrite_data_files
+            (
+                "target-file-size-bytes" = "536870912",
+                "min-file-size-bytes" = "1073741824",
+                "max-file-size-bytes" = "536870912"
+            )
+        """
+        exception "min-file-size-bytes must be less than or equal to max-file-size-bytes"
     }
 
     // Test set_current_snapshot with both snapshot_id and ref

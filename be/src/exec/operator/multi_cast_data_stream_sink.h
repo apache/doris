@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
@@ -57,7 +56,7 @@ public:
               _num_dests(sources.size()) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override;
 
@@ -76,5 +75,4 @@ private:
     std::atomic<size_t> _num_dests;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -50,6 +51,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
@@ -60,12 +62,10 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
-    /// The count of items in the map may exceed 128(Int8).
-    using MapIndiceDataType = DataTypeInt16;
+    using MapIndiceDataType = DataTypeInt64;
 
     static constexpr auto name = "element_at";
     static FunctionPtr create() { return std::make_shared<FunctionArrayElement>(); }
@@ -78,6 +78,31 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 2; }
+
+    // A struct field access (element_at(struct, const) / the struct_element alias) resolves to a
+    // different return type depending on which field the constant index selects, so we need the
+    // index column here. Array/map return types depend only on the argument types and fall through
+    // to the DataTypes-based overload below.
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DataTypePtr arg_0 = remove_nullable(arguments[0].type);
+        if (arg_0->get_primitive_type() == TYPE_STRUCT) {
+            const auto* struct_type = check_and_get_data_type<DataTypeStruct>(arg_0.get());
+            size_t index = 0;
+            // Throw the concrete error (field not found / out of bound) instead of returning
+            // nullptr, which the framework would report as an opaque "return type check failed".
+            Status st = get_struct_element_index(*struct_type, arguments[1].column,
+                                                 arguments[1].type, &index);
+            if (!st.ok()) {
+                throw doris::Exception(st);
+            }
+            return make_nullable(struct_type->get_elements()[index]);
+        }
+        DataTypes data_types(arguments.size());
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
+        return get_return_type_impl(data_types);
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr arg_0 = remove_nullable(arguments[0]);
@@ -103,29 +128,49 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        if (remove_nullable(block.get_by_position(arguments[0]).type)->get_primitive_type() ==
+            TYPE_STRUCT) {
+            return _execute_struct(block, arguments, result, input_rows_count);
+        }
         auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
-        block.replace_by_position(
-                arguments[0],
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
-        auto col_left = block.get_by_position(arguments[0]);
-        if (col_left.column->is_nullable()) {
-            auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
-            src_null_map = null_col->get_null_map_column().get_data().data();
-            args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
-                     col_left.name},
-                    block.get_by_position(arguments[1])};
-        } else {
-            args = {col_left, block.get_by_position(arguments[1])};
-        }
         ColumnPtr res_column = nullptr;
-        if (is_column<ColumnMap>(args[0].column.get()) ||
-            check_column_const<ColumnMap>(args[0].column.get())) {
+
+        auto col_left_raw = block.get_by_position(arguments[0]);
+        // Map element lookup requires row-aligned offsets; keep original path for map type.
+        if (remove_nullable(col_left_raw.type)->get_primitive_type() == TYPE_MAP) {
+            block.replace_by_position(arguments[0],
+                                      col_left_raw.column->convert_to_full_column_if_const());
+            auto col_left = block.get_by_position(arguments[0]);
+            if (const auto* null_col =
+                        check_and_get_column<ColumnNullable>(col_left.column.get())) {
+                src_null_map = null_col->get_null_map_column().get_data().data();
+                args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
+                         col_left.name},
+                        block.get_by_position(arguments[1])};
+            } else {
+                args = {col_left, block.get_by_position(arguments[1])};
+            }
             res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
         } else {
-            res_column = _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
+            // Array element access: avoid materializing a constant array column.
+            // A literal like [[1],[2]] becomes ColumnConst with a single-row inner column;
+            // unpack_if_const() gives us that inner column plus a constancy flag so inner
+            // loops can use index_check_const() instead of expanding N copies.
+            auto [unpacked_col, is_const_array] = unpack_if_const(col_left_raw.column);
+            if (const auto* null_col = check_and_get_column<ColumnNullable>(unpacked_col.get())) {
+                src_null_map = null_col->get_null_map_column().get_data().data();
+                args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left_raw.type),
+                         col_left_raw.name},
+                        block.get_by_position(arguments[1])};
+            } else {
+                args = {{unpacked_col, col_left_raw.type, col_left_raw.name},
+                        block.get_by_position(arguments[1])};
+            }
+            res_column = _execute_nullable(args, input_rows_count, src_null_map, dst_null_map,
+                                           is_const_array);
         }
         if (!res_column) {
             return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
@@ -138,6 +183,91 @@ public:
     }
 
 private:
+    //=========================== struct element===========================//
+    // Resolve the 0-based field offset selected by a constant int/string index. Mirrors the logic
+    // of the former struct_element function, which element_at now subsumes.
+    Status get_struct_element_index(const DataTypeStruct& struct_type,
+                                    const ColumnPtr& index_column, const DataTypePtr& index_type,
+                                    size_t* result) const {
+        if (!index_column) {
+            return Status::RuntimeError("Function {}: second argument column is nullptr.",
+                                        get_name());
+        }
+        size_t index = 0;
+        if (is_int_or_bool(index_type->get_primitive_type())) {
+            int64_t offset = index_column->get_int(0);
+            size_t limit = struct_type.get_elements().size() + 1;
+            if (offset < 1 || offset >= static_cast<int64_t>(limit)) {
+                return Status::RuntimeError(
+                        "Index out of bound for function {}: index {} should base from 1 and less "
+                        "than {}.",
+                        get_name(), offset, limit);
+            }
+            index = offset - 1; // the index starts from 1
+        } else if (is_string_type(index_type->get_primitive_type())) {
+            std::string field_name = index_column->get_data_at(0).to_string();
+            std::optional<size_t> pos = struct_type.try_get_position_by_name(field_name);
+            if (!pos.has_value()) {
+                return Status::RuntimeError(
+                        "Element not found for function {}: name {} not found in {}.", get_name(),
+                        field_name, struct_type.get_name());
+            }
+            index = pos.value();
+        } else {
+            return Status::RuntimeError(
+                    "Argument not supported for function {}: second arg type {} should be int or "
+                    "string.",
+                    get_name(), index_type->get_name());
+        }
+        *result = index;
+        return Status::OK();
+    }
+
+    Status _execute_struct(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                           size_t input_rows_count) const {
+        const auto& struct_arg = block.get_by_position(arguments[0]);
+        ColumnPtr struct_col_ptr = struct_arg.column->convert_to_full_column_if_const();
+        // element_at manages nulls itself (use_default_implementation_for_nulls() == false), so a
+        // null struct row must be merged into the result null map manually.
+        const ColumnUInt8* outer_null_map = nullptr;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(struct_col_ptr.get())) {
+            outer_null_map = &nullable->get_null_map_column();
+            struct_col_ptr = nullable->get_nested_column_ptr();
+        }
+        const auto* struct_type =
+                check_and_get_data_type<DataTypeStruct>(remove_nullable(struct_arg.type).get());
+        const auto* struct_col = check_and_get_column<ColumnStruct>(struct_col_ptr.get());
+        if (!struct_col || !struct_type) {
+            return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
+                                        struct_arg.type->get_name(),
+                                        block.get_by_position(arguments[1]).type->get_name());
+        }
+        const auto& index_arg = block.get_by_position(arguments[1]);
+        size_t index = 0;
+        RETURN_IF_ERROR(
+                get_struct_element_index(*struct_type, index_arg.column, index_arg.type, &index));
+
+        ColumnPtr field_col = struct_col->get_column_ptr(index);
+        auto res_null_column = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_null_map = res_null_column->get_data();
+        ColumnPtr res_nested = field_col;
+        if (const auto* field_nullable = check_and_get_column<ColumnNullable>(field_col.get())) {
+            const auto& field_null_map = field_nullable->get_null_map_column().get_data();
+            memcpy(res_null_map.data(), field_null_map.data(), input_rows_count);
+            res_nested = field_nullable->get_nested_column_ptr();
+        }
+        if (outer_null_map) {
+            const auto& outer = outer_null_map->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                res_null_map[i] |= outer[i];
+            }
+        }
+        block.replace_by_position(
+                result, ColumnNullable::create(res_nested->clone_resized(input_rows_count),
+                                               std::move(res_null_column)));
+        return Status::OK();
+    }
+
     //=========================== map element===========================//
     ColumnPtr _get_mapped_idx(const ColumnArray& column,
                               const ColumnWithTypeAndName& argument) const {
@@ -171,24 +301,27 @@ private:
         return matched_indices;
     }
 
-    template <typename ColumnType>
+    template <typename ColumnType, typename IndexColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              const UInt8* idx_null_map, bool is_const_index, bool is_const_array,
+                              size_t input_rows_count) const {
         const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
+        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         auto dst_column = nested_column.clone_empty();
         auto& dst_data = reinterpret_cast<ColumnType&>(*dst_column).get_data();
-        dst_data.resize(offsets.size());
+        dst_data.resize(input_rows_count);
 
-        // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-            auto index = indices.get_int(row);
-            // array is nullable
-            bool null_flag = bool(arr_null_map && arr_null_map[row]);
-            // calc index in nested column
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            size_t arr_row = index_check_const(row, is_const_array);
+            size_t off = arr_row == 0 ? 0 : offsets[arr_row - 1];
+            size_t len = offsets[arr_row] - off;
+            size_t idx = index_check_const(row, is_const_index);
+            auto index =
+                    (idx_null_map && idx_null_map[idx]) ? 0 : static_cast<Int64>(index_data[idx]);
+            bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
             } else if (!null_flag && index < 0 && -index <= len) {
@@ -196,46 +329,42 @@ private:
             } else {
                 null_flag = true;
             }
-            // nested column nullable check
             if (!null_flag && nested_null_map && nested_null_map[index]) {
                 null_flag = true;
             }
-            // actual data copy
-            if (null_flag) {
-                dst_null_map[row] = true;
-                dst_data[row] = typename ColumnType::value_type();
-            } else {
-                DCHECK(index >= 0 && index < nested_data.size());
-                dst_null_map[row] = false;
-                dst_data[row] = nested_data[index];
-            }
+            dst_null_map[row] = null_flag;
+            dst_data[row] = !null_flag ? nested_data[index] : typename ColumnType::value_type();
         }
         return dst_column;
     }
 
+    template <typename IndexColumnType>
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              const UInt8* idx_null_map, bool is_const_index, bool is_const_array,
+                              size_t input_rows_count) const {
         const auto& src_str_offs =
                 reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& src_str_chars =
                 reinterpret_cast<const ColumnString&>(nested_column).get_chars();
+        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         // prepare return data
         auto dst_column = ColumnString::create();
         auto& dst_str_offs = dst_column->get_offsets();
-        dst_str_offs.resize(offsets.size());
+        dst_str_offs.resize(input_rows_count);
         auto& dst_str_chars = dst_column->get_chars();
         dst_str_chars.reserve(src_str_chars.size());
 
-        // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-            auto index = indices.get_int(row);
-            // array is nullable
-            bool null_flag = bool(arr_null_map && arr_null_map[row]);
-            // calc index in nested column
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            size_t arr_row = index_check_const(row, is_const_array);
+            size_t off = arr_row == 0 ? 0 : offsets[arr_row - 1];
+            size_t len = offsets[arr_row] - off;
+            size_t idx = index_check_const(row, is_const_index);
+            auto index =
+                    (idx_null_map && idx_null_map[idx]) ? 0 : static_cast<Int64>(index_data[idx]);
+            bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
             } else if (!null_flag && index < 0 && -index <= len) {
@@ -243,24 +372,21 @@ private:
             } else {
                 null_flag = true;
             }
-            // nested column nullable check
             if (!null_flag && nested_null_map && nested_null_map[index]) {
                 null_flag = true;
             }
-            // actual string copy
             if (!null_flag) {
-                DCHECK(index >= 0 && index < src_str_offs.size());
                 dst_null_map[row] = false;
                 auto element_size = src_str_offs[index] - src_str_offs[index - 1];
-                dst_str_offs[row] = dst_str_offs[row - 1] + element_size;
+                dst_str_offs[row] = (row == 0 ? 0 : dst_str_offs[row - 1]) + element_size;
                 auto src_string_pos = src_str_offs[index - 1];
-                auto dst_string_pos = dst_str_offs[row - 1];
+                auto dst_string_pos = row == 0 ? 0 : dst_str_offs[row - 1];
                 dst_str_chars.resize(dst_string_pos + element_size);
                 memcpy(&dst_str_chars[dst_string_pos], &src_str_chars[src_string_pos],
                        element_size);
             } else {
                 dst_null_map[row] = true;
-                dst_str_offs[row] = dst_str_offs[row - 1];
+                dst_str_offs[row] = row == 0 ? 0 : dst_str_offs[row - 1];
             }
         }
         return dst_column;
@@ -287,24 +413,28 @@ private:
         ColumnWithTypeAndName data(std::move(val_arr), std::make_shared<DataTypeArray>(val_type),
                                    "value");
         ColumnsWithTypeAndName args = {data, indices};
-        return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
+        return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map, false);
     }
 
+    template <typename IndexColumnType>
     ColumnPtr _execute_common(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
-        // prepare return data
-        auto dst_column = nested_column.clone_empty();
-        dst_column->reserve(offsets.size());
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              const UInt8* idx_null_map, bool is_const_index, bool is_const_array,
+                              size_t input_rows_count) const {
+        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
-        // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-            auto index = indices.get_int(row);
-            // array is nullable
-            bool null_flag = bool(arr_null_map && arr_null_map[row]);
-            // calc index in nested column
+        auto dst_column = nested_column.clone_empty();
+        dst_column->reserve(input_rows_count);
+
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            size_t arr_row = index_check_const(row, is_const_array);
+            size_t off = arr_row == 0 ? 0 : offsets[arr_row - 1];
+            size_t len = offsets[arr_row] - off;
+            size_t idx = index_check_const(row, is_const_index);
+            auto index =
+                    (idx_null_map && idx_null_map[idx]) ? 0 : static_cast<Int64>(index_data[idx]);
+            bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
             } else if (!null_flag && index < 0 && -index <= len) {
@@ -312,11 +442,9 @@ private:
             } else {
                 null_flag = true;
             }
-            // nested column nullable check
             if (!null_flag && nested_null_map && nested_null_map[index]) {
                 null_flag = true;
             }
-            // actual data copy
             if (!null_flag) {
                 dst_null_map[row] = false;
                 dst_column->insert_from(nested_column, index);
@@ -329,12 +457,14 @@ private:
     }
 
     ColumnPtr _execute_nullable(const ColumnsWithTypeAndName& arguments, size_t input_rows_count,
-                                const UInt8* src_null_map, UInt8* dst_null_map) const {
-        // check array nested column type and get data
-        auto left_column = arguments[0].column->convert_to_full_column_if_const();
-        const auto& array_column = assert_cast<const ColumnArray&>(*left_column);
+                                const UInt8* src_null_map, UInt8* dst_null_map,
+                                bool is_const_array) const {
+        // arguments[0].column is already the raw ColumnArray (possibly size-1 when is_const_array).
+        // Do NOT call convert_to_full_column_if_const() here; const-awareness is handled below
+        // via index_check_const(row, is_const_array).
+        const auto& array_column = assert_cast<const ColumnArray&>(*arguments[0].column);
         const auto& offsets = array_column.get_offsets();
-        DCHECK(offsets.size() == input_rows_count);
+        DCHECK(is_const_array ? offsets.size() == 1 : offsets.size() == input_rows_count);
         const UInt8* nested_null_map = nullptr;
         ColumnPtr nested_column = nullptr;
         if (is_column_nullable(array_column.get_data())) {
@@ -350,28 +480,51 @@ private:
         auto left_element_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0].type))
                         .get_nested_type());
-        // because we impl use_default_implementation_for_nulls
-        // we should handle array index column by-self, and array index should not be nullable.
-        auto idx_col = remove_nullable(arguments[1].column);
-        // we should dispatch branch according to data type rather than column type
+        const UInt8* idx_null_map = nullptr;
+        auto idx_col_with_const = unpack_if_const(arguments[1].column);
+        if (const auto* idx_null_column =
+                    check_and_get_column<ColumnNullable>(idx_col_with_const.first.get())) {
+            idx_null_map = idx_null_column->get_null_map_column().get_data().data();
+        }
+        auto idx_col_raw = remove_nullable(idx_col_with_const.first);
+        bool is_const_index = idx_col_with_const.second;
 
-        auto call = [&](const auto& type) -> bool {
-            using DispatchType = std::decay_t<decltype(type)>;
-            res = _execute_number<typename DispatchType::ColumnType>(
-                    offsets, *nested_column, src_null_map, *idx_col, nested_null_map, dst_null_map);
+        PrimitiveType idx_ptype = remove_nullable(arguments[1].type)->get_primitive_type();
+
+        // Outer dispatch on index column type (Int8/Int16/Int32/Int64),
+        // inner dispatch on nested data column type.
+        auto idx_dispatch = [&](const auto& idx_type) -> bool {
+            using IdxDispatchType = std::decay_t<decltype(idx_type)>;
+            using IndexColumnType = typename IdxDispatchType::ColumnType;
+
+            auto data_call = [&](const auto& data_type) -> bool {
+                using DataDispatchType = std::decay_t<decltype(data_type)>;
+                res = _execute_number<typename DataDispatchType::ColumnType, IndexColumnType>(
+                        offsets, *nested_column, src_null_map, *idx_col_raw, nested_null_map,
+                        dst_null_map, idx_null_map, is_const_index, is_const_array,
+                        input_rows_count);
+                return true;
+            };
+
+            if (is_string_type(left_element_type->get_primitive_type())) {
+                res = _execute_string<IndexColumnType>(offsets, *nested_column, src_null_map,
+                                                       *idx_col_raw, nested_null_map, dst_null_map,
+                                                       idx_null_map, is_const_index, is_const_array,
+                                                       input_rows_count);
+            } else if (!dispatch_switch_scalar(left_element_type->get_primitive_type(),
+                                               data_call)) {
+                res = _execute_common<IndexColumnType>(offsets, *nested_column, src_null_map,
+                                                       *idx_col_raw, nested_null_map, dst_null_map,
+                                                       idx_null_map, is_const_index, is_const_array,
+                                                       input_rows_count);
+            }
             return true;
         };
 
-        if (is_string_type(left_element_type->get_primitive_type())) {
-            res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map);
-        } else if (!dispatch_switch_scalar(left_element_type->get_primitive_type(), call)) {
-            res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map);
-        }
+        bool dispatched = dispatch_switch_int(idx_ptype, idx_dispatch);
+        DCHECK(dispatched) << "Unsupported index column type for element_at: " << idx_ptype;
         return res;
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

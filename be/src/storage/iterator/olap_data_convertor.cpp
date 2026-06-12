@@ -318,7 +318,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
     _typed_column = typed_column;
     _row_pos = row_pos;
     _num_rows = num_rows;
-    if (_typed_column.column->is_nullable()) {
+    if (is_column_nullable(*_typed_column.column)) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
         _nullmap = nullable_column->get_null_map_data().data();
@@ -994,7 +994,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _value_convertor->set_source_column(value_typed_column, start_offset, elem_size);
     RETURN_IF_ERROR(_value_convertor->convert_to_olap());
 
-    // todo (Amory). put this value into MapValue
     _results[0] = (void*)elem_size;
     _results[1] = _offsets.data();
     _results[2] = _key_convertor->get_data();
@@ -1009,7 +1008,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     // set
     const ColumnNullable* nullable_column = nullptr;
-    if (typed_column.column->is_nullable()) {
+    if (is_column_nullable(*typed_column.column)) {
         nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
         _nullmap = nullable_column->get_null_map_data().data();
     }

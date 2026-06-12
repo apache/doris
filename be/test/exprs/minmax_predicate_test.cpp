@@ -20,13 +20,20 @@
 #include <memory>
 #include <string>
 
-#include "common/config.h"
 #include "exec/runtime_filter/utils.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/internal/gtest-internal.h"
 #include "testutil/column_helper.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
+
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
 class MinmaxPredicateTest : public testing::Test {
 protected:
     MinmaxPredicateTest() {}
@@ -44,11 +51,18 @@ void test_numeric() {
     NumericType max = type_limit<NumericType>::max();
     NumericType def {};
     if constexpr (std::is_same_v<NumericType, VecDateTimeValue>) {
-        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+        CastParameters p;
+        CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                      DatelikeTargetType::DATE_TIME>(
+                {"2010-01-01", strlen("2010-01-01")}, def, nullptr, p);
     } else if constexpr (std::is_same_v<NumericType, DateV2Value<DateV2ValueType>>) {
-        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+        CastParameters p;
+        CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2010-01-01", strlen("2010-01-01")}, def, nullptr, p);
     } else if constexpr (std::is_same_v<NumericType, DateV2Value<DateTimeV2ValueType>>) {
-        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2010-01-01", strlen("2010-01-01")}, def, nullptr, -1, p);
     }
 
     MutableColumnPtr column;
@@ -137,9 +151,14 @@ TEST_F(MinmaxPredicateTest, String) {
     ASSERT_EQ("ab", *(std::string*)minmax_num_func.get_min());
     ASSERT_EQ("op", *(std::string*)minmax_num_func.get_max());
 
-    auto string_overflow_size = config::string_overflow_size;
-    config::string_overflow_size = 10;
-    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
+                                             {{"max_string_size", "10"}});
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
+        config::enable_debug_points = origin_enable_debug_points;
+    });
 
     auto string64_column = column->clone()->convert_column_if_overflow();
     ASSERT_TRUE(string64_column->is_column_string64());

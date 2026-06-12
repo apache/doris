@@ -1,4 +1,5 @@
-CREATE TABLE IF NOT EXISTS `avro_all_types`(
+drop table if exists `avro_all_types`;
+create table `avro_all_types`(
 `t_null_string` string,
 `t_null_varchar` varchar(65535),
 `t_null_char` char(10),
@@ -66,7 +67,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/avro/avro_all_types';
-
-msck repair table avro_all_types;
-
-

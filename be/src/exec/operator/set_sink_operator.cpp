@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
@@ -32,7 +31,13 @@ Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard, mirroring the close()/sink() paths in this
+    // file which already gate on `_runtime_filter_producer_helper`.
+    // terminate() may run on a cancel / early-wake path before the helper
+    // is attached, in which case skip_process() would NPE.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return Base::terminate(state);
 }
 
@@ -45,7 +50,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
     if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
         try {
             RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                    state, &_shared_state->build_block, _shared_state->get_hash_table_size()));
+                    state, &_shared_state->build_block, _build_hash_table_size));
         } catch (Exception& e) {
             return Status::InternalError(
                     "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
@@ -62,7 +67,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status SetSinkOperatorX<is_intersect>::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
 
@@ -75,7 +80,8 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
     if (in_block->rows() != 0) {
         if (local_state._mutable_block.empty()) {
             auto tmp_build_block = *(in_block->create_same_struct_block(0, false));
-            local_state._mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
+            local_state._mutable_block =
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         {
@@ -100,6 +106,11 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
         // record hash table
         COUNTER_SET(local_state._hash_table_size, (int64_t)hash_table_size);
         COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
+
+        // Snapshot hash table size before enabling the probe pipeline. The probe side
+        // can shrink the hash table via _refresh_hash_table() after set_ready(), so
+        // close() must use this saved value for runtime filter processing.
+        local_state._build_hash_table_size = hash_table_size;
 
         local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                 ->set_ready();

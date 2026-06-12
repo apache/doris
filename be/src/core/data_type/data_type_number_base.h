@@ -39,7 +39,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BufferWritable;
 class IColumn;
@@ -49,7 +48,7 @@ class IColumn;
 template <PrimitiveType T>
 class DataTypeNumberBase : public IDataType {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     static constexpr bool is_parametric = false;
@@ -66,61 +65,6 @@ public:
         // Doris does not support uint8 at present, use uint8 as boolean type
         return T;
     }
-
-    doris::FieldType get_storage_field_type() const override {
-        // Doris does not support uint8 at present, use uint8 as boolean type
-        if constexpr (T == TYPE_BOOLEAN) {
-            return doris::FieldType::OLAP_FIELD_TYPE_BOOL;
-        }
-        if constexpr (T == TYPE_TINYINT) {
-            return doris::FieldType::OLAP_FIELD_TYPE_TINYINT;
-        }
-        if constexpr (T == TYPE_SMALLINT) {
-            return doris::FieldType::OLAP_FIELD_TYPE_SMALLINT;
-        }
-        if constexpr (T == TYPE_INT) {
-            return doris::FieldType::OLAP_FIELD_TYPE_INT;
-        }
-        if constexpr (T == TYPE_BIGINT) {
-            return doris::FieldType::OLAP_FIELD_TYPE_BIGINT;
-        }
-        if constexpr (T == TYPE_LARGEINT) {
-            return doris::FieldType::OLAP_FIELD_TYPE_LARGEINT;
-        }
-        if constexpr (T == TYPE_FLOAT) {
-            return doris::FieldType::OLAP_FIELD_TYPE_FLOAT;
-        }
-        if constexpr (T == TYPE_DOUBLE) {
-            return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
-        }
-        if constexpr (T == TYPE_DATE) {
-            return doris::FieldType::OLAP_FIELD_TYPE_DATE;
-        }
-        if constexpr (T == TYPE_DATETIME) {
-            return doris::FieldType::OLAP_FIELD_TYPE_DATETIME;
-        }
-        if constexpr (T == TYPE_DATEV2) {
-            return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
-        }
-        if constexpr (T == TYPE_DATETIMEV2) {
-            return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
-        }
-        if constexpr (T == TYPE_TIMESTAMPTZ) {
-            return doris::FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
-        }
-        if constexpr (T == TYPE_IPV4) {
-            return doris::FieldType::OLAP_FIELD_TYPE_IPV4;
-        }
-        if constexpr (T == TYPE_IPV6) {
-            return doris::FieldType::OLAP_FIELD_TYPE_IPV6;
-        }
-        if constexpr (T == TYPE_TIMEV2) {
-            return doris::FieldType::OLAP_FIELD_TYPE_TIMEV2;
-        }
-        throw Exception(Status::FatalError("__builtin_unreachable"));
-    }
-
-    Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override;
 
@@ -150,5 +94,4 @@ protected:
 private:
     bool _is_null_literal = false;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

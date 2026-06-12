@@ -45,7 +45,6 @@ class SlotDescriptor;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Block;
 
@@ -59,15 +58,20 @@ public:
     ~PaimonCppReader() override;
 
     Status init_reader();
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
     Status close() override;
     void set_predicate(std::shared_ptr<paimon::Predicate> predicate) {
         _predicate = std::move(predicate);
     }
 
+protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
+    Status on_after_read_block(Block* block, size_t* read_rows) override;
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
+
 private:
+    Status _fill_partition_columns(Block* block, size_t num_rows);
     Status _init_paimon_reader();
     Status _decode_split(std::shared_ptr<paimon::Split>* split);
     // Resolve paimon table root path for schema/manifest lookup.
@@ -86,10 +90,12 @@ private:
     std::unique_ptr<paimon::BatchReader> _batch_reader;
     std::shared_ptr<paimon::Predicate> _predicate;
 
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_values;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
     std::unordered_map<std::string, uint32_t> _col_name_to_block_idx;
     int64_t _remaining_table_level_row_count = -1;
     cctz::time_zone _ctzz;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

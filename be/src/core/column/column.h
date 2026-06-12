@@ -113,10 +113,6 @@ public:
         return nullptr;
     }
 
-    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
-    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
-    virtual void shrink_padding_chars() {}
-
     // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
@@ -264,6 +260,15 @@ public:
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method insert_many_continuous_binary_data is not supported for " + get_name());
+    }
+
+    /// Insert `num` string entries with real length information but no actual
+    /// character data. Used by OFFSET_ONLY reading mode where actual string
+    /// content is not needed but length information must be preserved.
+    virtual void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_offsets_from_lengths is not supported for " + get_name());
     }
 
     virtual void insert_many_strings(const StringRef* strings, size_t num) {
@@ -570,18 +575,29 @@ public:
         return false;
     }
 
+    // Recursively make a mutable column tree. Use this rvalue member when the
+    // current column object is being consumed. Shared nodes are cloned, while
+    // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
+    // COW entry point for a ColumnPtr. Passing the pointer by value keeps the
+    // original owner alive until the top-level detach succeeds; passing
+    // std::move(ptr) explicitly consumes that owner. Subcolumns are still
+    // recursively detached as needed.
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
@@ -595,10 +611,8 @@ public:
 
     /// Various properties on behaviour of column type.
 
-    /// It's true for ColumnNullable only.
+    /// It's true for ColumnNullable and Const(ColumnNullable).
     virtual bool is_nullable() const { return false; }
-    /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
-    virtual bool is_concrete_nullable() const { return false; }
 
     // true if column has null element
     virtual bool has_null() const { return false; }

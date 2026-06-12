@@ -21,7 +21,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -69,7 +68,7 @@ public:
                         const DescriptorTbl& descs)
             : OperatorX<RecCTEScanLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
 
         if (local_state._blocks.empty()) {
@@ -85,5 +84,4 @@ public:
     bool is_source() const override { return true; }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

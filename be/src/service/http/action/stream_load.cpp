@@ -92,7 +92,9 @@ static const std::string ASYNC_MODE = "async_mode";
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+StreamLoadAction::StreamLoadAction(ExecEnv* exec_env)
+        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
+    // Use LOAD privilege type: requires LOAD permission
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
@@ -236,6 +238,13 @@ void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpR
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
+    // Call parent's auth check first
+    int ret = HttpHandlerWithAuth::on_header(req);
+    if (ret != 0) {
+        return ret; // Auth failed, return error
+    }
+
+    // Continue with stream load specific header processing
     req->mark_send_reply();
 
     streaming_load_current_processing->increment(1);
@@ -906,9 +915,16 @@ Status StreamLoadAction::_check_wal_space(const std::string& group_commit_mode,
 Status StreamLoadAction::_can_group_commit(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx,
                                            std::string& group_commit_header,
                                            bool& can_group_commit) {
-    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                     ? 0
-                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    int64_t content_length = 0;
+    const auto& content_length_str = req->header(HttpHeaders::CONTENT_LENGTH);
+    if (!content_length_str.empty()) {
+        try {
+            content_length = std::stoll(content_length_str);
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           content_length_str, e.what());
+        }
+    }
     if (content_length < 0) {
         std::stringstream ss;
         ss << "This stream load content length <0 (" << content_length

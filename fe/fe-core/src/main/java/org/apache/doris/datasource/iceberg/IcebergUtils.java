@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -72,11 +74,15 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
@@ -101,6 +107,7 @@ import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.TimestampType;
@@ -128,6 +135,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -174,6 +182,10 @@ public class IcebergUtils {
     public static final String HOUR = "hour";
     public static final String IDENTITY = "identity";
     public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
+
+    public static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
+    public static final String ICEBERG_ROW_ID_COL = "_row_id";
+    public static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
     private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
 
@@ -240,7 +252,10 @@ public class IcebergUtils {
                 return null;
             }
             String colName = slotRef.getColumnName();
-            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            Types.NestedField nestedField = getPushdownField(schema, colName);
+            if (nestedField == null) {
+                return null;
+            }
             colName = nestedField.name();
             Object value = extractDorisLiteral(nestedField.type(), literalExpr);
             if (value == null) {
@@ -282,7 +297,10 @@ public class IcebergUtils {
                 return null;
             }
             String colName = slotRef.getColumnName();
-            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            Types.NestedField nestedField = getPushdownField(schema, colName);
+            if (nestedField == null) {
+                return null;
+            }
             colName = nestedField.name();
             List<Object> valueList = new ArrayList<>();
             for (int i = 1; i < inExpr.getChildren().size(); ++i) {
@@ -306,6 +324,14 @@ public class IcebergUtils {
         }
 
         return checkConversion(expression, schema);
+    }
+
+    private static Types.NestedField getPushdownField(Schema schema, String colName) {
+        if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(colName)
+                || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(colName)) {
+            return null;
+        }
+        return schema.caseInsensitiveFindField(colName);
     }
 
     private static Expression checkConversion(Expression expression, Schema schema) {
@@ -506,32 +532,36 @@ public class IcebergUtils {
             if (expr instanceof SlotRef) {
                 builder.identity(((SlotRef) expr).getColumnName());
             } else if (expr instanceof FunctionCallExpr) {
-                String exprName = expr.getExprName();
+                String exprName = expr.accept(ExprToExprNameVisitor.INSTANCE, null);
                 List<Expr> params = ((FunctionCallExpr) expr).getParams().exprs();
                 switch (exprName.toLowerCase()) {
                     case "bucket":
-                        builder.bucket(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        builder.bucket(
+                                params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null),
+                                Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     case "year":
                     case "years":
-                        builder.year(params.get(0).getExprName());
+                        builder.year(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "month":
                     case "months":
-                        builder.month(params.get(0).getExprName());
+                        builder.month(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "date":
                     case "day":
                     case "days":
-                        builder.day(params.get(0).getExprName());
+                        builder.day(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "date_hour":
                     case "hour":
                     case "hours":
-                        builder.hour(params.get(0).getExprName());
+                        builder.hour(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "truncate":
-                        builder.truncate(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        builder.truncate(
+                                params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null),
+                                Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     default:
                         throw new UserException("unsupported partition for " + exprName);
@@ -606,6 +636,8 @@ public class IcebergUtils {
                                 icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz)))
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
+            case VARIANT:
+                return Type.UNSUPPORTED;
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
@@ -652,6 +684,16 @@ public class IcebergUtils {
                 return null;
             }
 
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(
+                            "Skip dynamic partition pruning for binary partition field: {}",
+                            field.name());
+                }
+                return null;
+            }
+
             Object value = partitionData.get(i);
             try {
                 String partitionString = serializePartitionValue(field.type(), value, timeZone);
@@ -663,6 +705,97 @@ public class IcebergUtils {
             }
         }
         return partitionInfoMap;
+    }
+
+    public static List<String> getIdentityPartitionColumns(Table table) {
+        LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
+        for (PartitionSpec spec : table.specs().values()) {
+            for (PartitionField partitionField : spec.fields()) {
+                if (!partitionField.transform().isIdentity()) {
+                    continue;
+                }
+                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                if (columnName != null) {
+                    partitionColumns.add(columnName.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return new ArrayList<>(partitionColumns);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Table table, String timeZone) {
+        Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        List<PartitionField> partitionFields = partitionSpec.fields();
+        Preconditions.checkArgument(fields.size() == partitionFields.size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            PartitionField partitionField = partitionFields.get(i);
+            if (!partitionField.transform().isIdentity()) {
+                continue;
+            }
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                continue;
+            }
+
+            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            if (columnName == null) {
+                continue;
+            }
+            Object value = partitionData.get(i);
+            try {
+                partitionInfoMap.put(columnName.toLowerCase(Locale.ROOT),
+                        serializePartitionValue(field.type(), value, timeZone));
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
+                        e.getMessage());
+            }
+        }
+        return partitionInfoMap;
+    }
+
+    public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone) {
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        Preconditions.checkArgument(fields.size() == partitionSpec.fields().size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
+        List<String> partitionValues = new ArrayList<>(fields.size());
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            Object value = partitionData.get(i);
+            try {
+                partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
+                        e.getMessage());
+                partitionValues.add(null);
+            }
+        }
+        return partitionValues;
+    }
+
+    public static String getPartitionDataJson(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone) {
+        List<String> partitionValues = getPartitionValues(partitionData, partitionSpec, timeZone);
+        return GsonUtils.GSON.toJson(partitionValues);
+    }
+
+    public static List<String> parsePartitionValuesFromJson(String partitionDataJson) {
+        if (StringUtils.isBlank(partitionDataJson)) {
+            return Lists.newArrayList();
+        }
+        try {
+            java.lang.reflect.Type listType = new TypeToken<List<String>>() {}.getType();
+            return GsonUtils.GSON.fromJson(partitionDataJson, listType);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse partition data JSON: {}", partitionDataJson, e);
+            return Lists.newArrayList();
+        }
     }
 
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
@@ -677,6 +810,16 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
+            case FLOAT:
+                if (value == null) {
+                    return null;
+                }
+                return Float.toString((Float) value);
+            case DOUBLE:
+                if (value == null) {
+                    return null;
+                }
+                return Double.toString((Double) value);
             // case binary, fixed should not supported, because if return string with utf8,
             // the data maybe be corrupted
             case DATE:
@@ -824,9 +967,9 @@ public class IcebergUtils {
                 case LONG:
                     return Long.parseLong(valueStr);
                 case FLOAT:
-                    return Float.parseFloat(valueStr);
+                    return Float.parseFloat(normalizeFloatingPointPartitionValue(valueStr));
                 case DOUBLE:
-                    return Double.parseDouble(valueStr);
+                    return Double.parseDouble(normalizeFloatingPointPartitionValue(valueStr));
                 case BOOLEAN:
                     return Boolean.parseBoolean(valueStr);
                 case DATE:
@@ -843,6 +986,20 @@ public class IcebergUtils {
             throw new IllegalArgumentException(String.format("Failed to convert partition value '%s' to type %s",
                     valueStr, icebergType), e);
         }
+    }
+
+    private static String normalizeFloatingPointPartitionValue(String valueStr) {
+        if ("nan".equalsIgnoreCase(valueStr)) {
+            return "NaN";
+        }
+        if ("inf".equalsIgnoreCase(valueStr) || "+inf".equalsIgnoreCase(valueStr)
+                || "infinity".equalsIgnoreCase(valueStr) || "+infinity".equalsIgnoreCase(valueStr)) {
+            return "Infinity";
+        }
+        if ("-inf".equalsIgnoreCase(valueStr) || "-infinity".equalsIgnoreCase(valueStr)) {
+            return "-Infinity";
+        }
+        return valueStr;
     }
 
     /**
@@ -1000,12 +1157,7 @@ public class IcebergUtils {
 
     public static FileFormat getFileFormat(Table icebergTable) {
         Map<String, String> properties = icebergTable.properties();
-        String fileFormatName;
-        if (properties.containsKey(WRITE_FORMAT)) {
-            fileFormatName = properties.get(WRITE_FORMAT);
-        } else {
-            fileFormatName = properties.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, PARQUET_NAME);
-        }
+        String fileFormatName = resolveFileFormatName(icebergTable, properties);
         FileFormat fileFormat;
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             fileFormat = FileFormat.ORC;
@@ -1015,6 +1167,39 @@ public class IcebergUtils {
             throw new RuntimeException("Unsupported input format type: " + fileFormatName);
         }
         return fileFormat;
+    }
+
+    private static String resolveFileFormatName(Table icebergTable, Map<String, String> properties) {
+        // 1. Check "write-format" (nickname in Flink and Spark)
+        if (properties.containsKey(WRITE_FORMAT)) {
+            return properties.get(WRITE_FORMAT);
+        }
+        // 2. Check "write.format.default" (standard Iceberg property)
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        // 3. Last resort: infer from the actual data files in the current snapshot.
+        //    This handles migrated tables where none of the above properties are set.
+        return inferFileFormatFromDataFiles(icebergTable);
+    }
+
+    private static String inferFileFormatFromDataFiles(Table icebergTable) {
+        if (icebergTable.currentSnapshot() == null) {
+            LOG.info("Iceberg table {} has no snapshot, defaulting to {}", icebergTable.name(), PARQUET_NAME);
+            return PARQUET_NAME;
+        }
+        try (CloseableIterable<FileScanTask> files = icebergTable.newScan().planFiles()) {
+            java.util.Iterator<FileScanTask> it = files.iterator();
+            if (it.hasNext()) {
+                String format = it.next().file().format().name().toLowerCase();
+                LOG.info("Iceberg table {} inferred file format {} from data files", icebergTable.name(), format);
+                return format;
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to infer file format from data files for table {}, defaulting to {}",
+                    icebergTable.name(), PARQUET_NAME, e);
+        }
+        return PARQUET_NAME;
     }
 
 
@@ -1047,9 +1232,13 @@ public class IcebergUtils {
         }
         String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
         if (dataLocation == null) {
-            dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+            dataLocation = Boolean.parseBoolean(properties.get(TableProperties.OBJECT_STORE_ENABLED))
+                    ? properties.get(TableProperties.OBJECT_STORE_PATH) : null;
             if (dataLocation == null) {
-                dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+                dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+                if (dataLocation == null) {
+                    dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+                }
             }
         }
         return dataLocation;
@@ -1057,7 +1246,7 @@ public class IcebergUtils {
 
     public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
         HiveCatalog hiveCatalog = new HiveCatalog();
-        hiveCatalog.setConf(externalCatalog.getConfiguration());
+        hiveCatalog.setConf(ExternalCatalog.buildHadoopConfiguration(externalCatalog.getHadoopProperties()));
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();
         if (!catalogProperties.containsKey(HiveCatalog.LIST_ALL_TABLES)) {
@@ -1126,6 +1315,12 @@ public class IcebergUtils {
                 refName = params.getListParams().get(0);
             }
             SnapshotRef snapshotRef = table.refs().get(refName);
+            LOG.info("[BranchDebug] getQuerySpecSnapshot: refName={}, snapshotId={}, "
+                    + "currentSnapshotId={}, allRefs={}",
+                    refName,
+                    snapshotRef != null ? snapshotRef.snapshotId() : "null",
+                    table.currentSnapshot() != null ? table.currentSnapshot().snapshotId() : "null",
+                    table.refs());
             if (params.isBranch()) {
                 if (snapshotRef == null || !snapshotRef.isBranch()) {
                     throw new UserException("Table " + table.name() + " does not have branch named " + refName);
@@ -1555,6 +1750,59 @@ public class IcebergUtils {
             }
         }
         return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
+    }
+
+
+    public static boolean isIcebergRowLineageColumn(Column column) {
+        return column.nameEquals(IcebergUtils.ICEBERG_ROW_ID_COL, false)
+                || column.nameEquals(IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, false);
+    }
+
+    public static boolean isIcebergRowLineageColumn(String columnName) {
+        return IcebergUtils.ICEBERG_ROW_ID_COL.equalsIgnoreCase(columnName)
+                || IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(columnName);
+    }
+
+    public static List<Column> appendRowLineageColumnsForV3(List<Column> schema, Table table) {
+        if (getFormatVersion(table) < ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return schema;
+        }
+        List<Column> newSchema = Lists.newArrayList(schema);
+
+        Column rowIdColumn = new Column(ICEBERG_ROW_ID_COL, Type.BIGINT, true);
+        rowIdColumn.setUniqueId(2147483540);
+        rowIdColumn.setIsVisible(false);
+        newSchema.add(rowIdColumn);
+
+        Column lastUpdatedSequenceNumberColumn =
+                new Column(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, Type.BIGINT, true);
+        lastUpdatedSequenceNumberColumn.setUniqueId(2147483539);
+        lastUpdatedSequenceNumberColumn.setIsVisible(false);
+        newSchema.add(lastUpdatedSequenceNumberColumn);
+
+        return newSchema;
+    }
+
+    public static Schema appendRowLineageFieldsForV3(Schema schema) {
+        return TypeUtil.join(schema, new Schema(
+                MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER));
+    }
+
+    public static int getFormatVersion(Table table) {
+        int formatVersion = 2; // default format version : 2
+        if (table instanceof BaseTable) {
+            formatVersion = ((BaseTable) table).operations().current().formatVersion();
+        } else if (table != null && table.properties() != null) {
+            String version = table.properties().get(TableProperties.FORMAT_VERSION);
+            if (version != null) {
+                try {
+                    formatVersion = Integer.parseInt(version);
+                } catch (NumberFormatException ignored) {
+                    // keep default value
+                }
+            }
+        }
+        return formatVersion;
     }
 
     public static String showCreateView(IcebergExternalTable icebergExternalTable) {

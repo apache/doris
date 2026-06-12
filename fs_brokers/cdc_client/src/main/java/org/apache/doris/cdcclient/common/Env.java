@@ -38,8 +38,8 @@ import org.slf4j.LoggerFactory;
 public class Env {
     private static final Logger LOG = LoggerFactory.getLogger(Env.class);
     private static volatile Env INSTANCE;
-    private final Map<Long, JobContext> jobContexts;
-    private final Map<Long, Lock> jobLocks;
+    private final Map<String, JobContext> jobContexts;
+    private final Map<String, Lock> jobLocks;
     @Setter private int backendHttpPort;
     @Setter @Getter private String clusterToken;
     @Setter @Getter private volatile String feMasterAddress;
@@ -73,6 +73,70 @@ public class Env {
         return manager.getOrCreateReader(jobConfig.getJobId(), ds, jobConfig.getConfig());
     }
 
+    /** Return the reader only if already created, else null (never creates one). */
+    public SourceReader getReaderIfPresent(String jobId) {
+        JobContext context = jobContexts.get(jobId);
+        return context == null ? null : context.reader;
+    }
+
+    /**
+     * Get-or-create this job's reader and claim ownership for {@code taskId} atomically under the
+     * per-job lock, so a concurrent stale release cannot stop a reader this task is about to use.
+     */
+    public SourceReader getReaderAndClaim(JobBaseConfig jobConfig, String taskId) {
+        if (jobConfig.getFrontendAddress() != null && !jobConfig.getFrontendAddress().isEmpty()) {
+            this.feMasterAddress = jobConfig.getFrontendAddress();
+        }
+        DataSource ds = resolveDataSource(jobConfig.getDataSource());
+        String jobId = jobConfig.getJobId();
+        Lock lock = jobLocks.computeIfAbsent(jobId, k -> new ReentrantLock());
+        lock.lock();
+        try {
+            JobContext context = jobContexts.get(jobId);
+            if (context == null) {
+                LOG.info("Creating new reader for job {}, dataSource {}", jobId, ds);
+                context = new JobContext(jobId, ds, jobConfig.getConfig());
+                context.initializeReader();
+                jobContexts.put(jobId, context);
+            }
+            context.ownerTaskId = taskId;
+            return context.getReader(ds);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * If {@code taskId} still owns the reader, remove the context under the per-job lock and return
+     * the reader to release; else null (stale release -> no-op). Removing under the lock guarantees
+     * a racing {@link #getReaderAndClaim} either sees the new owner (no-op) or rebuilds a fresh
+     * one.
+     */
+    public SourceReader detachReaderIfOwner(String jobId, String taskId) {
+        Lock lock = jobLocks.get(jobId);
+        if (lock == null) {
+            return null;
+        }
+        lock.lock();
+        try {
+            JobContext context = jobContexts.get(jobId);
+            if (context == null || !Objects.equals(context.ownerTaskId, taskId)) {
+                if (context != null) {
+                    LOG.info(
+                            "Stale release for job {} task {} (owner {}), skip",
+                            jobId,
+                            taskId,
+                            context.ownerTaskId);
+                }
+                return null;
+            }
+            jobContexts.remove(jobId);
+            return context.reader;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private DataSource resolveDataSource(String source) {
         if (source == null || source.trim().isEmpty()) {
             throw new IllegalArgumentException("Missing dataSource");
@@ -85,9 +149,9 @@ public class Env {
     }
 
     private SourceReader getOrCreateReader(
-            Long jobId, DataSource dataSource, Map<String, String> config) {
-        Objects.requireNonNull(jobId, "jobId");
-        Objects.requireNonNull(dataSource, "dataSource");
+            String jobId, DataSource dataSource, Map<String, String> config) {
+        Objects.requireNonNull(jobId, "jobId is null");
+        Objects.requireNonNull(dataSource, "dataSource is null");
         JobContext context = jobContexts.get(jobId);
         if (context != null) {
             return context.getReader(dataSource);
@@ -112,7 +176,7 @@ public class Env {
         }
     }
 
-    public void close(Long jobId) {
+    public void close(String jobId) {
         Lock lock = jobLocks.get(jobId);
         if (lock != null) {
             lock.lock();
@@ -129,12 +193,13 @@ public class Env {
     }
 
     private static final class JobContext {
-        private final long jobId;
+        private final String jobId;
         private volatile SourceReader reader;
+        private volatile String ownerTaskId;
         private volatile Map<String, String> config;
         private volatile DataSource dataSource;
 
-        private JobContext(long jobId, DataSource dataSource, Map<String, String> config) {
+        private JobContext(String jobId, DataSource dataSource, Map<String, String> config) {
             this.jobId = jobId;
             this.dataSource = dataSource;
             this.config = config;
@@ -151,10 +216,10 @@ public class Env {
             if (this.dataSource != source) {
                 throw new IllegalStateException(
                         String.format(
-                                "Job %d already bound to datasource %s, cannot switch to %s",
+                                "Job %s already bound to datasource %s, cannot switch to %s",
                                 jobId, this.dataSource, source));
             }
-            Preconditions.checkState(reader != null, "Job %d reader not initialized yet", jobId);
+            Preconditions.checkState(reader != null, "Job %s reader not initialized yet", jobId);
             return reader;
         }
     }

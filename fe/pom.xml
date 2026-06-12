@@ -85,11 +85,6 @@ under the License.
                 </executions>
             </plugin>
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>flatten-maven-plugin</artifactId>
-                <version>1.2.5</version>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
             </plugin>
@@ -117,32 +112,6 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>license-maven-plugin</artifactId>
-                <version>2.1.0</version>
-                <executions>
-                    <execution>
-                        <id>add-third-party</id>
-                        <goals>
-                            <goal>add-third-party</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>${jacoco.version}</version>
-                <executions>
-                    <execution>
-                        <id>default-prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
         <pluginManagement>
@@ -251,14 +220,18 @@ under the License.
         <module>fe-foundation</module>
         <module>fe-common</module>
         <module>fe-catalog</module>
+        <module>fe-filesystem</module>
         <module>fe-extension-spi</module>
+        <module>fe-connector</module>
         <module>fe-extension-loader</module>
+        <module>fe-sql-parser</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
         <module>fe-authentication</module>
         <module>fe-thrift</module>
         <module>fe-type</module>
+        <module>fe-grpc</module>
     </modules>
     <properties>
         <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
@@ -274,7 +247,7 @@ under the License.
         <cos-api.version>5.6.211</cos-api.version>
         <tencentcloud-sdk-java-sts.version>3.1.678</tencentcloud-sdk-java-sts.version>
         <huaweicloud-sdk-iam.version>3.1.20</huaweicloud-sdk-iam.version>
-        <esdk-obs.version>[3.21.11,)</esdk-obs.version>
+        <esdk-obs.version>3.21.11</esdk-obs.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <!--suppress UnresolvedMavenProperty -->
         <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
@@ -282,8 +255,8 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <!--plugin parameters-->
         <skip.plugin>false</skip.plugin>
         <sonar.organization>apache</sonar.organization>
@@ -293,7 +266,6 @@ under the License.
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
         <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
-        <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
@@ -306,7 +278,6 @@ under the License.
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
-        <jmockit.version>1.49</jmockit.version>
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
@@ -314,14 +285,14 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.25.3</log4j2.version>
-        <log4j-1.2.version>2.25.3</log4j-1.2.version>
+        <log4j2.version>2.25.4</log4j2.version>
+        <log4j-1.2.version>2.25.4</log4j-1.2.version>
         <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.130.Final</netty-all.version>
+        <netty-all.version>4.1.132.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -333,7 +304,9 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
-        <protobuf.version>3.25.8</protobuf.version>
+        <cel.version>0.12.0</cel.version>
+        <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
+        <protobuf.version>4.33.4</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -368,9 +341,8 @@ under the License.
         <iceberg.version>1.10.1</iceberg.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
-        <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
-         https://github.com/apache/doris/pull/51217-->
-        <arrow.version>17.0.0</arrow.version>
+        <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->
+        <arrow.version>19.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -398,17 +370,17 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>3.5.7</spring.version>
-        <spring-framework.version>6.2.12</spring-framework.version>
+        <spring.version>3.5.14</spring.version>
+        <spring-framework.version>6.2.18</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
-        <ranger-plugins-common.version>2.7.0</ranger-plugins-common.version>
+        <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>12.0.29</jetty.version>
+        <jetty.version>12.0.34</jetty.version>
         <jetty-http.version>11.0.26</jetty-http.version>
         <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
@@ -416,7 +388,7 @@ under the License.
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
-        <aircompressor.version>0.27</aircompressor.version>
+        <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
         <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
@@ -424,6 +396,7 @@ under the License.
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
+        <argLine></argLine>
         <trino.version>435</trino.version>
         <nimbusds.version>10.0.1</nimbusds.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
@@ -465,6 +438,52 @@ under the License.
                     <url>https://repo.maven.apache.org/maven2</url>
                 </pluginRepository>
             </pluginRepositories>
+        </profile>
+        <profile>
+            <id>flatten</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>flatten-maven-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>flatten-maven-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>license-maven-plugin</artifactId>
+                        <version>2.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-third-party</id>
+                                <goals>
+                                    <goal>add-third-party</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>coverage</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
     <dependencyManagement>
@@ -835,13 +854,6 @@ under the License.
                 <artifactId>commons-codec</artifactId>
                 <version>${commons-codec.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
-            <!-- upgrade commons-lang from 2.4 to 2.6 to fix incompatibility of with versioning scheme of Java 9 and later -->
-            <dependency>
-                <groupId>commons-lang</groupId>
-                <artifactId>commons-lang</artifactId>
-                <version>${commons-lang.version}</version>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
             <dependency>
                 <groupId>org.apache.commons</groupId>
@@ -893,6 +905,11 @@ under the License.
                 <artifactId>guava-testlib</artifactId>
                 <version>${guava.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.cel</groupId>
+                <artifactId>cel</artifactId>
+                <version>${cel.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
                 <groupId>org.javassist</groupId>
@@ -920,13 +937,7 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
-            <dependency>
-                <groupId>org.jmockit</groupId>
-                <artifactId>jmockit</artifactId>
-                <version>${jmockit.version}</version>
-                <scope>test</scope>
-            </dependency>
+
             <dependency>
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
@@ -957,6 +968,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-web</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
             <dependency>
@@ -1352,6 +1368,36 @@ under the License.
                 <version>${iceberg.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-core</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-common</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-hive-connector-3.1</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-format</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-s3</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-jindo</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.aliyun.odps</groupId>
                 <artifactId>odps-sdk-core</artifactId>
                 <version>${maxcompute.version}</version>
@@ -1375,7 +1421,12 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
-                <!-- This is a dependency chain: odps-sdk-core:0.53.2-public → credentials-java:0.3.12 → com.aliyun:tea:[1.1.14,2.0.0)-->
+                <groupId>com.aliyun.odps</groupId>
+                <artifactId>odps-sdk-table-api</artifactId>
+                <version>${maxcompute.version}</version>
+            </dependency>
+            <dependency>
+                <!-- Keep tea pinned for Alibaba SDK dependency chains that allow com.aliyun:tea:[1.1.14,2.0.0). -->
                 <groupId>com.aliyun</groupId>
                 <artifactId>tea</artifactId>
                 <version>1.4.1</version>
@@ -1863,7 +1914,6 @@ under the License.
                 <artifactId>mockito-inline</artifactId>
                 <version>${mockito.version}</version>
             </dependency>
-            <!-- fastutil for memory-efficient primitive collections -->
             <dependency>
                 <groupId>it.unimi.dsi</groupId>
                 <artifactId>fastutil-core</artifactId>
@@ -1907,11 +1957,6 @@ under the License.
         <dependency>
             <groupId>org.junit.platform</groupId>
             <artifactId>junit-platform-launcher</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.jmockit</groupId>
-            <artifactId>jmockit</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- should be used in test scope -->

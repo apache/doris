@@ -31,7 +31,6 @@
 #include "storage/segment/row_ranges.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using level_t = int16_t;
 
 using segment_v2::RowRange;
@@ -270,6 +269,5 @@ private:
     static const SemanticVersion CDH_5_PARQUET_251_FIXED_START;
     static const SemanticVersion CDH_5_PARQUET_251_FIXED_END;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

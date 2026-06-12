@@ -223,6 +223,14 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean requiresCertificateAuth(UserIdentity userIdentity) {
+        return userIdentity != null && userIdentity.hasSanRequirement();
+    }
+
+    public boolean shouldSkipPasswordVerificationAfterCertAuth(UserIdentity userIdentity) {
+        return requiresCertificateAuth(userIdentity) && Config.tls_cert_based_auth_ignore_password;
+    }
+
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
         // Check the LDAP password when the user exists in the LDAP service.
@@ -241,16 +249,48 @@ public class Auth implements Writable {
         }
     }
 
+    public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPlainPasswordForUserIdentity(userIdentity, remotePasswd, currentUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPasswordForUserIdentity(userIdentity, remotePasswd, randomString, currentUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public Set<Role> getRolesByUserWithLdap(UserIdentity userIdentity) {
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roleNames) {
-            roles.add(roleManager.getRole(roleName));
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                roles.add(role);
+            }
         }
         if (isLdapAuthEnabled()) {
             Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
             if (!CollectionUtils.isEmpty(ldapRoles)) {
                 roles.addAll(ldapRoles);
+            }
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
+            for (String roleName : ctx.getAuthenticatedRoles()) {
+                Role role = roleManager.getRole(roleName);
+                if (role != null) {
+                    roles.add(role);
+                }
             }
         }
         return roles;
@@ -269,6 +309,18 @@ public class Auth implements Writable {
     }
 
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
+    public List<UserIdentity> getUserIdentityForExternalAuth(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
+    public boolean doesUserExist(String remoteUser, String remoteHost) {
+        return !userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty();
+    }
+
+    public List<UserIdentity> getCandidateUserIdentities(String remoteUser, String remoteHost) {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 
@@ -1337,9 +1389,9 @@ public class Auth implements Writable {
         List<String> userAuthInfo = Lists.newArrayList();
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
-        String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
+        String requireSan = Strings.isNullOrEmpty(userIdent.getSanRequirementSql())
                 ? FeConstants.null_string
-                : userIdent.getSan();
+                : userIdent.getSanRequirementSql();
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
             // ============== Comment ==============
             userAuthInfo.add(FeConstants.null_string);

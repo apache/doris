@@ -192,10 +192,6 @@ public class OutFileClause {
         return brokerDesc;
     }
 
-    public List<TParquetSchema> getParquetSchemas() {
-        return parquetSchemas;
-    }
-
     public void analyze(List<Expr> resultExprs, List<String> colLabels, boolean needFormat) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.

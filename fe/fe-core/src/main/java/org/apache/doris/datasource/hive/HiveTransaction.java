@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 

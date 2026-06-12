@@ -45,7 +45,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /* array_with_constant(num, T) / array_repeat(T, num)  - return array of constants with length num.
  * array_with_constant(2, 'xxx') = ['xxx', 'xxx']
@@ -76,7 +75,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto num = block.get_by_position(arguments[FunctionType::param_num_idx])
                            .column->convert_to_full_column_if_const();
-        num = num->is_nullable()
+        num = is_column_nullable(*num)
                       ? assert_cast<const ColumnNullable*>(num.get())->get_nested_column_ptr()
                       : num;
         auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
@@ -100,7 +99,7 @@ public:
         }
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
-        clone->assume_mutable()->insert_indices_from(*value, array_sizes.data(),
+        clone->assert_mutable()->insert_indices_from(*value, array_sizes.data(),
                                                      array_sizes.data() + offset);
         if (!clone->is_nullable()) {
             clone = ColumnNullable::create(std::move(clone), ColumnUInt8::create(clone->size(), 0));
@@ -131,5 +130,4 @@ void register_function_array_with_constant(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayWithConstant<NameArrayWithConstant>>();
     factory.register_function<FunctionArrayWithConstant<NameArrayRepeat>>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

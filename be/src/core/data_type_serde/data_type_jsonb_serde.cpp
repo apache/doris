@@ -17,10 +17,6 @@
 
 #include "core/data_type_serde/data_type_jsonb_serde.h"
 
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -32,7 +28,6 @@
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                         MysqlRowBinaryBuffer& result,
@@ -133,10 +128,9 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
         JsonBinaryValue value;
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                int32_t start_offset = 0;
-                int32_t end_offset = 0;
-                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
+                auto end_offset =
+                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 int32_t length = end_offset - start_offset;
                 const auto* raw_data = buffer->data() + start_offset;
@@ -265,77 +259,6 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
         column_string.insert_data(value.value(), value.size());
     }
     return Status::OK();
-}
-
-void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
-                                rapidjson::Document::AllocatorType& allocator) {
-    // convert type of jsonb to rapidjson::Value
-    switch (val.type) {
-    case JsonbType::T_True:
-        target.SetBool(true);
-        break;
-    case JsonbType::T_False:
-        target.SetBool(false);
-        break;
-    case JsonbType::T_Null:
-        target.SetNull();
-        break;
-    case JsonbType::T_Float:
-        target.SetFloat(val.unpack<JsonbFloatVal>()->val());
-        break;
-    case JsonbType::T_Double:
-        target.SetDouble(val.unpack<JsonbDoubleVal>()->val());
-        break;
-    case JsonbType::T_Int64:
-        target.SetInt64(val.unpack<JsonbInt64Val>()->val());
-        break;
-    case JsonbType::T_Int32:
-        target.SetInt(val.unpack<JsonbInt32Val>()->val());
-        break;
-    case JsonbType::T_Int16:
-        target.SetInt(val.unpack<JsonbInt16Val>()->val());
-        break;
-    case JsonbType::T_Int8:
-        target.SetInt(val.unpack<JsonbInt8Val>()->val());
-        break;
-    case JsonbType::T_String:
-        target.SetString(val.unpack<JsonbStringVal>()->getBlob(),
-                         val.unpack<JsonbStringVal>()->getBlobLen());
-        break;
-    case JsonbType::T_Array: {
-        target.SetArray();
-        const ArrayVal& array = *val.unpack<ArrayVal>();
-        if (array.numElem() == 0) {
-            target.SetNull();
-            break;
-        }
-        target.Reserve(array.numElem(), allocator);
-        for (auto it = array.begin(); it != array.end(); ++it) {
-            rapidjson::Value array_val;
-            convert_jsonb_to_rapidjson(*static_cast<const JsonbValue*>(it), array_val, allocator);
-            target.PushBack(array_val, allocator);
-        }
-        break;
-    }
-    case JsonbType::T_Object: {
-        target.SetObject();
-        const ObjectVal& obj = *val.unpack<ObjectVal>();
-        for (auto it = obj.begin(); it != obj.end(); ++it) {
-            rapidjson::Value obj_val;
-            convert_jsonb_to_rapidjson(*it->value(), obj_val, allocator);
-            target.AddMember(rapidjson::GenericStringRef(it->getKeyStr(), it->klen()), obj_val,
-                             allocator);
-        }
-        break;
-    }
-    case JsonbType::T_Int128: {
-        target.SetUint64(static_cast<uint64_t>(val.unpack<JsonbInt128Val>()->val()));
-        break;
-    }
-    default:
-        CHECK(false) << "unkown type " << static_cast<int>(val.type);
-        break;
-    }
 }
 
 Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,

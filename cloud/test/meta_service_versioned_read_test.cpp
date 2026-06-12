@@ -46,6 +46,7 @@
 #include "meta-store/versioned_value.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
+#include "recycler/util.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -57,6 +58,8 @@ extern void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
                           int64_t partition_id, int64_t tablet_id);
 extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id,
                                               int64_t version, int num_rows);
+extern void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                           CreateRowsetResponse& res);
 extern void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res);
 extern void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
@@ -205,6 +208,7 @@ TEST(MetaServiceVersionedReadTest, CommitTxn) {
             create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id, -1, 100);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }

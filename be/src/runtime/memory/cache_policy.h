@@ -24,7 +24,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static constexpr int32_t CACHE_MIN_PRUNE_SIZE = 67108864; // 64M
 static constexpr int32_t CACHE_MIN_PRUNE_NUMBER = 1024;
@@ -57,6 +56,8 @@ public:
         TABLET_COLUMN_OBJECT_POOL = 21,
         SCHEMA_CLOUD_DICTIONARY_CACHE = 22,
         CONDITION_CACHE = 23,
+        ANN_INDEX_IVF_LIST_CACHE = 24,
+        ANN_INDEX_RESULT_CACHE = 25,
     };
 
     static std::string type_string(CacheType type) {
@@ -107,6 +108,10 @@ public:
             return "SchemaCloudDictionaryCache";
         case CacheType::CONDITION_CACHE:
             return "ConditionCache";
+        case CacheType::ANN_INDEX_IVF_LIST_CACHE:
+            return "AnnIndexIVFListCache";
+        case CacheType::ANN_INDEX_RESULT_CACHE:
+            return "AnnIndexResultCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -136,7 +141,9 @@ public:
             {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER},
             {"QueryCache", CacheType::QUERY_CACHE},
             {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
-            {"ConditionCache", CacheType::CONDITION_CACHE}};
+            {"ConditionCache", CacheType::CONDITION_CACHE},
+            {"AnnIndexIVFListCache", CacheType::ANN_INDEX_IVF_LIST_CACHE},
+            {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {
@@ -146,8 +153,8 @@ public:
         }
     }
 
-    inline static std::vector<CacheType> MetadataCache {
-            CacheType::SEGMENT_CACHE, CacheType::SCHEMA_CACHE, CacheType::TABLET_SCHEMA_CACHE};
+    inline static std::vector<CacheType> MetadataCache {CacheType::SEGMENT_CACHE,
+                                                        CacheType::TABLET_SCHEMA_CACHE};
 
     CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();
@@ -192,5 +199,4 @@ protected:
     bool _enable_prune = true;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

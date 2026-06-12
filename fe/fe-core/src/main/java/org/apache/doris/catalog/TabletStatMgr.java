@@ -128,6 +128,8 @@ public class TabletStatMgr extends MasterDaemon {
         long tabletCount = 0L;
         long partitionCount = 0L;
         long tableCount = 0L;
+        long autoPartitionNearLimitCount = 0L;
+        long dynamicPartitionNearLimitCount = 0L;
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -157,12 +159,32 @@ public class TabletStatMgr extends MasterDaemon {
 
                 long tableRowCount = 0L;
 
+                Long tableBinlogSize = 0L;
+                Long tableTotalBinlogSize = 0L;
+
                 if (!table.readLockIfExist()) {
                     continue;
                 }
                 try {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
+                    // Use getPartitionNum() (excludes temp partitions) for limit check,
+                    // consistent with how partition limits are enforced elsewhere.
+                    int nonTempPartitionNum = olapTable.getPartitionNum();
                     partitionCount += allPartitions.size();
+                    // Check if this table's partition count is near the limit (>80%)
+                    if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+                        int limit = Config.max_auto_partition_num;
+                        if (nonTempPartitionNum > limit * 8L / 10) {
+                            autoPartitionNearLimitCount++;
+                        }
+                    }
+                    if (olapTable.dynamicPartitionExists()
+                            && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+                        int limit = Config.max_dynamic_partition_num;
+                        if (nonTempPartitionNum > limit * 8L / 10) {
+                            dynamicPartitionNearLimitCount++;
+                        }
+                    }
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
@@ -177,6 +199,8 @@ public class TabletStatMgr extends MasterDaemon {
                                 long tabletRemoteDataSize = 0L;
 
                                 long tabletRowCount = Long.MAX_VALUE;
+
+                                Long tabletBinlogSize = 0L;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
@@ -217,6 +241,11 @@ public class TabletStatMgr extends MasterDaemon {
                                     tableTotalLocalSegmentSize += replica.getLocalSegmentSize();
                                     tableTotalRemoteIndexSize += replica.getRemoteInvertedIndexSize();
                                     tableTotalRemoteSegmentSize += replica.getRemoteSegmentSize();
+
+                                    if (replica.getBinlogSize() > tabletBinlogSize) {
+                                        tabletBinlogSize = replica.getBinlogSize();
+                                    }
+                                    tableTotalBinlogSize += replica.getBinlogSize();
                                 }
 
                                 tableDataSize += tabletDataSize;
@@ -237,6 +266,8 @@ public class TabletStatMgr extends MasterDaemon {
                                 indexRowCount += tabletRowCount;
                                 // Only when all tablets of this index are reported, we set indexReported to true.
                                 indexReported = indexReported && tabletReported;
+
+                                tableBinlogSize += tabletBinlogSize;
                             } // end for tablets
                             index.setRowCountReported(indexReported);
                             index.setRowCount(indexRowCount);
@@ -263,7 +294,8 @@ public class TabletStatMgr extends MasterDaemon {
                             tableDataSize, tableTotalReplicaDataSize,
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize,
-                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize));
+                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize,
+                            tableBinlogSize, tableTotalBinlogSize));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",
@@ -295,6 +327,8 @@ public class TabletStatMgr extends MasterDaemon {
             // avoid ArithmeticException: / by zero
             long avgTabletSize = totalTableSize / Math.max(1, tabletCount);
             MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(avgTabletSize);
+            MetricRepo.GAUGE_AUTO_PARTITION_NEAR_LIMIT.setValue(autoPartitionNearLimitCount);
+            MetricRepo.GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT.setValue(dynamicPartitionNearLimitCount);
 
             LOG.info("OlapTable num=" + tableCount
                     + ", partition num=" + partitionCount + ", tablet num=" + tabletCount
@@ -348,7 +382,14 @@ public class TabletStatMgr extends MasterDaemon {
         if (result.isSetTabletStatList()) {
             for (TTabletStat stat : result.getTabletStatList()) {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
-                    Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    Replica replica;
+                    try {
+                        replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    } catch (IllegalStateException e) {
+                        LOG.debug("skip stale tablet stat update for tablet {} on backend {}: {}",
+                                stat.getTabletId(), beId, e.getMessage());
+                        continue;
+                    }
                     if (replica != null) {
                         replica.setDataSize(stat.getDataSize());
                         replica.setRemoteDataSize(stat.getRemoteDataSize());
@@ -363,6 +404,11 @@ public class TabletStatMgr extends MasterDaemon {
                         // Older version BE doesn't set visible version. Set it to max for compatibility.
                         replica.setLastReportVersion(stat.isSetVisibleVersion() ? stat.getVisibleVersion()
                                 : Long.MAX_VALUE);
+
+                        if (stat.isSetBinlogSize()) {
+                            replica.setBinlogSize(stat.getBinlogSize());
+                            replica.setBinlogFileNum(stat.getBinlogFileNum());
+                        }
                     }
                 }
             }
@@ -372,7 +418,14 @@ public class TabletStatMgr extends MasterDaemon {
                     // the replica is obsolete, ignore it.
                     continue;
                 }
-                Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
+                Replica replica;
+                try {
+                    replica = invertedIndex.getReplica(entry.getKey(), beId);
+                } catch (IllegalStateException e) {
+                    LOG.debug("skip stale tablet stat update for tablet {} on backend {}: {}",
+                            entry.getKey(), beId, e.getMessage());
+                    continue;
+                }
                 if (replica == null) {
                     // replica may be deleted from catalog, ignore it.
                     continue;

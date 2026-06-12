@@ -47,11 +47,13 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
 /** Column for String values.
+  * Note: In string functions, we assume that ColumnStr contains valid UTF-8 encoded data.
+  * However, ColumnStr is not guaranteed to always hold valid UTF-8, since it is also used
+  * as a serialization container where the content may be arbitrary binary data.
   */
 template <typename T>
 class ColumnStr final : public COWHelper<IColumn, ColumnStr<T>> {
@@ -66,8 +68,8 @@ public:
             if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
                 throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                                 "string column length is too large: total_length={}, "
-                                "element_number={}, rows={}",
-                                total_length, element_number, rows);
+                                "limit={}, element_number={}, rows={}",
+                                total_length, MAX_STRING_SIZE, element_number, rows);
             }
         }
     }
@@ -75,7 +77,7 @@ public:
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnStr<T>.
-    static constexpr size_t MAX_STRING_SIZE = 0xffffffff;
+    static constexpr size_t MAX_STRING_SIZE = 4294967295;
 
     friend class COWHelper<IColumn, ColumnStr<T>>;
     friend class OlapBlockDataConvertor;
@@ -142,8 +144,6 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
-
-    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override;
 
@@ -274,6 +274,29 @@ public:
         }
         DCHECK(chars.size() == offsets.back());
         sanity_check_simple();
+    }
+
+    // Insert `num` string entries with real length information but no actual
+    // character data. The `lengths` array provides the byte length of each
+    // string. Offsets are built with correct cumulative sizes so that
+    // size_at(i) returns the true string length. The chars buffer is extended
+    // with zero-filled padding to maintain the invariant chars.size() == offsets.back().
+    // Used by OFFSET_ONLY reading mode where actual string content is not needed
+    // but length information must be preserved (e.g., for length() function).
+    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        const auto old_rows = offsets.size();
+        // Build cumulative offsets from lengths
+        offsets.resize(old_rows + num);
+        auto* offsets_ptr = &offsets[old_rows];
+        size_t running_offset = offsets[old_rows - 1];
+        for (size_t i = 0; i < num; ++i) {
+            running_offset += lengths[i];
+            offsets_ptr[i] = static_cast<T>(running_offset);
+        }
+        chars.resize(offsets[old_rows + num - 1]);
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
@@ -514,6 +537,7 @@ public:
     }
 
     bool is_ascii() const;
+    bool is_valid_utf8() const;
 
     Chars& get_chars() { return chars; }
     const Chars& get_chars() const { return chars; }
@@ -552,4 +576,3 @@ public:
 using ColumnString = ColumnStr<UInt32>;
 using ColumnString64 = ColumnStr<UInt64>;
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -27,7 +27,6 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
-#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -45,7 +44,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::pair<VExprContextSPtrs, VExprSPtrs> VRowDistribution::_get_partition_function() {
     return {_vpartition->get_part_func_ctx(), _vpartition->get_partition_function()};
@@ -64,6 +62,7 @@ Status VRowDistribution::_save_missing_values(
         cur_row_values.clear();
         for (int col = 0; col < col_size; ++col) {
             TNullableStringLiteral node;
+            // OlapTableBlockConvertor::_validate_data() materializes destination slots so won't be const.
             const auto* null_map = col_null_maps[col]; // null map for this col
             node.__set_is_null((null_map && (*null_map)[filter[row]])
                                        ? true
@@ -112,6 +111,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_partitionValues(_partitions_need_create);
     request.__set_be_endpoint(be_endpoint);
     request.__set_write_single_replica(_write_single_replica);
+    request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());
@@ -146,13 +146,13 @@ Status VRowDistribution::automatic_create_partition() {
     Status status(Status::create(result.status));
     VLOG_NOTICE << "automatic partition rpc end response " << result;
     if (result.status.status_code == TStatusCode::OK) {
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
         // add new created partitions
         RETURN_IF_ERROR(_vpartition->add_partitions(result.partitions));
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
             VLOG_TRACE << "record new id: " << part.id;
         }
-        RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
     }
 
     // Record this request's elapsed time
@@ -164,13 +164,13 @@ Status VRowDistribution::automatic_create_partition() {
 }
 
 // for reuse the same create callback of create-partition
-static TCreatePartitionResult cast_as_create_result(TReplacePartitionResult& arg) {
+static TCreatePartitionResult cast_as_create_result(const TReplacePartitionResult& arg) {
     TCreatePartitionResult result;
     result.status = arg.status;
-    result.nodes = std::move(arg.nodes);
-    result.partitions = std::move(arg.partitions);
-    result.tablets = std::move(arg.tablets);
-    result.slave_tablets = std::move(arg.slave_tablets);
+    result.nodes = arg.nodes;
+    result.partitions = arg.partitions;
+    result.tablets = arg.tablets;
+    result.slave_tablets = arg.slave_tablets;
     return result;
 }
 
@@ -213,6 +213,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
     std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
+    request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());
@@ -247,6 +248,10 @@ Status VRowDistribution::_replace_overwriting_partition() {
     Status status(Status::create(result.status));
     VLOG_NOTICE << "auto detect replace partition result: " << result;
     if (result.status.status_code == TStatusCode::OK) {
+        // Reuse the function as the args' structure are same. It adds nodes/locations
+        // and waits for incremental_open before the new tablets become routable.
+        auto result_as_create = cast_as_create_result(result);
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
         // record new partitions
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
@@ -254,9 +259,6 @@ Status VRowDistribution::_replace_overwriting_partition() {
         }
         // replace data in _partitions
         RETURN_IF_ERROR(_vpartition->replace_partitions(request_part_ids, result.partitions));
-        // reuse the function as the args' structure are same. it add nodes/locations and incremental_open
-        auto result_as_create = cast_as_create_result(result);
-        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
     }
 
     return status;
@@ -299,11 +301,8 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         Block* block, const VExprContextSPtr& where_clause, RowPartTabletIds& row_part_tablet_id) {
     // TODO
     //SCOPED_RAW_TIMER(&_stat.where_clause_ns);
-    int result_index = -1;
-    size_t column_number = block->columns();
-    RETURN_IF_ERROR(where_clause->execute(block, &result_index));
-
-    auto filter_column = block->get_by_position(result_index).column;
+    ColumnPtr filter_column;
+    RETURN_IF_ERROR(where_clause->execute(block, filter_column));
 
     auto& row_ids = row_part_tablet_id.row_ids;
     auto& partition_ids = row_part_tablet_id.partition_ids;
@@ -340,9 +339,6 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         }
     }
 
-    for (size_t i = block->columns() - 1; i >= column_number; i--) {
-        block->erase(i);
-    }
     return Status::OK();
 }
 
@@ -422,8 +418,6 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     rows_stat_val -= new_bt_rows - old_bt_rows;
     _state->update_num_rows_load_total(old_bt_rows - new_bt_rows);
     _state->update_num_bytes_load_total(old_bt_bytes - new_bt_bytes);
-    DorisMetrics::instance()->load_rows->increment(old_bt_rows - new_bt_rows);
-    DorisMetrics::instance()->load_bytes->increment(old_bt_bytes - new_bt_bytes);
 
     return Status::OK();
 }

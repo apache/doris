@@ -44,6 +44,7 @@
 #include "core/column/column_struct.h"
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -61,11 +62,11 @@ static Status check_tuple_names(const Strings& names) {
     std::unordered_set<String> names_set;
     for (const auto& name : names) {
         if (name.empty()) {
-            return Status::InvalidArgument("Names of tuple elements cannot be empty");
+            return Status::InvalidArgument("Names of struct elements cannot be empty");
         }
 
         if (!names_set.insert(name).second) {
-            return Status::InvalidArgument("Names of tuple elements must be unique");
+            return Status::InvalidArgument("Names of struct elements must be unique");
         }
     }
 
@@ -125,15 +126,6 @@ Status DataTypeStruct::check_column(const IColumn& column) const {
     return Status::OK();
 }
 
-Field DataTypeStruct::get_default() const {
-    size_t size = elems.size();
-    Tuple t;
-    for (size_t i = 0; i < size; ++i) {
-        t.push_back(elems[i]->get_default());
-    }
-    return Field::create_field<TYPE_STRUCT>(t);
-}
-
 bool DataTypeStruct::equals(const IDataType& rhs) const {
     if (typeid(rhs) != typeid(*this)) {
         return false;
@@ -158,7 +150,7 @@ bool DataTypeStruct::equals(const IDataType& rhs) const {
 size_t DataTypeStruct::get_position_by_name(const String& name) const {
     size_t size = elems.size();
     for (size_t i = 0; i < size; ++i) {
-        if (names[i] == name) {
+        if (iequal(names[i], name)) {
             return i;
         }
     }
@@ -168,9 +160,12 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
 }
 
 std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& name) const {
+    // Struct field names are canonically lower-cased by the FE, but a query may reference a field
+    // with different casing (e.g. migrated Iceberg tables store sName as sname). Match the field
+    // name case-insensitively so projection resolves the field instead of failing on the BE.
     size_t size = elems.size();
     for (size_t i = 0; i < size; ++i) {
-        if (names[i] == name) {
+        if (iequal(names[i], name)) {
             return std::optional<size_t>(i);
         }
     }
@@ -223,8 +218,9 @@ const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* colum
     auto* struct_column = assert_cast<ColumnStruct*>(origin_column);
     DCHECK(elems.size() == struct_column->tuple_size());
     for (size_t i = 0; i < elems.size(); ++i) {
-        auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
+        auto child_column = std::move(*struct_column->get_column_ptr(i)).mutate();
         buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
+        struct_column->get_column_ptr(i) = std::move(child_column);
     }
     return buf;
 }

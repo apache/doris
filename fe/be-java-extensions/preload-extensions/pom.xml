@@ -82,7 +82,11 @@ under the License.
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-s3</artifactId>
-            <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-jindo</artifactId>
         </dependency>
         <!-- For Avro and Hudi Scanner PreLoad -->
         <dependency>
@@ -142,11 +146,6 @@ under the License.
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>commons-lang</groupId>
-            <artifactId>commons-lang</artifactId>
-            <version>${commons-lang.version}</version>
         </dependency>
 
         <!-- these dependencies are for iceberg-aws -->

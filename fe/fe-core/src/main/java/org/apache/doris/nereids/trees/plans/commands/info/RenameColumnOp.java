@@ -39,7 +39,6 @@ public class RenameColumnOp extends AlterTableOp {
         super(AlterOpType.RENAME);
         this.colName = colName;
         this.newColName = newColName;
-        this.needTableStable = false;
     }
 
     public String getColName() {

@@ -55,7 +55,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct ConvertTzState {
     bool use_state = false;
@@ -144,7 +143,7 @@ public:
         }
 
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];
@@ -174,21 +173,18 @@ public:
             // ignore argument columns, use cached timezone input in state
             execute_tz_const_with_state(convert_tz_state,
                                         assert_cast<const ColumnType*>(argument_columns[0].get()),
-                                        assert_cast<ColumnType*>(result_column.get()),
-                                        result_null_map, input_rows_count);
+                                        result_column.get(), result_null_map, input_rows_count);
         } else if (col_const[1] && col_const[2]) {
             // arguments are const
             execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                              assert_cast<const ColumnString*>(argument_columns[1].get()),
                              assert_cast<const ColumnString*>(argument_columns[2].get()),
-                             assert_cast<ColumnType*>(result_column.get()), result_null_map,
-                             input_rows_count);
+                             result_column.get(), result_null_map, input_rows_count);
         } else {
             _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                      assert_cast<const ColumnString*>(argument_columns[1].get()),
                      assert_cast<const ColumnString*>(argument_columns[2].get()),
-                     assert_cast<ColumnType*>(result_column.get()), result_null_map,
-                     input_rows_count);
+                     result_column.get(), result_null_map, input_rows_count);
         } //if const
 
         if (block.get_data_type(result)->is_nullable()) {
@@ -214,6 +210,19 @@ private:
             auto to_tz = to_tz_column->get_data_at(i).to_string();
             execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
         }
+    }
+
+    static std::pair<int64_t, int64_t> unix_timestamp_for_convert_tz(
+            const DateValueType& ts_value, const cctz::time_zone& from_tz) {
+        cctz::civil_second civil_time(ts_value.year(), ts_value.month(), ts_value.day(),
+                                      ts_value.hour(), ts_value.minute(), ts_value.second());
+        const auto lookup = from_tz.lookup(civil_time);
+        const bool skipped = lookup.kind == cctz::time_zone::civil_lookup::SKIPPED;
+        const auto tp = skipped ? lookup.trans : lookup.pre;
+
+        // Skipped civil times map to the transition instant. Do not keep the
+        // input fractional part inside a local time interval that never existed.
+        return {tp.time_since_epoch().count(), skipped ? 0 : ts_value.microsecond()};
     }
 
     static void execute_tz_const_with_state(ConvertTzState* convert_tz_state,
@@ -243,9 +252,7 @@ private:
             DateValueType ts_value = date_column->get_element(i);
             DateValueType ts_value2;
 
-            std::pair<int64_t, int64_t> timestamp;
-            ts_value.unix_timestamp(&timestamp, from_tz);
-            ts_value2.from_unixtime(timestamp, to_tz);
+            ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(i),
@@ -296,9 +303,7 @@ private:
                             to_tz_name);
         }
 
-        std::pair<int64_t, int64_t> timestamp;
-        ts_value.unix_timestamp(&timestamp, from_tz);
-        ts_value2.from_unixtime(timestamp, to_tz);
+        ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {
             throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(index_now),
@@ -314,5 +319,3 @@ void register_function_convert_tz(SimpleFunctionFactory& factory) {
 }
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

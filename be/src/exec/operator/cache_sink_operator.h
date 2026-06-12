@@ -26,7 +26,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class DataQueue;
@@ -58,7 +57,7 @@ public:
                                      DataSinkOperatorX<CacheSinkLocalState>::_name);
     }
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override {
         std::shared_ptr<BasicSharedState> ss = std::make_shared<DataQueueSharedState>();
@@ -70,5 +69,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

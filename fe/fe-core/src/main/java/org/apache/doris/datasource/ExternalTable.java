@@ -59,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * External table represent tables that are not self-managed by Doris.
@@ -177,14 +178,29 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
+    protected boolean needInternalHiddenColumns() {
+        return false;
+    }
+
     @Override
     public List<Column> getBaseSchema() {
-        return getFullSchema();
+        boolean showHidden = Util.showHiddenColumns();
+        if (!showHidden && needInternalHiddenColumns()) {
+            showHidden = true;
+        }
+        return getBaseSchema(showHidden);
     }
 
     @Override
     public List<Column> getBaseSchema(boolean full) {
-        return getFullSchema();
+        List<Column> schema = getFullSchema();
+        if (schema == null) {
+            return null;
+        }
+        if (full) {
+            return schema;
+        }
+        return schema.stream().filter(Column::isVisible).collect(Collectors.toList());
     }
 
     @Override
@@ -230,7 +246,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             return TableIf.UNKNOWN_ROW_COUNT;
         }
         // All external table should get external row count from cache.
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache()
+                .getCachedRowCount(catalog.getId(), dbId, id, true);
     }
 
     @Override
@@ -244,7 +261,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         }
         // getExtMetaCacheMgr().getRowCountCache().getCachedRowCount() is an asynchronous non-blocking operation.
         // For tables that are not in the cache, it will load asynchronously and return -1.
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache()
+                .getCachedRowCount(catalog.getId(), dbId, id, false);
     }
 
     @Override
@@ -254,6 +272,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      */
     public long fetchRowCount() {
         return UNKNOWN_ROW_COUNT;
+    }
+
+    /**
+     * Fetch row count, and allow the load path to fill external metadata cache if supported.
+     */
+    public long fetchRowCountWithMetaCache(boolean fillMetaCache) {
+        return fetchRowCount();
     }
 
     @Override

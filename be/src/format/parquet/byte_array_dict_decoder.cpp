@@ -29,7 +29,6 @@
 #include "util/rle_encoding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                                       size_t num_values) {
     _dict = std::move(dict);
@@ -37,13 +36,24 @@ Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32
         return Status::Corruption("Wrong dictionary data for byte array type, dict is null.");
     }
     _dict_items.reserve(num_values);
-    uint32_t offset_cursor = 0;
+    if (UNLIKELY(length < 0)) {
+        return Status::Corruption("Wrong data length in dictionary");
+    }
+    const size_t dict_length = cast_set<size_t>(length);
+    size_t offset_cursor = 0;
     char* dict_item_address = reinterpret_cast<char*>(_dict.get());
 
     size_t total_length = 0;
     for (int i = 0; i < num_values; ++i) {
+        if (UNLIKELY(offset_cursor > dict_length ||
+                     dict_length - offset_cursor < sizeof(uint32_t))) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
         uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
-        offset_cursor += 4;
+        offset_cursor += sizeof(uint32_t);
+        if (UNLIKELY(l > dict_length - offset_cursor)) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
         offset_cursor += l;
         total_length += l;
     }
@@ -54,20 +64,24 @@ Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32
     size_t offset = 0;
     offset_cursor = 0;
     for (int i = 0; i < num_values; ++i) {
+        if (UNLIKELY(offset_cursor > dict_length ||
+                     dict_length - offset_cursor < sizeof(uint32_t))) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
         uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
-        offset_cursor += 4;
+        offset_cursor += sizeof(uint32_t);
+        if (UNLIKELY(l > dict_length - offset_cursor)) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
         memcpy(&_dict_data[offset], dict_item_address + offset_cursor, l);
         _dict_items.emplace_back(&_dict_data[offset], l);
         offset_cursor += l;
         offset += l;
-        if (offset_cursor > length) {
-            return Status::Corruption("Wrong data length in dictionary");
-        }
         if (l > _max_value_length) {
             _max_value_length = l;
         }
     }
-    if (offset_cursor != length) {
+    if (offset_cursor != dict_length) {
         return Status::Corruption("Wrong dictionary data for byte array type");
     }
     return Status::OK();
@@ -161,6 +175,5 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

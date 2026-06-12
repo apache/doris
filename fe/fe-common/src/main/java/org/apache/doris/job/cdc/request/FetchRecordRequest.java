@@ -23,4 +23,5 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class FetchRecordRequest extends JobBaseRecordRequest {
+    private String taskId;
 }

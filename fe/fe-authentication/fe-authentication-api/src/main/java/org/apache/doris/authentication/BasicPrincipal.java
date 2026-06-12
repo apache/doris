@@ -20,6 +20,8 @@ package org.apache.doris.authentication;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -49,6 +51,7 @@ public final class BasicPrincipal implements Principal {
     private final String externalPrincipal;
     private final Set<String> externalGroups;
     private final Map<String, String> attributes;
+    private final Map<String, Set<String>> multiValueAttributes;
     private final boolean servicePrincipal;
 
     private BasicPrincipal(Builder builder) {
@@ -57,6 +60,7 @@ public final class BasicPrincipal implements Principal {
         this.externalPrincipal = builder.externalPrincipal;
         this.externalGroups = Collections.unmodifiableSet(new HashSet<>(builder.externalGroups));
         this.attributes = Collections.unmodifiableMap(new HashMap<>(builder.attributes));
+        this.multiValueAttributes = immutableMultiValueAttributes(builder.multiValueAttributes);
         this.servicePrincipal = builder.servicePrincipal;
     }
 
@@ -85,9 +89,24 @@ public final class BasicPrincipal implements Principal {
         return attributes;
     }
 
+
+    @Override
+    public Map<String, Set<String>> getMultiValueAttributes() {
+        return multiValueAttributes;
+    }
+
     @Override
     public boolean isServicePrincipal() {
         return servicePrincipal;
+    }
+
+    private static Map<String, Set<String>> immutableMultiValueAttributes(
+            Map<String, Set<String>> multiValueAttributes) {
+        Map<String, Set<String>> copiedAttributes = new LinkedHashMap<>();
+        for (Map.Entry<String, Set<String>> entry : multiValueAttributes.entrySet()) {
+            copiedAttributes.put(entry.getKey(), Collections.unmodifiableSet(new LinkedHashSet<>(entry.getValue())));
+        }
+        return Collections.unmodifiableMap(copiedAttributes);
     }
 
     @Override
@@ -139,6 +158,7 @@ public final class BasicPrincipal implements Principal {
                 .externalPrincipal(principal.getExternalPrincipal().orElse(null))
                 .externalGroups(principal.getExternalGroups())
                 .attributes(principal.getAttributes())
+                .multiValueAttributes(principal.getMultiValueAttributes())
                 .servicePrincipal(principal.isServicePrincipal());
     }
 
@@ -151,6 +171,7 @@ public final class BasicPrincipal implements Principal {
         private String externalPrincipal;
         private Set<String> externalGroups = new HashSet<>();
         private Map<String, String> attributes = new HashMap<>();
+        private Map<String, Set<String>> multiValueAttributes = new HashMap<>();
         private boolean servicePrincipal = false;
 
         private Builder() {
@@ -231,6 +252,17 @@ public final class BasicPrincipal implements Principal {
          */
         public Builder attribute(String key, String value) {
             this.attributes.put(key, value);
+            return this;
+        }
+
+        /**
+         * Sets all multi-valued attributes.
+         *
+         * @param multiValueAttributes map of attribute names to value sets
+         * @return this builder
+         */
+        public Builder multiValueAttributes(Map<String, Set<String>> multiValueAttributes) {
+            this.multiValueAttributes = multiValueAttributes != null ? multiValueAttributes : new HashMap<>();
             return this;
         }
 
