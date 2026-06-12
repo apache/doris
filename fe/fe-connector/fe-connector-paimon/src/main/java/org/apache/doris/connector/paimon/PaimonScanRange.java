@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -214,15 +213,25 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (partValues != null && !partValues.isEmpty()) {
             List<String> pathKeys = new ArrayList<>();
             List<String> pathValues = new ArrayList<>();
+            List<Boolean> pathIsNull = new ArrayList<>();
             for (Map.Entry<String, String> entry : partValues.entrySet()) {
+                // Paimon partition values are already TYPED: the per-type serializer
+                // (PaimonScanPlanProvider.serializePartitionValue) returns Java null for a genuine
+                // null and the literal toString() otherwise — a null is never a Hive directory
+                // sentinel. So derive isNull from the Java null ONLY, matching legacy
+                // PaimonScanNode.setScanParams (source/PaimonScanNode.java:323-326). Do NOT route
+                // through ConnectorPartitionValues.normalize: its __HIVE_DEFAULT_PARTITION__/"\N"
+                // coercion is correct for hudi (path-encoded partitions) but here would turn a
+                // genuine literal partition value of "\N" or "__HIVE_DEFAULT_PARTITION__" into SQL
+                // NULL. BE ignores the rendered string when isNull=true, so "" matches legacy.
+                String value = entry.getValue();
                 pathKeys.add(entry.getKey());
-                pathValues.add(entry.getValue());
+                pathValues.add(value != null ? value : "");
+                pathIsNull.add(value == null);
             }
-            ConnectorPartitionValues.Normalized normalized =
-                    ConnectorPartitionValues.normalize(pathValues);
             rangeDesc.setColumnsFromPathKeys(pathKeys);
-            rangeDesc.setColumnsFromPath(normalized.getValues());
-            rangeDesc.setColumnsFromPathIsNull(normalized.getIsNull());
+            rangeDesc.setColumnsFromPath(pathValues);
+            rangeDesc.setColumnsFromPathIsNull(pathIsNull);
         }
     }
 
