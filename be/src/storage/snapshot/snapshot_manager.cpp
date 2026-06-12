@@ -710,7 +710,12 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         auto ret = ref_tablet->capture_consistent_rowsets_unlocked(
                                 {max_cooldowned_version + 1, version}, CaptureRowsetOps {});
                         if (ret) {
-                            consistent_rowsets = std::move(ret->rowsets);
+                            // Append local rowsets after remote rowsets, do NOT overwrite
+                            auto& local_rowsets = ret->rowsets;
+                            consistent_rowsets.insert(
+                                    consistent_rowsets.end(),
+                                    std::make_move_iterator(local_rowsets.begin()),
+                                    std::make_move_iterator(local_rowsets.end()));
                         } else {
                             res = std::move(ret.error());
                         }
