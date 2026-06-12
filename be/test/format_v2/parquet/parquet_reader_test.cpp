@@ -47,11 +47,11 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
-#include "exprs/vliteral.h"
-#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
@@ -177,7 +177,7 @@ VExprSPtr struct_element_expr(const VExprSPtr& parent, const DataTypePtr& child_
     auto expr = std::make_shared<TestFunctionExpr>("struct_element", make_nullable(child_type));
     expr->add_child(parent);
     expr->add_child(VLiteral::create_shared(std::make_shared<DataTypeString>(),
-                                                Field::create_field<TYPE_STRING>(child_name)));
+                                            Field::create_field<TYPE_STRING>(child_name)));
     return expr;
 }
 
@@ -1172,8 +1172,7 @@ TEST(TableColumnMapperTest, DoesNotBuildNestedStructPredicateFilterThroughUnsafe
             struct_element_expr(VSlotRef::create_shared(0, 0, -1, full_table_struct_type, "s"),
                                 file_a_type, "a"),
             table_a_type));
-    filter_expr->add_child(
-            VLiteral::create_shared(table_a_type, Field::create_field<TYPE_INT>(5)));
+    filter_expr->add_child(VLiteral::create_shared(table_a_type, Field::create_field<TYPE_INT>(5)));
     format::TableFilter table_filter {
             .conjunct = VExprContext::create_shared(filter_expr),
             .global_indices = {format::GlobalIndex(0)},
@@ -1589,8 +1588,8 @@ TEST(TableColumnMapperTest, MapFilterOnlyStructChildIsPredicateProjectionOnly) {
             "gt", std::make_shared<DataTypeUInt8>(), TExprNodeType::BINARY_PRED, TExprOpcode::GT);
     auto full_entry_type = entry_field.type;
     auto entries_expr = struct_element_expr(
-            VSlotRef::create_shared(
-                    0, 0, -1, std::make_shared<DataTypeMap>(key_type, full_value_type), "m"),
+            VSlotRef::create_shared(0, 0, -1,
+                                    std::make_shared<DataTypeMap>(key_type, full_value_type), "m"),
             full_entry_type, "entries");
     auto value_expr = struct_element_expr(entries_expr, full_value_type, "value");
     filter_expr->add_child(struct_element_expr(value_expr, a_type, "a"));
@@ -2744,8 +2743,8 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
 
     static const std::vector<int64_t> deleted_rows {1, 3};
     auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
-    delete_predicate->add_child(VSlotRef::create_shared(
-            2, 2, -1, std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
+    delete_predicate->add_child(VSlotRef::create_shared(2, 2, -1, std::make_shared<DataTypeInt64>(),
+                                                        format::ROW_POSITION_COLUMN_NAME));
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(format::ROW_POSITION_COLUMN_ID)};
@@ -2785,8 +2784,8 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
 
     static const std::vector<int64_t> deleted_rows {3};
     auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
-    delete_predicate->add_child(VSlotRef::create_shared(
-            2, 2, -1, std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
+    delete_predicate->add_child(VSlotRef::create_shared(2, 2, -1, std::make_shared<DataTypeInt64>(),
+                                                        format::ROW_POSITION_COLUMN_NAME));
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0),

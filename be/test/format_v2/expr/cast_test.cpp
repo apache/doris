@@ -32,9 +32,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "exprs/vexpr_context.h"
-#include "format_v2/column_mapper.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format_v2/column_mapper.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/table_reader.h"
 #include "runtime/descriptors.h"
@@ -67,8 +67,8 @@ protected:
     static VExprContextSPtr create_context(const DataTypePtr& return_type,
                                            const DataTypePtr& child_type, int child_column_id = 0) {
         auto cast = Cast::create_shared(return_type);
-        cast->add_child(VSlotRef::create_shared(child_column_id, child_column_id, -1,
-                                                    child_type, "source_column"));
+        cast->add_child(VSlotRef::create_shared(child_column_id, child_column_id, -1, child_type,
+                                                "source_column"));
         return VExprContext::create_shared(cast);
     }
 
@@ -352,8 +352,7 @@ TEST_F(CastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     const auto& localized_child = localized_expr->children()[0];
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
@@ -412,8 +411,7 @@ TEST_F(CastTest, ColumnMapperRepreparesRewrittenPreparedFilter) {
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_NE(dynamic_cast<const Cast*>(localized_expr.get()), nullptr);
     ASSERT_EQ(localized_expr->get_num_children(), 1);
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
 
@@ -458,8 +456,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateTypeMismatch) {
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     const auto& localized_literal = localized_expr->children()[1];
@@ -520,8 +517,7 @@ TEST_F(CastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateTypeMismatch) {
     const auto& localized_literal = localized_expr->children()[0];
     EXPECT_TRUE(localized_literal->is_literal());
     EXPECT_TRUE(localized_literal->data_type()->equals(*file_field.type));
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_expr->children()[1].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_expr->children()[1].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
 
@@ -579,8 +575,7 @@ TEST_F(CastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 3);
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_expr->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_expr->children()[1]->is_literal());
@@ -610,8 +605,8 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
     predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
     predicate->add_child(
             VLiteral::create_shared(table_column.type, Field::create_field<TYPE_STRING>("10")));
-    predicate->add_child(VLiteral::create_shared(table_column.type,
-                                                     Field::create_field<TYPE_STRING>("bad")));
+    predicate->add_child(
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_STRING>("bad")));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -626,8 +621,7 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiteralRewriteFai
     const auto& localized_child = localized_expr->children()[0];
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
@@ -716,8 +710,8 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
 
     auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
     predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
-    predicate->add_child(VLiteral::create_shared(table_column.type,
-                                                     Field::create_field<TYPE_STRING>("bad")));
+    predicate->add_child(
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_STRING>("bad")));
     format::TableFilter table_filter;
     table_filter.conjunct = VExprContext::create_shared(predicate);
     table_filter.global_indices = {format::GlobalIndex(0)};
@@ -732,8 +726,7 @@ TEST_F(CastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFails) {
     const auto& localized_child = localized_expr->children()[0];
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_child->data_type()->equals(*table_column.type));
@@ -878,8 +871,7 @@ TEST_F(CastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests) {
     const auto& localized_child = localized_expr->children()[0];
     ASSERT_NE(dynamic_cast<const Cast*>(localized_child.get()), nullptr);
     ASSERT_EQ(localized_child->get_num_children(), 1);
-    const auto* localized_slot =
-            assert_cast<const VSlotRef*>(localized_child->children()[0].get());
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_child->children()[0].get());
     EXPECT_EQ(localized_slot->column_id(), 0);
 }
 
@@ -975,8 +967,8 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     format::FileScanRequest first_request;
     ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &first_request, &state).ok());
     ASSERT_EQ(first_request.conjuncts.size(), 1);
-    const auto* first_slot = assert_cast<const VSlotRef*>(
-            first_request.conjuncts[0]->root()->children()[0].get());
+    const auto* first_slot =
+            assert_cast<const VSlotRef*>(first_request.conjuncts[0]->root()->children()[0].get());
     EXPECT_EQ(first_slot->slot_id(), 7);
     EXPECT_EQ(first_slot->column_id(), 0);
 
@@ -986,8 +978,8 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     second_request.non_predicate_columns.push_back(field_projection(9));
     ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &second_request, &state).ok());
     ASSERT_EQ(second_request.conjuncts.size(), 1);
-    const auto* second_slot = assert_cast<const VSlotRef*>(
-            second_request.conjuncts[0]->root()->children()[0].get());
+    const auto* second_slot =
+            assert_cast<const VSlotRef*>(second_request.conjuncts[0]->root()->children()[0].get());
     EXPECT_EQ(second_slot->slot_id(), 7);
     EXPECT_EQ(second_slot->column_id(), 1);
 

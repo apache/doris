@@ -439,15 +439,15 @@ Status rewrite_slot_refs_to_global_index(
             DORIS_CHECK(slot_ref->slot_id() >= 0);
             const auto global_index = format::GlobalIndex(cast_set<size_t>(slot_ref->slot_id()));
             *expr = VSlotRef::create_shared(cast_set<int>(global_index.value()),
-                                                cast_set<int>(global_index.value()), -1,
-                                                slot_ref->data_type(), slot_ref->column_name());
+                                            cast_set<int>(global_index.value()), -1,
+                                            slot_ref->data_type(), slot_ref->column_name());
             RETURN_IF_ERROR(expr->get()->prepare(nullptr, RowDescriptor(), nullptr));
             return Status::OK();
         }
         const auto global_index = global_index_it->second;
         *expr = VSlotRef::create_shared(cast_set<int>(global_index.value()),
-                                            cast_set<int>(global_index.value()), -1,
-                                            slot_ref->data_type(), slot_ref->column_name());
+                                        cast_set<int>(global_index.value()), -1,
+                                        slot_ref->data_type(), slot_ref->column_name());
         RETURN_IF_ERROR(expr->get()->prepare(nullptr, RowDescriptor(), nullptr));
         return Status::OK();
     }

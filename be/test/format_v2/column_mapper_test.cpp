@@ -36,10 +36,10 @@
 #include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format_v2/column_mapper_nested.h"
-#include "format_v2/expr/cast.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format_v2/column_mapper_nested.h"
+#include "format_v2/expr/cast.h"
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
@@ -1169,9 +1169,9 @@ TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
               TableVirtualColumnType::LAST_UPDATED_SEQUENCE_NUMBER);
     EXPECT_EQ(mapper.mappings()[1].filter_conversion, FilterConversionType::FINALIZE_ONLY);
 
-    auto row_id_filter = binary_predicate(
-            TExprOpcode::EQ, table_slot(0, 0, make_nullable(i64()), "_row_id"),
-            literal(i64(), Field::create_field<TYPE_BIGINT>(1001)));
+    auto row_id_filter =
+            binary_predicate(TExprOpcode::EQ, table_slot(0, 0, make_nullable(i64()), "_row_id"),
+                             literal(i64(), Field::create_field<TYPE_BIGINT>(1001)));
     auto sequence_filter = binary_predicate(
             TExprOpcode::EQ,
             table_slot(1, 1, make_nullable(i64()), "_last_updated_sequence_number"),
@@ -1188,7 +1188,8 @@ TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
 
     EXPECT_TRUE(request.conjuncts.empty());
     EXPECT_TRUE(request.predicate_columns.empty());
-    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({2147483540, 2147483539}));
+    EXPECT_EQ(projection_ids(request.non_predicate_columns),
+              std::vector<int32_t>({2147483540, 2147483539}));
 }
 
 TEST(ColumnMapperConstantTest, MissingRowLineageDefaultExprStillUsesVirtualMapping) {
@@ -1196,8 +1197,8 @@ TEST(ColumnMapperConstantTest, MissingRowLineageDefaultExprStillUsesVirtualMappi
     auto row_id_column = field_id_col("renamed_row_id", 2147483540, make_nullable(i64()));
     row_id_column.default_expr = VExprContext::create_shared(
             literal(make_nullable(i64()), Field::create_field<TYPE_BIGINT>(0)));
-    auto sequence_column = field_id_col("renamed_last_updated_sequence_number", 2147483539,
-                                        make_nullable(i64()));
+    auto sequence_column =
+            field_id_col("renamed_last_updated_sequence_number", 2147483539, make_nullable(i64()));
     sequence_column.default_expr = VExprContext::create_shared(
             literal(make_nullable(i64()), Field::create_field<TYPE_BIGINT>(0)));
 

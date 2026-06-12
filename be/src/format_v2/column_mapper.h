@@ -228,8 +228,8 @@ private:
     Status _build_result_column_mapping(const FileScanRequest& file_request);
 
     void _set_constant_mapping(ColumnMapping* mapping, VExprContextSPtr expr);
-    Status _create_mapping_for_column(const ColumnDefinition& table_column, GlobalIndex global_index,
-                                      ColumnMapping* mapping);
+    Status _create_mapping_for_column(const ColumnDefinition& table_column,
+                                      GlobalIndex global_index, ColumnMapping* mapping);
     Status _create_hidden_filter_mapping(const ColumnDefinition& table_column,
                                          GlobalIndex global_index, ColumnMapping* mapping);
     Status _build_hidden_filter_mappings(const std::vector<TableFilter>& table_filters);

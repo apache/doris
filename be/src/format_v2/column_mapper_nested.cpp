@@ -477,8 +477,8 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
         return false;
     }
     LocalColumnIndex child_projection;
-    if (!build_file_child_projection_from_schema(mapping_it->original_file_children,
-                                                 path.selectors, &child_projection)
+    if (!build_file_child_projection_from_schema(mapping_it->original_file_children, path.selectors,
+                                                 &child_projection)
                  .ok() ||
         child_projection.local_id() < 0) {
         return false;
@@ -510,7 +510,7 @@ static VExprSPtr original_table_literal_for_nested_predicate(const VExprSPtr& li
         return literal_expr;
     }
     return VLiteral::create_shared(rewritten_literal->original_type(),
-                                       rewritten_literal->original_field());
+                                   rewritten_literal->original_field());
 }
 
 static std::optional<PredicateType> to_column_predicate_type(TExprOpcode::type opcode) {
@@ -864,9 +864,9 @@ std::vector<const ColumnMapping*> present_child_mappings_in_file_order(
 // Build the nested child projection under a top-level file column by walking file schema children
 // directly. The returned projection does not include the root column id; callers attach it under a
 // `LocalColumnIndex::partial_local(root_id)` when merging into the scan request.
-Status build_file_child_projection_from_schema(
-        const std::vector<ColumnDefinition>& children,
-        std::span<const StructChildSelector> selectors, LocalColumnIndex* projection) {
+Status build_file_child_projection_from_schema(const std::vector<ColumnDefinition>& children,
+                                               std::span<const StructChildSelector> selectors,
+                                               LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
     if (selectors.empty()) {
         return Status::InvalidArgument("Nested struct selector path is empty");
@@ -888,7 +888,7 @@ Status build_file_child_projection_from_schema(
     }
     LocalColumnIndex child_projection;
     RETURN_IF_ERROR(build_file_child_projection_from_schema(child->children, selectors.subspan(1),
-                                                           &child_projection));
+                                                            &child_projection));
     if (child_projection.local_id() < 0) {
         *projection = LocalColumnIndex {};
         return Status::OK();

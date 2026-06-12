@@ -76,9 +76,9 @@ void collect_nested_struct_paths(const VExprSPtr& expr, std::vector<NestedStruct
 std::vector<const ColumnMapping*> present_child_mappings_in_file_order(
         const std::vector<ColumnMapping>& child_mappings);
 
-Status build_file_child_projection_from_schema(
-        const std::vector<ColumnDefinition>& children,
-        std::span<const StructChildSelector> selectors, LocalColumnIndex* projection);
+Status build_file_child_projection_from_schema(const std::vector<ColumnDefinition>& children,
+                                               std::span<const StructChildSelector> selectors,
+                                               LocalColumnIndex* projection);
 
 void merge_column_predicate_filter(FileColumnPredicateFilter column_filter,
                                    std::vector<FileColumnPredicateFilter>* filters);
