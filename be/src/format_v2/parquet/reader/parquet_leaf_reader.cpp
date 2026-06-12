@@ -302,10 +302,24 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
 
     {
         SCOPED_TIMER(_profile.materialization_time);
-        DCHECK(column->is_nullable());
         if (!_type->is_nullable()) {
-            RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(
-                    assert_cast<ColumnNullable*>(column.get())->get_nested_column(), view));
+            if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+                nullable_column != nullptr) {
+                auto& nested_column = nullable_column->get_nested_column();
+                auto& null_map = nullable_column->get_null_map_data();
+                const auto old_nested_size = nested_column.size();
+                const auto old_null_map_size = null_map.size();
+                auto st = _type->get_serde()->read_column_from_decoded_values(nested_column, view);
+                if (!st.ok()) {
+                    nested_column.resize(old_nested_size);
+                    return st;
+                }
+                null_map.resize(old_null_map_size + nested_column.size() - old_nested_size);
+                memset(null_map.data() + old_null_map_size, 0,
+                       null_map.size() - old_null_map_size);
+            } else {
+                RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
+            }
         } else {
             RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
         }
