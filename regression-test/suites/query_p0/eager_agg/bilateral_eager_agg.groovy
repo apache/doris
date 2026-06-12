@@ -753,6 +753,30 @@ suite("bilateral_eager_agg") {
     //should not rewrite
     order_qt_union_all_partial_push union_all_sql
 
+    def union_all_count_star_sql = """
+        SELECT 
+               t4.k, sum(u.a1), sum(u.a2),count(*), sum(t4.a)
+        FROM (
+            SELECT t1.k AS k, t1.a AS a1, t2.a AS a2
+            FROM t_bilateral_union_t1 t1
+            INNER JOIN t_bilateral_union_t2 t2 ON t1.k = t2.k
+            UNION ALL
+            SELECT t3.k AS k, t3.a1 AS a1, t3.a2 AS a2
+            FROM t_bilateral_union_t3 t3
+        ) u
+        INNER JOIN t_bilateral_union_t4 t4 ON u.k = t4.k
+        GROUP BY t4.k
+        ORDER BY t4.k;
+    """
+    sql "SET force_eager_agg_hint = 'sum:u.a1=push;sum:u.a2=push;sum:t4.a=push;count:*=push';"
+    order_qt_union_all_count_star_all_push union_all_count_star_sql
+    sql "SET force_eager_agg_hint = 'sum:u.a1=nopush;sum:u.a2=nopush;sum:t4.a=push;count:*=nopush';"
+    order_qt_union_all_count_star_no_push union_all_count_star_sql
+    sql "SET force_eager_agg_hint = 'sum:u.a1=push;sum:u.a2=push;count:*=push;sum:t4.a=nopush';"
+    order_qt_union_all_count_star_push union_all_count_star_sql
+    sql "SET force_eager_agg_hint = 'sum:u.a1=nopush;sum:u.a2=push;sum:t4.a=nopush;count:*=nopush';"
+    order_qt_union_all_count_star_all_not_push union_all_count_star_sql
+
     // Reset session variables to defaults
     sql "SET eager_aggregation_mode = -1;"
     sql "SET force_eager_agg_hint = '';"

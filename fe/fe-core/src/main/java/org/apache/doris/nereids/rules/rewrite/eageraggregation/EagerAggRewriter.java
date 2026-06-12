@@ -133,10 +133,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         boolean passThroughBigJoin = isPassThroughBigJoin(join, context);
+        boolean leftNeedOutputCount = needOutputCountForJoinChild(join, toLeft, toRight,
+                context.needOutputCount(), rightFuncs);
+        boolean rightNeedOutputCount = needOutputCountForJoinChild(join, toRight, toLeft,
+                context.needOutputCount(), leftFuncs);
         Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.of(context.forOneBranch(leftFuncs,
-                leftAliasMap, leftChildGroupByKeys, passThroughBigJoin)) : Optional.empty();
+                leftAliasMap, leftChildGroupByKeys, passThroughBigJoin, leftNeedOutputCount)) : Optional.empty();
         Optional<PushDownAggContext> rightChildContext = toRight ? Optional.of(context.forOneBranch(rightFuncs,
-                rightAliasMap, rightChildGroupByKeys, passThroughBigJoin)) : Optional.empty();
+                rightAliasMap, rightChildGroupByKeys, passThroughBigJoin, rightNeedOutputCount)) : Optional.empty();
 
         Plan newLeft = join.left();
         Plan newRight = join.right();
@@ -207,6 +211,19 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return pushSide;
         }
         return adjustPushSideForNullable(join, context, pushSide.first, pushSide.second);
+    }
+
+    private boolean needOutputCountForJoinChild(LogicalJoin<? extends Plan, ? extends Plan> join,
+            boolean toChild, boolean toOpposite, boolean parentNeedsOutputCount,
+            List<AggregateFunction> oppositeAggFunctions) {
+        if (!toChild) {
+            return false;
+        }
+        if (parentNeedsOutputCount) {
+            return true;
+        }
+        return toOpposite && join.getJoinType().isInnerOrCrossJoin()
+                && hasAggNeedJoinMultiplicityRecovery(oppositeAggFunctions);
     }
 
     private Pair<Boolean, Boolean> adjustPushSideForCaseWhen(
@@ -356,7 +373,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughBigJoin(),
                 context.hasDecomposedAggIf, newHasCaseWhen,
-                context.getBilateralState());
+                context.getBilateralState(), context.needOutputCount());
         return newContext;
     }
 
@@ -394,13 +411,28 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return true;
     }
 
-    private Plan alignUnionChildrenDataType(Plan child, PushDownAggContext context, Slot countSlot) {
+    private List<DataType> getCanonicalProjectDataTypes(PushDownAggContext context, Optional<Slot> countSlot) {
+        List<DataType> outputDataType = Lists.newArrayList();
+        Set<ExprId> outputIds = new HashSet<>();
+        for (AggregateFunction func : context.getAggFunctions()) {
+            Alias alias = context.getAliasMap().get(func);
+            outputDataType.add(alias.getDataType());
+            outputIds.add(alias.getExprId());
+        }
+        for (SlotReference groupKey : context.getGroupKeys()) {
+            if (outputIds.add(groupKey.getExprId())) {
+                outputDataType.add(groupKey.getDataType());
+            }
+        }
+        if (countSlot.isPresent() && outputIds.add(countSlot.get().getExprId())) {
+            outputDataType.add(countSlot.get().getDataType());
+        }
+        return outputDataType;
+    }
+
+    private Plan alignUnionChildrenDataType(Plan child, PushDownAggContext context, Optional<Slot> countSlot) {
         int outputSize = child.getOutput().size();
-        List<DataType> outputDataType = Lists.newArrayListWithExpectedSize(outputSize);
-        outputDataType.addAll(context.getAggFunctions().stream()
-                .map(func -> context.getAliasMap().get(func).getDataType()).collect(Collectors.toList()));
-        outputDataType.addAll(context.getGroupKeys().stream().map(s -> s.getDataType()).collect(Collectors.toList()));
-        outputDataType.add(countSlot.getDataType());
+        List<DataType> outputDataType = getCanonicalProjectDataTypes(context, countSlot);
         List<NamedExpression> projection = Lists.newArrayListWithExpectedSize(outputSize);
         boolean needProject = false;
         for (int colIdx = 0; colIdx < outputSize; colIdx++) {
@@ -413,16 +445,19 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
         if (needProject) {
-            LogicalProject<Plan> project = new LogicalProject<Plan>(projection, child);
-            int countSlotIndex = findOutputIndex(child, countSlot);
-            if (countSlotIndex >= 0) {
-                context.getBilateralState().registerCountSlot(project, projection.get(countSlotIndex).toSlot());
+            LogicalProject<Plan> project = new LogicalProject<>(projection, child);
+            if (countSlot.isPresent()) {
+                int countSlotIndex = findOutputIndex(child, countSlot.get());
+                if (countSlotIndex >= 0) {
+                    context.getBilateralState().registerCountSlot(project, projection.get(countSlotIndex).toSlot());
+                } else {
+                    context.getBilateralState().registerNoCountSlot(project);
+                }
             } else {
                 context.getBilateralState().registerNoCountSlot(project);
             }
             return project;
         } else {
-            context.getBilateralState().registerCountSlot(child, countSlot);
             return child;
         }
     }
@@ -436,7 +471,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         List<Plan> newChildren = Lists.newArrayList();
         List<PushDownAggContext> childContexts = new ArrayList<>();
-        List<Slot> childCountSlots = new ArrayList<>();
+        List<Optional<Slot>> childCountSlots = new ArrayList<>();
         /*
             if any child can not push, do not push
             example
@@ -469,12 +504,12 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
                     context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.hasCaseWhen,
-                    context.getBilateralState());
+                    context.getBilateralState(), context.needOutputCount());
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
             if (newChild != child) {
                 Optional<Slot> childCountSlot = context.getBilateralState().getCountSlot(newChild);
-                if (!childCountSlot.isPresent()) {
+                if (context.needOutputCount() && !childCountSlot.isPresent()) {
                     allChildrenChanged = false;
                     break;
                 }
@@ -482,10 +517,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     allChildrenChanged = false;
                     break;
                 }
-                newChild = buildCanonicalProject(newChild, contextForChild, childCountSlot.get());
+                newChild = buildCanonicalProject(newChild, contextForChild, childCountSlot);
                 newChildren.add(newChild);
                 childContexts.add(contextForChild);
-                childCountSlots.add(childCountSlot.get());
+                childCountSlots.add(childCountSlot);
                 allChildrenChanged = true;
             } else {
                 allChildrenChanged = false;
@@ -500,7 +535,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 newChildren.set(idx, newChild);
             }
             List<List<SlotReference>> newRegularChildrenOutputs = Lists.newArrayListWithExpectedSize(union.arity());
+            int regularOutputSize = newChildren.get(0).getOutput().size();
             for (int childIdx = 0; childIdx < union.arity(); childIdx++) {
+                int childOutputSize = newChildren.get(childIdx).getOutput().size();
+                if (childOutputSize != regularOutputSize) {
+                    SessionVariable.throwAnalysisExceptionWhenFeDebug(
+                            "push down agg failed: union child output size mismatch. "
+                            + "expected " + regularOutputSize + " but child " + childIdx + " has "
+                            + childOutputSize + ". union: " + union + " context: " + context);
+                    return union;
+                }
                 newRegularChildrenOutputs.add(
                         newChildren.get(childIdx).getOutput().stream()
                                 .map(s -> (SlotReference) s).collect(Collectors.toList()));
@@ -517,10 +561,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 newOutput.add(alias.toSlot());
             }
             newOutput.addAll(context.getGroupKeys());
-            SlotReference unionCnt = new SlotReference(
-                    "unionCnt" + context.getCascadesContext().getStatementContext().generateColumnName(),
-                    BigIntType.INSTANCE);
-            newOutput.add(unionCnt);
+            Optional<Alias> countStarAlias = findCountStarAlias(context);
+            Optional<SlotReference> unionCnt = Optional.empty();
+            if (context.needOutputCount() && !countStarAlias.isPresent()) {
+                unionCnt = Optional.of(new SlotReference(
+                        "unionCnt" + context.getCascadesContext().getStatementContext().generateColumnName(),
+                        BigIntType.INSTANCE));
+                newOutput.add(unionCnt.get());
+            }
             LogicalUnion newUnion = (LogicalUnion) union
                     .withChildrenAndOutputs(newChildren, newOutput, newRegularChildrenOutputs);
             for (int idx = 0; idx < context.getAggFunctions().size(); idx++) {
@@ -528,7 +576,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 ExprId exprId = context.getAliasMap().get(func).getExprId();
                 context.getBilateralState().registerPushedAggFuncSlot(exprId, newUnion.getOutput().get(idx));
             }
-            context.getBilateralState().registerCountSlot(newUnion, unionCnt);
+            if (context.needOutputCount()) {
+                if (countStarAlias.isPresent()) {
+                    context.getBilateralState().registerCountSlot(newUnion,
+                            newUnion.getOutput().get(findCountStarAggFunctionIndex(context).get()));
+                } else {
+                    context.getBilateralState().registerCountSlot(newUnion, unionCnt.get());
+                }
+            } else {
+                context.getBilateralState().registerNoCountSlot(newUnion);
+            }
             return newUnion;
         } else {
             context.getBilateralState().registerNoCountSlot(union);
@@ -656,6 +713,25 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return genAggregate(relation, context);
     }
 
+    private Optional<Alias> findCountStarAlias(PushDownAggContext context) {
+        for (AggregateFunction func : context.getAggFunctions()) {
+            if (func instanceof Count && ((Count) func).isCountStar()) {
+                return Optional.of(context.getAliasMap().get(func));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Integer> findCountStarAggFunctionIndex(PushDownAggContext context) {
+        for (int i = 0; i < context.getAggFunctions().size(); i++) {
+            AggregateFunction func = context.getAggFunctions().get(i);
+            if (func instanceof Count && ((Count) func).isCountStar()) {
+                return Optional.of(i);
+            }
+        }
+        return Optional.empty();
+    }
+
     private Plan genAggregate(Plan child, PushDownAggContext context) {
         if (isPushDisabledByVariable(context)) {
             context.getBilateralState().registerNoCountSlot(child);
@@ -666,19 +742,19 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             for (AggregateFunction func : context.getAggFunctions()) {
                 aggOutputExpressions.add(context.getAliasMap().get(func));
             }
-            Alias countStarAlias = null;
-            boolean countStarAlreadyProjected = false;
-            Count countStar = new Count();
-            if (context.getAliasMap().containsKey(countStar)) {
-                countStarAlias = context.getAliasMap().get(countStar);
-                countStarAlreadyProjected = true;
-            } else {
-                countStarAlias = new Alias(countStar,
-                        "cnt" + context.getCascadesContext().getStatementContext().generateColumnName());
+            Optional<Alias> countStarAlias = findCountStarAlias(context);
+            Optional<Alias> outputCountAlias = Optional.empty();
+            if (context.needOutputCount()) {
+                if (countStarAlias.isPresent()) {
+                    outputCountAlias = countStarAlias;
+                } else {
+                    outputCountAlias = Optional.of(new Alias(new Count(),
+                            "cnt" + context.getCascadesContext().getStatementContext().generateColumnName()));
+                }
             }
             aggOutputExpressions.addAll(context.getGroupKeys());
-            if (countStarAlias != null && !countStarAlreadyProjected) {
-                aggOutputExpressions.add(countStarAlias);
+            if (outputCountAlias.isPresent() && !countStarAlias.isPresent()) {
+                aggOutputExpressions.add(outputCountAlias.get());
             }
             LogicalAggregate genAgg = new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
             NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
@@ -687,11 +763,15 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
             for (AggregateFunction func : context.getAggFunctions()) {
                 Alias a = context.getAliasMap().get(func);
-                context.getBilateralState().registerPushedAggFuncSlot(a.getExprId(), a.toSlot());
+                Slot pushedSlot = normalized.getOutput().stream()
+                        .filter(slot -> slot.getExprId().equals(a.getExprId()))
+                        .findFirst()
+                        .orElse(a.toSlot());
+                context.getBilateralState().registerPushedAggFuncSlot(a.getExprId(), pushedSlot);
             }
 
-            if (countStarAlias != null) {
-                context.getBilateralState().registerCountSlot(normalized, countStarAlias.toSlot());
+            if (outputCountAlias.isPresent()) {
+                context.getBilateralState().registerCountSlot(normalized, outputCountAlias.get().toSlot());
             } else {
                 context.getBilateralState().registerNoCountSlot(normalized);
             }
@@ -797,11 +877,17 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     leftCountSlot, shouldAdjustRight);
         }
 
-        Optional<? extends NamedExpression> joinCount = computeJoinCount(join, leftChildContext, rightChildContext,
-                leftCountSlot, rightCountSlot, context);
+        Optional<? extends NamedExpression> joinCount = Optional.empty();
+        if (context.needOutputCount()) {
+            joinCount = findProjectedCountStarOutput(context, outputIds);
+            if (!joinCount.isPresent()) {
+                joinCount = computeJoinCount(join, leftChildContext, rightChildContext,
+                        leftCountSlot, rightCountSlot, context);
+            }
+        }
         Optional<Slot> projectedCountSlot = Optional.empty();
         if (joinCount.isPresent()) {
-            projections.add(joinCount.get());
+            appendProjectionIfAbsent(projections, outputIds, joinCount.get());
             projectedCountSlot = Optional.of(joinCount.get().toSlot());
         }
         LogicalProject<Plan> project = new LogicalProject<>(projections, join);
@@ -842,7 +928,32 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     private boolean shouldUseJoinOppositeCntAdjustAggOutput(LogicalJoin<? extends Plan, ? extends Plan> join,
             Optional<PushDownAggContext> childContext, Optional<Slot> oppositeCountSlot) {
-        return join.getJoinType().isInnerOrCrossJoin() && childContext.isPresent() && oppositeCountSlot.isPresent();
+        return join.getJoinType().isInnerOrCrossJoin() && childContext.isPresent() && oppositeCountSlot.isPresent()
+                && hasAggNeedJoinMultiplicityRecovery(childContext.get().getAggFunctions());
+    }
+
+    private Optional<NamedExpression> findProjectedCountStarOutput(PushDownAggContext context, Set<ExprId> outputIds) {
+        BilateralState state = context.getBilateralState();
+        for (AggregateFunction aggFunc : context.getAggFunctions()) {
+            if (aggFunc instanceof Count && ((Count) aggFunc).isCountStar()) {
+                ExprId exprId = context.getAliasMap().get(aggFunc).getExprId();
+                if (state.hasAggFuncOutput(exprId)) {
+                    NamedExpression countStarOutput = state.getPushedAggFuncSlot(exprId);
+                    if (outputIds.contains(countStarOutput.getExprId())) {
+                        return Optional.of(countStarOutput);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean hasAggNeedJoinMultiplicityRecovery(List<AggregateFunction> aggFunctions) {
+        return aggFunctions.stream().anyMatch(this::needJoinMultiplicityRecovery);
+    }
+
+    private boolean needJoinMultiplicityRecovery(AggregateFunction aggFunc) {
+        return !(aggFunc instanceof Max) && !(aggFunc instanceof Min);
     }
 
     private Optional<? extends NamedExpression> computeJoinCount(LogicalJoin<? extends Plan, ? extends Plan> join,
@@ -895,7 +1006,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return Optional.empty();
     }
 
-    private Plan buildCanonicalProject(Plan child, PushDownAggContext context, Slot countSlot) {
+    private Plan buildCanonicalProject(Plan child, PushDownAggContext context, Optional<Slot> countSlot) {
         List<NamedExpression> projections = new ArrayList<>();
         Set<ExprId> outputIds = new HashSet<>();
         for (AggregateFunction aggFunc : context.getAggFunctions()) {
@@ -909,12 +1020,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 projections.add(groupKey);
             }
         }
-        projections.add(countSlot);
+        countSlot.ifPresent(slot -> appendProjectionIfAbsent(projections, outputIds, slot));
         if (projections.equals(child.getOutput())) {
             return child;
         } else {
             LogicalProject<Plan> project = new LogicalProject<>(projections, child);
-            context.getBilateralState().registerCountSlot(project, countSlot);
+            if (countSlot.isPresent()) {
+                context.getBilateralState().registerCountSlot(project, countSlot.get());
+            } else {
+                context.getBilateralState().registerNoCountSlot(project);
+            }
             return project;
         }
     }
@@ -953,10 +1068,19 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (!(aggFunc instanceof Max) && !(aggFunc instanceof Min)) {
             multiplier = countSlot.map(cnt -> (Expression) cnt);
         }
-        Expression outputExpr = multiplier.map(expression -> (Expression) new Multiply(currentValue, expression))
-                .orElse(currentValue);
-        outputExpr = ExpressionUtils.rebuildSignature(outputExpr);
-        NamedExpression output = new Alias(outputExpr);
+        NamedExpression output;
+        Expression outputExpr;
+        if (multiplier.isPresent()) {
+            outputExpr = new Multiply(currentValue, multiplier.get());
+            outputExpr = ExpressionUtils.rebuildSignature(outputExpr);
+        } else {
+            outputExpr = currentValue;
+        }
+        if (outputExpr instanceof NamedExpression) {
+            output = (NamedExpression) outputExpr;
+        } else {
+            output = new Alias(outputExpr, alias.getName());
+        }
         state.registerAggFuncOutput(exprId, output.toSlot(), state.isAggFuncActuallyPushed(exprId));
         return output;
     }

@@ -57,6 +57,8 @@ public class PushDownAggContext {
 
     private final boolean passThroughBigJoin;
 
+    private final boolean needOutputCount;
+
     // Bilateral push-down plumbing.
     //   - bilateralState: global, shared by every context in the rewrite invocation.
     private final BilateralState bilateralState;
@@ -68,6 +70,14 @@ public class PushDownAggContext {
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
             boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen,
             BilateralState bilateralState) {
+        this(aggFunctions, groupKeys, aliasMap, cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
+                bilateralState, false);
+    }
+
+    public PushDownAggContext(List<AggregateFunction> aggFunctions,
+            List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
+            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen,
+            BilateralState bilateralState, boolean needOutputCount) {
         this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
@@ -95,6 +105,7 @@ public class PushDownAggContext {
         this.passThroughBigJoin = passThroughBigJoin;
         this.hasDecomposedAggIf = hasDecomposedAggIf;
         this.hasCaseWhen = hasCaseWhen;
+        this.needOutputCount = needOutputCount;
         this.bilateralState = Objects.requireNonNull(bilateralState, "bilateralState cannot be null");
         for (Map.Entry<AggregateFunction, Alias> entry : this.aliasMap.entrySet()) {
             AggregateFunction aggFunction = entry.getKey();
@@ -128,17 +139,18 @@ public class PushDownAggContext {
     public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
-                bilateralState);
+                bilateralState, needOutputCount);
     }
 
     /**
      * Derive a child context for one branch of a join during bilateral push-down.
      */
     public PushDownAggContext forOneBranch(List<AggregateFunction> branchAggFunctions,
-            Map<AggregateFunction, Alias> branchAliasMap, List<SlotReference> groupKeys, boolean passThroughBigJoin) {
+            Map<AggregateFunction, Alias> branchAliasMap, List<SlotReference> groupKeys,
+            boolean passThroughBigJoin, boolean needOutputCount) {
         return new PushDownAggContext(branchAggFunctions, groupKeys, branchAliasMap,
                 cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
-                bilateralState);
+                bilateralState, needOutputCount);
     }
 
     public BilateralState getBilateralState() {
@@ -157,6 +169,10 @@ public class PushDownAggContext {
         return passThroughBigJoin;
     }
 
+    public boolean needOutputCount() {
+        return needOutputCount;
+    }
+
     @Override
     public String toString() {
         return "PushDownAggContext{"
@@ -164,6 +180,7 @@ public class PushDownAggContext {
                 + ", groupKeys=" + groupKeys
                 + ", aliasMap=" + aliasMap
                 + ", passThroughBigJoin=" + passThroughBigJoin
+                + ", needOutputCount=" + needOutputCount
                 + '}';
     }
 }

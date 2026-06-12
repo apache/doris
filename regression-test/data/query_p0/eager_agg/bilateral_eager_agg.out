@@ -244,3 +244,19 @@
 1	2120	21200	75
 2	2030	20300	18
 
+-- !union_all_count_star_all_push --
+1	2120	21200	10	75
+2	2030	20300	2	18
+
+-- !union_all_count_star_no_push --
+1	2120	21200	10	75
+2	2030	20300	2	18
+
+-- !union_all_count_star_push --
+1	2120	21200	10	75
+2	2030	20300	2	18
+
+-- !union_all_count_star_all_not_push --
+1	2120	21200	10	75
+2	2030	20300	2	18
+
