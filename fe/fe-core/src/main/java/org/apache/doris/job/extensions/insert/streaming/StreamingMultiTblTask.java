@@ -329,14 +329,15 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     @Override
     protected void onFail(String errMsg) throws JobException {
-        // stop the possibly still-running remote reader before reschedule
+        // Stop a possibly still-running reader now, so the PG slot frees before auto-resume re-acquires it.
         releaseRemoteReader();
         super.onFail(errMsg);
     }
 
     @Override
     public void cancel(boolean needWaitCancelComplete) {
-        // No release here: DROP/STOP/PAUSE clean up via /api/close; releasing would orphan the engine.
+        // No release here: drop/stop free via /api/close and manual pause via /api/releaseReader;
+        // releasing in cancel would orphan the reused engine.
         super.cancel(needWaitCancelComplete);
     }
 
@@ -345,8 +346,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         // No-op: the reader is async and reused; releasing here (per-iteration finally) would kill it.
     }
 
-    // Manual pause only (best-effort): release the reader on runningBackendId, keep slot (not drop),
-    // so resume can rebind elsewhere without two readers on the same source. Failures swallowed; idle reaper backs up.
+    // Best-effort release on runningBackendId (keep slot): on task failure to stop a stuck/zombie
+    // reader early, and on manual pause so resume can rebind. Failures swallowed; idle reaper backs up.
     @Override
     public void releaseRemoteReader() {
         if (runningBackendId <= 0) {

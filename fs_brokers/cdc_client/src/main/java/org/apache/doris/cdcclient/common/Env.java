@@ -261,6 +261,8 @@ public class Env {
             if (lock == null || !lock.tryLock()) {
                 continue;
             }
+            SourceReader toRelease = null;
+            JobBaseConfig releaseConfig = null;
             try {
                 JobContext context = jobContexts.get(jobId);
                 if (context == null || context.lastAliveTime <= 0 || context.maxIntervalMs <= 0) {
@@ -279,15 +281,18 @@ public class Env {
                         jobId,
                         now - context.lastAliveTime);
                 jobContexts.remove(jobId);
-                if (context.reader != null && context.jobConfig != null) {
-                    try {
-                        context.reader.release(context.jobConfig);
-                    } catch (Exception ex) {
-                        LOG.warn("Failed to release idle reader for job {}", jobId, ex);
-                    }
-                }
+                toRelease = context.reader;
+                releaseConfig = context.jobConfig;
             } finally {
                 lock.unlock();
+            }
+            // Release outside the lock so blocking IO never stalls getReaderAndClaim/detach.
+            if (toRelease != null && releaseConfig != null) {
+                try {
+                    toRelease.release(releaseConfig);
+                } catch (Exception ex) {
+                    LOG.warn("Failed to release idle reader for job {}", jobId, ex);
+                }
             }
         }
     }

@@ -28,8 +28,8 @@ public class Constants {
 
     // Idle from-to reader cleanup: release (keep slot) when idle past MULTIPLIER * max_interval.
     public static final long IDLE_READER_SCAN_INTERVAL_MS = 15_000L;
-    public static final int IDLE_READER_TIMEOUT_MULTIPLIER = 6;
+    public static final int IDLE_READER_TIMEOUT_MULTIPLIER = 10;
     // Floor the idle timeout: PG reader rebuild is costly, absorb heartbeat jitter at small
     // interval.
-    public static final long IDLE_READER_MIN_TIMEOUT_MS = 60_000L;
+    public static final long IDLE_READER_MIN_TIMEOUT_MS = 90_000L;
 }
