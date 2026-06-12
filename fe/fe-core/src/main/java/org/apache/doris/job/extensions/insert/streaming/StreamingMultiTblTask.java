@@ -183,16 +183,16 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         if (((JdbcOffset) runningOffset).snapshotSplit()) {
             return StreamingJobUtils.selectBackend(cloudCluster);
         }
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        if (!(job instanceof StreamingInsertJob)) {
-            return StreamingJobUtils.selectBackend(cloudCluster);
-        }
-        return ((StreamingInsertJob) job).resolveBoundBackend();
+        return getStreamingJob().resolveBoundBackend();
     }
 
-    private StreamingInsertJob getStreamingJob() {
+    // Fail loud on a dropped/wrong-type job rather than return null and risk a downstream NPE.
+    private StreamingInsertJob getStreamingJob() throws JobException {
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        return job instanceof StreamingInsertJob ? (StreamingInsertJob) job : null;
+        if (job == null) {
+            throw new JobException("Streaming job " + getJobId() + " not found");
+        }
+        return (StreamingInsertJob) job;
     }
 
     private String getToken() throws JobException {
@@ -230,10 +230,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
         request.setTaskTimeoutMs(getTaskTimeoutMs());
-        StreamingInsertJob job = getStreamingJob();
-        if (job != null) {
-            request.setRebuildReader(job.isNeedRebuildReader());
-        }
+        request.setRebuildReader(getStreamingJob().isNeedRebuildReader());
         if (offsetProvider instanceof JdbcSourceOffsetProvider) {
             String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
             if (schemas != null) {
