@@ -664,9 +664,8 @@ Status IcebergTableReader::_materialize_row_lineage_row_id(Block* table_block, s
     const auto& row_position_column = assert_cast<const ColumnInt64&>(
             *_data_reader.block_template.get_by_position(_row_position_block_position).column);
     DORIS_CHECK(row_position_column.size() == table_block->rows());
-    auto column = table_block->get_by_position(column_idx)
-                          .column->convert_to_full_column_if_const()
-                          ->assert_mutable();
+    auto column = IColumn::mutate(
+            table_block->get_by_position(column_idx).column->convert_to_full_column_if_const());
     auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
     auto& null_map = nullable_column->get_null_map_data();
     auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
@@ -737,9 +736,8 @@ Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number
     if (_row_lineage_columns.last_updated_sequence_number < 0) {
         return Status::OK();
     }
-    auto column = table_block->get_by_position(column_idx)
-                          .column->convert_to_full_column_if_const()
-                          ->assert_mutable();
+    auto column = IColumn::mutate(
+            table_block->get_by_position(column_idx).column->convert_to_full_column_if_const());
     auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
     auto& null_map = nullable_column->get_null_map_data();
     auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
