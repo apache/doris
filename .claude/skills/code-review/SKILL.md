@@ -121,6 +121,15 @@ If it involves the judgment of concurrent scenarios, it is necessary to find the
 - [ ] Are critical new paths observable with appropriate log levels and metrics?
 - [ ] Do distributed operations include enough identifiers for tracing?
 
+#### 1.3.6 BE Null And Nullable Handling (High Priority)
+
+- [ ] Only after `is_column_nullable()` and `check_and_get_column<ColumnNullable>` can an `IColumn` be safely converted to `ColumnNullable` without checking. If `is_nullable()` is used to check and then the corresponding column is treated as `ColumnNullable`, is there a clear comment explaining why it cannot be a `ColumnConst`?
+- [ ] Is `is_null_at()` called only for objects that have been syntactically parsed as `ColumnNullable`?
+- [ ] If `ColumnConst(ColumnNullable(...))` can reach this code, is it handled explicitly or materialized once at a documented boundary with `convert_to_full_column_if_const()` before row-by-row logic?
+- [ ] If `ColumnConst(ColumnNullable(...))` cannot reach this code, is the upstream/downstream materialization invariant identified, asserted with `DORIS_CHECK`/`DCHECK` where appropriate, and documented on both sides of the dependency?
+- [ ] Does every `remove_nullable(column)` call account for its const-preserving behavior? `ColumnNullable(T)` becomes `T`, while `ColumnConst(ColumnNullable(T))` becomes `ColumnConst(T)`; if downstream needs row-aligned concrete storage, materialize intentionally after removing nullable.
+- [ ] Is null handling consistent with the no-defensive-programming rule: no speculative `if` branches for impossible shapes, and invariant violations fail loudly instead of silently continuing?
+
 ### 1.4 Test Coverage Principles
 
 - All kernel features **must** have tests; prioritize regression tests, add unit tests where practical
