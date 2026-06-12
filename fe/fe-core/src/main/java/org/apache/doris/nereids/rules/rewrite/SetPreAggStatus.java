@@ -66,7 +66,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Stack;
 import java.util.stream.Collectors;
 
 /**
@@ -74,7 +73,7 @@ import java.util.stream.Collectors;
  * bottom-up tranverse the plan tree and collect required info into PreAggInfoContext
  * when get to the bottom LogicalOlapScan node, we set the preagg status using info in PreAggInfoContext
  */
-public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.PreAggInfoContext>>
+public class SetPreAggStatus extends DefaultPlanRewriter<Map<RelationId, SetPreAggStatus.PreAggInfoContext>>
         implements CustomRewriter {
     private Map<RelationId, PreAggInfoContext> olapScanPreAggContexts = new HashMap<>();
 
@@ -136,19 +135,24 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        Plan newPlan = plan.accept(this, new Stack<>());
+        Plan newPlan = plan.accept(this, new HashMap<>());
         return newPlan.accept(SetOlapScanPreAgg.INSTANCE, olapScanPreAggContexts);
     }
 
     @Override
-    public Plan visit(Plan plan, Stack<PreAggInfoContext> context) {
+    public Plan visit(Plan plan, Map<RelationId, PreAggInfoContext> context) {
+        Set<RelationId> beforeKeys = new HashSet<>(context.keySet());
         Plan newPlan = super.visit(plan, context);
-        context.clear();
+        Set<RelationId> childKeys = new HashSet<>(context.keySet());
+        childKeys.removeAll(beforeKeys);
+        for (RelationId id : childKeys) {
+            context.remove(id);
+        }
         return newPlan;
     }
 
     @Override
-    public Plan visitLogicalOlapScan(LogicalOlapScan logicalOlapScan, Stack<PreAggInfoContext> context) {
+    public Plan visitLogicalOlapScan(LogicalOlapScan logicalOlapScan, Map<RelationId, PreAggInfoContext> context) {
         if (logicalOlapScan instanceof LogicalOlapTableStreamScan) {
             // no pre-agg for LogicalOlapTableStreamScan
             return logicalOlapScan;
@@ -166,10 +170,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                             logicalOlapScan.getTable().getName()))) {
                 return logicalOlapScan.withPreAggStatus(PreAggStatus.on());
             } else {
-                if (context.empty()) {
-                    context.push(new PreAggInfoContext());
-                }
-                context.peek().addRelationId(logicalOlapScan.getRelationId());
+                PreAggInfoContext preAggInfoContext = new PreAggInfoContext();
+                preAggInfoContext.addRelationId(logicalOlapScan.getRelationId());
+                context.put(logicalOlapScan.getRelationId(), preAggInfoContext);
                 return logicalOlapScan;
             }
         } else {
@@ -178,56 +181,70 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     }
 
     @Override
-    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> logicalFilter, Stack<PreAggInfoContext> context) {
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> logicalFilter,
+            Map<RelationId, PreAggInfoContext> context) {
+        Set<RelationId> beforeKeys = new HashSet<>(context.keySet());
         LogicalFilter plan = (LogicalFilter) super.visit(logicalFilter, context);
-        if (!context.empty()) {
-            context.peek().addFilterConjuncts(plan.getExpressions());
+        Set<RelationId> childKeys = new HashSet<>(context.keySet());
+        childKeys.removeAll(beforeKeys);
+        for (RelationId id : childKeys) {
+            context.get(id).addFilterConjuncts(plan.getExpressions());
         }
         return plan;
     }
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> logicalJoin,
-            Stack<PreAggInfoContext> context) {
+            Map<RelationId, PreAggInfoContext> context) {
+        Set<RelationId> beforeKeys = new HashSet<>(context.keySet());
         LogicalJoin plan = (LogicalJoin) super.visit(logicalJoin, context);
-        if (!context.empty()) {
-            context.peek().addJoinInfo(plan);
+        Set<RelationId> childKeys = new HashSet<>(context.keySet());
+        childKeys.removeAll(beforeKeys);
+        for (RelationId id : childKeys) {
+            context.get(id).addJoinInfo(plan);
         }
         return plan;
     }
 
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> logicalProject,
-            Stack<PreAggInfoContext> context) {
+            Map<RelationId, PreAggInfoContext> context) {
+        Set<RelationId> beforeKeys = new HashSet<>(context.keySet());
         LogicalProject plan = (LogicalProject) super.visit(logicalProject, context);
-        if (!context.empty()) {
-            context.peek().setReplaceMap(plan.getAliasToProducer());
+        Set<RelationId> childKeys = new HashSet<>(context.keySet());
+        childKeys.removeAll(beforeKeys);
+        for (RelationId id : childKeys) {
+            context.get(id).setReplaceMap(plan.getAliasToProducer());
         }
         return plan;
     }
 
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> logicalAggregate,
-            Stack<PreAggInfoContext> context) {
+            Map<RelationId, PreAggInfoContext> context) {
+        Set<RelationId> beforeKeys = new HashSet<>(context.keySet());
         Plan plan = super.visit(logicalAggregate, context);
-        if (!context.isEmpty()) {
-            PreAggInfoContext preAggInfoContext = context.pop();
-            preAggInfoContext.olapScanIds.retainAll(logicalAggregate.child().getInputRelations());
+        Set<RelationId> childKeys = new HashSet<>(context.keySet());
+        childKeys.removeAll(beforeKeys);
+        for (RelationId id : childKeys) {
+            PreAggInfoContext preAggInfoContext = context.remove(id);
             preAggInfoContext.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
             preAggInfoContext.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
-            for (RelationId id : preAggInfoContext.olapScanIds) {
-                olapScanPreAggContexts.put(id, preAggInfoContext);
-            }
+            olapScanPreAggContexts.put(id, preAggInfoContext);
         }
         return plan;
     }
 
     @Override
-    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Stack<PreAggInfoContext> context) {
+    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Map<RelationId, PreAggInfoContext> context) {
+        Set<RelationId> beforeKeys = new HashSet<>(context.keySet());
         repeat = (LogicalRepeat<? extends Plan>) super.visit(repeat, context);
-        if (!context.isEmpty()) {
-            context.peek().addGroupingScalarFunctionExpresssion(repeat.getGroupingId().get());
-            context.peek().addGroupingScalarFunctionExpresssions(
+        Set<RelationId> childKeys = new HashSet<>(context.keySet());
+        childKeys.removeAll(beforeKeys);
+        for (RelationId id : childKeys) {
+            PreAggInfoContext ctx = context.get(id);
+            ctx.addGroupingScalarFunctionExpresssion(repeat.getGroupingId().get());
+            ctx.addGroupingScalarFunctionExpresssions(
                     repeat.getOutputExpressions().stream()
                             .filter(e -> e.containsType(GroupingScalarFunction.class))
                             .map(e -> e.toSlot())
