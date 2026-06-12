@@ -123,8 +123,25 @@ suite("bilateral_eager_agg") {
         inner join pdagg_proj_t2 t2 
         group by t2.k;
         select * from pdagg_proj_t2;
+   """
+
+    order_qt_sum_to_2_side_gby_agg_func_input_slot"""
+        select t1.y,t2.v, sum(if(t1.x==0,t1.y,t2.v)),sum(t1.y)
+        from pdagg_proj_t1 t1
+        inner join pdagg_proj_t2 t2 
+        group by t1.y,t2.v 
     """
 
+    order_qt_gby_agg_func_input_slot """
+        SELECT
+        t1.v,t2.v,
+        count(t1.v) AS lcount,
+        sum(t2.v) as rsum,
+        min(t1.v) as lmin
+        FROM t_pdajos_1 t1
+        INNER JOIN t_pdajos_2 t2 ON t1.k = t2.k
+        GROUP BY t1.v,t2.v;
+    """
 
     // test session variables force_eager_agg_hint
 
@@ -141,6 +158,18 @@ suite("bilateral_eager_agg") {
         GROUP BY t1.k;
     """
 
+    order_qt_push_one_nopush_two_gby_agg_func_input_slot """
+        SELECT
+          t1.v,
+          count(t1.v) AS lcount,
+          sum(t2.v) AS rsum,
+          sum(t3.v) as 3sum
+        FROM t_pdajos_1 t1
+        INNER JOIN t_pdajos_2 t2 ON t1.k = t2.k
+        inner join t_pdajos_2 t3 on t2.k=t3.k
+        GROUP BY t1.v;
+    """
+
     sql "set force_eager_agg_hint='count:t1.v=push;sum:t2.v=push;sum:t3.v=nopush';"
     order_qt_push_two_nopush_one """
         SELECT
@@ -152,6 +181,18 @@ suite("bilateral_eager_agg") {
         INNER JOIN t_pdajos_2 t2 ON t1.k = t2.k
         inner join t_pdajos_2 t3 on t2.k=t3.k
         GROUP BY t1.k;
+    """
+
+    order_qt_push_two_nopush_one_gby_agg_func_input_slot """
+        SELECT
+               t2.v,t3.v,
+              count(t1.v) AS lcount,
+              sum(t2.v) AS rsum,
+              sum(t3.v) as 3sum
+        FROM t_pdajos_1 t1
+        INNER JOIN t_pdajos_2 t2 ON t1.k = t2.k
+        inner join t_pdajos_2 t3 on t2.k=t3.k
+        GROUP BY t2.v,t3.v;
     """
 
     sql "set force_eager_agg_hint='count:t1.v=nopush;sum:t2.v=push;sum:t3.v=nopush';"

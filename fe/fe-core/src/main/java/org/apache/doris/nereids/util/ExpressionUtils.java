@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -251,11 +250,6 @@ public class ExpressionUtils {
                         BoundFunction fn = (BoundFunction) expr;
                         BoundFunction rebuilt = (BoundFunction) fn.withChildren(newChildren);
                         rebuilt = (BoundFunction) TypeCoercionUtils.processBoundFunction(rebuilt);
-                        return rebuilt;
-                    } else if (expr instanceof BinaryArithmetic) {
-                        BinaryArithmetic binaryArithmetic = (BinaryArithmetic) expr;
-                        BinaryArithmetic rebuilt = (BinaryArithmetic) binaryArithmetic.withChildren(newChildren);
-                        rebuilt = (BinaryArithmetic) TypeCoercionUtils.processBinaryArithmetic(rebuilt);
                         return rebuilt;
                     }
 

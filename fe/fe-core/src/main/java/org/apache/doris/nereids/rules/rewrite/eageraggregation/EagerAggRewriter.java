@@ -52,7 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -962,7 +962,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         JoinType joinType = join.getJoinType();
         if (joinType.isInnerJoin()) {
             if (leftCountSlot.isPresent() && rightCountSlot.isPresent()) {
-                Expression joinCnt = ExpressionUtils.rebuildSignature(
+                Expression joinCnt = TypeCoercionUtils.processBinaryArithmetic(
                         new Multiply(leftCountSlot.get(), rightCountSlot.get()));
                 return Optional.of(new Alias(joinCnt,
                         JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
@@ -978,7 +978,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 return leftCountSlot;
             }
             if (rightChildContext.isPresent() && rightCountSlot.isPresent()) {
-                Expression joinCnt = ExpressionUtils.rebuildSignature(
+                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
                         new Nvl(rightCountSlot.get(), BigIntLiteral.of(1)));
                 return Optional.of(new Alias(joinCnt,
                         JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
@@ -987,7 +987,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         if (joinType.isRightOuterJoin()) {
             if (leftChildContext.isPresent() && leftCountSlot.isPresent()) {
-                Expression joinCnt = ExpressionUtils.rebuildSignature(
+                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
                         new Nvl(leftCountSlot.get(), BigIntLiteral.of(1)));
                 return Optional.of(new Alias(joinCnt,
                         JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
@@ -1071,8 +1071,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         NamedExpression output;
         Expression outputExpr;
         if (multiplier.isPresent()) {
-            outputExpr = new Multiply(currentValue, multiplier.get());
-            outputExpr = ExpressionUtils.rebuildSignature(outputExpr);
+            outputExpr = TypeCoercionUtils.processBinaryArithmetic(new Multiply(currentValue, multiplier.get()));
         } else {
             outputExpr = currentValue;
         }
