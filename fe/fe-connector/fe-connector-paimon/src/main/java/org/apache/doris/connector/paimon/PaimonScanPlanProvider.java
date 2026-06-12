@@ -427,8 +427,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (countRepresentative != null) {
             Map<String, String> partitionValues = getPartitionInfoMap(
                     table, countRepresentative.partition(), session.getTimeZone());
-            ranges.add(buildCountRange(
-                    countRepresentative, tableLocation, partitionValues, cppReader, countSum));
+            ranges.add(buildCountRange(countRepresentative, tableLocation, defaultFileFormat,
+                    partitionValues, cppReader, countSum));
         }
 
         return ranges;
@@ -624,8 +624,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         String serializedSplit = encodeSplit(split, cppReader);
 
+        // FIX-JNI-FILE-FORMAT (P7-1): emit the real data-file format (orc/parquet), NOT "jni". JNI routing
+        // is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this string only
+        // feeds fileDesc.file_format, which BE's paimon_cpp_reader backfills into FILE_FORMAT/MANIFEST_FORMAT
+        // (an invalid "jni" breaks the manifest read). Mirrors legacy PaimonScanNode.setPaimonParams's
+        // fileDesc.setFileFormat(getFileFormat(...)).
         return new PaimonScanRange.Builder()
-                .fileFormat("jni")
+                .fileFormat(defaultFileFormat)
                 .paimonSplit(serializedSplit)
                 .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
@@ -652,10 +657,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * reading data. The serialization format honors the cpp-reader flag, like {@link #buildJniScanRange}.
      */
     private PaimonScanRange buildCountRange(DataSplit dataSplit, String tableLocation,
-            Map<String, String> partitionValues, boolean cppReader, long rowCount) {
+            String defaultFileFormat, Map<String, String> partitionValues, boolean cppReader, long rowCount) {
         String serializedSplit = encodeSplit(dataSplit, cppReader);
+        // FIX-JNI-FILE-FORMAT (P7-1): real data-file format, not "jni" (see buildJniScanRange).
         return new PaimonScanRange.Builder()
-                .fileFormat("jni")
+                .fileFormat(defaultFileFormat)
                 .paimonSplit(serializedSplit)
                 .tableLocation(tableLocation)
                 .partitionValues(partitionValues)

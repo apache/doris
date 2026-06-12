@@ -241,7 +241,11 @@ public class PaimonScanRange implements ConnectorScanRange {
         private long start;
         private long length = -1;
         private long fileSize = -1;
-        private String fileFormat = "jni";
+        // Every production caller sets fileFormat explicitly (the real orc/parquet). Default empty (NOT
+        // "jni", an invalid paimon format): BE's paimon_cpp_reader skips its FILE_FORMAT/MANIFEST_FORMAT
+        // backfill when this is empty (guarded !file_format.empty()), so a missing set can never inject an
+        // invalid format (FIX-JNI-FILE-FORMAT).
+        private String fileFormat = "";
         private Map<String, String> partitionValues;
         private long selfSplitWeight;
 

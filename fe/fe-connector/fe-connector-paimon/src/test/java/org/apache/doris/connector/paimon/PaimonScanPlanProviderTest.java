@@ -647,6 +647,79 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void jniAndCountRangesCarryRealFileFormatNotJni(@TempDir Path warehouse) throws Exception {
+        // FIX-JNI-FILE-FORMAT (P7-1): a JNI-serialized split (the default reader path AND the COUNT(*)
+        // collapse range) must emit the REAL data-file format in fileDesc.file_format, NOT "jni" — BE's
+        // paimon_cpp_reader backfills paimon FILE_FORMAT/MANIFEST_FORMAT from it (an invalid "jni" breaks
+        // the manifest read). JNI routing is gated by the paimon.split property, NOT this string, so the
+        // real format is safe to emit (legacy PaimonScanNode.setPaimonParams does the same). The table is
+        // created with explicit file.format=orc so the asserted value is the table option (distinct from
+        // the "parquet" fallback) — proving the real option is read, not a constant.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("pt", DataTypes.INT())
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .partitionKeys("pt")
+                    .primaryKey("pt", "id")
+                    .option("bucket", "1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 1, 100L));
+                write.write(GenericRow.of(1, 2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // (a) JNI data range: force_jni_scanner=true routes the native-eligible ORC split to JNI
+            // (buildJniScanRange). Its file_format must be the table's "orc", not "jni".
+            ConnectorSession forceJni = sessionWithProps(
+                    Collections.singletonMap("force_jni_scanner", "true"));
+            List<ConnectorScanRange> jniRanges = provider.planScan(
+                    forceJni, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            Assertions.assertFalse(jniRanges.isEmpty(), "force_jni scan must emit >=1 JNI range");
+            for (ConnectorScanRange r : jniRanges) {
+                Assertions.assertTrue(r.getProperties().containsKey("paimon.split"),
+                        "force_jni_scanner=true must route the split to the JNI path");
+                // MUTATION: buildJniScanRange .fileFormat("jni") -> not "orc" -> red.
+                Assertions.assertEquals("orc", ((PaimonScanRange) r).getFileFormat(),
+                        "a JNI range must carry the real data-file format, not \"jni\"");
+            }
+
+            // (b) COUNT(*) collapse range (buildCountRange): same real-format requirement; also pins that
+            // defaultFileFormat is threaded into buildCountRange's new parameter from the call site.
+            ConnectorSession plain = sessionWithProps(Collections.emptyMap());
+            List<ConnectorScanRange> countRanges = provider.planScan(
+                    plain, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ true);
+            PaimonScanRange countRange = null;
+            for (ConnectorScanRange r : countRanges) {
+                if (r.getProperties().containsKey("paimon.row_count")) {
+                    countRange = (PaimonScanRange) r;
+                }
+            }
+            Assertions.assertNotNull(countRange, "count pushdown must emit a collapsed count range");
+            // MUTATION: buildCountRange .fileFormat("jni"), or dropping the threaded defaultFileFormat -> red.
+            Assertions.assertEquals("orc", countRange.getFileFormat(),
+                    "the COUNT(*) collapse range must carry the real data-file format, not \"jni\"");
+        }
+    }
+
     // ---- FIX-NATIVE-SUBSPLIT (M-3) ----
 
     private static final long MB = 1024L * 1024L;
