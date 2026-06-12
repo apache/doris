@@ -146,6 +146,26 @@ public class CatalogSsrfCheckerTest {
     }
 
     @Test
+    public void testAzureOauthServerUriIsValidated() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "rest");
+        props.put("azure.auth_type", "OAuth2");
+        props.put("azure.endpoint", "https://onelake.dfs.fabric.microsoft.com");
+        props.put("azure.oauth2_client_id", "client-id");
+        props.put("azure.oauth2_client_secret", "client-secret");
+        props.put("azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token");
+        props.put("azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com");
+        StorageProperties azure = StorageProperties.createPrimary(props);
+
+        Map<StorageProperties.Type, StorageProperties> storageMap = new HashMap<>();
+        storageMap.put(StorageProperties.Type.AZURE, azure);
+        CatalogSsrfChecker.check("cat", null, storageMap);
+
+        Mockito.verify(mockChecker).startSSRFChecking("http://login.microsoftonline.com");
+    }
+
+    @Test
     public void testImplicitHdfsStorageIsSkipped() throws Exception {
         // explicitlyConfigured=false → auto-created fallback; should be ignored to avoid
         // breaking catalogs whose user didn't actually configure HDFS.

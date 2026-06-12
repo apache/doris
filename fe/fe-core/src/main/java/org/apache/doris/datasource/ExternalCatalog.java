@@ -331,6 +331,21 @@ public abstract class ExternalCatalog
         boolean testConnection = Boolean.parseBoolean(
                 catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
 
+        // SSRF: reject user-supplied URIs (HMS / HDFS / S3 endpoint / Iceberg REST / Glue)
+        // that point at internal or loopback hosts. Always runs so attackers cannot bypass
+        // by setting test_connection=false.
+        checkSsrf();
+
+        if (testConnection) {
+            MetastoreProperties msProps = catalogProperty.getMetastoreProperties();
+            Map<StorageProperties.Type, StorageProperties> spMap = catalogProperty.getStoragePropertiesMap();
+            CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
+                    name, msProps, spMap);
+            testCoordinator.runTests();
+        }
+    }
+
+    public void checkSsrf() throws DdlException {
         // Best-effort property parsing for the SSRF check. Some catalog types (e.g. the
         // in-tree `test` catalog) intentionally use non-standard metastore values that
         // MetastoreProperties.create() rejects; before this method the failure was hidden
@@ -342,25 +357,12 @@ public abstract class ExternalCatalog
             msProps = catalogProperty.getMetastoreProperties();
             spMap = catalogProperty.getStoragePropertiesMap();
         } catch (RuntimeException e) {
-            if (testConnection) {
-                throw e;
-            }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Skipping SSRF check for catalog '{}': {}", name, e.getMessage());
             }
             return;
         }
-
-        // SSRF: reject user-supplied URIs (HMS / HDFS / S3 endpoint / Iceberg REST / Glue)
-        // that point at internal or loopback hosts. Always runs so attackers cannot bypass
-        // by setting test_connection=false.
         CatalogSsrfChecker.check(name, msProps, spMap);
-
-        if (testConnection) {
-            CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
-                    name, msProps, spMap);
-            testCoordinator.runTests();
-        }
     }
 
     /**

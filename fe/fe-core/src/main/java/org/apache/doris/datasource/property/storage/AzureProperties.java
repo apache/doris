@@ -103,7 +103,8 @@ public class AzureProperties extends StorageProperties {
 
     @ConnectorProperty(names = {"azure.oauth2_server_uri"},
             required = false,
-            description = "The account host of Azure blob.")
+            description = "The account host of Azure blob.",
+            checkSsrf = true)
     private String oauthServerUri;
 
     @ConnectorProperty(names = {"azure.oauth2_account_host"},
