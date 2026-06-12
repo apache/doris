@@ -468,122 +468,53 @@ static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr,
     return nullptr;
 }
 
-static TExprNode rebuild_expr_node(const VExpr& expr) {
-    TExprNode node;
-    node.__set_node_type(expr.node_type());
-    node.__set_opcode(expr.op());
-    node.__set_type(create_type_desc(remove_nullable(expr.data_type())->get_primitive_type(),
-                                     cast_set<int>(expr.data_type()->get_precision()),
-                                     cast_set<int>(expr.data_type()->get_scale())));
-    node.__set_is_nullable(expr.data_type()->is_nullable());
-    node.__set_num_children(expr.get_num_children());
-    node.__set_fn(expr.fn());
-    if (const auto* in_pred = dynamic_cast<const VInPredicate*>(&expr)) {
-        TInPredicate in_predicate;
-        in_predicate.__set_is_not_in(in_pred->is_not_in());
-        node.__set_in_predicate(in_predicate);
-    } else if (const auto* case_expr = dynamic_cast<const VCaseExpr*>(&expr)) {
-        TCaseExpr case_node;
-        case_node.__set_has_case_expr(false);
-        case_node.__set_has_else_expr(case_expr->has_else_expr());
-        node.__set_case_expr(case_node);
-    } else if (const auto* short_circuit_case_expr =
-                       dynamic_cast<const ShortCircuitCaseExpr*>(&expr)) {
-        TCaseExpr case_node;
-        case_node.__set_has_case_expr(false);
-        case_node.__set_has_else_expr(short_circuit_case_expr->has_else_expr());
-        node.__set_case_expr(case_node);
-        node.__set_short_circuit_evaluation(true);
-    } else if (dynamic_cast<const ShortCircuitIfExpr*>(&expr) != nullptr ||
-               dynamic_cast<const ShortCircuitIfNullExpr*>(&expr) != nullptr ||
-               dynamic_cast<const ShortCircuitCoalesceExpr*>(&expr) != nullptr) {
-        node.__set_short_circuit_evaluation(true);
-    }
-    return node;
+static Field literal_field_from_expr(const VExpr& literal_expr) {
+    DORIS_CHECK(literal_expr.is_literal());
+    const auto* literal = dynamic_cast<const VLiteral*>(&literal_expr);
+    DORIS_CHECK(literal != nullptr);
+    Field field;
+    literal->get_column_ptr()->get(0, field);
+    return field;
 }
 
-// TODO(gabriel): could we clone it in another way?
+// Table filter localization clones an already-prepared table expr and then rewrites it to file
+// slots. Slot refs and literals must be detached from the original FE/runtime descriptors before
+// the cloned tree is reused across splits; other nodes use their own VExpr::clone_node().
+static Status clone_table_expr_node(const VExpr& expr, VExprSPtr* cloned_expr) {
+    DORIS_CHECK(cloned_expr != nullptr);
+    if (const auto* table_slot_ref = dynamic_cast<const TableSlotRef*>(&expr)) {
+        *cloned_expr = TableSlotRef::create_shared(table_slot_ref->slot_id(),
+                                                   table_slot_ref->column_id(),
+                                                   table_slot_ref->column_uniq_id(),
+                                                   table_slot_ref->data_type(),
+                                                   table_slot_ref->column_name());
+    } else if (const auto* vslot_ref = dynamic_cast<const VSlotRef*>(&expr)) {
+        *cloned_expr = TableSlotRef::create_shared(vslot_ref->slot_id(), vslot_ref->column_id(),
+                                                   vslot_ref->column_uniq_id(),
+                                                   vslot_ref->data_type(),
+                                                   vslot_ref->column_name());
+    } else if (const auto* split_literal = dynamic_cast<const SplitLocalFileLiteral*>(&expr)) {
+        *cloned_expr = std::make_shared<SplitLocalFileLiteral>(
+                split_literal->data_type(), literal_field_from_expr(expr),
+                split_literal->original_type(), split_literal->original_field());
+    } else if (dynamic_cast<const TableLiteral*>(&expr) != nullptr) {
+        *cloned_expr = TableLiteral::create_shared(expr->data_type(), literal_field_from_expr(expr));
+    } else if (expr->is_literal()) {
+        *cloned_expr = TableLiteral::create_shared(expr->data_type(), literal_field_from_expr(expr));
+    } else if (const auto* vcast_expr = dynamic_cast<const VCastExpr*>(&expr);
+               vcast_expr != nullptr && vcast_expr->node_type() == TExprNodeType::CAST_EXPR) {
+        *cloned_expr = Cast::create_shared(vcast_expr->data_type());
+    }
+    return Status::OK();
+}
+
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr) {
     DORIS_CHECK(cloned_expr != nullptr);
     if (expr == nullptr) {
         *cloned_expr = nullptr;
         return Status::OK();
     }
-
-    VExprSPtr cloned;
-    if (const auto* table_slot_ref = dynamic_cast<const TableSlotRef*>(expr.get())) {
-        cloned = TableSlotRef::create_shared(table_slot_ref->slot_id(), table_slot_ref->column_id(),
-                                             table_slot_ref->column_uniq_id(),
-                                             table_slot_ref->data_type(),
-                                             table_slot_ref->column_name());
-    } else if (const auto* vslot_ref = dynamic_cast<const VSlotRef*>(expr.get())) {
-        cloned = TableSlotRef::create_shared(vslot_ref->slot_id(), vslot_ref->column_id(),
-                                             vslot_ref->column_uniq_id(), vslot_ref->data_type(),
-                                             vslot_ref->column_name());
-    } else if (const auto* split_literal = dynamic_cast<const SplitLocalFileLiteral*>(expr.get())) {
-        cloned = std::make_shared<SplitLocalFileLiteral>(
-                split_literal->data_type(), literal_field(expr), split_literal->original_type(),
-                split_literal->original_field());
-    } else if (dynamic_cast<const TableLiteral*>(expr.get()) != nullptr) {
-        cloned = TableLiteral::create_shared(expr->data_type(), literal_field(expr));
-    } else if (expr->is_literal()) {
-        cloned = TableLiteral::create_shared(expr->data_type(), literal_field(expr));
-    } else if (const auto* cast_expr = dynamic_cast<const Cast*>(expr.get())) {
-        cloned = std::make_shared<Cast>(cast_expr->data_type());
-    } else if (const auto* vcast_expr = dynamic_cast<const VCastExpr*>(expr.get());
-               vcast_expr != nullptr && vcast_expr->node_type() == TExprNodeType::CAST_EXPR) {
-        cloned = std::make_shared<Cast>(vcast_expr->data_type());
-    } else if (const auto* in_pred = dynamic_cast<const VInPredicate*>(expr.get())) {
-        cloned = VInPredicate::create_shared(rebuild_expr_node(*in_pred));
-    } else if (const auto* direct_in_pred = dynamic_cast<const VDirectInPredicate*>(expr.get())) {
-        cloned = std::make_shared<VDirectInPredicate>(rebuild_expr_node(*direct_in_pred),
-                                                      direct_in_pred->get_set_func());
-    } else if (const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get())) {
-        cloned = VCompoundPred::create_shared(rebuild_expr_node(*compound_pred));
-    } else if (const auto* topn_pred = dynamic_cast<const VTopNPred*>(expr.get())) {
-        cloned = VTopNPred::create_shared(rebuild_expr_node(*topn_pred),
-                                          topn_pred->source_node_id(), nullptr);
-    } else if (const auto* if_null_expr = dynamic_cast<const VectorizedIfNullExpr*>(expr.get())) {
-        cloned = VectorizedIfNullExpr::create_shared(rebuild_expr_node(*if_null_expr));
-    } else if (const auto* if_expr = dynamic_cast<const VectorizedIfExpr*>(expr.get())) {
-        cloned = VectorizedIfExpr::create_shared(rebuild_expr_node(*if_expr));
-    } else if (const auto* coalesce_expr =
-                       dynamic_cast<const VectorizedCoalesceExpr*>(expr.get())) {
-        cloned = VectorizedCoalesceExpr::create_shared(rebuild_expr_node(*coalesce_expr));
-    } else if (const auto* case_expr = dynamic_cast<const VCaseExpr*>(expr.get())) {
-        cloned = VCaseExpr::create_shared(rebuild_expr_node(*case_expr));
-    } else if (const auto* short_circuit_if_expr =
-                       dynamic_cast<const ShortCircuitIfExpr*>(expr.get())) {
-        cloned = ShortCircuitIfExpr::create_shared(rebuild_expr_node(*short_circuit_if_expr));
-    } else if (const auto* short_circuit_if_null_expr =
-                       dynamic_cast<const ShortCircuitIfNullExpr*>(expr.get())) {
-        cloned = ShortCircuitIfNullExpr::create_shared(
-                rebuild_expr_node(*short_circuit_if_null_expr));
-    } else if (const auto* short_circuit_coalesce_expr =
-                       dynamic_cast<const ShortCircuitCoalesceExpr*>(expr.get())) {
-        cloned = ShortCircuitCoalesceExpr::create_shared(
-                rebuild_expr_node(*short_circuit_coalesce_expr));
-    } else if (const auto* short_circuit_case_expr =
-                       dynamic_cast<const ShortCircuitCaseExpr*>(expr.get())) {
-        cloned = ShortCircuitCaseExpr::create_shared(rebuild_expr_node(*short_circuit_case_expr));
-    } else if (const auto* fn_call = dynamic_cast<const VectorizedFnCall*>(expr.get())) {
-        cloned = VectorizedFnCall::create_shared(rebuild_expr_node(*fn_call));
-    } else {
-        return Status::NotSupported("Cannot clone expression {} for file-local rewrite",
-                                    expr->expr_name());
-    }
-
-    VExprSPtrs cloned_children;
-    cloned_children.reserve(expr->children().size());
-    for (const auto& child : expr->children()) {
-        VExprSPtr cloned_child;
-        RETURN_IF_ERROR(clone_table_expr_tree(child, &cloned_child));
-        cloned_children.push_back(std::move(cloned_child));
-    }
-    cloned->set_children(std::move(cloned_children));
-    cloned->reset_prepare_state();
-    *cloned_expr = std::move(cloned);
-    return Status::OK();
+    return expr->deep_clone(cloned_expr, clone_table_expr_node);
 }
 
 static VExprSPtr original_table_literal(const VExprSPtr& literal_expr,

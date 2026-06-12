@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -80,6 +81,7 @@ struct AnnRangeSearchRuntime;
 // the relatioinship between threads and classes.
 
 using Selector = IColumn::Selector;
+using VExprCloneNodeOverride = std::function<Status(const VExpr&, VExprSPtr*)>;
 
 struct AnnRangeSearchEvaluationResult {
     // Indicates whether the expr row_bitmap has been updated.
@@ -249,6 +251,10 @@ public:
 
     static bool contains_blockable_function(const VExprContextSPtrs& ctxs);
 
+    Status deep_clone(VExprSPtr* cloned_expr,
+                      const VExprCloneNodeOverride& clone_node_override = {}) const;
+    virtual Status clone_node(VExprSPtr* cloned_expr) const;
+
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
@@ -371,6 +377,8 @@ public:
     virtual uint64_t get_digest(uint64_t seed) const;
 
 protected:
+    TExprNode clone_texpr_node() const;
+
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;

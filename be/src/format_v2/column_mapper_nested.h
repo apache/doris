@@ -53,6 +53,14 @@ public:
 
     const DataTypePtr& original_type() const { return _original_type; }
     const Field& original_field() const { return _original_field; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        Field file_field;
+        get_column_ptr()->get(0, file_field);
+        *cloned_expr = std::make_shared<SplitLocalFileLiteral>(_data_type, file_field,
+                                                               _original_type, _original_field);
+        return Status::OK();
+    }
 
 private:
     DataTypePtr _original_type;

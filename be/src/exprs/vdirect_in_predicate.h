@@ -68,6 +68,12 @@ public:
 
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VDirectInPredicate::create_shared(clone_texpr_node(), _filter);
+        return Status::OK();
+    }
+
     bool get_slot_in_expr(VExprSPtr& new_root) const {
         if (!get_child(0)->is_slot_ref()) {
             return false;

@@ -73,6 +73,7 @@ public:
     uint64_t get_digest(uint64_t seed) const override;
 
     double execute_cost() const override { return 0.0; }
+    Status clone_node(VExprSPtr* cloned_expr) const override;
 
 protected:
     VSlotRef(int slot_id, int column_id, int column_uniq_id)

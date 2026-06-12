@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/field.h"
 #include "exprs/vexpr.h"
 
 namespace doris {
@@ -69,6 +70,16 @@ public:
     bool equals(const VExpr& other) override;
 
     uint64_t get_digest(uint64_t seed) const override;
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        Field field;
+        _column_ptr->get(0, field);
+        auto node = create_texpr_node_from(field, remove_nullable(_data_type)->get_primitive_type(),
+                                           static_cast<int>(_data_type->get_precision()),
+                                           static_cast<int>(_data_type->get_scale()));
+        *cloned_expr = VLiteral::create_shared(node);
+        return Status::OK();
+    }
 
 protected:
     VLiteral(const DataTypePtr& type) : VExpr(type, false) {}

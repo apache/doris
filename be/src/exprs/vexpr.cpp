@@ -372,6 +372,51 @@ VExpr::VExpr(DataTypePtr type, bool is_slotref)
     }
 }
 
+TExprNode VExpr::clone_texpr_node() const {
+    TExprNode node;
+    node.__set_node_type(_node_type);
+    node.__set_opcode(_opcode);
+    node.__set_type(create_type_desc(remove_nullable(_data_type)->get_primitive_type(),
+                                     static_cast<int>(_data_type->get_precision()),
+                                     static_cast<int>(_data_type->get_scale())));
+    node.__set_is_nullable(_data_type->is_nullable());
+    node.__set_num_children(get_num_children());
+    node.__set_fn(_fn);
+    return node;
+}
+
+Status VExpr::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    return Status::NotSupported("Cannot clone expression {} for file-local rewrite", expr_name());
+}
+
+Status VExpr::deep_clone(VExprSPtr* cloned_expr,
+                         const VExprCloneNodeOverride& clone_node_override) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+
+    VExprSPtr cloned;
+    if (clone_node_override) {
+        RETURN_IF_ERROR(clone_node_override(*this, &cloned));
+    }
+    if (cloned == nullptr) {
+        RETURN_IF_ERROR(clone_node(&cloned));
+    }
+    DORIS_CHECK(cloned != nullptr);
+
+    VExprSPtrs cloned_children;
+    cloned_children.reserve(_children.size());
+    for (const auto& child : _children) {
+        DORIS_CHECK(child != nullptr);
+        VExprSPtr cloned_child;
+        RETURN_IF_ERROR(child->deep_clone(&cloned_child, clone_node_override));
+        cloned_children.push_back(std::move(cloned_child));
+    }
+    cloned->set_children(std::move(cloned_children));
+    cloned->reset_prepare_state();
+    *cloned_expr = std::move(cloned);
+    return Status::OK();
+}
+
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {

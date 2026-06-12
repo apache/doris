@@ -109,6 +109,22 @@ DataTypePtr VSlotRef::execute_type(const Block* block) const {
     return block->get_by_position(_column_id).type;
 }
 
+Status VSlotRef::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    auto node = clone_texpr_node();
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(_slot_id);
+    node.__set_slot_ref(slot_ref);
+    node.__set_label(_column_label);
+    auto cloned = VSlotRef::create_shared(node);
+    auto* cloned_slot_ref = static_cast<VSlotRef*>(cloned.get());
+    cloned_slot_ref->_column_id = _column_id;
+    cloned_slot_ref->_column_uniq_id = _column_uniq_id;
+    cloned_slot_ref->_column_name = _column_name;
+    *cloned_expr = std::move(cloned);
+    return Status::OK();
+}
+
 const std::string& VSlotRef::expr_name() const {
     return *_column_name;
 }

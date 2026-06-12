@@ -53,6 +53,11 @@ public:
     std::string debug_string() const override;
     uint64_t get_digest(uint64_t seed) const override { return 0; }
     const std::string& expr_name() const override { return _expr_name; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = Cast::create_shared(_data_type);
+        return Status::OK();
+    }
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
