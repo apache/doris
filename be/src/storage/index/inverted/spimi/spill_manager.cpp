@@ -235,6 +235,61 @@ int64_t SpillManager::FlushBuffer(SpimiPostingBuffer& buffer, int32_t doc_count)
     return term_count;
 }
 
+bool SpillManager::EmitBufferToInput(SpimiPostingBuffer& buffer, int32_t doc_count,
+                                     SegmentMerger::Input& out) const {
+    // 与 FlushBuffer 的空跳过一致：无记录时只复位 buffer，不产生归并输入。
+    // （RecordCount 而非 records().empty()，理由同 FlushBuffer。）
+    if (buffer.RecordCount() == 0) {
+        buffer.Reset();
+        buffer.ResetFlushNeeded();
+        return false;
+    }
+
+    // 四个归并消费流直接产在内存；.fnm/.nrm/segments_* 由最终归并重建，
+    // 这里只是 EmitSegment 必需的占位 sink，产出即弃。
+    MemoryByteOutput m_tis;
+    MemoryByteOutput m_tii;
+    MemoryByteOutput m_frq;
+    MemoryByteOutput m_prx;
+    MemoryByteOutput m_fnm;
+    MemoryByteOutput m_nrm;
+    MemoryByteOutput m_segments_n;
+    MemoryByteOutput m_segments_gen;
+
+    SpimiSegmentSink sink {
+            .tis = &m_tis,
+            .tii = &m_tii,
+            .frq = &m_frq,
+            .prx = &m_prx,
+            .fnm = &m_fnm,
+            .nrm = &m_nrm,
+            .segments_n = &m_segments_n,
+            .segments_gen = &m_segments_gen,
+    };
+
+    // 编码参数与 FlushBuffer 完全 lockstep（index_version / omit /
+    // omit_norms / inline_small_terms，理由见 FlushBuffer 内长注释），故本
+    // Input 与「落成 spill 再 LoadSpill 读回」的四流逐字节相同。
+    // segment_name 只进 segments_N manifest（归并不消费），取固定名即可。
+    const int32_t index_version =
+            _is_v4 ? FieldInfosWriter::kIndexVersionV4 : FieldInfosWriter::kIndexVersionV1;
+    SpimiFulltextWriter::EmitSegment(buffer, sink, /*segment_name=*/"_residual", _field_name,
+                                     doc_count, index_version, _omit_tfap,
+                                     /*omit_norms=*/true,
+                                     /*out_byte_counts=*/nullptr,
+                                     /*inline_small_terms=*/true);
+
+    out.tis_bytes = std::move(m_tis.mutable_bytes());
+    out.tii_bytes = std::move(m_tii.mutable_bytes());
+    out.frq_bytes = std::move(m_frq.mutable_bytes());
+    out.prx_bytes = std::move(m_prx.mutable_bytes());
+    out.doc_count = doc_count;
+
+    buffer.Reset();
+    buffer.ResetFlushNeeded();
+    return true;
+}
+
 Status SpillManager::LoadSpill(size_t i, SegmentMerger::Input& out) const {
     if (i >= _spills.size()) {
         return Status::InternalError("SpillManager::LoadSpill index {} out of range ({})", i,

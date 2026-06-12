@@ -151,11 +151,6 @@ EmittedSegmentByteCounts SpimiIndexWriter::EmitDirect(const OutputStreams& strea
 }
 
 void SpimiIndexWriter::EmitMerged(const OutputStreams& streams, const SpimiFinishConfig& config) {
-    // Flush remaining buffer contents as one more spill segment.
-    if (_buffer->ShouldFlush() || _buffer->RecordCount() > 0) {
-        _spill_manager->FlushBuffer(*_buffer, config.doc_count);
-    }
-
     IndexOutputByteOutput tis_bo(streams.tis.get());
     IndexOutputByteOutput tii_bo(streams.tii.get());
     IndexOutputByteOutput frq_bo(streams.frq.get());
@@ -181,7 +176,7 @@ void SpimiIndexWriter::EmitMerged(const OutputStreams& streams, const SpimiFinis
     // exactly ONCE — not the COPY-double the old copy-assignment loop incurred.
     const size_t spill_count = _spill_manager->SpillCount();
     std::vector<SegmentMerger::Input> inputs;
-    inputs.reserve(spill_count);
+    inputs.reserve(spill_count + 1);
     for (size_t i = 0; i < spill_count; ++i) {
         SegmentMerger::Input inp;
         // LoadSpill moves bytes off disk into `inp`. For the single-spill case
@@ -192,6 +187,21 @@ void SpimiIndexWriter::EmitMerged(const OutputStreams& streams, const SpimiFinis
             throw doris::Exception(st);
         }
         inputs.push_back(std::move(inp));
+    }
+
+    // 残余 buffer 不再「FlushBuffer 落成第 k 个 spill 再 LoadSpill 读回」，
+    // 而是 EmitBufferToInput 在内存中直产与 LoadSpill 同形的 Input，追加为
+    // 最后一路归并输入（其 doc 区间最高，绝对 doc_id 升序合约不变），
+    // merger 零改动；省去残余段一次磁盘写 + 读回。编码参数与 FlushBuffer
+    // 完全一致，归并产物逐字节不变。空残余（如 ShouldFlush 已锁存但记录
+    // 已全部 spill）不产生输入，与旧 FlushBuffer 的空跳过等价；零 spill +
+    // 非空残余（仅 latch 触发 has_spills）则成为唯一一路输入，保持
+    // MergeSingleInput 字节拷贝快路可达。
+    {
+        SegmentMerger::Input residual;
+        if (_spill_manager->EmitBufferToInput(*_buffer, config.doc_count, residual)) {
+            inputs.push_back(std::move(residual));
+        }
     }
 
     const bool omit_norms = config.is_v4;

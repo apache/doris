@@ -129,9 +129,10 @@ public:
 
     // Emits the final merged segment into `dir`.
     //
-    // If spill segments exist (or the buffer ShouldFlush), flushes
-    // remaining buffer and performs a k-way merge. Otherwise, emits
-    // the buffer directly as a single segment.
+    // If spill segments exist (or the buffer ShouldFlush), performs a
+    // k-way merge of the spills with the residual buffer joining as an
+    // in-memory input. Otherwise, emits the buffer directly as a
+    // single segment.
     //
     // Creates the eight segment files (.tis/.tii/.frq/.prx/.fnm/.nrm/
     // segments_N/segments.gen) in `dir`, writes through
@@ -177,7 +178,8 @@ private:
     EmittedSegmentByteCounts EmitDirect(const OutputStreams& streams,
                                         const SpimiFinishConfig& config);
 
-    // Flushes remaining buffer + k-way merges all spills.
+    // k 路归并全部 spill；残余 buffer 经 SpillManager::EmitBufferToInput
+    // 在内存中直产 Input 作为最后一路输入（不再落盘成额外 spill）。
     void EmitMerged(const OutputStreams& streams, const SpimiFinishConfig& config);
 
     std::string _field_name;

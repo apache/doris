@@ -81,6 +81,47 @@ struct TmpFSDirectory {
     }
 };
 
+// 确定性语料（与 SpillCadenceDoesNotChangeIndexBytes 同款形状）：每 doc =
+// 2 个全量 hot term + 10 个轮转 vocab term + 1 个 df=1 唯一 term，
+// doc id ∈ [doc_lo, doc_hi]。任何 spill 切分都会把 hot/vocab term 的
+// posting 链拆进多个输入，强制 k-way merge 走再编码路径。
+void AppendBodyDocs(SpimiIndexWriter& w, int doc_lo, int doc_hi) {
+    constexpr int kVocab = 16;
+    for (int d = doc_lo; d <= doc_hi; ++d) {
+        uint32_t pos = 0;
+        const auto doc = static_cast<uint32_t>(d);
+        w.AppendToken("hot_alpha", doc, pos++);
+        w.AppendToken("hot_beta", doc, pos++);
+        for (int k = 0; k < 10; ++k) {
+            w.AppendToken("v" + std::to_string((d * 7 + k) % kVocab), doc, pos++);
+        }
+        w.AppendToken("uniq_" + std::to_string(d), doc, pos++);
+    }
+}
+
+// V4 段 omit norms（.nrm 不落盘），对比 .nrm 之外的全部落盘文件。
+constexpr const char* kV4SegmentFiles[] = {"_0.tis", "_0.tii", "_0.frq",
+                                           "_0.prx", "_0.fnm", "segments_1"};
+
+// 直写（无 spill）基线：AppendBodyDocs[1, docs] 的 V4 段全部落盘文件字节。
+std::vector<std::vector<uint8_t>> DirectV4Baseline(int docs) {
+    TmpFSDirectory tmp("spimi_residual_inmem_baseline");
+    SpimiIndexWriter writer("body", /*is_v4=*/true);
+    AppendBodyDocs(writer, 1, docs);
+    EXPECT_EQ(writer.spill_manager()->TotalSpillsCreated(), 0);
+    SpimiFinishConfig config;
+    config.is_v4 = true;
+    config.field_name_utf8 = "body";
+    config.doc_count = docs + 1;
+    writer.Finish(tmp.dir.get(), config);
+    std::vector<std::vector<uint8_t>> files;
+    for (const char* f : kV4SegmentFiles) {
+        files.push_back(SlurpDirFile(tmp.dir.get(), f));
+        EXPECT_FALSE(files.back().empty()) << "baseline " << f;
+    }
+    return files;
+}
+
 } // namespace
 
 // --- Construction / basic access ---
@@ -473,6 +514,101 @@ TEST(SpimiIndexWriterTest, SpillCadenceDoesNotChangeIndexBytes) {
             }
             ++file_idx;
         }
+    }
+}
+
+// --- 批1（S2）：Finish 的残余 buffer 直产内存 Input，免落盘 spill ---
+//
+// 旧行为：EmitMerged 先把残余 buffer FlushBuffer 成第 k 个 spill（7 个 tmp
+// 文件）再 LoadSpill 整流读回。新行为：残余 buffer 经 EmitBufferToInput 在
+// 内存中 EmitSegment 成与 LoadSpill 同形的 SegmentMerger::Input，追加为最后
+// 一路归并输入，省一次磁盘往返。TotalSpillsCreated() 单调不清零，故 Finish
+// 之后仍可观测「Finish 期间是否新建过 spill」。输出字节不变由本测试的直写
+// 基线对比 + SpillCadenceDoesNotChangeIndexBytes + 批0 金标准共同钉死。
+
+TEST(SpimiIndexWriterTest, FinishResidualBufferDoesNotCreateNewSpill) {
+    constexpr int kDocs = 600;
+    const auto baseline = DirectV4Baseline(kDocs);
+
+    // 2 个 spill + 非空残余 buffer → Finish 走 EmitMerged。
+    TmpFSDirectory tmp("spimi_residual_inmem_merged");
+    SpimiIndexWriter writer("body", /*is_v4=*/true);
+    AppendBodyDocs(writer, 1, 200);
+    writer.FlushPending(/*doc_count=*/201);
+    AppendBodyDocs(writer, 201, 400);
+    writer.FlushPending(/*doc_count=*/401);
+    AppendBodyDocs(writer, 401, kDocs); // 残余留在 buffer，随 Finish 参与归并
+    ASSERT_GT(writer.buffer()->RecordCount(), 0U);
+    ASSERT_EQ(writer.spill_manager()->TotalSpillsCreated(), 2);
+
+    SpimiFinishConfig config;
+    config.is_v4 = true;
+    config.field_name_utf8 = "body";
+    config.doc_count = kDocs + 1;
+    writer.Finish(tmp.dir.get(), config);
+
+    // 核心断言：Finish 不得把残余 buffer 落成新 spill 文件。
+    EXPECT_EQ(writer.spill_manager()->TotalSpillsCreated(), 2)
+            << "EmitMerged 仍在为残余 buffer 落盘 spill（应直产内存 Input）";
+
+    // 强金标准：归并输出与直写基线逐字节相同。
+    size_t i = 0;
+    for (const char* f : kV4SegmentFiles) {
+        EXPECT_TRUE(SlurpDirFile(tmp.dir.get(), f) == baseline[i])
+                << "残余 buffer 内存 Input 归并与直写基线在 " << f << " 上字节不一致";
+        ++i;
+    }
+}
+
+// 边界：k≥1 且残余 buffer 为空（全部数据已 FlushPending）→ Finish 不新建
+// spill（旧实现该路径同样不落盘：FlushBuffer 对空 buffer 是 no-op），输出
+// 仍与直写基线逐字节一致。守住空残余分支不被改坏。
+TEST(SpimiIndexWriterTest, FinishEmptyResidualBufferAddsNoInput) {
+    constexpr int kDocs = 600;
+    const auto baseline = DirectV4Baseline(kDocs);
+
+    TmpFSDirectory tmp("spimi_residual_inmem_empty");
+    SpimiIndexWriter writer("body", /*is_v4=*/true);
+    AppendBodyDocs(writer, 1, 300);
+    writer.FlushPending(/*doc_count=*/301);
+    AppendBodyDocs(writer, 301, kDocs);
+    writer.FlushPending(/*doc_count=*/kDocs + 1);
+    ASSERT_EQ(writer.buffer()->RecordCount(), 0U); // 残余为空
+
+    SpimiFinishConfig config;
+    config.is_v4 = true;
+    config.field_name_utf8 = "body";
+    config.doc_count = kDocs + 1;
+    writer.Finish(tmp.dir.get(), config);
+
+    EXPECT_EQ(writer.spill_manager()->TotalSpillsCreated(), 2);
+    size_t i = 0;
+    for (const char* f : kV4SegmentFiles) {
+        EXPECT_TRUE(SlurpDirFile(tmp.dir.get(), f) == baseline[i])
+                << "空残余 buffer 归并与直写基线在 " << f << " 上字节不一致";
+        ++i;
+    }
+}
+
+// 边界：k=0 纯直写（无 spill、未触发 ShouldFlush）→ EmitDirect 路径全程
+// 零 spill。守住直写路径不被 EmitMerged 改动波及。语料用 600 doc（与其余
+// 用例一致）：hot term df=600 超出 256B 内联阈值必外置，.frq/.prx 非空；
+// 更小语料会全员内联，.frq/.prx 合法为空。
+TEST(SpimiIndexWriterTest, FinishPureDirectWriteNeverSpills) {
+    constexpr int kDocs = 600;
+    TmpFSDirectory tmp("spimi_residual_inmem_direct");
+    SpimiIndexWriter writer("body", /*is_v4=*/true);
+    AppendBodyDocs(writer, 1, kDocs);
+
+    SpimiFinishConfig config;
+    config.is_v4 = true;
+    config.field_name_utf8 = "body";
+    config.doc_count = kDocs + 1;
+    writer.Finish(tmp.dir.get(), config);
+
+    EXPECT_EQ(writer.spill_manager()->TotalSpillsCreated(), 0);
+    for (const char* f : kV4SegmentFiles) {
+        EXPECT_FALSE(SlurpDirFile(tmp.dir.get(), f).empty()) << f;
     }
 }
 

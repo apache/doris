@@ -130,6 +130,21 @@ public:
     // After this call, `buffer` is empty and ready for new Appends.
     int64_t FlushBuffer(SpimiPostingBuffer& buffer, int32_t doc_count);
 
+    // 把 `buffer` 在内存中 EmitSegment 成与 LoadSpill 同形的归并输入（四流
+    // .tis/.tii/.frq/.prx + doc_count），不落任何 spill tmp 文件。供
+    // SpimiIndexWriter::EmitMerged 在 Finish 时处理残余 buffer：直接作为
+    // 最后一路归并输入，省去「FlushBuffer 落盘 + LoadSpill 读回」一次磁盘
+    // 往返。编码参数与 FlushBuffer 逐项相同（index_version、omit、
+    // omit_norms=true、inline_small_terms=true），且 MemoryByteOutput 与
+    // FileByteOutput 的 FilePointer() 字节流恒等（见 SpillSegment 注释），
+    // 因此产出的四流与「先落盘再读回」逐字节相同，最终归并产物不变。
+    //
+    // 与 FlushBuffer 一致地 Reset() buffer 并复位 flush 锁存。空 buffer
+    //（RecordCount()==0）只复位并返回 false，`out` 不被触碰、不得参与归并
+    //（镜像 FlushBuffer 的空跳过）。不触 _spills/_spill_counter。
+    bool EmitBufferToInput(SpimiPostingBuffer& buffer, int32_t doc_count,
+                           SegmentMerger::Input& out) const;
+
     // Streams spill `i`'s .tis/.tii/.frq/.prx back from their per-stream tmp
     // files into `out` (the only streams the merge consumes). Resident cost is
     // exactly one spill's four streams. Returns an error Status on IO failure.
@@ -137,6 +152,11 @@ public:
 
     size_t SpillCount() const { return _spills.size(); }
     const std::vector<SpillSegment>& Spills() const { return _spills; }
+
+    // 本 manager 生命周期内创建过的 spill 总数（单调递增：CleanupSpillFiles
+    // 清空 _spills 但不回退计数）。用于「Finish 阶段不得新建 spill」一类的
+    // 事后断言——Finish 末尾会清理 spill 文件，SpillCount() 观测不到过程量。
+    int32_t TotalSpillsCreated() const { return _spill_counter; }
 
     // Best-effort deletes every spill tmp file (idempotent; NOT_FOUND ignored)
     // then clears the metadata. Called after the merge produces the final
