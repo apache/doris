@@ -135,6 +135,29 @@ public:
     // 不再把整条 .frq/.prx 载回内存。
     static void DecodeFlat(ForwardByteSource& frq_src, ForwardByteSource* prx_src, int32_t doc_freq,
                            bool has_prox, bool is_slim, FlatPostings* out);
+
+    // k>1 slim 拼接快路径：把同一 term 的一个 slim 输入 run（df < skip_interval
+    // ⇒ SLIM kDefault 布局）以字节级拼接语义追加到合并中的 slim 块 —— 输出与
+    // 「DecodeFlat 平面化 + 逐值重编」逐字节相同，但免去平面数组物化与全部值
+    // 的重编码：
+    //   - `.frq` 链：仅非首 run 的首 docCode 重基（存储形态 = 相对隐式 0 的
+    //     delta，即绝对首 doc id；重写为相对 `prev_last_doc` 的 delta，freq
+    //     低位与后随 freq VInt 原样保留），其余字节边扫边 verbatim 拷贝 ——
+    //     扫描只为追踪 run 末绝对 doc（下一 run 的重基锚）与 Σfreq（kProxRaw
+    //     的自定界），值不重编（LEB128 canonical，同值必同字节）。
+    //   - `.prx`（has_prox 时必需，缺失按 corrupt 抛出）：slim term 是整 term
+    //     单块信封，解析为 raw payload 后 verbatim 追加（kProxRaw 按 Σfreq
+    //     自定界扫描；kProxZstd 先 inflate —— slim term 有界）。position delta
+    //     按 doc 自锚，payload 跨 run 拼接无需改写；合并块的 mode-byte/ZSTD
+    //     决策由调用方（EmitSlimTermPreEncoded → FlushProxRaw）对拼接后的
+    //     payload 统一重跑。
+    // 消费严格前向且自定界（与 DecodeFlat 同约定：返回时两源恰好停在本 run
+    // 的块尾）。返回该 run 末 doc 的绝对 id；run 与前一 run 重叠按 corrupt
+    // 抛出（不变量：spill 间 doc 区间不重叠且升序）。
+    static int64_t ConcatSlimRun(ForwardByteSource& frq_src, ForwardByteSource* prx_src,
+                                 int32_t doc_freq, bool has_prox, bool is_first_run,
+                                 int64_t prev_last_doc, std::vector<uint8_t>* out_frq,
+                                 std::vector<uint8_t>* out_prx);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi

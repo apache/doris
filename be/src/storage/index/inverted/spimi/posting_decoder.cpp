@@ -343,6 +343,27 @@ void ScanPosBytesStreaming(ForwardByteSource& src, int32_t doc_freq, size_t dd_b
     }
 }
 
+// 解析 kProxZstd 信封（VInt(uncomp) VInt(comp) ZSTD-payload）并 inflate 出该
+// term 的精确 raw position 字节（DecodePrxFlat 与 ConcatSlimRun 共用）。
+std::vector<uint8_t> InflatePrxZstd(ForwardByteSource& src) {
+    const auto uncomp = static_cast<uint32_t>(src.ReadVInt());
+    const auto comp = static_cast<uint32_t>(src.ReadVInt());
+    std::vector<uint8_t> packed;
+    src.ReadInto(&packed, comp); // bounds-checked
+    std::vector<uint8_t> owned(uncomp);
+    BlockCompressionCodec* codec = nullptr;
+    if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
+            [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD codec unavailable");
+    }
+    Slice in(reinterpret_cast<const char*>(packed.data()), comp);
+    Slice slice_out(reinterpret_cast<char*>(owned.data()), uncomp);
+    if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD decompress failed");
+    }
+    return owned;
+}
+
 // 解析一个 term 的整段 `.prx` 信封（kProxRaw / kProxZstd / kProxWindowed）
 // 并把 position 字节 + per-doc 偏移追加进 out。raw 模式直接从源流式扫描；
 // ZSTD / windowed 模式先 inflate 出该 term 的精确内层流再扫描（与旧
@@ -355,21 +376,7 @@ void DecodePrxFlat(ForwardByteSource& src, int32_t doc_freq, size_t dd_base,
         return;
     }
     if (mode == FreqProxEncoder::kProxZstd) {
-        const auto uncomp = static_cast<uint32_t>(src.ReadVInt());
-        const auto comp = static_cast<uint32_t>(src.ReadVInt());
-        std::vector<uint8_t> packed;
-        src.ReadInto(&packed, comp); // bounds-checked
-        std::vector<uint8_t> owned(uncomp);
-        BlockCompressionCodec* codec = nullptr;
-        if (!get_block_compression_codec(CompressionTypePB::ZSTD, &codec).ok() || codec == nullptr)
-                [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD codec unavailable");
-        }
-        Slice in(reinterpret_cast<const char*>(packed.data()), comp);
-        Slice slice_out(reinterpret_cast<char*>(owned.data()), uncomp);
-        if (!codec->decompress(in, &slice_out).ok() || slice_out.size != uncomp) [[unlikely]] {
-            SPIMI_THROW_CORRUPT("PostingDecoder .prx: ZSTD decompress failed");
-        }
+        const std::vector<uint8_t> owned = InflatePrxZstd(src);
         ScanPosBytes(owned.data(), owned.size(), doc_freq, dd_base, out);
         return;
     }
@@ -399,6 +406,36 @@ void DecodePrxFlat(ForwardByteSource& src, int32_t doc_freq, size_t dd_base,
         return;
     }
     SPIMI_THROW_CORRUPT("PostingDecoder .prx: unknown prox block mode");
+}
+
+// LEB128 VInt 追加（与 ByteOutput::WriteVInt 同编码 —— canonical，同值必同
+// 字节；slim 拼接重发首 docCode 依赖这一点保持首 run 整链 verbatim）。
+inline void AppendVInt(std::vector<uint8_t>& buf, uint32_t v) {
+    while (v & ~0x7FU) {
+        buf.push_back(static_cast<uint8_t>((v & 0x7FU) | 0x80U));
+        v >>= 7U;
+    }
+    buf.push_back(static_cast<uint8_t>(v));
+}
+
+// 解码一个 LEB128 VInt 并把源字节 verbatim 追加进 out（slim 拼接的「边扫边
+// 拷」原语：扫描只为取值 —— 重基锚 / Σfreq —— 不重编码）。shift 加固与
+// ForwardByteSource::ReadVInt 一致。
+inline uint32_t CopyVIntBytes(ForwardByteSource& src, std::vector<uint8_t>& out) {
+    uint32_t v = 0;
+    uint32_t shift = 0;
+    while (true) {
+        const uint8_t b = src.ReadByte();
+        out.push_back(b);
+        v |= static_cast<uint32_t>(b & 0x7FU) << shift;
+        if ((b & 0x80U) == 0U) {
+            return v;
+        }
+        shift += 7;
+        if (shift >= 32U) [[unlikely]] {
+            SPIMI_THROW_CORRUPT("PostingDecoder slim concat: VInt shift overflow");
+        }
+    }
 }
 
 } // namespace
@@ -500,6 +537,85 @@ void PostingDecoder::DecodeFlat(ForwardByteSource& frq_src, ForwardByteSource* p
         SPIMI_THROW_CORRUPT("PostingDecoder flat: missing .prx block for a phrase-on term");
     }
     DecodePrxFlat(*prx_src, doc_freq, dd_base, out);
+}
+
+int64_t PostingDecoder::ConcatSlimRun(ForwardByteSource& frq_src, ForwardByteSource* prx_src,
+                                      int32_t doc_freq, bool has_prox, bool is_first_run,
+                                      int64_t prev_last_doc, std::vector<uint8_t>* out_frq,
+                                      std::vector<uint8_t>* out_prx) {
+    if (doc_freq <= 0 || frq_src.Remaining() <= 0) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder: bad doc_freq / buffer length");
+    }
+
+    // ---- `.frq` 链。首 docCode 单独处理：解码、必要时重基、按原编码重发
+    //（canonical LEB128 ⇒ 首 run 重发原值 = 原字节，整链 verbatim）。后随
+    // freq VInt（phrase-on 且低位 0 时）与其余 doc 的全部字节 verbatim 拷贝。
+    int64_t last = 0;
+    int64_t freq_total = 0;
+    {
+        uint32_t code = static_cast<uint32_t>(frq_src.ReadVInt());
+        const int64_t abs_first = has_prox ? (code >> 1U) : code;
+        if (!is_first_run) {
+            // 存储的首 delta 相对隐式 0（= 绝对首 doc id）；拼接在前一 run 之
+            // 后必须改为相对其末 doc 的 delta。区间不重叠（不变量 2）⇒ 新
+            // delta 严格为正，否则按 corrupt 抛出（与 DecodeFlat 同口径）。
+            if (abs_first <= prev_last_doc) [[unlikely]] {
+                SPIMI_THROW_CORRUPT(
+                        "PostingDecoder slim concat: appended run overlaps the previous run");
+            }
+            const auto delta = static_cast<uint32_t>(abs_first - prev_last_doc);
+            code = has_prox ? ((delta << 1U) | (code & 1U)) : delta;
+        }
+        AppendVInt(*out_frq, code);
+        uint32_t freq = 1;
+        if (has_prox && (code & 1U) == 0U) {
+            freq = CopyVIntBytes(frq_src, *out_frq); // freq VInt 原样保留
+        }
+        last = abs_first;
+        freq_total += freq;
+    }
+    for (int32_t i = 1; i < doc_freq; ++i) {
+        if (has_prox) {
+            const uint32_t code = CopyVIntBytes(frq_src, *out_frq);
+            last += code >> 1U;
+            freq_total += ((code & 1U) != 0U) ? 1U : CopyVIntBytes(frq_src, *out_frq);
+        } else {
+            last += CopyVIntBytes(frq_src, *out_frq);
+            ++freq_total;
+        }
+    }
+
+    if (!has_prox) {
+        return last;
+    }
+
+    // ---- `.prx`：slim term 是整 term 单块信封（kProxRaw / kProxZstd；
+    // kProxWindowed 只出现在 df >= skip_interval 的 term 上，slim run 遇到即
+    // corrupt）。payload 按 doc 自锚，verbatim 追加。
+    if (prx_src == nullptr || prx_src->Remaining() <= 0) [[unlikely]] {
+        SPIMI_THROW_CORRUPT("PostingDecoder flat: missing .prx block for a phrase-on term");
+    }
+    const uint8_t mode = prx_src->ReadByte();
+    if (mode == FreqProxEncoder::kProxRaw) {
+        // Σfreq 个 position VInt，边读边 verbatim 追加（自定界：消费恰好停在
+        // 本 run 的 raw payload 尾）。
+        for (int64_t f = 0; f < freq_total; ++f) {
+            while (true) {
+                const uint8_t b = prx_src->ReadByte();
+                out_prx->push_back(b);
+                if ((b & 0x80U) == 0U) {
+                    break;
+                }
+            }
+        }
+        return last;
+    }
+    if (mode == FreqProxEncoder::kProxZstd) {
+        const std::vector<uint8_t> owned = InflatePrxZstd(*prx_src);
+        out_prx->insert(out_prx->end(), owned.begin(), owned.end());
+        return last;
+    }
+    SPIMI_THROW_CORRUPT("PostingDecoder slim concat: unexpected .prx mode for a slim term");
 }
 
 } // namespace doris::segment_v2::inverted_index::spimi

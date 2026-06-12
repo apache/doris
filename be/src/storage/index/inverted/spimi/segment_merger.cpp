@@ -37,6 +37,11 @@ namespace doris::segment_v2::inverted_index::spimi {
 
 namespace {
 
+// 观测计数器与测试钩子（见 segment_merger.h 的 MergeStats 注释）。
+// thread_local：一次 Merge 在单线程内完成，生产逻辑从不读取。
+thread_local SegmentMerger::MergeStats g_merge_stats;
+thread_local bool g_force_slim_reencode_for_test = false;
+
 // 把一条输入流整段拷到输出：内存源走 BorrowStable 零拷贝 WriteBytes（与旧
 // 的 vector 直拷等价），文件游标按 1MiB 分块流拷 —— 任一情形下输出字节与
 // 全量载回后整段 WriteBytes 逐一相同。
@@ -150,6 +155,8 @@ int64_t MergeSingleInput(SegmentMerger::StreamInput& input, const SpimiSegmentSi
         manifest_writer.WriteSegmentsGen(sink.segments_gen, /*generation=*/1);
     }
 
+    ++g_merge_stats.single_input_segments;
+
     // Return the term count from the input's .tis footer.
     return static_cast<int64_t>(total_entries);
 }
@@ -185,6 +192,18 @@ inline void AppendVInt(std::vector<uint8_t>& buf, uint32_t v) {
 }
 
 } // namespace
+
+const SegmentMerger::MergeStats& SegmentMerger::Stats() {
+    return g_merge_stats;
+}
+
+void SegmentMerger::ResetStats() {
+    g_merge_stats = MergeStats {};
+}
+
+void SegmentMerger::SetForceSlimReencodeForTest(bool v) {
+    g_force_slim_reencode_for_test = v;
+}
 
 SegmentMerger::StreamInput SegmentMerger::WrapOwnedInput(Input&& in) {
     StreamInput s;
@@ -295,7 +314,8 @@ int64_t SegmentMerger::Merge(std::vector<StreamInput>& inputs, const SpimiSegmen
     };
     std::vector<TermSource> sources;
     PostingDecoder::FlatPostings flat;
-    std::vector<uint8_t> slim_frq; // rebuilt merged SLIM .frq block (df < skip_interval)
+    std::vector<uint8_t> slim_frq; // merged SLIM .frq block (df < skip_interval)
+    std::vector<uint8_t> slim_prx; // merged SLIM term's raw position payload (concat path)
     const std::vector<uint32_t> kNoU32;
     const std::vector<uint8_t> kNoBytes;
     const int32_t skip_interval = TermDictWriter::kDefaultSkipInterval;
@@ -363,123 +383,173 @@ int64_t SegmentMerger::Merge(std::vector<StreamInput>& inputs, const SpimiSegmen
         }
         const auto df = static_cast<int32_t>(sum_df);
 
-        // ---- Phase 2: flat-decode each input's run in spill order. Spill
-        // segments already carry GLOBAL absolute doc_ids in non-overlapping
-        // ascending ranges (see the contract above), so the runs concatenate
-        // verbatim — DecodeFlat re-bases only each subsequent run's FIRST
-        // doc-delta (from "delta vs implicit 0" to "delta vs previous run's
-        // last doc") and splices the position bytes untouched (within-doc
-        // position deltas are self-anchored per doc). No doc-level merge, no
-        // sort: the result is the exact flat input a direct write of the
-        // merged term would have staged.
-        flat.Clear();
-        for (const auto& s : sources) {
-            if (s.info.inlined) {
-                // Inline input term: the posting bytes live in the .tis entry
-                // (take() 已拷入 TermSource 自有缓冲)。Decode them directly —
-                // no .frq/.prx offset arithmetic. V4 spills are written
-                // inlined (lockstep with the final segment), so multi-spill
-                // merges hit this branch for every small term.
-                PostingDecoder::DecodeFlat(s.info.inline_frq, s.info.inline_frq_len,
-                                           s.info.inline_prx, s.info.inline_prx_len,
-                                           s.info.doc_freq, has_prox, s.info.is_slim, &flat);
-            } else {
-                // 外置 term：把该输入的 .frq/.prx 游标前跳到本 term 的
-                // posting 指针（指针随 term 序单调，跳表等间隙字节顺带跳过），
-                // 流式解码自定界（doc_freq / 信封驱动），无需预知块尾。
-                auto& input = inputs[s.input_index];
-                input.frq->SkipForwardTo(s.info.freq_pointer);
-                ForwardByteSource* prx_src = nullptr;
-                if (has_prox) {
-                    input.prx->SkipForwardTo(s.info.prox_pointer);
-                    prx_src = input.prx.get();
-                }
-                PostingDecoder::DecodeFlat(*input.frq, prx_src, s.info.doc_freq, has_prox,
-                                           s.info.is_slim, &flat);
-            }
-        }
-
-        // ---- Phase 3: re-emit through the Σdf tier — the SAME dispatch a
-        // direct write performs in FreqProxEncoder::StartTerm (slim below the
-        // skip interval, windowed/PFOR at-or-above), fed pre-decoded flat
-        // input, so the output bytes are identical to the direct write's.
         FreqProxEncoder::FinishedTerm ft;
         bool staged = false;
-        if (df < skip_interval) {
-            // SLIM merged term: rebuild the per-doc docCode VInts from the
-            // flat arrays (cheap — df < skip_interval) and hand the spliced
-            // raw position bytes to the slim pre-encoded emit, which applies
-            // the exact FlushProxBlock mode-byte + ZSTD policy to the MERGED
-            // payload (any input-side .prx envelope was already resolved by
-            // DecodeFlat).
+
+        if (df < skip_interval && !g_force_slim_reencode_for_test) {
+            // ---- 批 4 快路径（k>1 slim 字节级拼接）：Σdf < skip_interval ⇒
+            // 合并结果仍是 slim term，且每个输入 run 必然也是 slim（df_i ≤
+            // Σdf < skip_interval —— is_slim 纯由 df 推导），于是不再平面化
+            // 解码 + 逐值重编，而是按 spill 序做字节级拼接：每输入仅首
+            // docCode 重基，其余 .frq 字节 verbatim；.prx 信封解析为 raw
+            // payload 拼接（kProxZstd 输入先 inflate），合并块的 mode/ZSTD
+            // 决策由 EmitSlimTermPreEncoded 对拼接后的 payload 统一重跑。
+            // 输出与下方平面化重编路径逐字节相同（交叉断言见
+            // spill_merge_slim_concat_test）—— 这是 MergeSingleInput 整段
+            // 字节拷贝在 k>1 的 term 级推广。
             slim_frq.clear();
-            if (has_prox) {
-                for (int32_t i = 0; i < df; ++i) {
-                    const uint32_t code = flat.doc_deltas[static_cast<size_t>(i)] << 1U;
-                    const uint32_t freq = flat.freqs[static_cast<size_t>(i)];
-                    if (freq == 1) {
-                        AppendVInt(slim_frq, code | 1U);
-                    } else {
-                        AppendVInt(slim_frq, code);
-                        AppendVInt(slim_frq, freq);
+            slim_prx.clear();
+            int64_t concat_last_doc = 0;
+            bool first_run = true;
+            for (const auto& s : sources) {
+                DCHECK(s.info.is_slim) << "df_i <= Σdf < skip_interval implies a slim run";
+                if (s.info.inlined) {
+                    // inline run：posting 字节在 .tis 条目里（take() 已拷入
+                    // TermSource 自有缓冲），包内存源走同一拼接核心。
+                    MemoryByteSource frq_mem(s.info.inline_frq, s.info.inline_frq_len);
+                    MemoryByteSource prx_mem(s.info.inline_prx, s.info.inline_prx_len);
+                    concat_last_doc = PostingDecoder::ConcatSlimRun(
+                            frq_mem, has_prox ? &prx_mem : nullptr, s.info.doc_freq, has_prox,
+                            first_run, concat_last_doc, &slim_frq, has_prox ? &slim_prx : nullptr);
+                } else {
+                    // 外置 run：游标前跳到 posting 指针后流式拼接（消费自定
+                    // 界，与 DecodeFlat 同约定，停在块尾）。
+                    auto& input = inputs[s.input_index];
+                    input.frq->SkipForwardTo(s.info.freq_pointer);
+                    ForwardByteSource* prx_src = nullptr;
+                    if (has_prox) {
+                        input.prx->SkipForwardTo(s.info.prox_pointer);
+                        prx_src = input.prx.get();
                     }
+                    concat_last_doc = PostingDecoder::ConcatSlimRun(
+                            *input.frq, prx_src, s.info.doc_freq, has_prox, first_run,
+                            concat_last_doc, &slim_frq, has_prox ? &slim_prx : nullptr);
                 }
-            } else {
-                for (int32_t i = 0; i < df; ++i) {
-                    AppendVInt(slim_frq, flat.doc_deltas[static_cast<size_t>(i)]);
-                }
+                first_run = false;
             }
-            ft = encoder.EmitSlimTermPreEncoded(df, slim_frq, has_prox ? flat.pos_vint : kNoBytes);
+            ft = encoder.EmitSlimTermPreEncoded(df, slim_frq, has_prox ? slim_prx : kNoBytes);
             staged = true;
-        } else if (use_windowed) {
-            // V4 windowed merged term (phrase-on or DOCS_ONLY): the flat
-            // arrays are exactly the pre-decoded shape the windowed emit
-            // consumes; WindowFrameEncoder receives the same input a direct
-            // write would have buffered, so framing/W-selection/ZSTD reproduce
-            // byte-for-byte.
-            ft = encoder.EmitWindowedTermPreDecoded(
-                    df, flat.doc_deltas, has_prox ? flat.freqs : kNoU32,
-                    has_prox ? flat.pos_vint : kNoBytes, has_prox ? flat.pos_offsets : kNoU32);
-            staged = true;
+            ++g_merge_stats.slim_concat_terms;
         } else {
-            // Legacy (pre-V4) PFOR re-encode: replay the flat arrays through
-            // the streaming encoder. Positions are prefix-summed straight off
-            // the flat VInt bytes — still no per-doc heap blocks.
-            encoder.StartTerm(df);
-            int64_t doc = 0;
-            size_t pb = 0;
-            const uint8_t* pv = flat.pos_vint.data();
-            for (int32_t i = 0; i < df; ++i) {
-                doc += flat.doc_deltas[static_cast<size_t>(i)];
-                const auto freq =
-                        has_prox ? static_cast<int32_t>(flat.freqs[static_cast<size_t>(i)]) : 1;
-                encoder.StartDoc(static_cast<int32_t>(doc), freq);
+            // ---- Phase 2: flat-decode each input's run in spill order. Spill
+            // segments already carry GLOBAL absolute doc_ids in non-overlapping
+            // ascending ranges (see the contract above), so the runs concatenate
+            // verbatim — DecodeFlat re-bases only each subsequent run's FIRST
+            // doc-delta (from "delta vs implicit 0" to "delta vs previous run's
+            // last doc") and splices the position bytes untouched (within-doc
+            // position deltas are self-anchored per doc). No doc-level merge, no
+            // sort: the result is the exact flat input a direct write of the
+            // merged term would have staged.
+            flat.Clear();
+            for (const auto& s : sources) {
+                if (s.info.inlined) {
+                    // Inline input term: the posting bytes live in the .tis entry
+                    // (take() 已拷入 TermSource 自有缓冲)。Decode them directly —
+                    // no .frq/.prx offset arithmetic. V4 spills are written
+                    // inlined (lockstep with the final segment), so multi-spill
+                    // merges hit this branch for every small term.
+                    PostingDecoder::DecodeFlat(s.info.inline_frq, s.info.inline_frq_len,
+                                               s.info.inline_prx, s.info.inline_prx_len,
+                                               s.info.doc_freq, has_prox, s.info.is_slim, &flat);
+                } else {
+                    // 外置 term：把该输入的 .frq/.prx 游标前跳到本 term 的
+                    // posting 指针（指针随 term 序单调，跳表等间隙字节顺带跳过），
+                    // 流式解码自定界（doc_freq / 信封驱动），无需预知块尾。
+                    auto& input = inputs[s.input_index];
+                    input.frq->SkipForwardTo(s.info.freq_pointer);
+                    ForwardByteSource* prx_src = nullptr;
+                    if (has_prox) {
+                        input.prx->SkipForwardTo(s.info.prox_pointer);
+                        prx_src = input.prx.get();
+                    }
+                    PostingDecoder::DecodeFlat(*input.frq, prx_src, s.info.doc_freq, has_prox,
+                                               s.info.is_slim, &flat);
+                }
+            }
+
+            // ---- Phase 3: re-emit through the Σdf tier — the SAME dispatch a
+            // direct write performs in FreqProxEncoder::StartTerm (slim below the
+            // skip interval, windowed/PFOR at-or-above), fed pre-decoded flat
+            // input, so the output bytes are identical to the direct write's.
+            if (df < skip_interval) {
+                // SLIM merged term（批 4 后仅测试强制重编时到达，作为拼接快
+                // 路径的交叉对照）: rebuild the per-doc docCode VInts from the
+                // flat arrays (cheap — df < skip_interval) and hand the spliced
+                // raw position bytes to the slim pre-encoded emit, which applies
+                // the exact FlushProxBlock mode-byte + ZSTD policy to the MERGED
+                // payload (any input-side .prx envelope was already resolved by
+                // DecodeFlat).
+                slim_frq.clear();
                 if (has_prox) {
-                    int32_t pos = 0;
-                    for (int32_t f = 0; f < freq; ++f) {
-                        // One LEB128 VInt (bounds enforced by DecodeFlat's scan).
-                        uint32_t v = 0;
-                        uint32_t shift = 0;
-                        while (true) {
-                            const uint8_t b = pv[pb++];
-                            v |= static_cast<uint32_t>(b & 0x7FU) << shift;
-                            if ((b & 0x80U) == 0) {
-                                break;
-                            }
-                            shift += 7;
+                    for (int32_t i = 0; i < df; ++i) {
+                        const uint32_t code = flat.doc_deltas[static_cast<size_t>(i)] << 1U;
+                        const uint32_t freq = flat.freqs[static_cast<size_t>(i)];
+                        if (freq == 1) {
+                            AppendVInt(slim_frq, code | 1U);
+                        } else {
+                            AppendVInt(slim_frq, code);
+                            AppendVInt(slim_frq, freq);
                         }
-                        pos += static_cast<int32_t>(v);
-                        encoder.AddPosition(pos);
+                    }
+                } else {
+                    for (int32_t i = 0; i < df; ++i) {
+                        AppendVInt(slim_frq, flat.doc_deltas[static_cast<size_t>(i)]);
                     }
                 }
-                encoder.FinishDoc();
-            }
-            if (inline_small_terms) {
-                ft = encoder.FinishTermStaged();
+                ft = encoder.EmitSlimTermPreEncoded(df, slim_frq,
+                                                    has_prox ? flat.pos_vint : kNoBytes);
+                staged = true;
+            } else if (use_windowed) {
+                // V4 windowed merged term (phrase-on or DOCS_ONLY): the flat
+                // arrays are exactly the pre-decoded shape the windowed emit
+                // consumes; WindowFrameEncoder receives the same input a direct
+                // write would have buffered, so framing/W-selection/ZSTD reproduce
+                // byte-for-byte.
+                ft = encoder.EmitWindowedTermPreDecoded(
+                        df, flat.doc_deltas, has_prox ? flat.freqs : kNoU32,
+                        has_prox ? flat.pos_vint : kNoBytes, has_prox ? flat.pos_offsets : kNoU32);
                 staged = true;
             } else {
-                dict.Add(cur_field, cur_term, encoder.FinishTerm());
+                // Legacy (pre-V4) PFOR re-encode: replay the flat arrays through
+                // the streaming encoder. Positions are prefix-summed straight off
+                // the flat VInt bytes — still no per-doc heap blocks.
+                encoder.StartTerm(df);
+                int64_t doc = 0;
+                size_t pb = 0;
+                const uint8_t* pv = flat.pos_vint.data();
+                for (int32_t i = 0; i < df; ++i) {
+                    doc += flat.doc_deltas[static_cast<size_t>(i)];
+                    const auto freq =
+                            has_prox ? static_cast<int32_t>(flat.freqs[static_cast<size_t>(i)]) : 1;
+                    encoder.StartDoc(static_cast<int32_t>(doc), freq);
+                    if (has_prox) {
+                        int32_t pos = 0;
+                        for (int32_t f = 0; f < freq; ++f) {
+                            // One LEB128 VInt (bounds enforced by DecodeFlat's scan).
+                            uint32_t v = 0;
+                            uint32_t shift = 0;
+                            while (true) {
+                                const uint8_t b = pv[pb++];
+                                v |= static_cast<uint32_t>(b & 0x7FU) << shift;
+                                if ((b & 0x80U) == 0) {
+                                    break;
+                                }
+                                shift += 7;
+                            }
+                            pos += static_cast<int32_t>(v);
+                            encoder.AddPosition(pos);
+                        }
+                    }
+                    encoder.FinishDoc();
+                }
+                if (inline_small_terms) {
+                    ft = encoder.FinishTermStaged();
+                    staged = true;
+                } else {
+                    dict.Add(cur_field, cur_term, encoder.FinishTerm());
+                }
             }
+            ++g_merge_stats.reencode_terms;
         }
 
         if (staged && inline_small_terms) {

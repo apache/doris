@@ -106,6 +106,22 @@ public:
                          const std::string& segment_name, const std::string& field_name,
                          int32_t total_doc_count, int32_t index_version,
                          bool omit_term_freq_and_positions, bool omit_norms);
+
+    // 观测计数器（thread_local —— 一次 Merge 在单线程内完成）：按 dispatch
+    // 优先级统计三条路径的命中（k=1 整段字节拷贝 > k>1 slim 字节拼接 > 平面
+    // 化重编）。测试 / 基准用它核对 verbatim 命中率；生产逻辑从不读取。
+    struct MergeStats {
+        int64_t single_input_segments = 0; // k=1：整段 posting 字节拷贝
+        int64_t slim_concat_terms = 0;     // k>1：Σdf<skip_interval 的字节级拼接
+        int64_t reencode_terms = 0;        // k>1：平面化重编（windowed/PFOR/强制 slim）
+    };
+    static const MergeStats& Stats();
+    static void ResetStats();
+
+    // 测试钩子：强制 k>1 的 slim term 走平面化重编慢路径 —— 用于「拼接输出
+    // == 重编输出」的交叉字节断言（spill_merge_slim_concat_test）。生产恒
+    // false。
+    static void SetForceSlimReencodeForTest(bool v);
 };
 
 } // namespace doris::segment_v2::inverted_index::spimi
