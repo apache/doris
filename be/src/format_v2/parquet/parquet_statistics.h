@@ -35,6 +35,10 @@ class RowGroupMetaData;
 class Statistics;
 } // namespace parquet
 
+namespace cctz {
+class time_zone;
+} // namespace cctz
+
 namespace doris {
 class ColumnPredicate;
 } // namespace doris
@@ -91,7 +95,8 @@ struct ParquetStatisticsUtils {
 
     static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema,
-            const std::shared_ptr<::parquet::Statistics>& statistics);
+            const std::shared_ptr<::parquet::Statistics>& statistics,
+            const cctz::time_zone* timezone = nullptr);
 
     // Return true if the statistics indicate that the row group can be safely skipped according to
     // the local single-column predicate filter.
@@ -101,18 +106,21 @@ struct ParquetStatisticsUtils {
     static ParquetRowGroupPruneReason RowGroupPruneReason(
             const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
             int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-            const format::FileColumnPredicateFilter& column_filter);
+            const format::FileColumnPredicateFilter& column_filter,
+            const cctz::time_zone* timezone = nullptr);
 
     static bool RowGroupExcludes(const ::parquet::RowGroupMetaData& row_group,
                                  ::parquet::ParquetFileReader* file_reader, int row_group_idx,
                                  const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-                                 const format::FileColumnPredicateFilter& column_filter);
+                                 const format::FileColumnPredicateFilter& column_filter,
+                                 const cctz::time_zone* timezone = nullptr);
 
     static Status SelectRowGroups(
             const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
-            bool enable_bloom_filter, ParquetPruningStats* pruning_stats);
+            bool enable_bloom_filter, ParquetPruningStats* pruning_stats,
+            const cctz::time_zone* timezone = nullptr);
 
     static bool BloomFilterSupported(const ParquetColumnSchema& column_schema);
 
@@ -129,13 +137,14 @@ Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        bool enable_bloom_filter, ParquetPruningStats* pruning_stats);
+        bool enable_bloom_filter, ParquetPruningStats* pruning_stats,
+        const cctz::time_zone* timezone = nullptr);
 
 Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
         std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
-        ParquetPruningStats* pruning_stats);
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr);
 
 } // namespace doris::parquet

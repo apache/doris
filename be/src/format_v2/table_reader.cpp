@@ -480,7 +480,6 @@ Status TableReader::init(TableReadOptions&& options) {
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
-    _mapper_options.allow_missing_columns = options.allow_missing_columns;
     _conjuncts = std::move(options.conjuncts);
     _table_column_predicates = std::move(options.column_predicates);
 

@@ -40,6 +40,7 @@ struct ParquetReaderScanState {
     std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
     RowGroupScanPlan scan_plan;
     ParquetScanScheduler scheduler;
+    const cctz::time_zone* timezone = nullptr;
     bool enable_bloom_filter = false;
 };
 
@@ -117,6 +118,7 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->enable_bloom_filter =
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
     if (state != nullptr) {
+        _state->timezone = &state->timezone_obj();
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(state->enable_strict_mode());
     }
@@ -207,10 +209,10 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     scan_range.size = _file_description->range_size;
     scan_range.file_size = _file_description->file_size;
     // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
-    RETURN_IF_ERROR(plan_parquet_row_groups(*_state->file_context.metadata,
-                                            _state->file_context.file_reader.get(),
-                                            _state->file_schema, *request_snapshot, scan_range,
-                                            _state->enable_bloom_filter, &row_group_plan));
+    RETURN_IF_ERROR(plan_parquet_row_groups(
+            *_state->file_context.metadata, _state->file_context.file_reader.get(),
+            _state->file_schema, *request_snapshot, scan_range, _state->enable_bloom_filter,
+            &row_group_plan, _state->timezone));
     if (_profile != nullptr) {
         const auto& pruning_stats = row_group_plan.pruning_stats;
         COUNTER_UPDATE(_parquet_profile.filtered_row_groups,
@@ -334,7 +336,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             auto column_chunk = row_group_metadata->ColumnChunk(leaf_schema->leaf_column_id);
             DORIS_CHECK(column_chunk != nullptr);
             const auto statistics = ParquetStatisticsUtils::TransformColumnStatistics(
-                    *leaf_schema, column_chunk->statistics());
+                    *leaf_schema, column_chunk->statistics(), _state->timezone);
             if (!statistics.has_min_max) {
                 return Status::NotSupported("Missing parquet min/max statistics for column {}",
                                             leaf_schema->name);
