@@ -1155,6 +1155,59 @@ ColumnDefinition make_file_column(int32_t id, const std::string& name, const Dat
     return field;
 }
 
+class TableReaderCharVarcharTestHelper final : public TableReader {
+public:
+    using TableReader::_should_truncate_char_or_varchar_column;
+    using TableReader::_truncate_char_or_varchar_column;
+};
+
+TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
+    ColumnMapping mapping;
+    mapping.table_type = std::make_shared<DataTypeString>(3, TYPE_VARCHAR);
+    mapping.file_type = std::make_shared<DataTypeString>(10, TYPE_VARCHAR);
+    EXPECT_TRUE(
+            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+
+    mapping.file_type = std::make_shared<DataTypeString>(2, TYPE_VARCHAR);
+    EXPECT_FALSE(
+            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+
+    mapping.file_type = std::make_shared<DataTypeString>();
+    EXPECT_TRUE(
+            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+
+    mapping.file_type = std::make_shared<DataTypeInt32>();
+    EXPECT_TRUE(
+            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+
+    mapping.table_type = std::make_shared<DataTypeString>();
+    EXPECT_FALSE(
+            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+}
+
+TEST(TableReaderTest, TruncateCharOrVarcharColumnKeepsNullMap) {
+    auto nested = ColumnString::create();
+    nested->insert_data("abcdef", 6);
+    nested->insert_data("xyz", 3);
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    null_map->insert_value(1);
+
+    auto type = make_nullable(std::make_shared<DataTypeString>(3, TYPE_VARCHAR));
+    Block block;
+    block.insert({ColumnNullable::create(std::move(nested), std::move(null_map)), type, "v"});
+
+    TableReaderCharVarcharTestHelper::_truncate_char_or_varchar_column(&block, 0, 3);
+
+    ASSERT_EQ(block.columns(), 1);
+    ASSERT_EQ(block.rows(), 2);
+    const auto* nullable_column =
+            assert_cast<const ColumnNullable*>(block.get_by_position(0).column.get());
+    EXPECT_EQ(nullable_column->get_nested_column().get_data_at(0).to_string(), "abc");
+    EXPECT_FALSE(nullable_column->is_null_at(0));
+    EXPECT_TRUE(nullable_column->is_null_at(1));
+}
+
 void set_name_identifiers(std::vector<ColumnDefinition>* columns);
 
 void set_name_identifier(ColumnDefinition* column) {
