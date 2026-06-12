@@ -244,6 +244,18 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             for (NamedExpression ne : project.getProjects()) {
                 if (canPullUp(ne) && !blockedExprIds.contains(ne.getExprId())) {
                     info.addPulledUpExpr(project, ne);
+                } else if (ne instanceof Alias && ne.child(0) instanceof Slot) {
+                    // Chain: this intermediate project renames a slot that may
+                    // come from a pulled-up expression deeper in the tree.
+                    // Always register Slot(alias.toSlot()) → child Slot so that
+                    // getPullUpReplaceExpression can resolve the chain later.
+                    context.pullUpExprReplaceMap.putIfAbsent(ne.toSlot(), ne.child(0));
+                    // Only propagate blocking when the alias itself is blocked
+                    // (e.g. TopN order key, Join condition). Forwarding renames
+                    // of unblocked slots must not block the underlying expression.
+                    if (blockedExprIds.contains(ne.getExprId())) {
+                        blockedExprIds.add(((Slot) ne.child(0)).getExprId());
+                    }
                 }
             }
             // Continue into the project's child. Chained projects are all visited.
@@ -519,8 +531,24 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             CollectorContext context) {
         Set<ExprId> childOutputExprIds = ((Plan) project.child(0)).getOutputExprIdSet();
         List<Expression> passThroughExprs = collectUnavailablePullUpExprs(project, context, childOutputExprIds);
+        // When projects below the TopN were simplified, an above-TopN project may
+        // still hold Aliases whose children are intermediate SlotReferences (e.g.
+        // element_at results) that were removed from the child output. Even when
+        // pulledUpExprs and passThroughExprs are empty, we must still process such
+        // Aliases — replace them with SlotReferences pointing to the child output
+        // where the computation was restored by addUpperProject.
+        boolean hasAliasWithUnavailableChild = false;
         if (pulledUpExprs.isEmpty() && passThroughExprs.isEmpty()) {
-            return project;
+            for (NamedExpression ne : project.getProjects()) {
+                if (ne instanceof Alias && ne.child(0) instanceof Slot
+                        && !childOutputExprIds.contains(((Slot) ne.child(0)).getExprId())) {
+                    hasAliasWithUnavailableChild = true;
+                    break;
+                }
+            }
+            if (!hasAliasWithUnavailableChild) {
+                return project;
+            }
         }
 
         Set<ExprId> pulledUpExprIds = new HashSet<>();
@@ -534,21 +562,69 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             if (!pulledUpExprIds.contains(ne.getExprId())
                     && !isUnavailablePullUpSlot(ne, context, childOutputExprIds)) {
                 NamedExpression resolved = resolveNamedExpression(ne, context, childOutputExprIds);
-                simplified.add(resolved);
-                existingExprIds.add(resolved.getExprId());
+
+                // This rule pulls up non-trivial expressions from below TopN
+                // to above TopN, so that only base columns flow through the
+                // TopN operator (enabling lazy materialization).
+                //
+                // When adjacent Projects below a TopN form a chain — an
+                // upper Project renames a slot produced by a lower Project's
+                // pulled-up expression — the Collector pass records each
+                // link in pullUpExprReplaceMap so that getPullUpReplaceExpression
+                // can follow the chain to its end.
+                //
+                // Example plan tree that produces the chain v1#4 → SlotRef#10
+                // → ElementAt(sa#1, 'fa'):
+                //
+                //   TopN (output: id#0, v1#4)
+                //     Project (id#0, slotref#10 as v1#4)          ← Alias(Slot):
+                //     │                                                 map[v1#4] = slotref#10
+                //     Project (id#0, element_at(sa#1,'fa') as slotref#10)  ← pull-up expr:
+                //       Scan (id#0, sa#1)                                   map[slotref#10] = element_at(...)
+                //
+                // getPullUpReplaceExpression(Slot(v1#4)):
+                //   v1#4 → SlotRef#10 (is Slot → recurse)
+                //        → ElementAt(sa#1, 'fa') (not Slot → return)
+                //
+                // Here, if the resolved expression differs from the original
+                // (meaning chain resolution kicked in) and the final
+                // replacement is a non-Slot expression, then the upper
+                // project (added above TopN by addUpperProject) will already
+                // compute it. We therefore skip the full expression in this
+                // lower project to avoid duplicate computation, and only
+                // retain its base input slots so they can pass through TopN.
+                boolean pulledAbove = false;
+                if (resolved != ne) {
+                    Expression replaceExpr = getPullUpReplaceExpression(
+                            resolved.toSlot(), context);
+                    if (replaceExpr != null && !(replaceExpr instanceof Slot)) {
+                        pulledAbove = true;
+                        // Expression pulled above → only base slots stay
+                        // in the lower project (for lazy mat through TopN).
+                        for (Slot slot : resolved.getInputSlots()) {
+                            ExprId slotEid = slot.getExprId();
+                            if (!existingExprIds.contains(slotEid)
+                                    && childOutputExprIds.contains(slotEid)) {
+                                simplified.add(slot);
+                                existingExprIds.add(slotEid);
+                            }
+                        }
+                    }
+                }
+                if (!pulledAbove) {
+                    if (!existingExprIds.contains(resolved.getExprId())) {
+                        simplified.add(resolved);
+                        existingExprIds.add(resolved.getExprId());
+                    }
+                }
             }
         }
 
         for (NamedExpression pulledUpExpr : pulledUpExprs) {
-            for (PullUpInfo info : context.topNToPullUpInfo.values()) {
-                if (info.baseSlotsByExpr.get(pulledUpExpr.getExprId()) != null) {
-                    for (Slot baseSlot : resolveInputSlots(pulledUpExpr, context, childOutputExprIds)) {
-                        if (!existingExprIds.contains(baseSlot.getExprId())) {
-                            simplified.add(baseSlot);
-                            existingExprIds.add(baseSlot.getExprId());
-                        }
-                    }
-                    break; // found, no need to check other PullUpInfos
+            for (Slot baseSlot : resolveInputSlots(pulledUpExpr, context, childOutputExprIds)) {
+                if (!existingExprIds.contains(baseSlot.getExprId())) {
+                    simplified.add(baseSlot);
+                    existingExprIds.add(baseSlot.getExprId());
                 }
             }
         }
@@ -586,12 +662,16 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     }
 
     private static Expression getPullUpReplaceExpression(Slot slot, CollectorContext context) {
-        for (Map.Entry<Slot, Expression> entry : context.pullUpExprReplaceMap.entrySet()) {
-            if (entry.getKey().getExprId().equals(slot.getExprId())) {
-                return entry.getValue();
+        Expression result = context.pullUpExprReplaceMap.get(slot);
+
+        // Resolve one-level chain: Slot(v1#4) → Slot(element_at#10) → ElementAt(sa#1,'fa')
+        if (result instanceof Slot) {
+            Expression chained = getPullUpReplaceExpression((Slot) result, context);
+            if (chained != null) {
+                return chained;
             }
         }
-        return null;
+        return result;
     }
 
     /** Create a new Project above the TopN that restores pulled-up expressions. */
@@ -621,6 +701,19 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 upperOutput.add(pulledUpExpr);
                 upperOutputExprIds.add(pulledUpExpr.getExprId());
             } else {
+                // origSlot may map to a pulled-up expression via chain:
+                //   v1#4 → SlotRef#10 → ElementAt(sa#1, 'fa')
+                // Create a synthetic Alias to compute the expression
+                // in the upper project (above TopN).
+                Expression chainedExpr = getPullUpReplaceExpression(origSlot, context);
+                if (chainedExpr != null && !(chainedExpr instanceof Slot)
+                        && !upperOutputExprIds.contains(origSlot.getExprId())) {
+                    NamedExpression synthetic = new Alias(
+                            origSlot.getExprId(), chainedExpr, origSlot.getName());
+                    upperOutput.add(synthetic);
+                    upperOutputExprIds.add(synthetic.getExprId());
+                    continue;
+                }
                 Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
                 if (currentSlot != null) {
                     if (!passThroughOutputExprIds.contains(currentSlot.getExprId())) {
@@ -634,14 +727,27 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                         addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
                                 currentOutputByExprId, passThroughSlots);
                     } else {
-                        // Slot was lost during simplifyProject — pass through directly.
-                        // TopN is a pass-through node; the computation for this slot
-                        // exists below the TopN even if the intermediate project lost it.
-                        if (upperOutputExprIds.add(origSlot.getExprId())) {
-                            upperOutput.add(origSlot);
-                        }
+                        // When NestedColumnPruning has run before this rule, the
+                        // originalTopNOutput may contain intermediate expression
+                        // slots (element_at results) that were simplified away by
+                        // simplifyProject. These slots are no longer produced by
+                        // the rewritten TopN's child and would cause CheckAfterRewrite
+                        // failures if passed through. Skip them — the corresponding
+                        // computation is already covered by the pulled-up Aliases
+                        // or by the base slots added during simplification.
                     }
                 }
+            }
+        }
+
+        // Add current TopN output slots that are not already in upperOutput
+        // and were part of the original TopN output (i.e. not base structs
+        // injected by simplifyProject solely for lazy mat).
+        for (Slot slot : currentOutput) {
+            if (!upperOutputExprIds.contains(slot.getExprId())
+                    && info.originalTopNOutput.contains(slot)) {
+                upperOutput.add(slot);
+                upperOutputExprIds.add(slot.getExprId());
             }
         }
 

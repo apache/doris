@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -1163,4 +1164,515 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                                 .anyMatch(e -> "x".equals(e.getName())))
                 );
     }
+
+    /**
+     * Simulates e.sql: JOIN with chained element_at-like expressions pulled up
+     * through TopN. The lower projects compute non-trivial expressions (v1 from a,
+     * v3 from b), an intermediate project forwards them as Slots, and the TopN
+     * has both a pass-through and a blocked (ORDER BY) expression.
+     *
+     * Before pullup:
+     *   TopN(order by id_a, v2)
+     *     Project(v1#slot, v2, v3#slot, ...)   ← wraps intermediate Slots
+     *       Join
+     *         Project(id_a, v1, v3')            ← computes v1=a+1, v3=b+1
+     *           Scan(ta: id_a, a, b)
+     *
+     * After pullup:
+     *   Project(v1=..., v3=..., ...)            ← upper (pulled above TopN)
+     *     TopN
+     *       Project(a, v2, b, id_a)             ← base slots only (no duplicates)
+     *         Join (simplified children)
+     */
+    @Test
+    void testPullUpChainedExpressionsThroughJoinAndTopN() {
+        LogicalOlapScan scanTa = PlanConstructor.newLogicalOlapScan(0, "ta", 0);
+        LogicalOlapScan scanTb = PlanConstructor.newLogicalOlapScan(1, "tb", 0);
+        Slot idA = scanTa.getOutput().get(0);
+        Slot a = scanTa.getOutput().get(1);     // simulates sa (base struct)
+        Slot idB = scanTb.getOutput().get(0);
+        Slot c = scanTb.getOutput().get(1);     // simulates sb (base struct)
+
+        // v1 = a + 1 (simulates element_at(sa, 'fa'))
+        Alias v1 = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "v1");
+        // v3 = c + 1 (simulates element_at(sb, 'fc'))
+        Alias v3 = new Alias(new Add(c, new IntegerLiteral((byte) 1)), "v3");
+        // v2 = v1 + 1 (COALESCE-like, depends on v1, in ORDER BY)
+        Alias v2 = new Alias(new Add(v1.toSlot(), new IntegerLiteral((byte) 1)), "v2");
+
+        // Lower project on ta side: computes v1
+        LogicalProject<LogicalOlapScan> taProj
+                = new LogicalProject<>(ImmutableList.of(idA, v1), scanTa);
+        // Lower project on tb side: computes v3
+        LogicalProject<LogicalOlapScan> tbProj
+                = new LogicalProject<>(ImmutableList.of(idB, v3), scanTb);
+
+        // Join
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(
+                JoinType.INNER_JOIN, ImmutableList.of(new EqualTo(idA, idB)),
+                taProj, tbProj, null);
+
+        // Intermediate project: forwards v1, v3 as Slots, adds v2 (ORDER BY dep)
+        LogicalProject<LogicalPlan> midProject = new LogicalProject<>(
+                ImmutableList.of(v1.toSlot(), v2, v3.toSlot(), idA, idB), join);
+
+        // TopN with v2 in ORDER BY (blocks v2 pull-up, but v1/v3 should still be pulled)
+        LogicalTopN<LogicalProject<LogicalPlan>> topN = new LogicalTopN<>(
+                ImmutableList.of(
+                        new OrderKey(idA, false, false),
+                        new OrderKey(v2.toSlot(), false, false)),
+                10, 0, midProject);
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker
+                .from(MemoTestUtils.createConnectContext(), topN)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        // Root should be a Project (upper) → TopN → ...
+        Assertions.assertTrue(rewritten instanceof LogicalProject,
+                "Root should be LogicalProject (upper project above TopN)");
+        LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
+
+        // Upper project must contain pulled-up Aliases: v1 and v3
+        Assertions.assertTrue(upperProject.getProjects().stream()
+                .anyMatch(e -> "v1".equals(e.getName())),
+                "v1 should be pulled above TopN");
+        Assertions.assertTrue(upperProject.getProjects().stream()
+                .anyMatch(e -> "v3".equals(e.getName())),
+                "v3 should be pulled above TopN");
+
+        // TopN is child of upper project
+        Assertions.assertTrue(upperProject.child(0) instanceof LogicalTopN);
+        LogicalTopN<?> rewrittenTopN = (LogicalTopN<?>) upperProject.child(0);
+
+        // Below TopN: the lower project must contain base slot a (for v1)
+        // and must NOT contain duplicate v1 or v3 Aliases
+        LogicalProject<?> lowerProject = (LogicalProject<?>) rewrittenTopN.child(0);
+        Assertions.assertTrue(lowerProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Lower project must contain base slot a (for lazy mat)");
+        Assertions.assertFalse(lowerProject.getProjects().stream()
+                .anyMatch(e -> "v1".equals(e.getName())),
+                "Lower project must NOT contain duplicate v1");
+        Assertions.assertFalse(lowerProject.getProjects().stream()
+                .anyMatch(e -> "v3".equals(e.getName())),
+                "Lower project must NOT contain duplicate v3");
+    }
+
+    /**
+     * Verifies that addUpperProject does not leak base slots (injected by
+     * simplifyProject for lazy materialization) into the upper project's visible
+     * output. The upper project must expose only what the original TopN output had.
+     *
+     * Before pullup:
+     *   TopN(order by idA, limit 10, output: [v1, v2, idA, idB])
+     *     Project(v1 = a + 1, v2 = b + 1, idA, idB)
+     *       Scan(a, b, idA, idB)
+     *
+     * After pullup:
+     *   Project(v1 = a + 1, v2 = b + 1, idA, idB)   ← upper: must NOT leak a, b
+     *     TopN(order by idA)                          ← carries a, b internally
+     *       Project(a, b, idA, idB)                   ← base slots for lazy mat
+     *         Scan(a, b, idA, idB)
+     */
+    @Test
+    void testUpperProjectDoesNotLeakBaseSlots() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot idA = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);
+        Slot idB = scan.getOutput().get(2);
+        Slot b = scan.getOutput().get(3);
+        Alias v1 = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "v1");
+        Alias v2 = new Alias(new Add(b, new IntegerLiteral((byte) 1)), "v2");
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(v1, v2, idA, idB))
+                .topN(10, 0, ImmutableList.of(2))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
+        // Must expose exactly the original TopN output: [v1, v2, idA, idB]
+        Assertions.assertEquals(4, upperProject.getProjects().size(),
+                "Upper project output must match original TopN output size");
+        Assertions.assertEquals(v1.getExprId(), upperProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(v2.getExprId(), upperProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(idA.getExprId(), upperProject.getProjects().get(2).getExprId());
+        Assertions.assertEquals(idB.getExprId(), upperProject.getProjects().get(3).getExprId());
+        // Base slots must NOT leak into upper project output
+        Assertions.assertFalse(upperProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Base slot a must not leak into upper project output");
+        Assertions.assertFalse(upperProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Base slot b must not leak into upper project output");
+
+        // Base slots must still pass through TopN for lazy materialization
+        LogicalTopN<?> topN = (LogicalTopN<?>) upperProject.child(0);
+        Assertions.assertTrue(topN.getOutput().stream()
+                .anyMatch(s -> s.getExprId().equals(a.getExprId())),
+                "Base slot a must pass through TopN internally");
+        Assertions.assertTrue(topN.getOutput().stream()
+                .anyMatch(s -> s.getExprId().equals(b.getExprId())),
+                "Base slot b must pass through TopN internally");
+    }
+
+    /**
+     * Tests pass-through slot handling when an upper project forwards a bare
+     * Slot whose underlying expression was pulled up from a lower project.
+     *
+     * Before pullup:
+     *   TopN(order by id, limit 10)
+     *     Project1(id, x)              ← x is bare Slot (pass-through from child)
+     *       Project2(id, a+b as x)     ← computes x = a+b
+     *         Scan(id, a, b)
+     *
+     * After pullup:
+     *   Project(x = a + b, id)         ← upper (pulled above TopN)
+     *     TopN(order by id)
+     *       Project(id, a, b)          ← base slots only, x replaced by a, b
+     *         Project(id, a, b)        ← simplified lower project
+     *           Scan(id, a, b)
+     *
+     * The key mechanism: x in Project1 is a bare Slot that becomes unavailable
+     * after Project2 is simplified (x is removed). It is detected as an
+     * "unavailable pull-up slot" via isUnavailablePullUpSlot, and its
+     * replacement expression (a+b) is added to passThroughExprs. The base
+     * slots a, b from passThroughExprs are then retained in the simplified
+     * Project1 so they can flow through TopN for lazy materialization.
+     */
+    @Test
+    void testPassThroughSlotWithPulledUpExpressionFromLowerProject() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);   // gender column, used as "a"
+        Slot b = scan.getOutput().get(2);   // name column, used as "b"
+
+        // Lower project: computes x = a + b
+        Alias x = new Alias(new Add(a, b), "x");
+        LogicalProject<LogicalOlapScan> lowerProject
+                = new LogicalProject<>(ImmutableList.of(id, x), scan);
+
+        // Upper project: passes through x as a bare Slot, plus id
+        LogicalProject<LogicalProject<LogicalOlapScan>> upperProject
+                = new LogicalProject<>(ImmutableList.of(x.toSlot(), id), lowerProject);
+
+        // TopN(order by id)
+        LogicalTopN<LogicalProject<LogicalProject<LogicalOlapScan>>> topN = new LogicalTopN<>(
+                ImmutableList.of(new OrderKey(id, false, false)),
+                10, 0, upperProject);
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker
+                .from(MemoTestUtils.createConnectContext(), topN)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        // Root should be a Project (upper) → TopN → ...
+        Assertions.assertTrue(rewritten instanceof LogicalProject,
+                "Root should be LogicalProject (upper project above TopN)");
+        LogicalProject<?> rewrittenUpper = (LogicalProject<?>) rewritten;
+
+        // Upper project must contain Alias(x, a+b) — the pulled-up expression
+        Assertions.assertTrue(rewrittenUpper.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "x should be pulled above TopN in upper project");
+
+        // Upper project must retain id
+        Assertions.assertTrue(rewrittenUpper.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(id.getExprId())),
+                "id should be in upper project output");
+
+        // Base slots a, b must NOT leak into upper project output
+        Assertions.assertFalse(rewrittenUpper.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Base slot a must not leak into upper project output");
+        Assertions.assertFalse(rewrittenUpper.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Base slot b must not leak into upper project output");
+
+        // TopN is child of upper project
+        Assertions.assertTrue(rewrittenUpper.child(0) instanceof LogicalTopN);
+        LogicalTopN<?> rewrittenTopN = (LogicalTopN<?>) rewrittenUpper.child(0);
+
+        // Below TopN: must contain base slots a and b (from passThroughExprs)
+        LogicalProject<?> midProject = (LogicalProject<?>) rewrittenTopN.child(0);
+        Assertions.assertTrue(midProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Project below TopN must contain base slot a (for lazy mat)");
+        Assertions.assertTrue(midProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Project below TopN must contain base slot b (for lazy mat)");
+
+        // Must NOT contain Alias x in the lower projects (expression pulled up)
+        Assertions.assertFalse(midProject.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Project below TopN must NOT contain x (pulled above)");
+
+        // The lowest project (original lowerProject after simplification)
+        // should also only contain id, a, b
+        LogicalProject<?> lowestProject = (LogicalProject<?>) midProject.child(0);
+        Assertions.assertFalse(lowestProject.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Lowest project must NOT contain x (pulled above)");
+        Assertions.assertTrue(lowestProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Lowest project must contain base slot a");
+        Assertions.assertTrue(lowestProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Lowest project must contain base slot b");
+    }
+
+    /**
+     * Tests chain resolution when an upper project computes an expression
+     * (abs(x)) that references a slot (x) defined as a pulled-up expression
+     * (a+b) in a lower project. Verifies that both expressions are resolved
+     * through the chain and the intermediate slot disappears.
+     *
+     * Before pullup:
+     *   TopN(order by id, limit 10)
+     *     Project1(id, abs(x) as y)       ← y = abs(x), x from child
+     *       Project2(id, a+b as x)        ← x = a+b
+     *         Scan(id, a, b)
+     *
+     * After pullup:
+     *   Project(y = abs(a + b), id)       ← upper: chain resolved to a+b
+     *     TopN(order by id)
+     *       Project(id, a, b)             ← only base slots
+     *         Project(id, a, b)           ← simplified lower project
+     *           Scan(id, a, b)
+     *
+     * Key mechanism: y = abs(x) is pulled up (canPullUp=true, child is not Slot).
+     * x = a+b is also pulled up. In the replacer, resolveExpression replaces
+     * SlotRef(x) with (a+b) via pullUpExprReplaceMap, so y becomes abs(a+b).
+     * The intermediate slot x disappears entirely — it is neither in the upper
+     * project output (originalTopNOutput only has y, id) nor in the lower
+     * projects (pulled up).
+     */
+    @Test
+    void testExpressionChainResolvedThroughIntermediateSlot() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);   // gender column, used as "a"
+        Slot b = scan.getOutput().get(2);   // name column, used as "b"
+
+        // Lower project: computes x = a + b
+        Alias x = new Alias(new Add(a, b), "x");
+        LogicalProject<LogicalOlapScan> lowerProject
+                = new LogicalProject<>(ImmutableList.of(id, x), scan);
+
+        // Upper project: computes y = abs(x)
+        Alias y = new Alias(new Abs(x.toSlot()), "y");
+        LogicalProject<LogicalProject<LogicalOlapScan>> upperProject
+                = new LogicalProject<>(ImmutableList.of(y, id), lowerProject);
+
+        // TopN(order by id)
+        LogicalTopN<LogicalProject<LogicalProject<LogicalOlapScan>>> topN = new LogicalTopN<>(
+                ImmutableList.of(new OrderKey(id, false, false)),
+                10, 0, upperProject);
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker
+                .from(MemoTestUtils.createConnectContext(), topN)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        // Root should be a Project (upper)
+        Assertions.assertTrue(rewritten instanceof LogicalProject,
+                "Root should be LogicalProject (upper project above TopN)");
+        LogicalProject<?> project3 = (LogicalProject<?>) rewritten;
+
+        // === Verify project3 (upper) output ===
+        // Must contain y (the pulled-up expression, now resolved to abs(a+b))
+        Assertions.assertTrue(project3.getProjects().stream()
+                .anyMatch(e -> "y".equals(e.getName())),
+                "Upper project must contain y");
+
+        // Must contain id
+        Assertions.assertTrue(project3.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(id.getExprId())),
+                "Upper project must contain id");
+
+        // Must NOT contain x (intermediate slot, fully resolved away)
+        Assertions.assertFalse(project3.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Upper project must NOT contain x (intermediate slot resolved away)");
+
+        // Base slots a, b must NOT leak into upper project output
+        Assertions.assertFalse(project3.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Base slot a must not leak into upper project output");
+        Assertions.assertFalse(project3.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Base slot b must not leak into upper project output");
+
+        // === Verify TopN ===
+        Assertions.assertTrue(project3.child(0) instanceof LogicalTopN);
+        LogicalTopN<?> rewrittenTopN = (LogicalTopN<?>) project3.child(0);
+
+        // === Verify project4 (below TopN) output ===
+        LogicalProject<?> project4 = (LogicalProject<?>) rewrittenTopN.child(0);
+        // Must contain base slots a, b (for lazy mat)
+        Assertions.assertTrue(project4.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Project below TopN must contain base slot a");
+        Assertions.assertTrue(project4.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Project below TopN must contain base slot b");
+        // Must contain id
+        Assertions.assertTrue(project4.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(id.getExprId())),
+                "Project below TopN must contain id");
+        // Must NOT contain x or y (both pulled up)
+        Assertions.assertFalse(project4.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Project below TopN must NOT contain x (pulled above)");
+        Assertions.assertFalse(project4.getProjects().stream()
+                .anyMatch(e -> "y".equals(e.getName())),
+                "Project below TopN must NOT contain y (pulled above)");
+
+        // === Verify project5 (lowest) output ===
+        LogicalProject<?> project5 = (LogicalProject<?>) project4.child(0);
+        Assertions.assertFalse(project5.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Lowest project must NOT contain x");
+        Assertions.assertTrue(project5.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Lowest project must contain base slot a");
+        Assertions.assertTrue(project5.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Lowest project must contain base slot b");
+    }
+
+    /**
+     * Tests that when a TopN order key (z = abs(x)) depends on an intermediate
+     * slot (x), the underlying expression (x = a+b) can still be pulled up
+     * together with a non-blocked expression (y = abs(x)) that shares the same
+     * dependency. Verifies chain resolution handles shared dependencies and
+     * the blocked order key stays below TopN.
+     *
+     * Before pullup:
+     *   TopN(order by z, limit 10)       blocked={z}
+     *     Project0(abs(x) as z, id, y)
+     *       Project1(abs(x) as y, id)
+     *         Project2(a+b as x, id)
+     *           Scan(id, a, b)
+     *
+     * After pullup (current code behavior, where Project handler does NOT
+     * propagate input-slot blocking for non-Slot Alias children):
+     *   Project(z, id, y = abs(a+b))     ← upper: y resolved through chain x→a+b
+     *     TopN(order by z)
+     *       Project(z = abs(a+b), id, a, b)
+     *         Project(id, a, b)
+     *           Project(id, a, b)
+     *             Scan(id, a, b)
+     *
+     * Key observations:
+     * 1. y = abs(x) IS pulled up (y was not blocked, and x was not blocked
+     *    either — Project handler doesn't propagate input-slot blocking).
+     * 2. x = a+b is also pulled up → chain resolution expands abs(x) to abs(a+b).
+     * 3. z = abs(a+b) stays below TopN (blocked as order key) — abs(a+b) is
+     *    computed below AND above (duplicate), which is suboptimal but correct.
+     * 4. If input-slot blocking were propagated for blocked Aliases, x would be
+     *    blocked → x = a+b kept below → y = abs(x) pulled up with x passing
+     *    through TopN (no duplicate abs computation).
+     */
+    @Test
+    void testBlockedOrderKeySharesDependencyWithPulledUpExpression() {
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of("db"));
+        Slot id = scan.getOutput().get(0);
+        Slot a = scan.getOutput().get(1);
+        Slot b = scan.getOutput().get(2);
+
+        // Project2: x = a + b
+        Alias x = new Alias(new Add(a, b), "x");
+        LogicalProject<LogicalOlapScan> project2
+                = new LogicalProject<>(ImmutableList.of(id, x), scan);
+
+        // Project1: y = abs(x)
+        Alias y = new Alias(new Abs(x.toSlot()), "y");
+        LogicalProject<LogicalProject<LogicalOlapScan>> project1
+                = new LogicalProject<>(ImmutableList.of(y, id), project2);
+
+        // Project0: z = abs(x), plus pass-through id, y
+        Alias z = new Alias(new Abs(x.toSlot()), "z");
+        LogicalProject<LogicalProject<LogicalProject<LogicalOlapScan>>> project0
+                = new LogicalProject<>(ImmutableList.of(z, id, y.toSlot()), project1);
+
+        // TopN(order by z)
+        LogicalTopN<LogicalProject<LogicalProject<LogicalProject<LogicalOlapScan>>>> topN
+                = new LogicalTopN<>(
+                        ImmutableList.of(new OrderKey(z.toSlot(), false, false)),
+                        10, 0, project0);
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker
+                .from(MemoTestUtils.createConnectContext(), topN)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        // Root should be a Project (upper)
+        Assertions.assertTrue(rewritten instanceof LogicalProject,
+                "Root should be LogicalProject (upper project above TopN)");
+        LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
+
+        // === Verify upper project output ===
+        // Must contain y (pulled up, chain-resolved to abs(a+b))
+        Assertions.assertTrue(upperProject.getProjects().stream()
+                .anyMatch(e -> "y".equals(e.getName())),
+                "Upper project must contain y (pulled up)");
+        // Must contain z (order key, passed through from TopN output)
+        Assertions.assertTrue(upperProject.getProjects().stream()
+                .anyMatch(e -> "z".equals(e.getName())),
+                "Upper project must contain z (order key, pass-through)");
+        // Must contain id
+        Assertions.assertTrue(upperProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(id.getExprId())),
+                "Upper project must contain id");
+        // Must NOT contain x (intermediate, resolved away)
+        Assertions.assertFalse(upperProject.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Upper project must NOT contain x (resolved away)");
+        // Base slots must NOT leak
+        Assertions.assertFalse(upperProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Base slot a must not leak into upper project");
+        Assertions.assertFalse(upperProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Base slot b must not leak into upper project");
+
+        // === Verify TopN still has z as order key ===
+        Assertions.assertTrue(upperProject.child(0) instanceof LogicalTopN);
+        LogicalTopN<?> rewrittenTopN = (LogicalTopN<?>) upperProject.child(0);
+        Assertions.assertEquals(1, rewrittenTopN.getOrderKeys().size());
+        Assertions.assertEquals(z.getExprId(),
+                ((NamedExpression) rewrittenTopN.getOrderKeys().get(0).getExpr()).getExprId(),
+                "TopN order key should still be z");
+
+        // === Verify project below TopN ===
+        // Must contain z (order key, computed as abs(a+b) after chain resolution)
+        // and base slots a, b for lazy mat
+        LogicalProject<?> lowerProject = (LogicalProject<?>) rewrittenTopN.child(0);
+        Assertions.assertTrue(lowerProject.getProjects().stream()
+                .anyMatch(e -> "z".equals(e.getName())),
+                "Lower project must contain z (order key expression)");
+        Assertions.assertTrue(lowerProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Lower project must contain base slot a");
+        Assertions.assertTrue(lowerProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Lower project must contain base slot b");
+        // Must NOT contain x or y (both pulled up / resolved away)
+        Assertions.assertFalse(lowerProject.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Lower project must NOT contain x");
+        Assertions.assertFalse(lowerProject.getProjects().stream()
+                .anyMatch(e -> "y".equals(e.getName())),
+                "Lower project must NOT contain y (pulled above)");
+    }
+
 }
