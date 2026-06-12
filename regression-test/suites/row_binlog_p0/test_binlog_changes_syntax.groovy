@@ -407,23 +407,16 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         assertEquals("3", asStr(mowDetailEnd[1], 0))
         assertEquals("30", asStr(mowDetailEnd[1], 1))
         assertEquals("0", asStr(mowDetailEnd[1], 2))
-
-        // 2.6 Empty timestamps: full binlog and equivalence with @incr().
         def mowDetailAll = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr("incrementType" = "DETAIL")
             ORDER BY __DORIS_BINLOG_LSN__
         """
-        def mowIncrEmpty = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
-            FROM ${mowTable}@incr()
-            ORDER BY __DORIS_BINLOG_LSN__
-        """
+
         // 2 seed + 14 in-window + 1 late = 17.
         assertEquals(17, mowDetailAll.size())
-        assertEquals(mowDetailAll, mowIncrEmpty)
 
-        // 2.7 MIN_DELTA across full binlog: per-key folding from binlog start
+        // 2.6 MIN_DELTA across full binlog: per-key folding from binlog start
         //     (every key starts non-existent) to the final visible state.
         //     Even the "seed" inserts before mowT0 are inside the binlog
         //     timeline, so insert+delete pairs whose net effect is "no-op"
@@ -458,6 +451,14 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         assertEquals(null, mdAllByKey["5"])
         assertEquals("0", asStr(mdAllByKey["6"][0], 2))
         assertEquals("60", asStr(mdAllByKey["6"][0], 1))
+
+        // 2.7 Empty timestamps: min-delta binlog and equivalence with @incr().
+        def mowIncrEmpty = sql """
+            SELECT id, v1, __DORIS_BINLOG_OP__
+            FROM ${mowTable}@incr()
+            ORDER BY __DORIS_BINLOG_LSN__
+        """
+        assertEquals(mowMinDeltaAll, mowIncrEmpty)
 
         // 2.8 Degenerate window: start > end -> empty.
         def mowReversed = sql """

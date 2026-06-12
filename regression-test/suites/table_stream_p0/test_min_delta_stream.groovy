@@ -729,25 +729,25 @@ suite("test_min_delta_stream", "nonConcurrent") {
         """
         assertEquals(detailWithRangeRows, detailWithStartRows)
 
-        def detailDefaultRows = sql """
+        def minDeltaDefaultRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
-            FROM ${incrBase}@incr("incrementType" =  "DETAIL")
+            FROM ${incrBase}@incr("incrementType" =  "MIN_DELTA")
             ORDER BY __DORIS_BINLOG_LSN__
         """
-        assertEquals(8, detailDefaultRows.size())
-        assertEquals("1", detailDefaultRows[0][0].toString())
-        assertEquals("10", detailDefaultRows[0][1].toString())
-        assertEquals("0", detailDefaultRows[0][2].toString())
-        assertEquals("3", detailDefaultRows[1][0].toString())
-        assertEquals("30", detailDefaultRows[1][1].toString())
-        assertEquals("0", detailDefaultRows[1][2].toString())
+        assertEquals(2, minDeltaDefaultRows.size())
+        assertEquals("2", minDeltaDefaultRows[0][0].toString())
+        assertEquals("20", minDeltaDefaultRows[0][1].toString())
+        assertEquals("0", minDeltaDefaultRows[0][2].toString())
+        assertEquals("1", minDeltaDefaultRows[1][0].toString())
+        assertEquals("12", minDeltaDefaultRows[1][1].toString())
+        assertEquals("0", minDeltaDefaultRows[1][2].toString())
 
         def emptyIncrRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrBase}@incr()
             ORDER BY __DORIS_BINLOG_LSN__
         """
-        assertEquals(detailDefaultRows, emptyIncrRows)
+        assertEquals(minDeltaDefaultRows, emptyIncrRows)
 
         // 12) DETAIL incr should support duplicate table and MOW table without historical value.
         sql """
