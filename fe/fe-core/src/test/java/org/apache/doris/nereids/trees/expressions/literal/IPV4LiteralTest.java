@@ -32,6 +32,13 @@ class IPV4LiteralTest {
         new org.apache.doris.analysis.IPv4Literal("192.168.1.1");
         new org.apache.doris.analysis.IPv4Literal("255.255.255.255");
         new org.apache.doris.analysis.IPv4Literal("10.0.0.1");
+        // leading zeros are decimal (not octal) and accepted, consistent with the BE
+        // parser and the Nereids literal: "010.000.000.001" parses to the same value as
+        // "10.0.0.1". Rejecting them here would break already-valid IPv4 defaults.
+        Assertions.assertEquals(
+                new org.apache.doris.analysis.IPv4Literal("10.0.0.1").getValue(),
+                new org.apache.doris.analysis.IPv4Literal("010.000.000.001").getValue());
+        new org.apache.doris.analysis.IPv4Literal("010.0.0.1");
     }
 
     @Test
@@ -48,6 +55,30 @@ class IPV4LiteralTest {
                 () -> new org.apache.doris.analysis.IPv4Literal("1.2.3.4.5"));
         Assertions.assertThrows(AnalysisException.class,
                 () -> new org.apache.doris.analysis.IPv4Literal(""));
+        // trailing dot / trailing empty octet: split("\\.") used to drop these tokens
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new org.apache.doris.analysis.IPv4Literal("1.2.3.4."));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new org.apache.doris.analysis.IPv4Literal("1.2.3.4.."));
+        // signed octet: Short.parseShort used to accept a leading '+' or '-'
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new org.apache.doris.analysis.IPv4Literal("1.2.+3.4"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new org.apache.doris.analysis.IPv4Literal("1.2.-3.4"));
+        // leading empty octet and embedded whitespace are rejected
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new org.apache.doris.analysis.IPv4Literal(".1.2.3"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new org.apache.doris.analysis.IPv4Literal("1.2.3. 4"));
+        // a colon-containing IPv4-mapped IPv6 form must not be accepted as a plain IPv4 literal
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new org.apache.doris.analysis.IPv4Literal("::ffff:1.2.3.4"));
+        // Unicode digits: Short.parseShort and Character.isDigit accept them, but BE's parse_ipv4
+        // is ASCII-only, so reject them at CREATE TABLE time instead of failing later at load.
+        Assertions.assertThrows(AnalysisException.class, // fullwidth digits U+FF11.. for "127.0.0.1"
+                () -> new org.apache.doris.analysis.IPv4Literal("１２７.０.０.１"));
+        Assertions.assertThrows(AnalysisException.class, // Arabic-Indic digit U+0663 in 3rd octet
+                () -> new org.apache.doris.analysis.IPv4Literal("1.2.٣.4"));
     }
 
     @Test
