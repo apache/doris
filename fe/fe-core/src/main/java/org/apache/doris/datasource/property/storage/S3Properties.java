@@ -158,7 +158,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"s3.sts_endpoint"},
             supported = false,
             required = false,
-            description = "The sts endpoint of S3.")
+            description = "The sts endpoint of S3.",
+            checkSsrf = true)
     protected String s3StsEndpoint = "";
 
     @ConnectorProperty(names = {"s3.sts_region"},

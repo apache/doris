@@ -31,8 +31,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,13 +44,13 @@ import java.util.Set;
 /**
  * Validates user-supplied catalog URIs against SSRF attacks before a catalog is created.
  *
- * <p>Unlike {@link CatalogConnectivityTestCoordinator}, this checker opens no network
- * connections; it only invokes {@link SecurityChecker#startSSRFChecking(String)} on each URI
- * so the platform's SSRF rule engine can reject internal / private / loopback hosts.
- * Because no connectivity probe is required, the check runs unconditionally on every CREATE
- * CATALOG, regardless of the {@code test_connection} property.
+ * <p>Unlike {@link CatalogConnectivityTestCoordinator}, this checker opens no endpoint
+ * connections; it resolves each target host and rejects internal / private / loopback
+ * addresses before catalog properties are persisted. Because no connectivity probe is
+ * required, the check runs unconditionally on every CREATE CATALOG, regardless of the
+ * {@code test_connection} property.
  *
- * <p>Discovery is driven by the {@link ConnectorProperty#checkSsrf()} flag — to extend
+ * <p>Discovery is driven by the {@link ConnectorProperty#checkSsrf()} flag. To extend
  * coverage to a new property class, simply set {@code checkSsrf = true} on its endpoint /
  * URI field; no change to this class is required.
  */
@@ -67,6 +71,33 @@ public class CatalogSsrfChecker {
 
     private CatalogSsrfChecker() {}
 
+    interface UriValidator {
+        void checkUri(String uri) throws Exception;
+
+        void checkJdbcUrl(String jdbcUrl) throws Exception;
+    }
+
+    private static class DefaultUriValidator implements UriValidator {
+        @Override
+        public void checkUri(String uri) throws Exception {
+            checkHost(uri, extractHostFromUri(uri));
+            try {
+                SecurityChecker.getInstance().startSSRFChecking(uri);
+            } finally {
+                SecurityChecker.getInstance().stopSSRFChecking();
+            }
+        }
+
+        @Override
+        public void checkJdbcUrl(String jdbcUrl) throws Exception {
+            String host = extractHostFromJdbcUrl(jdbcUrl);
+            if (host != null) {
+                checkHost(jdbcUrl, host);
+            }
+            SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl);
+        }
+    }
+
     /**
      * Validate every user-supplied URI on the given catalog properties.
      *
@@ -75,6 +106,14 @@ public class CatalogSsrfChecker {
     public static void check(String catalogName,
                              MetastoreProperties metastoreProperties,
                              Map<StorageProperties.Type, StorageProperties> storagePropertiesMap)
+            throws DdlException {
+        check(catalogName, metastoreProperties, storagePropertiesMap, new DefaultUriValidator());
+    }
+
+    static void check(String catalogName,
+                      MetastoreProperties metastoreProperties,
+                      Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+                      UriValidator validator)
             throws DdlException {
         List<String> uris = new ArrayList<>();
         Set<Object> visited = Sets.newIdentityHashSet();
@@ -88,7 +127,7 @@ public class CatalogSsrfChecker {
             }
         }
         for (String uri : uris) {
-            checkSingleUri(catalogName, uri);
+            checkSingleUri(catalogName, uri, validator);
         }
     }
 
@@ -96,17 +135,25 @@ public class CatalogSsrfChecker {
      * Collect every URI worth SSRF-checking on a single storage property object.
      *
      * <p>Auto-fallback HDFS storage ({@code explicitlyConfigured=false}) is dropped wholesale
-     * — both its annotated {@code fs.defaultFS} field and any dynamic namenode rpc-address
-     * entries — because that {@link HdfsProperties} instance was synthesised by the
+     * both its annotated {@code fs.defaultFS} field and any dynamic namenode rpc-address
+     * entries because that {@link HdfsProperties} instance was synthesised by the
      * framework for catalogs whose user never configured HDFS, and so its values shouldn't
      * surface as user-supplied URIs.
      */
     private static void collectStorageUris(StorageProperties sp, Set<Object> visited, List<String> uris) {
-        if (sp instanceof HdfsProperties && !((HdfsProperties) sp).isExplicitlyConfigured()) {
-            return;
+        if (sp instanceof HdfsProperties) {
+            HdfsProperties hdfs = (HdfsProperties) sp;
+            if (!hdfs.isExplicitlyConfigured()) {
+                return;
+            }
+            Set<String> skippedFields = hasDynamicHdfsUris(hdfs)
+                    ? Collections.singleton("fsDefaultFS") : Collections.emptySet();
+            collectAnnotatedUris(hdfs, visited, uris, skippedFields);
+            collectDynamicUris(hdfs, uris);
+        } else {
+            collectAnnotatedUris(sp, visited, uris);
+            collectDynamicUris(sp, uris);
         }
-        collectAnnotatedUris(sp, visited, uris);
-        collectDynamicUris(sp, uris);
     }
 
     /**
@@ -116,6 +163,11 @@ public class CatalogSsrfChecker {
      * set prevents revisits.
      */
     private static void collectAnnotatedUris(Object root, Set<Object> visited, List<String> uris) {
+        collectAnnotatedUris(root, visited, uris, Collections.emptySet());
+    }
+
+    private static void collectAnnotatedUris(Object root, Set<Object> visited, List<String> uris,
+                                             Set<String> skippedFields) {
         if (root == null || !visited.add(root)) {
             return;
         }
@@ -130,7 +182,8 @@ public class CatalogSsrfChecker {
                 if (value == null) {
                     continue;
                 }
-                if (annotation != null && annotation.checkSsrf() && value instanceof String) {
+                if (annotation != null && annotation.checkSsrf() && value instanceof String
+                        && !skippedFields.contains(field.getName())) {
                     String s = (String) value;
                     if (StringUtils.isNotBlank(s)) {
                         uris.add(s);
@@ -142,6 +195,20 @@ public class CatalogSsrfChecker {
             }
             clazz = clazz.getSuperclass();
         }
+    }
+
+    private static boolean hasDynamicHdfsUris(HdfsProperties props) {
+        Map<String, String> backendConfig = props.getBackendConfigProperties();
+        if (backendConfig == null) {
+            return false;
+        }
+        for (Map.Entry<String, String> e : backendConfig.entrySet()) {
+            if (e.getKey() != null && e.getKey().startsWith(HDFS_NAMENODE_RPC_ADDRESS_PREFIX)
+                    && StringUtils.isNotBlank(e.getValue())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -206,7 +273,7 @@ public class CatalogSsrfChecker {
      * <p>HMS allows comma-separated URIs (e.g. {@code thrift://h1:p,thrift://h2:p}); each is
      * validated independently so a single bad host fails the catalog creation.
      */
-    private static void checkSingleUri(String catalogName, String uri) throws DdlException {
+    private static void checkSingleUri(String catalogName, String uri, UriValidator validator) throws DdlException {
         if (StringUtils.isBlank(uri)) {
             return;
         }
@@ -215,20 +282,26 @@ public class CatalogSsrfChecker {
             if (single.isEmpty()) {
                 continue;
             }
-            String urlStr = normalizeToHttpUrl(single);
-            if (urlStr == null) {
-                continue;
-            }
             try {
-                SecurityChecker.getInstance().startSSRFChecking(urlStr);
+                if (isJdbcUrl(single)) {
+                    validator.checkJdbcUrl(single);
+                    continue;
+                }
+                String urlStr = normalizeToHttpUrl(single);
+                if (urlStr == null) {
+                    continue;
+                }
+                validator.checkUri(urlStr);
             } catch (Exception e) {
                 LOG.warn("SSRF check failed for catalog '{}', uri '{}'", catalogName, single, e);
                 throw new DdlException("SSRF check failed for catalog '" + catalogName
                         + "', uri '" + single + "': " + e.getMessage());
-            } finally {
-                SecurityChecker.getInstance().stopSSRFChecking();
             }
         }
+    }
+
+    private static boolean isJdbcUrl(String uri) {
+        return StringUtils.startsWithIgnoreCase(uri, "jdbc:");
     }
 
     private static String normalizeToHttpUrl(String uri) {
@@ -249,5 +322,54 @@ public class CatalogSsrfChecker {
             return null;
         }
         return "http://" + s;
+    }
+
+    private static String extractHostFromUri(String uri) throws DdlException {
+        URI parsed = URI.create(uri);
+        String host = parsed.getHost();
+        if (StringUtils.isBlank(host)) {
+            throw new DdlException("Can not parse host from uri: " + uri);
+        }
+        return host;
+    }
+
+    private static String extractHostFromJdbcUrl(String jdbcUrl) {
+        String normalized = normalizeToHttpUrl(jdbcUrl);
+        if (normalized == null) {
+            return null;
+        }
+        try {
+            return URI.create(normalized).getHost();
+        } catch (IllegalArgumentException e) {
+            LOG.debug("Can not parse host from jdbc url '{}'", jdbcUrl, e);
+            return null;
+        }
+    }
+
+    private static void checkHost(String uri, String host) throws Exception {
+        InetAddress[] addresses = InetAddress.getAllByName(host);
+        for (InetAddress address : addresses) {
+            if (isInternalAddress(address)) {
+                throw new DdlException("host '" + host + "' in uri '" + uri
+                        + "' resolves to internal address " + address.getHostAddress());
+            }
+        }
+    }
+
+    private static boolean isInternalAddress(InetAddress address) {
+        return address.isAnyLocalAddress()
+                || address.isLoopbackAddress()
+                || address.isLinkLocalAddress()
+                || address.isSiteLocalAddress()
+                || address.isMulticastAddress()
+                || isUniqueLocalIpv6Address(address);
+    }
+
+    private static boolean isUniqueLocalIpv6Address(InetAddress address) {
+        if (!(address instanceof Inet6Address)) {
+            return false;
+        }
+        byte firstByte = address.getAddress()[0];
+        return (firstByte & (byte) 0xfe) == (byte) 0xfc;
     }
 }
