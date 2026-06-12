@@ -380,20 +380,50 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitMapContainsKey(MapContainsKey mapContainsKey, CollectorContext context) {
+        // MAP_CONTAINS_KEY(<map>, <key>)
+        // Map argument: only the key sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
-        return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        // Key argument: visit with a fresh context to register its data access paths.
+        // The key may reference nested sub-columns (e.g. element_at(s, 'a')) whose
+        // full-data paths must be collected; otherwise an IS NULL / OFFSET path on
+        // the same slot would cause NestedColumnPruning to prune to metadata-only.
+        Expression keyArg = mapContainsKey.getArgument(1);
+        if (keyArg != null) {
+            CollectorContext keyCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+            continueCollectAccessPath(keyArg, keyCtx);
+        }
+        return null;
     }
 
     @Override
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
+        // MAP_CONTAINS_VALUE(<map>, <value>)
+        // Map argument: only the value sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
-        return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        // Value argument: visit with a fresh context to register its data access paths.
+        Expression valueArg = mapContainsValue.getArgument(1);
+        if (valueArg != null) {
+            CollectorContext valueCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+            continueCollectAccessPath(valueArg, valueCtx);
+        }
+        return null;
     }
 
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
+        // MAP_CONTAINS_ENTRY(<map>, <entry>)
+        // Map argument: full access is needed (both keys and values).
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
-        return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        // Entry argument: visit with a fresh context to register its data access paths.
+        Expression entryArg = mapContainsEntry.getArgument(1);
+        if (entryArg != null) {
+            CollectorContext entryCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+            continueCollectAccessPath(entryArg, entryCtx);
+        }
+        return null;
     }
 
     @Override
