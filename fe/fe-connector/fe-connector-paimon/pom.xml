@@ -94,6 +94,24 @@ under the License.
             <artifactId>hadoop-common</artifactId>
         </dependency>
 
+        <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem, the ONLY Hadoop FileSystem impl
+             missing from the plugin jar (the transitively-bundled hadoop-client-api already carries
+             FileSystem / hdfs DistributedFileSystem / SecurityUtil / DNSDomainNameResolver). The plugin
+             runs child-first (org.apache.hadoop is not parent-first); bundling hadoop-common/client-api
+             WITHOUT hadoop-aws left FileSystem in the child loader while S3AFileSystem resolved from the
+             parent 'app' loader — a cross-classloader split that threw 'S3AFileSystem cannot be cast to
+             FileSystem' and poisoned SecurityUtil (FIX-PAIMON-HADOOP-CLASSLOADER). Self-containing the
+             FS impls here (not delegating hadoop to the parent) is the correct end-state: fe-core's
+             hadoop/hive-catalog-shade is removed after full connector migration. Version + exclusions
+             inherited from fe-core's dependencyManagement (${hadoop.version}; the heavy
+             software.amazon.awssdk:bundle is excluded there — S3AFileSystem's AWS SDK v2 classes resolve
+             from the FE parent classpath as a single copy until fe-core sheds hadoop, then they bundle
+             here too). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+        </dependency>
+
         <!-- hive-common supplies org.apache.hadoop.hive.conf.HiveConf for the hms/dlf flavors
              (buildHmsHiveConf / buildDlfHiveConf). We deliberately use the plain hive-common
              (${hive.common.version}) rather than fe-core's hive-catalog-shade: the shade bundles an

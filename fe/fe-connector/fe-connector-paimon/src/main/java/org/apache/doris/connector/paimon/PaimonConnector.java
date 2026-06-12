@@ -190,10 +190,22 @@ public class PaimonConnector implements Connector {
     }
 
     private Catalog createCatalogFromContext(CatalogContext catalogContext, String flavor, String failureMessage) {
+        // Pin the thread-context classloader to the plugin loader for the duration of catalog
+        // creation (FIX-PAIMON-HADOOP-CLASSLOADER). Hadoop's FileSystem ServiceLoader
+        // (FileSystem.loadFileSystems -> ServiceLoader.load(FileSystem.class)) and SecurityUtil's
+        // static init resolve classes via the thread-context CL; without the pin they read the parent
+        // 'app' loader's service files / hadoop classes and split-brain against the child-loaded
+        // FileSystem (which permanently poisons SecurityUtil.<clinit>). Mirrors JdbcConnectorClient /
+        // ThriftHmsClient. The one-time FS class resolution + SecurityUtil init happen here on the
+        // first FileSystem.get, so pinning creation is sufficient; later FS ops reuse loaded classes.
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return context.executeAuthenticated(() -> CatalogFactory.createCatalog(catalogContext));
         } catch (Exception e) {
             throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
         }
     }
 

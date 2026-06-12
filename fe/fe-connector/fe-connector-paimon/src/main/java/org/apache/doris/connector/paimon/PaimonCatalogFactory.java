@@ -455,6 +455,13 @@ public final class PaimonCatalogFactory {
      */
     public static Configuration buildHadoopConfiguration(Map<String, String> props) {
         Configuration conf = new Configuration();
+        // Pin the Configuration's classloader to the plugin loader (FIX-PAIMON-HADOOP-CLASSLOADER).
+        // Hadoop resolves filesystem impls via Configuration.getClass("fs.<scheme>.impl", ...), which
+        // loads through Configuration.classLoader (defaults to the thread-context CL = parent 'app').
+        // With hadoop-aws (S3AFileSystem) bundled child-first, that default would still resolve
+        // S3AFileSystem from the parent and fail the cast to the child-loaded FileSystem. Resolving
+        // through the plugin loader keeps the whole FS class graph in one loader.
+        conf.setClassLoader(PaimonCatalogFactory.class.getClassLoader());
         applyStorageConfig(props, conf::set);
         return conf;
     }
