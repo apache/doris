@@ -299,6 +299,7 @@ protected:
     // ---- get_columns cache ----
     bool _get_columns_cached = false;
     std::unordered_map<std::string, DataTypePtr> _cached_name_to_type;
+    const TQueryOptions _default_query_options;
 };
 
 /// Provides an accessor for the current batch's row positions within the file.

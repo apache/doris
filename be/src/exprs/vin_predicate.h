@@ -60,6 +60,15 @@ public:
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
 
     uint64_t get_digest(uint64_t seed) const override { return 0; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        TInPredicate in_predicate;
+        in_predicate.__set_is_not_in(_is_not_in);
+        node.__set_in_predicate(in_predicate);
+        *cloned_expr = VInPredicate::create_shared(node);
+        return Status::OK();
+    }
 
 private:
     FunctionBasePtr _function;

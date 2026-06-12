@@ -18,13 +18,24 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/object_pool.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "cpp/sync_point.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/split_source_connector.h"
+#include "format_v2/table/hive_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
@@ -34,6 +45,18 @@
 #include "runtime/user_function_cache.h"
 
 namespace doris {
+namespace {
+
+TColumnAccessPath data_access_path(std::vector<std::string> path) {
+    TColumnAccessPath access_path;
+    access_path.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data_path;
+    data_path.__set_path(std::move(path));
+    access_path.__set_data_access_path(std::move(data_path));
+    return access_path;
+}
+
+} // namespace
 
 class TestSplitSourceConnectorStub : public SplitSourceConnector {
 private:
@@ -334,6 +357,286 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     ASSERT_EQ(scanner->_push_down_conjuncts.size(), 1);
 
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST(FileScannerV2Test, SupportOnlyRefactoredTableReaders) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc range;
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("iceberg");
+    range.__set_table_format_params(table_format);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    table_format.__set_table_format_type("hive");
+    range.__set_table_format_params(table_format);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    table_format.__set_table_format_type("paimon");
+    range.__set_table_format_params(table_format);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+
+    table_format.__set_table_format_type("hudi");
+    range.__set_table_format_params(table_format);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, range));
+
+    range.__set_format_type(TFileFormatType::FORMAT_ORC);
+    table_format.__set_table_format_type("hive");
+    range.__set_table_format_params(table_format);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, range));
+
+    TScanRangeParams scan_range_params;
+    scan_range_params.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
+    LocalSplitSourceConnector split_source({scan_range_params}, 1);
+    EXPECT_FALSE(split_source.all_scan_ranges_match(params, FileScannerV2::is_supported));
+
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_range_params.scan_range.ext_scan_range.file_scan_range.ranges[0] = range;
+    LocalSplitSourceConnector supported_split_source({scan_range_params}, 1);
+    EXPECT_TRUE(supported_split_source.all_scan_ranges_match(params, FileScannerV2::is_supported));
+}
+
+TEST(HiveReaderTest, PositionMappingUsesColumnIdxsForFileSlots) {
+    TQueryOptions query_options;
+    query_options.hive_parquet_use_column_names = false;
+    RuntimeState runtime_state(query_options, TQueryGlobals());
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    params.__set_column_idxs({2, 0});
+    format::ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &runtime_state,
+    };
+    hive::HiveReader reader;
+
+    TFileScanSlotInfo id_slot;
+    id_slot.__set_is_file_slot(true);
+    format::ColumnDefinition id_column {
+            .identifier = Field::create_field<TYPE_STRING>("id"),
+            .name = "id",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    TFileScanSlotInfo name_slot;
+    name_slot.__set_is_file_slot(true);
+    format::ColumnDefinition name_column {
+            .identifier = Field::create_field<TYPE_STRING>("name"),
+            .name = "name",
+            .type = std::make_shared<DataTypeString>(),
+    };
+
+    ASSERT_TRUE(reader.annotate_projected_column(id_slot, &context, &id_column).ok());
+    ASSERT_TRUE(id_column.has_identifier_field_id());
+    EXPECT_EQ(id_column.get_identifier_position(), 2);
+    EXPECT_EQ(context.next_file_column_idx, 1);
+
+    ASSERT_TRUE(reader.annotate_projected_column(name_slot, &context, &name_column).ok());
+    ASSERT_TRUE(name_column.has_identifier_field_id());
+    EXPECT_EQ(name_column.get_identifier_position(), 0);
+    EXPECT_EQ(context.next_file_column_idx, 2);
+    ASSERT_TRUE(reader.validate_projected_columns(context).ok());
+}
+
+TEST(HiveReaderTest, PositionMappingDoesNotConsumePartitionSlots) {
+    TQueryOptions query_options;
+    query_options.hive_parquet_use_column_names = false;
+    RuntimeState runtime_state(query_options, TQueryGlobals());
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    params.__set_column_idxs({3});
+    format::ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &runtime_state,
+    };
+    hive::HiveReader reader;
+
+    TFileScanSlotInfo partition_slot;
+    partition_slot.__set_is_file_slot(false);
+    partition_slot.__set_category(TColumnCategory::PARTITION_KEY);
+    format::ColumnDefinition partition_column {
+            .identifier = Field::create_field<TYPE_STRING>("year"),
+            .name = "year",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    TFileScanSlotInfo value_slot;
+    value_slot.__set_is_file_slot(true);
+    format::ColumnDefinition value_column {
+            .identifier = Field::create_field<TYPE_STRING>("value"),
+            .name = "value",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    ASSERT_TRUE(reader.annotate_projected_column(partition_slot, &context, &partition_column).ok());
+    ASSERT_TRUE(partition_column.has_identifier_name());
+    EXPECT_EQ(partition_column.get_identifier_name(), "year");
+    EXPECT_EQ(context.next_file_column_idx, 0);
+
+    ASSERT_TRUE(reader.annotate_projected_column(value_slot, &context, &value_column).ok());
+    ASSERT_TRUE(value_column.has_identifier_field_id());
+    EXPECT_EQ(value_column.get_identifier_position(), 3);
+    EXPECT_EQ(context.next_file_column_idx, 1);
+    ASSERT_TRUE(reader.validate_projected_columns(context).ok());
+}
+
+TEST(HiveReaderTest, PositionMappingFailsWhenColumnIdxsMissing) {
+    TQueryOptions query_options;
+    query_options.hive_parquet_use_column_names = false;
+    RuntimeState runtime_state(query_options, TQueryGlobals());
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    format::ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &runtime_state,
+    };
+    hive::HiveReader reader;
+
+    TFileScanSlotInfo value_slot;
+    value_slot.__set_is_file_slot(true);
+    format::ColumnDefinition value_column {
+            .identifier = Field::create_field<TYPE_STRING>("value"),
+            .name = "value",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    auto status = reader.annotate_projected_column(value_slot, &context, &value_column);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(context.next_file_column_idx, 0);
+}
+
+TEST(FileScannerV2Test, BuildNestedChildrenFromAccessPaths) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto key_type = std::make_shared<DataTypeString>();
+    const auto value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"b", "c"});
+    format::ColumnDefinition column {.identifier = Field::create_field<TYPE_INT>(100),
+                                     .name = "m",
+                                     .type = std::make_shared<DataTypeMap>(key_type, value_type)};
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"m", "KEYS"}));
+    access_paths.push_back(data_access_path({"m", "VALUES", "b"}));
+    access_paths.push_back(data_access_path({"m", "*", "c"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(column.children.size(), 1);
+    const auto& entries = column.children[0];
+    ASSERT_TRUE(entries.has_identifier_field_id());
+    EXPECT_EQ(entries.get_identifier_field_id(), 0);
+    EXPECT_EQ(entries.name, "entries");
+    ASSERT_EQ(entries.children.size(), 2);
+    EXPECT_EQ(entries.children[0].name, "key");
+    EXPECT_TRUE(entries.children[0].children.empty());
+    EXPECT_EQ(entries.children[1].name, "value");
+    ASSERT_EQ(entries.children[1].children.size(), 2);
+    EXPECT_EQ(entries.children[1].children[0].name, "b");
+    EXPECT_EQ(entries.children[1].children[1].name, "c");
+}
+
+TEST(FileScannerV2Test, BuildArrayStructChildrenFromAccessPaths) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto element_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    format::ColumnDefinition column {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "arr",
+            .type = std::make_shared<DataTypeArray>(element_type),
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"arr", "*", "a"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(column.children.size(), 1);
+    const auto& element = column.children[0];
+    ASSERT_TRUE(element.has_identifier_field_id());
+    EXPECT_EQ(element.get_identifier_field_id(), 0);
+    EXPECT_EQ(element.name, "element");
+    ASSERT_EQ(element.children.size(), 1);
+    ASSERT_TRUE(element.children[0].has_identifier_field_id());
+    EXPECT_EQ(element.children[0].get_identifier_field_id(), 0);
+    EXPECT_EQ(element.children[0].name, "a");
+}
+
+TEST(FileScannerV2Test, BuildStructChildrenFromFieldIdAccessPaths) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    format::ColumnDefinition column {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = struct_type,
+    };
+    format::ColumnDefinition schema_column {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = struct_type,
+            .children =
+                    {
+                            {.identifier = Field::create_field<TYPE_INT>(101),
+                             .name = "a",
+                             .type = int_type},
+                            {.identifier = Field::create_field<TYPE_INT>(205),
+                             .name = "b",
+                             .type = int_type},
+                    },
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"100", "205"}));
+    auto status = FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths,
+                                                                              &schema_column);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(column.children.size(), 1);
+    ASSERT_TRUE(column.children[0].has_identifier_field_id());
+    EXPECT_EQ(column.children[0].get_identifier_field_id(), 205);
+    EXPECT_EQ(column.children[0].name, "b");
+}
+
+TEST(FileScannerV2Test, BuildNestedChildrenKeepsTopLevelProjectionWhole) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    format::ColumnDefinition column {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                     Strings {"a", "b"}),
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"s"}));
+    access_paths.push_back(data_access_path({"s", "a"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(column.children.empty());
+}
+
+TEST(FileScannerV2Test, IcebergRowidSkipsNegativeAccessPath) {
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto rowid_type = std::make_shared<DataTypeStruct>(
+            DataTypes {string_type, std::make_shared<DataTypeInt64>(),
+                       std::make_shared<DataTypeInt32>(), string_type},
+            Strings {"file_path", "row_pos", "partition_spec_id", "partition_data_json"});
+    format::ColumnDefinition column {
+            .identifier = Field::create_field<TYPE_STRING>(BeConsts::ICEBERG_ROWID_COL),
+            .name = BeConsts::ICEBERG_ROWID_COL,
+            .type = rowid_type,
+    };
+
+    std::vector<TColumnAccessPath> access_paths;
+    access_paths.push_back(data_access_path({"-1"}));
+    auto status =
+            FileScannerV2::TEST_build_nested_children_from_access_paths(&column, access_paths);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(column.children.empty());
 }
 
 } // namespace doris
