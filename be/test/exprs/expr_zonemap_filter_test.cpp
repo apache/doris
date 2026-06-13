@@ -26,11 +26,14 @@
 #include <vector>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "core/string_ref.h"
+#include "core/value/vdatetime_value.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/functions_comparison.h"
 #include "exprs/function/simple_function_factory.h"
@@ -82,6 +85,18 @@ VExprSPtr make_slot(int column_id, const DataTypePtr& data_type) {
 
 VExprSPtr make_int_literal(int32_t value) {
     return std::make_shared<VLiteral>(create_texpr_node_from(int_field(value), TYPE_INT, 0, 0));
+}
+
+Field datetimev2_field(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                       uint8_t second, uint32_t microsecond) {
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
+    return Field::create_field<TYPE_DATETIMEV2>(value);
+}
+
+VExprSPtr make_datetimev2_literal(int scale) {
+    return std::make_shared<VLiteral>(create_texpr_node_from(
+            datetimev2_field(2024, 1, 2, 0, 0, 0, 0), TYPE_DATETIMEV2, 0, scale));
 }
 
 VExprSPtr make_null_int_literal() {
@@ -329,6 +344,10 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesNullAndUnsupportedInputs) {
     auto string_type = std::make_shared<DataTypeString>();
     auto string_slot = make_slot(0, string_type);
     EXPECT_TRUE(equals.can_evaluate_zonemap_filter({string_slot, make_string_literal("10")}));
+
+    auto datetimev2_slot = make_slot(
+            0, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTimeV2>(6)));
+    EXPECT_FALSE(equals.can_evaluate_zonemap_filter({datetimev2_slot, make_datetimev2_literal(0)}));
 
     ZoneMapEvalContext missing_zonemap_ctx;
     ZoneMapEvalContext::SlotZoneMap slot_without_zonemap;

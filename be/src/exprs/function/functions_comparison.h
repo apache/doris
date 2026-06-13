@@ -129,6 +129,9 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
                        ? ZoneMapFilterResult::kNoMatch
                        : ZoneMapFilterResult::kMayMatch;
     }
+
+    // keep this to avoid compile failure with g++.
+    __builtin_unreachable();
 }
 
 inline bool can_evaluate(const VExprSPtrs& arguments) {
@@ -146,11 +149,12 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
 
     DORIS_CHECK(slot_literal->slot_type != nullptr);
     DORIS_CHECK(slot_literal->literal_type != nullptr);
-    DORIS_CHECK_EQ(expr_zonemap::data_types_compatible(slot_literal->slot_type,
-                                                       slot_literal->literal_type),
-                   true)
-            << "slot type: " << slot_literal->slot_type->get_name()
-            << ", literal type: " << slot_literal->literal_type->get_name();
+    if (!expr_zonemap::data_types_compatible(slot_literal->slot_type, slot_literal->literal_type)) {
+        // The optimizer may generate a bare slot/literal comparison whose logical types differ
+        // only by attributes such as DATETIMEV2 scale. Expr zonemap evaluates stored Field
+        // values without running expression casts, so conservatively skip this optimization.
+        return false;
+    }
 
     return true;
 }
