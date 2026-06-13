@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <memory>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -28,7 +29,10 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type/convert_field_to_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/short_circuit_evaluation_expr.h"
@@ -659,14 +663,118 @@ static bool rewrite_in_slot_literal_predicate(
     return true;
 }
 
+static VExprSPtr create_file_struct_child_name_literal(const std::string& file_child_name,
+                                                       RewriteContext* rewrite_context) {
+    auto literal = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                           Field::create_field<TYPE_STRING>(file_child_name));
+    rewrite_context->add_created_expr(literal);
+    return literal;
+}
+
+static bool needs_complex_file_slot_cast(const DataTypePtr& file_type,
+                                         const DataTypePtr& table_type) {
+    if (file_type == nullptr || table_type == nullptr || file_type->equals(*table_type)) {
+        return false;
+    }
+    const auto file_nested_type = remove_nullable(file_type);
+    const auto table_nested_type = remove_nullable(table_type);
+    if (file_nested_type->equals(*table_nested_type)) {
+        return false;
+    }
+    return is_complex_type(file_nested_type->get_primitive_type()) ||
+           is_complex_type(table_nested_type->get_primitive_type());
+}
+
+static bool collect_struct_element_chain(const VExprSPtr& expr, std::vector<VExprSPtr>* chain) {
+    DORIS_CHECK(chain != nullptr);
+    if (!is_struct_element_expr(expr)) {
+        return false;
+    }
+    const auto& parent = expr->children()[0];
+    if (is_struct_element_expr(parent)) {
+        if (!collect_struct_element_chain(parent, chain)) {
+            return false;
+        }
+    } else if (!parent->is_slot_ref()) {
+        // Only support file-local rewrite for struct child chains rooted directly at a top-level
+        // slot, for example `element_at(s, 'a')` or `element_at(element_at(s, 'a'), 'b')`.
+        //
+        // Do not localize computed complex parents such as
+        // `element_at(element_at(map_values(m), 1), 'full_name')`. The intermediate map/array
+        // result has already been reshaped by scan projection and may have a different child order
+        // from the table expression. Partially rewriting that expression against the file block can
+        // silently evaluate the wrong struct child and filter out valid rows. Those predicates must
+        // remain as table-level conjuncts and be evaluated after TableReader materialization.
+        return false;
+    }
+    chain->push_back(expr);
+    return true;
+}
+
+static bool rewrite_struct_element_path_to_file_expr(
+        const VExprSPtr& expr, const std::vector<ColumnMapping>& mappings,
+        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
+        RewriteContext* rewrite_context) {
+    ResolvedNestedStructPath resolved;
+    if (!resolve_nested_struct_expr_for_file(expr, mappings, &resolved)) {
+        return false;
+    }
+
+    std::vector<VExprSPtr> struct_element_chain;
+    if (!collect_struct_element_chain(expr, &struct_element_chain) ||
+        struct_element_chain.size() != resolved.file_child_names.size() ||
+        struct_element_chain.size() != resolved.file_child_types.size()) {
+        return false;
+    }
+
+    auto root_children = struct_element_chain.front()->children();
+    if (!root_children[0]->is_slot_ref()) {
+        return false;
+    }
+    const auto* slot_ref = assert_cast<const VSlotRef*>(root_children[0].get());
+    const auto rewrite_it = global_to_file_slot.find(slot_ref_global_index(*slot_ref));
+    if (rewrite_it == global_to_file_slot.end()) {
+        return false;
+    }
+
+    // File-local conjuncts are prepared against the file-reader Block, so both the root slot and
+    // every struct selector must be expressed in file schema terms. For a renamed Iceberg field,
+    // keeping the table selector would prepare `element_at(file_struct<rename>, 'renamed')` and
+    // fail before any rows are read. Rewrite the whole chain while ColumnMapping still preserves
+    // the table-to-file relationship. Example:
+    //   table filter: element_at(element_at(s, 'renamed_parent'), 'renamed_leaf')
+    //   old file:     s<parent<leaf>>
+    //   file filter:  element_at(element_at(s, 'parent'), 'leaf')
+    root_children[0] = create_file_slot_ref(*slot_ref, rewrite_it->second, rewrite_context);
+    struct_element_chain.front()->set_children(std::move(root_children));
+    for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {
+        auto children = struct_element_chain[idx]->children();
+        children[1] = create_file_struct_child_name_literal(resolved.file_child_names[idx],
+                                                            rewrite_context);
+        struct_element_chain[idx]->set_children(std::move(children));
+        // The selector name and the expression return type must be moved to file schema together.
+        // Example:
+        //   table filter: element_at(element_at(s, 'new_a'), 'new_aa') = 50
+        //   old file:     s.new_a STRUCT<aa, bb>
+        //   file filter:  element_at(element_at(s, 'new_a'), 'aa') = 50
+        //
+        // If the inner element_at keeps the table return type STRUCT<new_aa, bb>, preparing the
+        // outer element_at(..., 'aa') fails before scanning because `aa` is not a table field.
+        struct_element_chain[idx]->data_type() = resolved.file_child_types[idx];
+    }
+    return true;
+}
+
 static VExprSPtr rewrite_table_expr_to_file_expr(
         const VExprSPtr& expr,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
-        RewriteContext* rewrite_context) {
+        const std::vector<ColumnMapping>& filter_mappings, RewriteContext* rewrite_context,
+        bool* can_localize) {
     if (expr == nullptr) {
         return nullptr;
     }
     DORIS_CHECK(rewrite_context != nullptr);
+    DORIS_CHECK(can_localize != nullptr);
     if (rewrite_binary_slot_literal_predicate(expr, global_to_file_slot, rewrite_context)) {
         return expr;
     }
@@ -674,22 +782,16 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
         return expr;
     }
     if (is_struct_element_expr(expr)) {
-        auto children = expr->children();
-        if (children[0]->is_slot_ref()) {
-            const auto* slot_ref = assert_cast<const VSlotRef*>(children[0].get());
-            const auto rewrite_it = global_to_file_slot.find(slot_ref_global_index(*slot_ref));
-            if (rewrite_it != global_to_file_slot.end()) {
-                // struct_element must see the actual file struct layout. Casting the parent struct
-                // to the output projection can hide filter-only children such as `s.id` in
-                // `SELECT s.name WHERE s.id > 5`.
-                children[0] = create_file_slot_ref(*slot_ref, rewrite_it->second, rewrite_context);
-                expr->set_children(std::move(children));
-                return expr;
-            }
+        if (!rewrite_struct_element_path_to_file_expr(expr, filter_mappings, global_to_file_slot,
+                                                      rewrite_context)) {
+            // The scanner still evaluates the original table-level conjunct after TableReader
+            // finalizes the output block. Skipping an unlocalizable file conjunct is therefore
+            // safer than preparing a partially rewritten expression against the wrong struct
+            // layout. In particular, do not generate file-local conjuncts for computed complex
+            // parents such as `element_at(element_at(map_values(m), 1), 'field')`; only direct
+            // slot-rooted struct chains are supported here.
+            *can_localize = false;
         }
-        children[0] =
-                rewrite_table_expr_to_file_expr(children[0], global_to_file_slot, rewrite_context);
-        expr->set_children(std::move(children));
         return expr;
     }
     if (expr->is_slot_ref()) {
@@ -700,6 +802,23 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
             auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info, rewrite_context);
             if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
                 return file_slot;
+            }
+            if (needs_complex_file_slot_cast(rewrite_info.file_type, rewrite_info.table_type)) {
+                // Generic file-local expressions cannot safely cast an evolved complex file slot
+                // back to the table type. Example:
+                //
+                //   table filter: ARRAY_CONTAINS(MAP_KEYS(m), 'person5')
+                //   old file:     m MAP<STRING, STRUCT<name, age>>
+                //   table:        m MAP<STRING, STRUCT<age, full_name, gender>>
+                //
+                // Although MAP_KEYS only reads the key column, wrapping the file slot as
+                // `CAST(file_m AS table_m)` forces the value struct cast first and fails because
+                // the old and new value structs have different fields. Keep such filters at the
+                // table level, where TableReader materializes the evolved complex value before
+                // Scanner evaluates the original conjunct. Direct slot-rooted struct child paths
+                // are handled by rewrite_struct_element_path_to_file_expr() above.
+                *can_localize = false;
+                return expr;
             }
             auto cast_expr = Cast::create_shared(rewrite_info.table_type);
             cast_expr->add_child(std::move(file_slot));
@@ -723,6 +842,11 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
                 if (rewrite_it->second.file_type->equals(*rewrite_it->second.table_type)) {
                     return rewritten_child;
                 }
+                if (needs_complex_file_slot_cast(rewrite_it->second.file_type,
+                                                 rewrite_it->second.table_type)) {
+                    *can_localize = false;
+                    return expr;
+                }
                 expr->set_children({std::move(rewritten_child)});
                 return expr;
             }
@@ -732,8 +856,8 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     VExprSPtrs rewritten_children;
     rewritten_children.reserve(expr->children().size());
     for (const auto& child : expr->children()) {
-        rewritten_children.push_back(
-                rewrite_table_expr_to_file_expr(child, global_to_file_slot, rewrite_context));
+        rewritten_children.push_back(rewrite_table_expr_to_file_expr(
+                child, global_to_file_slot, filter_mappings, rewrite_context, can_localize));
     }
     expr->set_children(std::move(rewritten_children));
     return expr;
@@ -770,7 +894,7 @@ static TableVirtualColumnType row_lineage_virtual_column_type_by_field_id(
 }
 
 static TableVirtualColumnType row_lineage_virtual_column_type(const ColumnDefinition& column,
-                                                             TableColumnMappingMode mode) {
+                                                              TableColumnMappingMode mode) {
     switch (mode) {
     case TableColumnMappingMode::BY_FIELD_ID:
         return row_lineage_virtual_column_type_by_field_id(column);
@@ -812,9 +936,58 @@ static bool needs_projected_file_type_rebuild(const ColumnMapping& mapping) {
     return false;
 }
 
-static const ColumnDefinition* find_file_child_for_mapping(
-        const ColumnDefinition& table_child, const ColumnDefinition& file_parent,
-        TableColumnMappingMode mode) {
+static std::optional<size_t> file_child_ordinal_in_scan_type(const ColumnMapping& mapping,
+                                                             const ColumnMapping& child_mapping) {
+    if (!child_mapping.file_local_id.has_value()) {
+        return std::nullopt;
+    }
+    const auto& file_children = !mapping.projected_file_children.empty()
+                                        ? mapping.projected_file_children
+                                        : mapping.original_file_children;
+    const auto child_it = std::ranges::find_if(file_children, [&](const ColumnDefinition& child) {
+        return child.file_local_id() == *child_mapping.file_local_id;
+    });
+    if (child_it == file_children.end()) {
+        return std::nullopt;
+    }
+    return static_cast<size_t>(std::distance(file_children.begin(), child_it));
+}
+
+static bool needs_complex_rematerialize(const ColumnMapping& mapping) {
+    if (mapping.child_mappings.empty()) {
+        return false;
+    }
+    if (mapping.table_type == nullptr || mapping.file_type == nullptr ||
+        !mapping.table_type->equals(*mapping.file_type)) {
+        return true;
+    }
+    for (size_t table_child_idx = 0; table_child_idx < mapping.child_mappings.size();
+         ++table_child_idx) {
+        const auto& child_mapping = mapping.child_mappings[table_child_idx];
+        const auto file_child_idx = file_child_ordinal_in_scan_type(mapping, child_mapping);
+        if (!file_child_idx.has_value() || *file_child_idx != table_child_idx ||
+            needs_complex_rematerialize(child_mapping) ||
+            (child_mapping.table_type != nullptr && child_mapping.file_type != nullptr &&
+             !child_mapping.table_type->equals(*child_mapping.file_type))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
+    if (mapping.table_type == nullptr || mapping.file_type == nullptr ||
+        !mapping.table_type->equals(*mapping.file_type)) {
+        return false;
+    }
+    return !needs_complex_rematerialize(mapping);
+}
+
+static const ColumnDefinition* find_file_child_for_mapping(const ColumnDefinition& table_child,
+                                                           const ColumnDefinition& file_parent,
+                                                           TableColumnMappingMode mode,
+                                                           size_t table_child_idx,
+                                                           bool allow_ordinal_fallback) {
     const auto file_parent_type = remove_nullable(file_parent.type)->get_primitive_type();
     switch (file_parent_type) {
     case TYPE_ARRAY:
@@ -833,7 +1006,120 @@ static const ColumnDefinition* find_file_child_for_mapping(
         }
         return nullptr;
     default:
-        return matcher_for_mode(mode).find(table_child, file_parent.children);
+        if (const auto* file_child = matcher_for_mode(mode).find(table_child, file_parent.children);
+            file_child != nullptr) {
+            return file_child;
+        }
+        if (allow_ordinal_fallback && mode == TableColumnMappingMode::BY_FIELD_ID &&
+            !table_child.has_identifier_field_id()) {
+            // Synthetic children are derived from the table DataType when nested ColumnDefinition
+            // metadata has been pruned away. They do not carry Iceberg field ids, so try a name
+            // match before falling back to ordinal order. Example:
+            //   table value type: Struct(age, full_name, gender)
+            //   old file value:   Struct(name, age)
+            // Name matching keeps `age -> age`; the later unused-child fallback can then map the
+            // renamed `full_name -> name` instead of consuming `age` twice.
+            if (const auto* file_child = NameMatcher().find(table_child, file_parent.children);
+                file_child != nullptr) {
+                return file_child;
+            }
+        }
+        // Some callers only carry the full complex DataType for a projected table column, without
+        // expanded nested ColumnDefinitions. In that case we can still preserve full materialization
+        // by walking table/file struct fields by ordinal. This is a fallback only: explicit
+        // ColumnDefinition children keep using field-id/name/position mapping, which is required
+        // for precise Iceberg evolution.
+        if (allow_ordinal_fallback && table_child_idx < file_parent.children.size()) {
+            return &file_parent.children[table_child_idx];
+        }
+        return nullptr;
+    }
+}
+
+static ColumnDefinition synthetic_child_definition(const std::string& name, DataTypePtr type,
+                                                   int32_t local_id) {
+    ColumnDefinition child;
+    child.identifier = Field::create_field<TYPE_STRING>(name);
+    child.local_id = local_id;
+    child.name = name;
+    child.type = std::move(type);
+    return child;
+}
+
+static std::vector<ColumnDefinition> synthesize_complex_children_from_type(
+        const DataTypePtr& type) {
+    std::vector<ColumnDefinition> children;
+    if (type == nullptr) {
+        return children;
+    }
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto* array_type = assert_cast<const DataTypeArray*>(nested_type.get());
+        children.push_back(synthetic_child_definition("element", array_type->get_nested_type(), 0));
+        break;
+    }
+    case TYPE_MAP: {
+        const auto* map_type = assert_cast<const DataTypeMap*>(nested_type.get());
+        children.push_back(synthetic_child_definition("key", map_type->get_key_type(), 0));
+        children.push_back(synthetic_child_definition("value", map_type->get_value_type(), 1));
+        break;
+    }
+    case TYPE_STRUCT: {
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(nested_type.get());
+        children.reserve(struct_type->get_elements().size());
+        for (size_t idx = 0; idx < struct_type->get_elements().size(); ++idx) {
+            children.push_back(synthetic_child_definition(struct_type->get_element_name(idx),
+                                                          struct_type->get_element(idx),
+                                                          cast_set<int32_t>(idx)));
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return children;
+}
+
+static bool has_table_child_named(const std::vector<ColumnDefinition>& children,
+                                  std::string_view name) {
+    return std::ranges::any_of(children, [&](const ColumnDefinition& child) {
+        return std::string_view(child.name) == name;
+    });
+}
+
+static void complete_required_complex_children_from_type(const DataTypePtr& type,
+                                                         std::vector<ColumnDefinition>* children) {
+    DORIS_CHECK(children != nullptr);
+    if (type == nullptr) {
+        return;
+    }
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_MAP: {
+        const auto* map_type = assert_cast<const DataTypeMap*>(nested_type.get());
+        // MAP key/value are structural children, not independently materializable table fields.
+        // A key-only projection can still be attached to a whole-map output root, for example:
+        //   SELECT * FROM t WHERE ARRAY_CONTAINS(MAP_KEYS(new_map_column), 'person5')
+        //
+        // In that shape the scanner keeps the value stream readable, but the table projection can
+        // carry only the key child. Add the missing value child so recursive mapping can evolve the
+        // value type instead of letting TableReader cast old/new value structs directly.
+        if (has_table_child_named(*children, "key") && !has_table_child_named(*children, "value")) {
+            children->push_back(synthetic_child_definition("value", map_type->get_value_type(), 1));
+        }
+        break;
+    }
+    case TYPE_ARRAY:
+        // ARRAY has only one required structural child (`element`), so a non-empty projection is
+        // already rooted at the element path.
+        break;
+    case TYPE_STRUCT:
+        // STRUCT children are real fields and must remain prunable. Completing missing struct
+        // fields here would turn `SELECT s.a` into a full-struct read and undo nested projection.
+        break;
+    default:
+        break;
     }
 }
 
@@ -909,7 +1195,15 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     *projection = LocalColumnIndex::local(*mapping.file_local_id);
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
-    for (const auto* child_mapping : present_child_mappings_in_file_order(mapping.child_mappings)) {
+    const auto present_children = present_child_mappings_in_file_order(mapping.child_mappings);
+    if (!projection->project_all_children && present_children.empty()) {
+        // All requested table children under this complex node are missing/default-only. The file
+        // reader cannot expose an empty complex projection, but TableReader can still rematerialize
+        // the table shape from a full file subtree and fill the missing children with defaults.
+        projection->project_all_children = true;
+        return Status::OK();
+    }
+    for (const auto* child_mapping : present_children) {
         LocalColumnIndex child_projection;
         RETURN_IF_ERROR(build_complex_projection(*child_mapping, &child_projection));
         projection->children.push_back(std::move(child_projection));
@@ -943,8 +1237,7 @@ static Status apply_projection_to_mapping_file_type(const LocalColumnIndex& proj
     RETURN_IF_ERROR(project_column_definition(field, projection, &projected_field));
     mapping->file_type = std::move(projected_field.type);
     mapping->projected_file_children = std::move(projected_field.children);
-    mapping->is_trivial =
-            mapping->table_type != nullptr && mapping->table_type->equals(*mapping->file_type);
+    mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
     return Status::OK();
 }
 
@@ -960,10 +1253,17 @@ static Status merge_filter_projection(const FilterProjectionMap* filter_projecti
     }
     // Merge predicate-only nested paths into the root projection that is about to be scanned.
     // Example: `SELECT s.a WHERE s.b > 1` first builds the output projection `s -> a` from
-    // ColumnMapping, while build_filter_projection_map() records `s -> b`. This merge produces
-    // one file scan projection `s -> a,b`.
+    // ColumnMapping, while build_nested_struct_filter_projection_map() records `s -> b`. This merge
+    // produces one file scan projection `s -> a,b`.
     RETURN_IF_ERROR(merge_local_column_index(projection, filter_projection_it->second));
     return Status::OK();
+}
+
+static bool table_root_is_map(const ColumnMapping& mapping) {
+    if (mapping.table_type == nullptr) {
+        return false;
+    }
+    return remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_MAP;
 }
 
 static void sort_projection_children_by_file_id(LocalColumnIndex* projection) {
@@ -1019,6 +1319,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         RETURN_IF_ERROR(merge_local_column_index(&*existing_projection_it, projection));
         sort_projection_children_by_file_id(&*existing_projection_it);
     } else {
+        sort_projection_children_by_file_id(&projection);
         scan_columns->push_back(std::move(projection));
     }
     if (is_predicate_column) {
@@ -1071,22 +1372,27 @@ static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& 
 //
 // Example: for `SELECT s.a FROM t WHERE s.b.c > 1`, the output projection may only contain `s.a`,
 // but the file reader must also read `s.b.c` to evaluate the predicate. This function collects the
-// filter path `s -> b -> c`, resolves it against the root mapping's original file schema, and
-// records a root projection like `s -> b -> c` in filter_projections. When add_scan_column() adds
-// the same root as a predicate column, it rebuilds that root from the projection mapping, merges
-// this filter-only projection into it, and removes the duplicate non-predicate root entry.
-static Status build_filter_projection_map(const std::vector<TableFilter>& table_filters,
-                                          const std::vector<ColumnMapping>& mappings,
-                                          FilterProjectionMap* filter_projections) {
+// table-side filter path, resolves it through ColumnMapping first, and records the corresponding
+// file-side projection in filter_projections. This keeps renamed fields consistent across the scan
+// projection, row-level conjunct rewrite, and nested predicate pruning. Example:
+//   table filter path: s -> renamed_b -> c
+//   old file path:     s -> b -> c
+//   recorded path:     s -> b -> c
+// When add_scan_column() adds the same root as a predicate column, it rebuilds that root from the
+// output mapping, merges this filter-only projection into it, and removes the duplicate
+// non-predicate root entry.
+static Status build_nested_struct_filter_projection_map(
+        const std::vector<TableFilter>& table_filters, const std::vector<ColumnMapping>& mappings,
+        FilterProjectionMap* filter_projections) {
     DORIS_CHECK(filter_projections != nullptr);
     filter_projections->clear();
     for (const auto& table_filter : table_filters) {
         if (table_filter.conjunct == nullptr) {
             continue;
         }
-        // Collect all the nested struct paths in the filter conjunct. For example, for a filter
-        // like `s.id > 5 AND s.name = 'abc'`, collect `s -> id` and `s -> name`, then build scan
-        // projections for those paths from the file schema.
+        // Collect all nested struct paths in the table filter. For example, for
+        // `s.id > 5 AND element_at(s, 'renamed_name') = 'abc'`, collect the table paths
+        // `s -> id` and `s -> renamed_name`, then resolve each one to its file-side projection.
         std::vector<NestedStructPath> paths;
         collect_nested_struct_paths(table_filter.conjunct->root(), &paths);
         for (const auto& path : paths) {
@@ -1098,14 +1404,27 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
                 continue;
             }
 
-            LocalColumnIndex child_projection;
-            RETURN_IF_ERROR(build_file_child_projection_from_schema(
-                    mapping_it->original_file_children, path.selectors, &child_projection));
-            if (child_projection.local_id() < 0) {
-                continue;
+            ResolvedNestedStructPath resolved;
+            LocalColumnIndex root_projection;
+            if (!resolve_nested_struct_path_for_file(path, mappings, &resolved)) {
+                if (!table_root_is_map(*mapping_it)) {
+                    continue;
+                }
+                // Direct map value filters such as `m.value.a > 1` need the value leaf for row
+                // evaluation even when the query only projects another value child. This is only a
+                // scan projection fallback; complex map/array expressions are still not rewritten
+                // into file-local conjuncts.
+                LocalColumnIndex child_projection;
+                RETURN_IF_ERROR(build_file_child_projection_from_schema(
+                        mapping_it->original_file_children, path.selectors, &child_projection));
+                if (child_projection.local_id() < 0) {
+                    continue;
+                }
+                root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
+                root_projection.children.push_back(std::move(child_projection));
+            } else {
+                root_projection = std::move(resolved.file_projection);
             }
-            auto root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
-            root_projection.children.push_back(std::move(child_projection));
             auto filter_projection_it = filter_projections->find(root_projection.column_id());
             if (filter_projection_it == filter_projections->end()) {
                 filter_projections->emplace(root_projection.column_id(),
@@ -1117,10 +1436,6 @@ static Status build_filter_projection_map(const std::vector<TableFilter>& table_
         }
     }
     return Status::OK();
-}
-
-static bool needs_complex_rematerialize(const ColumnMapping& mapping) {
-    return !mapping.is_trivial && !mapping.child_mappings.empty();
 }
 
 static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position) {
@@ -1448,8 +1763,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                                            RuntimeState* runtime_state) {
     FilterProjectionMap filter_projections;
     auto filter_mappings = _filter_visible_mappings();
-    RETURN_IF_ERROR(
-            build_filter_projection_map(table_filters, filter_mappings, &filter_projections));
+    RETURN_IF_ERROR(build_nested_struct_filter_projection_map(table_filters, filter_mappings,
+                                                              &filter_projections));
     for (const auto& table_filter : table_filters) {
         for (const auto& global_index : table_filter.global_indices) {
             auto* mapping = _find_filter_mapping(global_index);
@@ -1486,13 +1801,48 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             table_filter_has_only_local_entries(table_filter, _filter_entries)) {
             RewriteContext rewrite_context {.runtime_state = runtime_state};
             VExprSPtr rewrite_root;
-            const auto clone_status =
-                    clone_table_expr_tree(table_filter.conjunct->root(), &rewrite_root);
+            Status clone_status;
+            try {
+                clone_status = clone_table_expr_tree(table_filter.conjunct->root(), &rewrite_root);
+            } catch (const Exception& e) {
+                // Some table filters contain complex intermediate values, for example
+                // `element_at(MAP_VALUES(m)[1], 'age') > 30`. The current file-local rewrite only
+                // understands top-level slots and struct-element paths rooted at top-level slots;
+                // cloning such expressions can hit the generic TExpr complex-type limitation.
+                // Leave them above TableReader, where Scanner evaluates the original table-level
+                // conjunct after final materialization.
+#ifndef NDEBUG
+                return Status::InternalError(
+                        "Failed to clone table filter for file-local rewrite: {}, expr={}",
+                        e.to_string(), table_filter.conjunct->root()->debug_string());
+#else
+                continue;
+#endif
+            } catch (const std::exception& e) {
+#ifndef NDEBUG
+                return Status::InternalError(
+                        "Failed to clone table filter for file-local rewrite: {}, expr={}",
+                        e.what(), table_filter.conjunct->root()->debug_string());
+#else
+                continue;
+#endif
+            }
             if (!clone_status.ok()) {
+#ifndef NDEBUG
+                return Status::InternalError(
+                        "Failed to clone table filter for file-local rewrite: {}, expr={}",
+                        clone_status.to_string(), table_filter.conjunct->root()->debug_string());
+#else
+                continue;
+#endif
+            }
+            bool can_localize = true;
+            auto localized_root = rewrite_table_expr_to_file_expr(rewrite_root, global_to_file_slot,
+                                                                  filter_mappings, &rewrite_context,
+                                                                  &can_localize);
+            if (!can_localize) {
                 continue;
             }
-            auto localized_root = rewrite_table_expr_to_file_expr(rewrite_root, global_to_file_slot,
-                                                                  &rewrite_context);
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
@@ -1563,16 +1913,62 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_children = file_field.children;
     mapping->projected_file_children = file_field.children;
     mapping->file_type = file_field.type;
-    mapping->is_trivial = mapping->table_type->equals(*mapping->file_type);
+    mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
     mapping->filter_conversion = mapping->is_trivial ? FilterConversionType::COPY_DIRECTLY
                                                      : FilterConversionType::CAST_FILTER;
     mapping->child_mappings.clear();
 
-    if (!table_column.children.empty()) {
+    auto table_children = table_column.children;
+    const auto nested_table_type = remove_nullable(mapping->table_type);
+    // Some scan paths, especially SELECT *, only carry the complete complex DataType for a table
+    // column and leave ColumnDefinition::children empty. If the file type is an older complex
+    // schema, treating this as a leaf mapping would make TableReader fall back to a plain CAST.
+    // That is invalid for evolved structs with different field counts.
+    //
+    // Example:
+    //   table column type: Map(String, Struct(age, full_name, gender))
+    //   old file type:    Map(String, Struct(age, name))
+    //   table children:   empty
+    //
+    // Synthesize key/value/struct-field children from the table type so the normal recursive
+    // mapping path can rematerialize `name -> full_name` and fill missing `gender` with defaults,
+    // instead of trying to CAST Struct(age, name) to Struct(age, full_name, gender).
+    const bool synthesized_table_children =
+            table_children.empty() && is_complex_type(nested_table_type->get_primitive_type()) &&
+            !mapping->table_type->equals(*mapping->file_type);
+    if (synthesized_table_children) {
+        table_children = synthesize_complex_children_from_type(mapping->table_type);
+    } else if (!table_children.empty() && !mapping->table_type->equals(*mapping->file_type)) {
+        complete_required_complex_children_from_type(mapping->table_type, &table_children);
+    }
+
+    if (!table_children.empty()) {
         DORIS_CHECK(is_complex_type(mapping->file_type->get_primitive_type()));
-        for (const auto& table_child : table_column.children) {
+        std::vector<int32_t> synthesized_used_file_child_ids;
+        for (size_t table_child_idx = 0; table_child_idx < table_children.size();
+             ++table_child_idx) {
+            const auto& table_child = table_children[table_child_idx];
             const auto* file_child =
-                    find_file_child_for_mapping(table_child, file_field, _options.mode);
+                    find_file_child_for_mapping(table_child, file_field, _options.mode,
+                                                table_child_idx, synthesized_table_children);
+            if (synthesized_table_children && file_child != nullptr) {
+                const auto file_child_id = file_child->file_local_id();
+                if (std::ranges::find(synthesized_used_file_child_ids, file_child_id) !=
+                    synthesized_used_file_child_ids.end()) {
+                    file_child = nullptr;
+                    for (const auto& candidate : file_field.children) {
+                        const auto candidate_id = candidate.file_local_id();
+                        if (std::ranges::find(synthesized_used_file_child_ids, candidate_id) ==
+                            synthesized_used_file_child_ids.end()) {
+                            file_child = &candidate;
+                            break;
+                        }
+                    }
+                }
+                if (file_child != nullptr) {
+                    synthesized_used_file_child_ids.push_back(file_child->file_local_id());
+                }
+            }
             if (file_child == nullptr) {
                 ColumnMapping child_mapping;
                 child_mapping.table_column_name = table_child.name;
@@ -1595,7 +1991,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                     mapping->file_type, mapping->original_file_children, mapping->child_mappings,
                     &mapping->projected_file_children, &mapping->file_type));
             DCHECK(mapping->table_type != nullptr);
-            mapping->is_trivial = mapping->table_type->equals(*mapping->file_type);
+            mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
             // TODO: ? READER_EXPRESSION
             mapping->filter_conversion = mapping->is_trivial
                                                  ? FilterConversionType::COPY_DIRECTLY

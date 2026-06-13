@@ -44,6 +44,12 @@ struct NestedStructPath {
     std::vector<StructChildSelector> selectors;
 };
 
+struct ResolvedNestedStructPath {
+    LocalColumnIndex file_projection;
+    std::vector<std::string> file_child_names;
+    std::vector<DataTypePtr> file_child_types;
+};
+
 // A split-local literal produced by slot-literal predicate localization. This wrapper keeps the
 // original table literal so a cloned conjunct can be localized again for another split.
 class SplitLocalFileLiteral final : public VLiteral {
@@ -70,6 +76,15 @@ private:
 GlobalIndex slot_ref_global_index(const VSlotRef& slot_ref);
 bool is_struct_element_expr(const VExprSPtr& expr);
 Field literal_field(const VExprSPtr& literal_expr);
+
+bool resolve_nested_struct_path_for_file(const NestedStructPath& path,
+                                         const std::vector<ColumnMapping>& mappings,
+                                         ResolvedNestedStructPath* resolved,
+                                         bool require_scan_projection = false);
+
+bool resolve_nested_struct_expr_for_file(const VExprSPtr& expr,
+                                         const std::vector<ColumnMapping>& mappings,
+                                         ResolvedNestedStructPath* resolved);
 
 void collect_nested_struct_paths(const VExprSPtr& expr, std::vector<NestedStructPath>* paths);
 
