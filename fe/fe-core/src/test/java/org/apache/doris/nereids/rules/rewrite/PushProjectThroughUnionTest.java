@@ -140,6 +140,30 @@ public class PushProjectThroughUnionTest {
         Assertions.assertFalse(PushProjectThroughUnion.canPushProject(unsafeProjects, unionDistinctWithUnsafeCast));
     }
 
+    @Test
+    public void testDistinctProjectRequiresAllOutputSlotsExactlyOnce() {
+        SlotReference firstOutput = new SlotReference(new ExprId(10), "a",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference secondOutput = new SlotReference(new ExprId(11), "b",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        ImmutableList<NamedExpression> outputs = ImmutableList.of(firstOutput, secondOutput);
+        LogicalUnion unionAll = new LogicalUnion(Qualifier.ALL,
+                outputs, ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        LogicalUnion unionDistinct = new LogicalUnion(Qualifier.DISTINCT,
+                outputs, ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+
+        ImmutableList<NamedExpression> duplicateProjects = ImmutableList.of(
+                new Alias(new ExprId(100), new Cast(firstOutput, BigIntType.INSTANCE), "a1"),
+                new Alias(new ExprId(101), new Cast(firstOutput, BigIntType.INSTANCE), "a2"));
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(duplicateProjects, unionAll));
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(duplicateProjects, unionDistinct));
+
+        ImmutableList<NamedExpression> permutationProjects = ImmutableList.of(
+                new Alias(new ExprId(102), new Cast(secondOutput, BigIntType.INSTANCE), "b"),
+                new Alias(new ExprId(103), new Cast(firstOutput, BigIntType.INSTANCE), "a"));
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(permutationProjects, unionDistinct));
+    }
+
     private LogicalUnion findUnion(Plan p) {
         if (p instanceof LogicalUnion) {
             return (LogicalUnion) p;

@@ -302,6 +302,16 @@ suite("set_operation") {
         ) t
     """
 
+    // The project duplicates one UNION output and drops the other. Pushing it
+    // below UNION DISTINCT would collapse the two rows into one.
+    order_qt_union47 """
+        select cast(a as bigint), cast(a as bigint) from (
+            select 1 a, 2 b
+            union
+            select 1 a, 3 b
+        ) t
+    """
+
     def tables = [
             "dwd_daytable",
     ]

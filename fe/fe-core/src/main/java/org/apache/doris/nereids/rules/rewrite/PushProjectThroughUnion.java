@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -36,9 +37,11 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * this rule push down the project through union to let MergeUnion could do better
@@ -57,19 +60,31 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
 
     /** canPushProject */
     public static boolean canPushProject(List<NamedExpression> projects, LogicalSetOperation logicalSetOperation) {
-        return projects.size() == logicalSetOperation.getOutput().size() && projects.stream().allMatch(e -> {
-            if (e instanceof SlotReference) {
-                return true;
+        if (projects.size() != logicalSetOperation.getOutput().size()) {
+            return false;
+        }
+        boolean isAll = logicalSetOperation.getQualifier().equals(Qualifier.ALL);
+        Set<ExprId> projectInputExprIds = Sets.newHashSetWithExpectedSize(projects.size());
+        for (NamedExpression project : projects) {
+            Expression input;
+            if (project instanceof SlotReference) {
+                input = project;
+            } else if (isAll) {
+                input = ExpressionUtils.getExpressionCoveredByCast(project.child(0));
             } else {
-                Expression expr;
-                if (logicalSetOperation.getQualifier().equals(Qualifier.ALL)) {
-                    expr = ExpressionUtils.getExpressionCoveredByCast(e.child(0));
-                } else {
-                    expr = ExpressionUtils.getExpressionCoveredBySafetyCast(e.child(0));
-                }
-                return expr instanceof SlotReference;
+                input = ExpressionUtils.getExpressionCoveredBySafetyCast(project.child(0));
             }
-        });
+            if (!(input instanceof SlotReference)) {
+                return false;
+            }
+            projectInputExprIds.add(((SlotReference) input).getExprId());
+        }
+        if (isAll) {
+            return true;
+        }
+        Set<ExprId> outputExprIds = Sets.newHashSetWithExpectedSize(logicalSetOperation.getOutput().size());
+        logicalSetOperation.getOutput().forEach(output -> outputExprIds.add(output.getExprId()));
+        return projectInputExprIds.equals(outputExprIds);
     }
 
     /** doPushProject */
