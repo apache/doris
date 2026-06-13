@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -80,6 +81,7 @@ public:
     }
 
     VExprSPtr get_impl() const override { return _impl; }
+    void set_impl(VExprSPtr impl) { _impl = std::move(impl); }
     Status clone_node(VExprSPtr* cloned_expr) const override;
 
     void attach_profile_counter(std::shared_ptr<RuntimeProfile::Counter> rf_input_rows,
