@@ -29,6 +29,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -114,7 +116,7 @@ public class NereidsLoadScanProvider {
                         .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
                 // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
                 // column name.
-                if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescList)) {
+                if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescList, fileGroup)) {
                     columnDescList.add(new NereidsImportColumnDesc(Column.SEQUENCE_COL,
                             new UnboundSlot(sequenceCol)));
                 } else if (!fileGroupInfo.isFixedPartialUpdate()) {
@@ -193,9 +195,41 @@ public class NereidsLoadScanProvider {
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
         boolean specifyFileFieldNames = copiedColumnExprs.stream().anyMatch(p -> p.isColumn());
-        if (!specifyFileFieldNames) {
+        boolean fillMissing = isFillMissingColumns(fileGroup);
+        if (!specifyFileFieldNames || fillMissing) {
+            // Dedup the base-schema fill against descriptors that already provide the matching
+            // file slot, so the existing !specifyFileFieldNames behavior stays consistent.
+            // A descriptor only "provides the file slot" for a column when either:
+            //   - it is a true file field (expr == null), or
+            //   - it is a mapping that does NOT reference a source column with the same name as
+            //     its target (e.g. score_x2 = score * 2). Such a derived target consumes other
+            //     columns, so the base descriptor must be suppressed to keep the derivation.
+            // A self-referencing mapping such as COLUMNS(k1 = k1) still needs the scan to output
+            // its own source column k1, so it must NOT suppress the base descriptor; otherwise the
+            // scan would drop k1 while the mapping still references it.
+            // selfRefSourceByColumn maps a self-referencing mapping's target column to the exact
+            // source-slot spelling it reads, e.g. COLUMNS(Score = score + 1) -> {Score: "score"}.
+            // A self-reference never suppresses the base descriptor (the scan still has to output the
+            // referenced source slot), and for case-preserving formats the base descriptor must reuse
+            // that source spelling so the reader looks up the right file key (see below). Only built
+            // for fill_missing so the legacy !specifyFileFieldNames path stays unchanged.
+            Map<String, String> selfRefSourceByColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            Set<String> existingColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            if (fillMissing) {
+                for (NereidsImportColumnDesc desc : copiedColumnExprs) {
+                    String source = selfReferenceSource(desc);
+                    if (source != null) {
+                        selfRefSourceByColumn.put(desc.getColumnName(), source);
+                    } else {
+                        existingColumns.add(desc.getColumnName());
+                    }
+                }
+            }
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
+                if (existingColumns.contains(column.getName())) {
+                    continue;
+                }
                 if (constantMappingColumns.contains(column.getName())) {
                     // Skip this column because user has already specified a constant mapping expression for it
                     // in the COLUMNS parameter (e.g., "column_name = 'constant_value'")
@@ -204,7 +238,15 @@ public class NereidsLoadScanProvider {
                 NereidsImportColumnDesc columnDesc;
                 TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
                 if (Util.isCasePreservingFormat(fileFormatType)) {
-                    columnDesc = new NereidsImportColumnDesc(column.getName());
+                    // A self-referencing mapping such as COLUMNS(Score = score + 1) binds its source
+                    // column case-insensitively, but a case-preserving reader (JSON/Arrow) matches the
+                    // scan slot name to the file key exactly. Emit the base file slot using the
+                    // source-slot spelling referenced by the mapping (e.g. "score") instead of the
+                    // table column spelling ("Score"); otherwise the reader would look up the wrong key
+                    // and the mapping would receive NULL.
+                    String sourceSpelling = selfRefSourceByColumn.get(column.getName());
+                    columnDesc = new NereidsImportColumnDesc(
+                            sourceSpelling != null ? sourceSpelling : column.getName());
                 } else {
                     columnDesc = new NereidsImportColumnDesc(column.getName().toLowerCase());
                 }
@@ -421,13 +463,51 @@ public class NereidsLoadScanProvider {
     }
 
     /**
-     * if not set sequence column and column size is null or only have deleted sign ,return true
+     * Returns true when the sequence column should be auto-added, i.e.,
+     * if not set sequence column and column size is null or only have deleted sign,
+     * or fill_missing_columns is enabled, meaning schema will be auto-filled.
      */
-    private boolean shouldAddSequenceColumn(List<NereidsImportColumnDesc> columnDescList) {
+    private boolean shouldAddSequenceColumn(List<NereidsImportColumnDesc> columnDescList,
+            NereidsBrokerFileGroup fileGroup) {
+        if (isFillMissingColumns(fileGroup)) {
+            return true;
+        }
         if (columnDescList.isEmpty()) {
             return true;
         }
         return columnDescList.size() == 1 && columnDescList.get(0).getColumnName().equalsIgnoreCase(Column.DELETE_SIGN);
+    }
+
+    /**
+     * Returns true if the file format is JSON and fill_missing_columns is enabled. Only meaningful for JSON.
+     */
+    private boolean isFillMissingColumns(NereidsBrokerFileGroup fileGroup) {
+        return fileGroup.getFileFormatProperties() instanceof JsonFileFormatProperties
+                && ((JsonFileFormatProperties) fileGroup.getFileFormatProperties()).isFillMissingColumns();
+    }
+
+    /**
+     * If {@code desc} is a self-referencing mapping (expr != null and it reads a source column whose
+     * name matches its own target, e.g. COLUMNS(k1 = k1), COLUMNS(k1 = k1 + 1) or the mixed-case
+     * COLUMNS(Score = score + 1)), return the exact spelling of that matching source slot (e.g.
+     * "k1" / "score"). Return {@code null} for true file fields and for mappings that do not
+     * reference their own column (constants or other-column derivations such as score_x2 = score * 2).
+     *
+     * <p>A non-null result serves two purposes when filling missing columns: the base scan descriptor
+     * for the column must be preserved (the mapping still consumes the same-named source slot), and
+     * for case-preserving formats the base descriptor must reuse the returned spelling so the reader
+     * looks up the right file key.
+     */
+    private String selfReferenceSource(NereidsImportColumnDesc desc) {
+        if (desc.isColumn()) {
+            return null;
+        }
+        for (Slot slot : desc.getExpr().getInputSlots()) {
+            if (slot.getName().equalsIgnoreCase(desc.getColumnName())) {
+                return slot.getName();
+            }
+        }
+        return null;
     }
 
     private TFileFormatType formatType(String fileFormat) throws UserException {

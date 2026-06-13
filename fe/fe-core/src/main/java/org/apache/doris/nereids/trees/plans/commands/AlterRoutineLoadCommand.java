@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -74,6 +75,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.STRICT_MODE)
             .add(CreateRoutineLoadInfo.TIMEZONE)
             .add(CreateRoutineLoadInfo.WORKLOAD_GROUP)
+            .add(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
             .add(JsonFileFormatProperties.PROP_JSON_PATHS)
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
             .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
@@ -313,6 +315,69 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             analyzedJobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
                     String.valueOf(emptyFieldAsNull));
         }
+
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)) {
+            String val = jobProperties.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS);
+            if (!"true".equalsIgnoreCase(val) && !"false".equalsIgnoreCase(val)) {
+                throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                        + " must be 'true' or 'false', but found: " + val);
+            }
+            // fill_missing_columns is a JSON-only property. This alter cannot change the job format,
+            // so reject it for non-JSON jobs; otherwise the value would be persisted but silently
+            // ignored by the CSV scan path.
+            RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                    .getJob(getDbName(), getJobName());
+            if (!"json".equalsIgnoreCase(job.getFormat())) {
+                throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                        + " is only supported for JSON format, but found format: " + job.getFormat());
+            }
+            analyzedJobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, val);
+        }
+
+        // fill_missing_columns performs a full-row upsert, which is mutually exclusive with fixed
+        // partial columns update (see CreateRoutineLoadInfo#checkJobProperties). Resolve both the
+        // fill_missing_columns flag and the update mode this alter will result in (either changed by
+        // this alter or kept from the current job) and reject the combination.
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
+                || jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)
+                || jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+            RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                    .getJob(getDbName(), getJobName());
+            if (effectiveFillMissingColumns(job)
+                    && effectiveUniqueKeyUpdateMode(job) == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+                throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                        + " is not supported with fixed partial columns update");
+            }
+        }
+    }
+
+    /**
+     * Resolve whether fill_missing_columns will be enabled after this alter: prefer the value being
+     * changed by this alter, otherwise fall back to the current job's value.
+     */
+    private boolean effectiveFillMissingColumns(RoutineLoadJob job) {
+        if (analyzedJobProperties.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)) {
+            return Boolean.parseBoolean(
+                    analyzedJobProperties.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+        }
+        return job.isFillMissingColumns();
+    }
+
+    /**
+     * Resolve the unique-key update mode this alter will result in: prefer the mode being changed by
+     * this alter (unique_key_update_mode or the legacy partial_columns flag), otherwise fall back to
+     * the current job's mode.
+     */
+    private TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode(RoutineLoadJob job) {
+        if (analyzedJobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            return CreateRoutineLoadInfo.parseUniqueKeyUpdateMode(
+                    analyzedJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+        }
+        if (analyzedJobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+            return Boolean.parseBoolean(analyzedJobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS))
+                    ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT;
+        }
+        return job.getUniqueKeyUpdateMode();
     }
 
     private void checkDataSourceProperties() throws UserException {
