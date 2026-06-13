@@ -44,8 +44,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
             for (final def profileItem in profileData) {
                 if (profileItem["Sql Statement"].toString().contains(token)) {
                     profileState = profileItem[profileCompletionStateName]?.toString()
-                    if (profileState == profileCompletionStateComplete) {
-                        profileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                    def currentProfileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                    if (currentProfileContent != "") {
+                        profileContent = currentProfileContent
                     }
                     break
                 }
