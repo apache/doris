@@ -56,6 +56,7 @@
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/table/iceberg_reader.h"
+#include "format_v2/table/paimon_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
@@ -915,6 +916,29 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     return static_cast<int64_t>(blob.size());
 }
 
+int64_t write_paimon_deletion_vector_file(const std::string& file_path,
+                                          const std::vector<uint32_t>& deleted_positions) {
+    roaring::Roaring rows;
+    for (const auto position : deleted_positions) {
+        rows.add(position);
+    }
+
+    const size_t bitmap_size = rows.getSizeInBytes();
+    const uint32_t total_length = static_cast<uint32_t>(4 + bitmap_size);
+    std::vector<char> blob(4 + total_length);
+    BigEndian::Store32(blob.data(), total_length);
+    constexpr char PAIMON_BITMAP_MAGIC[] = {'\x5E', '\x43', '\xF2', '\xD0'};
+    memcpy(blob.data() + 4, PAIMON_BITMAP_MAGIC, 4);
+    rows.write(blob.data() + 8);
+
+    std::ofstream output(file_path, std::ios::binary);
+    EXPECT_TRUE(output.is_open());
+    output.write(blob.data(), static_cast<std::streamsize>(blob.size()));
+    EXPECT_TRUE(output.good());
+    // Paimon DeletionFile.length is magic + bitmap length, excluding the leading length field.
+    return static_cast<int64_t>(total_length);
+}
+
 Block build_table_block(const std::vector<ColumnDefinition>& columns) {
     Block block;
     for (const auto& column : columns) {
@@ -1090,6 +1114,20 @@ TTableFormatFileDesc make_iceberg_table_format_desc(
     iceberg_params.__set_original_file_path(data_file_path);
     iceberg_params.__set_delete_files(delete_files);
     table_format_params.__set_iceberg_params(iceberg_params);
+    return table_format_params;
+}
+
+TTableFormatFileDesc make_paimon_table_format_desc(const std::string& deletion_file_path,
+                                                   int64_t offset, int64_t length) {
+    TTableFormatFileDesc table_format_params;
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_file_format("parquet");
+    TPaimonDeletionFileDesc deletion_file;
+    deletion_file.__set_path(deletion_file_path);
+    deletion_file.__set_offset(offset);
+    deletion_file.__set_length(length);
+    paimon_params.__set_deletion_file(deletion_file);
+    table_format_params.__set_paimon_params(paimon_params);
     return table_format_params;
 }
 
@@ -4014,6 +4052,66 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 4}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, PaimonTableReaderAppliesBitmapDeletionVectorFile) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_paimon_deletion_vector_file_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5}, {10, 20, 30, 40, 50},
+                                {"one", "two", "three", "four", "five"});
+    const auto dv_length = write_paimon_deletion_vector_file(dv_path, {0, 4});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, 0, dv_length));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    std::vector<int32_t> ids;
+    bool eos = false;
+    while (!eos) {
+        Block block = build_table_block(projected_columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (block.rows() == 0) {
+            continue;
+        }
+        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        for (size_t row = 0; row < block.rows(); ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+    EXPECT_EQ(ids, std::vector<int32_t>({2, 3, 4}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
