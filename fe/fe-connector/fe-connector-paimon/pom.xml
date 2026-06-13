@@ -112,6 +112,21 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
+        <!-- hadoop-huaweicloud supplies org.apache.hadoop.fs.obs.OBSFileSystem for obs:// warehouses, the
+             SAME self-contained reasoning as hadoop-aws above: the plugin runs child-first with hadoop-common
+             (FileSystem) bundled in the child loader. Without hadoop-huaweicloud here, OBSFileSystem resolved
+             from the parent 'app' loader while FileSystem resolved from the child ChildFirstClassLoader, so
+             FileSystem.createFileSystem's cast threw "OBSFileSystem cannot be cast to FileSystem"
+             (FIX-PAIMON-OBS-SELFCONTAINED, CI 968994 paimon_base_filesystem). Bundling it child-first
+             co-locates OBSFileSystem with the plugin's own FileSystem so the cast succeeds. Version + scope
+             (compile) + jackson-databind exclusion inherited from fe-core dependencyManagement
+             (${huaweiobs.version}); the esdk-obs SDK rides transitively. hadoop-common stays the plugin's
+             own direct (depth-1) copy via Maven mediation, so no duplicate FileSystem is introduced. -->
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>hadoop-huaweicloud</artifactId>
+        </dependency>
+
         <!-- AWS SDK v2 for the child-bundled hadoop-aws S3AFileSystem (RC-3, completes
              FIX-PAIMON-HADOOP-CLASSLOADER). Without it the plugin bundles S3AFileSystem child-first but NO
              SDK: its S3AInternalAuditConstants.<clinit> registers an ExecutionAttribute against the single
