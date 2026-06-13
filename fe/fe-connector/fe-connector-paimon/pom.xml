@@ -69,19 +69,19 @@ under the License.
             <version>${paimon.version}</version>
         </dependency>
 
-        <!-- paimon-hive-connector-3.1 supplies org.apache.paimon.hive.HiveCatalogFactory (the
-             SPI impl discovered for metastore=hive) + HiveCatalogOptions, needed so the hms/dlf
-             flavors can create a live HiveCatalog. Version comes from dependencyManagement
-             (${paimon.version}, declared groupId+artifactId only like paimon-core). Its hive-exec
-             dep is `provided` and hadoop-client is `test`, so it does NOT drag Configuration/HiveConf
-             onto our compile classpath — those come from the two deps below.
-             NOTE (cutover P5-B7): the Thrift metastore client (IMetaStoreClient/HiveMetaStoreClient)
-             for the live metastore=hive (hms/dlf) path is therefore NOT bundled here; it is
-             host-provided via the FE's hive-catalog-shade at cutover, not at connector compile time
-             (see the NOTE blocks in PaimonConnector.createCatalog hms/dlf branches). -->
+        <!-- FIX-C (build 968994, Class C): the paimon-hive metastore-client closure
+             (paimon-hive-connector-3.1 + hive-metastore 2.3.7 + hive-common) is now consumed via
+             the fe-connector-paimon-hive-shade module, which relocates org.apache.thrift to a
+             paimon-private package so the old-package TFramedTransport that
+             RetryingMetaStoreClientFactory/HiveMetaStoreClient need is satisfied WITHOUT adding
+             original-package org.apache.thrift.* to the plugin (that would re-break the RC-1
+             doris-gen TSerializer/TBase 0.16.0 parent-first path). The raw
+             paimon-hive-connector-3.1, hive-metastore:2.3.7, and hive-common deps that used to live
+             here were moved into that shade module. See plan-doc/fix-c-hms-thrift-design.md. -->
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-hive-connector-3.1</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-connector-paimon-hive-shade</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- hadoop-common supplies org.apache.hadoop.conf.Configuration, reconstructed minimally
@@ -164,65 +164,6 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
-        </dependency>
-
-        <!-- hive-common supplies org.apache.hadoop.hive.conf.HiveConf for the hms/dlf flavors
-             (buildHmsHiveConf / buildDlfHiveConf). We deliberately use the plain hive-common
-             (${hive.common.version}) rather than fe-core's hive-catalog-shade: the shade bundles an
-             ancient, unrelocated fastutil (6.5.6) that collides on the classpath; hive-common does
-             not, so the connector module stays conflict-free. -->
-        <dependency>
-            <groupId>org.apache.hive</groupId>
-            <artifactId>hive-common</artifactId>
-        </dependency>
-
-        <!-- RC-5: bundle the 2.x Thrift metastore client (RetryingMetaStoreClient / HiveMetaStoreClient /
-             HiveMetaHookLoader + metastore api) child-first so its getProxy(HiveConf,...) overloads are
-             compiled against the SAME org.apache.hadoop.hive.conf.HiveConf the connector's
-             RetryingMetaStoreClientFactory probes from the child-bundled hive-common-2.3.9 + hadoop-common.
-             Without it those classes resolve from the parent hive-catalog-shade-3.1.1 (Configuration-based
-             getProxy only) -> Class-identity mismatch -> every reflective probe throws NoSuchMethodException
-             -> "Failed to create the desired metastore client". 2.3.7 is the only 2.x metastore line in the
-             repo and pairs with hive-common 2.3.9 (patch-level, API-stable HiveConf); the jar is
-             fastutil-CLEAN, so unlike hive-catalog-shade it does NOT reintroduce the fastutil collision.
-             Bundle ONLY the client+api closure (libfb303 rides transitively); exclude server-side
-             datanucleus/derby/bonecp/HikariCP/jdo/hbase/tephra, the stale hadoop-2.7.2 trio + guava, and
-             libthrift (stays parent-first like the other connectors). NOTE: thrift 0.9.3-vs-host-0.16.0 wire
-             skew + the DLF ProxyMetaStoreClient path are not statically provable — gated by the docker
-             paimon suite (enablePaimonTest=true). -->
-        <dependency>
-            <groupId>org.apache.hive</groupId>
-            <artifactId>hive-metastore</artifactId>
-            <version>2.3.7</version>
-            <exclusions>
-                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId></exclusion>
-                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-hdfs</artifactId></exclusion>
-                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId></exclusion>
-                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-common</artifactId></exclusion>
-                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-serde</artifactId></exclusion>
-                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-shims</artifactId></exclusion>
-                <exclusion><groupId>org.apache.thrift</groupId><artifactId>libthrift</artifactId></exclusion>
-                <exclusion><groupId>com.google.guava</groupId><artifactId>guava</artifactId></exclusion>
-                <exclusion><groupId>com.google.protobuf</groupId><artifactId>protobuf-java</artifactId></exclusion>
-                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-api-jdo</artifactId></exclusion>
-                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-core</artifactId></exclusion>
-                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-rdbms</artifactId></exclusion>
-                <exclusion><groupId>org.datanucleus</groupId><artifactId>javax.jdo</artifactId></exclusion>
-                <exclusion><groupId>javax.jdo</groupId><artifactId>jdo-api</artifactId></exclusion>
-                <exclusion><groupId>org.apache.derby</groupId><artifactId>derby</artifactId></exclusion>
-                <exclusion><groupId>com.jolbox</groupId><artifactId>bonecp</artifactId></exclusion>
-                <exclusion><groupId>com.zaxxer</groupId><artifactId>HikariCP</artifactId></exclusion>
-                <exclusion><groupId>commons-dbcp</groupId><artifactId>commons-dbcp</artifactId></exclusion>
-                <exclusion><groupId>commons-pool</groupId><artifactId>commons-pool</artifactId></exclusion>
-                <exclusion><groupId>org.apache.hbase</groupId><artifactId>hbase-client</artifactId></exclusion>
-                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-api</artifactId></exclusion>
-                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-core</artifactId></exclusion>
-                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-hbase-compat-1.0</artifactId></exclusion>
-                <exclusion><groupId>ch.qos.logback</groupId><artifactId>logback-classic</artifactId></exclusion>
-                <exclusion><groupId>ch.qos.logback</groupId><artifactId>logback-core</artifactId></exclusion>
-                <exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-log4j12</artifactId></exclusion>
-                <exclusion><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></exclusion>
-            </exclusions>
         </dependency>
 
         <dependency>
