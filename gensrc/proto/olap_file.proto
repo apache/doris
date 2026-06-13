@@ -539,13 +539,14 @@ message TabletSchemaPB {
     // the format via the prior "any of those three implies V3" rule. New code should read
     // storage_format; the fallback path lives in TabletSchema::init_from_pb.
     optional TabletStorageFormatPB storage_format = 36;
-    optional bool row_store_only = 37 [default=false]; // only store row column and primary key index
 
     // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
     optional int32 binlog_timestamp_col_idx = 37 [default = -1];
 
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
     optional int32 binlog_lsn_col_idx = 38 [default = -1];
+
+    optional bool row_store_only = 39 [default=false]; // only store row column and primary key index
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -593,7 +594,6 @@ message TabletSchemaCloudPB {
 
     // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
     optional TabletStorageFormatPB storage_format = 37;
-    optional bool row_store_only = 38 [default=false]; // only store row column and primary key index
 
     // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
     optional int32 binlog_timestamp_col_idx = 38 [default = -1];
