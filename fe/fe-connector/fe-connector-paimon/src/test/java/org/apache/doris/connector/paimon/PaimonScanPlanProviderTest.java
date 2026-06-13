@@ -505,6 +505,42 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void getScanNodePropertiesEmitsPathPartitionKeysForPartitionedTable(@TempDir Path warehouse)
+            throws Exception {
+        // RC (CI 968880): a partitioned paimon table must declare path_partition_keys so
+        // PluginDrivenScanNode.getPathPartitionKeys excludes the partition columns from the file/decode
+        // set. Paimon stores partition columns IN the data file and the per-split columnsFromPath already
+        // appends them; without path_partition_keys the BE both DECODES dt from the ORC file AND APPENDS
+        // it -> a row-count double-fill that aborts the native OrcReader (DCHECK block rows != dt rows).
+        // MUTATION: dropping the props.put("path_partition_keys", ...) -> the key is absent -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("dt", DataTypes.STRING())
+                    .partitionKeys("dt")
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table base = catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(base);
+
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            Map<String, String> props = provider.getScanNodeProperties(
+                    null, handle, Collections.emptyList(), Optional.empty());
+
+            Assertions.assertEquals("dt", props.get("path_partition_keys"),
+                    "a partitioned paimon table must declare its partition columns as path_partition_keys "
+                            + "so the BE excludes them from the file decode set (else double-fill -> crash)");
+        }
+    }
+
+    @Test
     public void resolveTableUsesTransientWithoutReload() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(

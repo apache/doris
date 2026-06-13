@@ -524,6 +524,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         props.put("file_format_type", "jni");
         props.put("table_format_type", "paimon");
 
+        // Path partition keys: declare the partition columns at the scan-node level so
+        // FileQueryScanNode excludes them from the file/decode column set (num_of_columns_from_file +
+        // classifyColumn -> PARTITION_KEY). Paimon physically stores partition columns IN the data
+        // file, and the per-split PaimonScanRange.populateRangeParams already emits them as
+        // columnsFromPath; without this declaration the BE both DECODES dt/hh from the ORC file AND
+        // APPENDS them from columnsFromPath -> a row-count double-fill that trips the OrcReader DCHECK
+        // (block rows != partition col rows). Lower-cased to match the Doris column names and the
+        // columnsFromPath keys (getPartitionInfoMap). Restores legacy PaimonScanNode.getPathPartitionKeys
+        // parity (and mirrors the hive connector). PluginDrivenScanNode.getPathPartitionKeys reads this.
+        List<String> partitionKeys = table.partitionKeys();
+        if (partitionKeys != null && !partitionKeys.isEmpty()) {
+            props.put("path_partition_keys", partitionKeys.stream()
+                    .map(k -> k.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.joining(",")));
+        }
+
         // Serialized table for BE's JNI reader
         String serializedTable = encodeObjectToString(table);
         props.put("paimon.serialized_table", serializedTable);
