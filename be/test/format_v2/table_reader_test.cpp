@@ -1168,20 +1168,17 @@ TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWi
     ColumnMapping mapping;
     mapping.table_type = std::make_shared<DataTypeString>(3, TYPE_VARCHAR);
     mapping.file_type = std::make_shared<DataTypeString>(10, TYPE_VARCHAR);
-    EXPECT_TRUE(
-            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+    EXPECT_TRUE(TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
 
     mapping.file_type = std::make_shared<DataTypeString>(2, TYPE_VARCHAR);
     EXPECT_FALSE(
             TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
 
     mapping.file_type = std::make_shared<DataTypeString>();
-    EXPECT_TRUE(
-            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+    EXPECT_TRUE(TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
 
     mapping.file_type = std::make_shared<DataTypeInt32>();
-    EXPECT_TRUE(
-            TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
+    EXPECT_TRUE(TableReaderCharVarcharTestHelper::_should_truncate_char_or_varchar_column(mapping));
 
     mapping.table_type = std::make_shared<DataTypeString>();
     EXPECT_FALSE(

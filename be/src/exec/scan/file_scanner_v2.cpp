@@ -266,10 +266,9 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
     }
     case TYPE_ARRAY: {
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
-        const auto* element_schema =
-                schema_column != nullptr && !schema_column->children.empty()
-                        ? &schema_column->children[0]
-                        : nullptr;
+        const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
+                                             ? &schema_column->children[0]
+                                             : nullptr;
         auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0),
                                         schema_field_name_or(element_schema, "element"),
                                         array_type.get_nested_type());
@@ -287,8 +286,7 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
                                            : nullptr;
         auto* key_child =
                 find_or_add_child(column, schema_field_id_or(key_schema, 0),
-                                  schema_field_name_or(key_schema, "key"),
-                                  map_type.get_key_type());
+                                  schema_field_name_or(key_schema, "key"), map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
                 key_child, key_child->type, project_all, path + ".KEYS", key_schema));
@@ -409,8 +407,7 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
     if (need_key) {
         auto* key_child =
                 find_or_add_child(column, schema_field_id_or(key_schema, 0),
-                                  schema_field_name_or(key_schema, "key"),
-                                  map_type.get_key_type());
+                                  schema_field_name_or(key_schema, "key"), map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(key_child, key_child->type, key_node,
                                                                path + ".KEYS", key_schema));
