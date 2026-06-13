@@ -35,9 +35,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -71,6 +73,7 @@ public class ExecutionProfile {
 
     // use to merge profile from multi be
     private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
+    private Map<Integer, Set<TNetworkAddress>> fragmentIdDoneBackends;
     private ReentrantReadWriteLock multiBeProfileLock = new ReentrantReadWriteLock();
 
     // Not serialize this property, it is only used to get profile id.
@@ -88,6 +91,7 @@ public class ExecutionProfile {
         root.addChild(fragmentsProfile, true);
         fragmentProfiles = Maps.newHashMap();
         multiBeProfile = Maps.newHashMap();
+        fragmentIdDoneBackends = Maps.newHashMap();
         fragmentIdBeNum = Maps.newHashMap();
         seqNoToFragmentId = Maps.newHashMap();
         int i = 0;
@@ -96,6 +100,7 @@ public class ExecutionProfile {
             fragmentProfiles.put(fragmentId, runtimeProfile);
             fragmentsProfile.addChild(runtimeProfile, true);
             multiBeProfile.put(fragmentId, Maps.newHashMap());
+            fragmentIdDoneBackends.put(fragmentId, new HashSet<>());
             fragmentIdBeNum.put(fragmentId, 0);
             seqNoToFragmentId.put(i, fragmentId);
             ++i;
@@ -153,6 +158,28 @@ public class ExecutionProfile {
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
         } finally {
             multiBeProfileLock.writeLock().unlock();
+        }
+    }
+
+    private void markBackendProfileDone(int fragmentId, TNetworkAddress backendHBAddress) {
+        multiBeProfileLock.writeLock().lock();
+        try {
+            fragmentIdDoneBackends.get(fragmentId).add(backendHBAddress);
+        } finally {
+            multiBeProfileLock.writeLock().unlock();
+        }
+    }
+
+    private boolean areAllBackendProfilesDone(int fragmentId, int expectedBackendNum) {
+        if (expectedBackendNum == 0) {
+            return false;
+        }
+
+        multiBeProfileLock.readLock().lock();
+        try {
+            return fragmentIdDoneBackends.get(fragmentId).size() >= expectedBackendNum;
+        } finally {
+            multiBeProfileLock.readLock().unlock();
         }
     }
 
@@ -262,6 +289,9 @@ public class ExecutionProfile {
                 fragmentProfiles.get(fragmentId).addChild(profileNode, true);
             }
             setMultiBeProfile(fragmentId, backendHBAddress, taskProfile);
+            if (isDone) {
+                markBackendProfileDone(fragmentId, backendHBAddress);
+            }
         }
 
         LOG.info("Profile update finished query: {} fragments: {} isDone: {}",
@@ -284,11 +314,11 @@ public class ExecutionProfile {
         return queryId;
     }
 
-    // Check all fragments's child, if all finished, then this execution profile is finished
+    // Check all fragments' backend reports. A backend can contribute multiple profile nodes.
     public boolean isCompleted() {
         for (Entry<Integer, RuntimeProfile> element : fragmentProfiles.entrySet()) {
-            RuntimeProfile fragmentProfile = element.getValue();
-            if (!fragmentProfile.areChildrenDone(fragmentIdBeNum.get(element.getKey()))) {
+            int fragmentId = element.getKey();
+            if (!areAllBackendProfilesDone(fragmentId, fragmentIdBeNum.get(fragmentId))) {
                 return false;
             }
         }

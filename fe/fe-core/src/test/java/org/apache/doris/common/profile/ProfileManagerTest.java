@@ -21,9 +21,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.thrift.TDetailedReportParams;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryProfile;
+import org.apache.doris.thrift.TRuntimeProfileNode;
+import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,6 +102,36 @@ class ProfileManagerTest {
         return profile;
     }
 
+    private static TDetailedReportParams createReportParam(String name, boolean isFragmentLevel) {
+        TRuntimeProfileNode node = new TRuntimeProfileNode();
+        node.setName(name);
+        node.setNumChildren(0);
+        node.setCounters(Lists.newArrayList());
+        node.setMetadata(0);
+        node.setIndent(false);
+        node.setInfoStrings(Maps.newHashMap());
+        node.setInfoStringsDisplayOrder(Lists.newArrayList());
+        node.setChildCountersMap(Maps.newHashMap());
+        node.setTimestamp(0);
+
+        TRuntimeProfileTree tree = new TRuntimeProfileTree();
+        tree.setNodes(Lists.newArrayList(node));
+
+        TDetailedReportParams params = new TDetailedReportParams();
+        params.setProfile(tree);
+        params.setIsFragmentLevel(isFragmentLevel);
+        return params;
+    }
+
+    private static TQueryProfile createQueryProfile(TUniqueId queryId, int fragmentId, String suffix) {
+        TQueryProfile queryProfile = new TQueryProfile();
+        queryProfile.setQueryId(queryId);
+        queryProfile.putToFragmentIdToProfile(fragmentId, Lists.newArrayList(
+                createReportParam("FragmentLevelProfile-" + suffix, true),
+                createReportParam("PipelineProfile-" + suffix, false)));
+        return queryProfile;
+    }
+
     @Test
     void getProfileCompletionStateInQueryList() {
         Profile runningProfile = constructProfile("running");
@@ -140,6 +176,28 @@ class ProfileManagerTest {
         expectedProfiles.add("collecting");
         expectedProfiles.add("complete");
         Assertions.assertEquals(expectedProfiles, checkedProfiles);
+    }
+
+    @Test
+    void profileCompletionStateWaitsForDistinctBackendReports() {
+        Profile profile = constructProfile("multi-backend");
+        profile.markQueryFinished();
+        UUID taskId = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+        ExecutionProfile executionProfile = new ExecutionProfile(queryId, Lists.newArrayList(0));
+        executionProfile.addFragmentBackend(new PlanFragmentId(0), 1L);
+        executionProfile.addFragmentBackend(new PlanFragmentId(0), 2L);
+        profile.addExecutionProfile(executionProfile);
+
+        executionProfile.updateProfile(createQueryProfile(queryId, 0, "be1"),
+                new TNetworkAddress("127.0.0.1", 9060), true);
+        Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_COLLECTING,
+                profile.getProfileCompletionState());
+
+        executionProfile.updateProfile(createQueryProfile(queryId, 0, "be2"),
+                new TNetworkAddress("127.0.0.2", 9060), true);
+        Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE,
+                profile.getProfileCompletionState());
     }
 
     @Test
