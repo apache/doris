@@ -24,8 +24,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.NativeFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -35,6 +38,10 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -49,6 +56,56 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public class NereidsLoadScanProviderTest {
+
+    private NereidsLoadScanProvider buildProvider() {
+        // The private helpers under test don't read instance fields, so we pass nulls.
+        return new NereidsLoadScanProvider(null, null);
+    }
+
+    private NereidsBrokerFileGroup buildFileGroup(FileFormatProperties props) {
+        return new NereidsBrokerFileGroup(
+                0L, false, null, null, null, null, null, Lists.newArrayList(), null,
+                null, null, null, LoadTask.MergeType.APPEND, null, 0L, false, false, props);
+    }
+
+    // ---------- mappingReferencesOwnColumn ----------
+
+    @Test
+    public void testMappingReferencesOwnColumnReturnsFalseForFileField() {
+        NereidsLoadScanProvider provider = buildProvider();
+        // pure file field: expr == null
+        NereidsImportColumnDesc desc = new NereidsImportColumnDesc("k1");
+        boolean result = Deencapsulation.invoke(provider, "mappingReferencesOwnColumn", desc);
+        Assertions.assertFalse(result);
+    }
+
+    @Test
+    public void testMappingReferencesOwnColumnReturnsTrueForSelfReference() {
+        NereidsLoadScanProvider provider = buildProvider();
+        // COLUMNS(k1 = k1) — mapping reads source column with same name as target
+        NereidsImportColumnDesc desc = new NereidsImportColumnDesc("k1", new UnboundSlot("k1"));
+        boolean result = Deencapsulation.invoke(provider, "mappingReferencesOwnColumn", desc);
+        Assertions.assertTrue(result);
+    }
+
+    @Test
+    public void testMappingReferencesOwnColumnReturnsTrueForSelfReferenceCaseInsensitive() {
+        NereidsLoadScanProvider provider = buildProvider();
+        // COLUMNS(K1 = k1) — column-name match is case-insensitive
+        NereidsImportColumnDesc desc = new NereidsImportColumnDesc("K1", new UnboundSlot("k1"));
+        boolean result = Deencapsulation.invoke(provider, "mappingReferencesOwnColumn", desc);
+        Assertions.assertTrue(result);
+    }
+
+    @Test
+    public void testMappingReferencesOwnColumnReturnsTrueForSelfReferenceWithComputation() {
+        NereidsLoadScanProvider provider = buildProvider();
+        // COLUMNS(k1 = k1 + 1) — still references own source column
+        Expression expr = new Add(new UnboundSlot("k1"), new IntegerLiteral(1));
+        NereidsImportColumnDesc desc = new NereidsImportColumnDesc("k1", expr);
+        boolean result = Deencapsulation.invoke(provider, "mappingReferencesOwnColumn", desc);
+        Assertions.assertTrue(result);
+    }
 
     @Test
     public void testArrowStreamLoadKeepsExplicitColumnCase() throws Exception {
@@ -65,6 +122,13 @@ public class NereidsLoadScanProviderTest {
 
         Assertions.assertEquals(Lists.newArrayList("time", "securityid", "EV"),
                 dataDescription.getFileFieldNames());
+    public void testMappingReferencesOwnColumnReturnsFalseForOtherColumnDerivation() {
+        NereidsLoadScanProvider provider = buildProvider();
+        // COLUMNS(score_x2 = score * 2) — derives from a different source column
+        Expression expr = new Add(new UnboundSlot("score"), new IntegerLiteral(1));
+        NereidsImportColumnDesc desc = new NereidsImportColumnDesc("score_x2", expr);
+        boolean result = Deencapsulation.invoke(provider, "mappingReferencesOwnColumn", desc);
+        Assertions.assertFalse(result);
     }
 
     @Test
@@ -73,12 +137,26 @@ public class NereidsLoadScanProviderTest {
                 Lists.newArrayList("dummy"), Lists.newArrayList("time", "securityid", "EV"),
                 null, null, "ARROW", null, null, false, Collections.emptyList(), null, null,
                 LoadTask.MergeType.APPEND, null, null, null);
+    public void testMappingReferencesOwnColumnReturnsFalseForConstantMapping() {
+        NereidsLoadScanProvider provider = buildProvider();
+        // COLUMNS(k1 = 42) — constant mapping, no input slots
+        NereidsImportColumnDesc desc = new NereidsImportColumnDesc("k1", new IntegerLiteral(42));
+        boolean result = Deencapsulation.invoke(provider, "mappingReferencesOwnColumn", desc);
+        Assertions.assertFalse(result);
+    }
 
+    // ---------- isFillMissingColumns ----------
         Assertions.assertEquals(Lists.newArrayList("time", "securityid", "EV"),
                 dataDescription.getFileFieldNames());
     }
 
     @Test
+    public void testIsFillMissingColumnsFalseForCsv() {
+        NereidsLoadScanProvider provider = buildProvider();
+        NereidsBrokerFileGroup fileGroup = buildFileGroup(
+                new CsvFileFormatProperties(FileFormatProperties.FORMAT_CSV));
+        boolean result = Deencapsulation.invoke(provider, "isFillMissingColumns", fileGroup);
+        Assertions.assertFalse(result);
     public void testArrowBrokerLoadLowersColumnsFromPath() {
         NereidsDataDescription dataDescription = new NereidsDataDescription("t_upper", null,
                 Lists.newArrayList("dummy"), Lists.newArrayList("time", "securityid", "EV"),
@@ -91,6 +169,12 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
+    public void testIsFillMissingColumnsFalseForJsonDefault() {
+        NereidsLoadScanProvider provider = buildProvider();
+        // JSON file format but fillMissingColumns left at default (false)
+        NereidsBrokerFileGroup fileGroup = buildFileGroup(new JsonFileFormatProperties());
+        boolean result = Deencapsulation.invoke(provider, "isFillMissingColumns", fileGroup);
+        Assertions.assertFalse(result);
     public void testArrowAutoGeneratedSlotsKeepUppercaseTableColumn() throws Exception {
         OlapTable table = mockTable();
         NereidsParamCreateContext context = createArrowLoadContext(table, ImmutableList.of());
@@ -102,6 +186,14 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
+    public void testIsFillMissingColumnsTrueForJsonEnabled() {
+        NereidsLoadScanProvider provider = buildProvider();
+        JsonFileFormatProperties props = new JsonFileFormatProperties();
+        Deencapsulation.setField(props, "fillMissingColumns", true);
+        NereidsBrokerFileGroup fileGroup = buildFileGroup(props);
+        boolean result = Deencapsulation.invoke(provider, "isFillMissingColumns", fileGroup);
+        Assertions.assertTrue(result);
+    }
     public void testArrowSourceColumnUsesCaseInsensitiveTableType() throws Exception {
         OlapTable table = mockTable();
         NereidsParamCreateContext context = createArrowLoadContext(table,
@@ -109,10 +201,16 @@ public class NereidsLoadScanProviderTest {
                         new NereidsImportColumnDesc("securityid"),
                         new NereidsImportColumnDesc("ev")));
 
+    // ---------- shouldAddSequenceColumn ----------
         assertSlot(context, "ev", PrimitiveType.DOUBLE);
     }
 
     @Test
+    public void testShouldAddSequenceColumnTrueWhenFillMissingEnabled() {
+        NereidsLoadScanProvider provider = buildProvider();
+        JsonFileFormatProperties props = new JsonFileFormatProperties();
+        Deencapsulation.setField(props, "fillMissingColumns", true);
+        NereidsBrokerFileGroup fileGroup = buildFileGroup(props);
     public void testNativeSourceColumnUsesCaseInsensitiveTableType() throws Exception {
         OlapTable table = mockTable();
         NereidsParamCreateContext context = createLoadContext(table,
@@ -121,10 +219,26 @@ public class NereidsLoadScanProviderTest {
                         new NereidsImportColumnDesc("ev")),
                 new NativeFileFormatProperties());
 
+        // fill_missing_columns=true must force-add the sequence column even when the
+        // user specified other columns; otherwise the auto-filled schema would silently
+        // drop the sequence slot.
+        List<NereidsImportColumnDesc> columnDescList = Lists.newArrayList(
+                new NereidsImportColumnDesc("k1"), new NereidsImportColumnDesc("k2"));
+        boolean result = Deencapsulation.invoke(provider, "shouldAddSequenceColumn",
+                columnDescList, fileGroup);
+        Assertions.assertTrue(result);
         assertSlot(context, "ev", PrimitiveType.DOUBLE);
     }
 
     @Test
+    public void testShouldAddSequenceColumnTrueWhenEmptyList() {
+        NereidsLoadScanProvider provider = buildProvider();
+        NereidsBrokerFileGroup fileGroup = buildFileGroup(
+                new CsvFileFormatProperties(FileFormatProperties.FORMAT_CSV));
+        // existing behavior: empty column list means user did not specify any columns
+        boolean result = Deencapsulation.invoke(provider, "shouldAddSequenceColumn",
+                Lists.<NereidsImportColumnDesc>newArrayList(), fileGroup);
+        Assertions.assertTrue(result);
     public void testImportColumnMatchesTableColumnCaseInsensitive() {
         Column tableColumn = new Column("EV", PrimitiveType.DOUBLE, true);
 
@@ -141,6 +255,17 @@ public class NereidsLoadScanProviderTest {
         return createLoadContext(table, columnExprList, new ArrowFileFormatProperties());
     }
 
+    @Test
+    public void testShouldAddSequenceColumnTrueForOnlyDeleteSign() {
+        NereidsLoadScanProvider provider = buildProvider();
+        NereidsBrokerFileGroup fileGroup = buildFileGroup(
+                new CsvFileFormatProperties(FileFormatProperties.FORMAT_CSV));
+        // existing behavior: single delete-sign descriptor is treated as "no user columns"
+        List<NereidsImportColumnDesc> columnDescList = Lists.newArrayList(
+                new NereidsImportColumnDesc(Column.DELETE_SIGN));
+        boolean result = Deencapsulation.invoke(provider, "shouldAddSequenceColumn",
+                columnDescList, fileGroup);
+        Assertions.assertTrue(result);
     private NereidsParamCreateContext createLoadContext(OlapTable table, List<NereidsImportColumnDesc> columnExprList,
             FileFormatProperties fileFormatProperties)
             throws UserException {
@@ -157,6 +282,17 @@ public class NereidsLoadScanProviderTest {
         return new NereidsLoadScanProvider(fileGroupInfo, Collections.emptySet()).createLoadContext();
     }
 
+    @Test
+    public void testShouldAddSequenceColumnFalseWhenUserColumnsSpecified() {
+        NereidsLoadScanProvider provider = buildProvider();
+        NereidsBrokerFileGroup fileGroup = buildFileGroup(
+                new CsvFileFormatProperties(FileFormatProperties.FORMAT_CSV));
+        // existing behavior: user-specified columns and no fill_missing => do not auto-add
+        List<NereidsImportColumnDesc> columnDescList = Lists.newArrayList(
+                new NereidsImportColumnDesc("k1"), new NereidsImportColumnDesc("k2"));
+        boolean result = Deencapsulation.invoke(provider, "shouldAddSequenceColumn",
+                columnDescList, fileGroup);
+        Assertions.assertFalse(result);
     private OlapTable mockTable() {
         List<Column> schema = Arrays.asList(
                 new Column("time", PrimitiveType.DATETIME, true),

@@ -46,8 +46,27 @@ public class JsonFileFormatPropertiesTest {
         Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
         Assert.assertEquals(false, jsonFileFormatProperties.isNumAsString());
         Assert.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
+        Assert.assertEquals(false, jsonFileFormatProperties.isFillMissingColumns());
         Assert.assertEquals(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER,
                 jsonFileFormatProperties.getLineDelimiter());
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesFillMissingColumnsTrue() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "true");
+
+        jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(true, jsonFileFormatProperties.isFillMissingColumns());
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesFillMissingColumnsFalse() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "false");
+
+        jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(false, jsonFileFormatProperties.isFillMissingColumns());
     }
 
     @Test
@@ -151,6 +170,26 @@ public class JsonFileFormatPropertiesTest {
     }
 
     @Test
+    public void testAnalyzeFileFormatPropertiesFillMissingColumnsInvalidValue() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "treu");
+
+        AnalysisException e = Assert.assertThrows(AnalysisException.class,
+                () -> jsonFileFormatProperties.analyzeFileFormatProperties(properties, true));
+        Assert.assertTrue(e.getMessage().contains(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+        Assert.assertTrue(e.getMessage().contains("treu"));
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesFillMissingColumnsCaseInsensitive() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "TRUE");
+
+        jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(true, jsonFileFormatProperties.isFillMissingColumns());
+    }
+
+    @Test
     public void testAnalyzeFileFormatPropertiesAllProperties() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
         properties.put(JsonFileFormatProperties.PROP_JSON_ROOT, "data.records");
@@ -159,6 +198,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "true");
         properties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING, "true");
         properties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "true");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
 
@@ -168,6 +208,7 @@ public class JsonFileFormatPropertiesTest {
         Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
         Assert.assertEquals(true, jsonFileFormatProperties.isNumAsString());
         Assert.assertEquals(true, jsonFileFormatProperties.isFuzzyParse());
+        Assert.assertEquals(true, jsonFileFormatProperties.isFillMissingColumns());
     }
 
     @Test

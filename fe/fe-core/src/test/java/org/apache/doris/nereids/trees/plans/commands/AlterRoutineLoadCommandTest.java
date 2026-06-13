@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -45,6 +46,7 @@ public class AlterRoutineLoadCommandTest {
     private ConnectContext connectContext;
     private MockedStatic<Env> envMockedStatic;
     private MockedStatic<ConnectContext> ctxMockedStatic;
+    private RoutineLoadJob rlJob;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -64,12 +66,13 @@ public class AlterRoutineLoadCommandTest {
         Mockito.doReturn(tbl).when(db).getTableOrAnalysisException(Mockito.anyString());
         Mockito.when(env.getRoutineLoadManager()).thenReturn(Mockito.mock(RoutineLoadManager.class));
         RoutineLoadManager rlm = env.getRoutineLoadManager();
-        RoutineLoadJob rlJob = Mockito.mock(RoutineLoadJob.class);
+        rlJob = Mockito.mock(RoutineLoadJob.class);
         Mockito.when(rlm.getJob(Mockito.anyString(), Mockito.anyString())).thenReturn(rlJob);
         Mockito.when(rlJob.getDbFullName()).thenReturn("testDb");
         Mockito.when(rlJob.getTableName()).thenReturn("testTable");
         Mockito.when(rlJob.isMultiTable()).thenReturn(false);
         Mockito.when(rlJob.getMergeType()).thenReturn(LoadTask.MergeType.APPEND);
+        Mockito.when(rlJob.getFormat()).thenReturn("json");
     }
 
     @AfterEach
@@ -98,21 +101,77 @@ public class AlterRoutineLoadCommandTest {
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY, "1048576000");
         jobProperties.put(CreateRoutineLoadInfo.STRICT_MODE, "false");
         jobProperties.put(CreateRoutineLoadInfo.TIMEZONE, "Asia/Shanghai");
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "true");
 
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         LabelNameInfo labelNameInfo = new LabelNameInfo("testDb", "label1");
 
-        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(labelNameInfo, jobProperties, dataSourceProperties);
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                labelNameInfo, jobProperties, dataSourceProperties);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
-        Assertions.assertEquals(8, command.getAnalyzedJobProperties().size());
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY));
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY));
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY));
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY));
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.STRICT_MODE));
-        Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.TIMEZONE));
+        Map<String, String> analyzed = command.getAnalyzedJobProperties();
+        Assertions.assertEquals(9, analyzed.size());
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY));
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY));
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY));
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY));
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.STRICT_MODE));
+        Assertions.assertTrue(analyzed.containsKey(CreateRoutineLoadInfo.TIMEZONE));
+        Assertions.assertTrue(analyzed.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+        Assertions.assertEquals("true",
+                analyzed.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+    }
+
+    @Test
+    public void testValidateFillMissingColumnsFalse() {
+        runBefore();
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "false");
+
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        LabelNameInfo labelNameInfo = new LabelNameInfo("testDb", "label1");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                labelNameInfo, jobProperties, dataSourceProperties);
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("false",
+                command.getAnalyzedJobProperties().get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+    }
+
+    @Test
+    public void testValidateFillMissingColumnsInvalidValue() {
+        runBefore();
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "invalid");
+
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        LabelNameInfo labelNameInfo = new LabelNameInfo("testDb", "label1");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                labelNameInfo, jobProperties, dataSourceProperties);
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateFillMissingColumnsRejectedForCsvJob() {
+        runBefore();
+        // The target job uses CSV format; fill_missing_columns is JSON-only and must be rejected.
+        Mockito.when(rlJob.getFormat()).thenReturn("csv");
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "true");
+
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        LabelNameInfo labelNameInfo = new LabelNameInfo("testDb", "label1");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                labelNameInfo, jobProperties, dataSourceProperties);
+        org.apache.doris.common.AnalysisException e = Assertions.assertThrows(
+                org.apache.doris.common.AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(e.getMessage().contains(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
     }
 }

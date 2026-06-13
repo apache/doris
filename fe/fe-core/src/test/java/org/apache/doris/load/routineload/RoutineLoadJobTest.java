@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
@@ -373,6 +374,79 @@ public class RoutineLoadJobTest {
                 + ");";
         System.out.println(showCreateInfo);
         Assert.assertEquals(expect, showCreateInfo);
+    }
+
+    @Test
+    public void testGetShowCreateInfoWithFillMissingColumns() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", 1,
+                11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
+        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
+
+        // Set fill_missing_columns to true
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "true");
+        jobProperties.put("format", "json");
+        jobProperties.put("strip_outer_array", "false");
+        jobProperties.put("num_as_string", "false");
+        jobProperties.put("fuzzy_parse", "false");
+        jobProperties.put("strict_mode", "false");
+        jobProperties.put("timezone", "Asia/Shanghai");
+        jobProperties.put("desired_concurrent_number", "0");
+        jobProperties.put("max_error_number", "10");
+        jobProperties.put("max_filter_ratio", "1.0");
+        jobProperties.put("max_batch_interval", "60");
+        jobProperties.put("max_batch_rows", "10");
+        jobProperties.put("max_batch_size", "1073741824");
+        jobProperties.put("exec_mem_limit", "2147483648");
+        Deencapsulation.setField(routineLoadJob, "jobProperties", jobProperties);
+
+        String showCreateInfo = routineLoadJob.getShowCreateInfo();
+        String expect = "CREATE ROUTINE LOAD test_load ON 11\n"
+                + "WITH APPEND\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"desired_concurrent_number\" = \"0\",\n"
+                + "\"max_error_number\" = \"10\",\n"
+                + "\"max_filter_ratio\" = \"1.0\",\n"
+                + "\"max_batch_interval\" = \"60\",\n"
+                + "\"max_batch_rows\" = \"10\",\n"
+                + "\"max_batch_size\" = \"1073741824\",\n"
+                + "\"format\" = \"json\",\n"
+                + "\"strip_outer_array\" = \"false\",\n"
+                + "\"num_as_string\" = \"false\",\n"
+                + "\"fuzzy_parse\" = \"false\",\n"
+                + "\"fill_missing_columns\" = \"true\",\n"
+                + "\"strict_mode\" = \"false\",\n"
+                + "\"timezone\" = \"Asia/Shanghai\",\n"
+                + "\"exec_mem_limit\" = \"2147483648\"\n"
+                + ")\n"
+                + "FROM KAFKA\n"
+                + "(\n"
+                + "\"kafka_broker_list\" = \"localhost:9092\",\n"
+                + "\"kafka_topic\" = \"test_topic\"\n"
+                + ");";
+        System.out.println(showCreateInfo);
+        Assert.assertEquals(expect, showCreateInfo);
+    }
+
+    @Test
+    public void testIsFillMissingColumns() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(112L, "test_load_fill_missing", 1,
+                11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
+
+        // jobProperties not set => default false
+        Map<String, String> jobProperties = Maps.newHashMap();
+        Deencapsulation.setField(routineLoadJob, "jobProperties", jobProperties);
+        Assert.assertFalse(routineLoadJob.isFillMissingColumns());
+
+        // explicit true
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "true");
+        Assert.assertTrue(routineLoadJob.isFillMissingColumns());
+
+        // explicit false
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "false");
+        Assert.assertFalse(routineLoadJob.isFillMissingColumns());
     }
 
     @Test
