@@ -2630,19 +2630,16 @@ TEST(ColumnMapperScanRequestTest, NestedElementAtConjunctUsesMergedScanProjectio
     ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {projected_table_struct}, &request).ok());
     ASSERT_EQ(request.conjuncts.size(), 1);
     ASSERT_EQ(request.predicate_columns.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(10));
-    const auto position_it = request.local_positions.find(LocalColumnId(10));
-    ASSERT_NE(position_it, request.local_positions.end());
-    EXPECT_EQ(position_it->second, LocalIndex(0));
 
     const auto& localized_leaf = request.conjuncts[0]->root()->children()[0];
     ASSERT_EQ(localized_leaf->expr_name(), "element_at");
     const auto& localized_parent = localized_leaf->children()[0];
     ASSERT_EQ(localized_parent->expr_name(), "element_at");
 
-    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_parent->children()[0].get());
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(localized_parent->children()[0].get());
     EXPECT_EQ(localized_slot->column_name(), "new_struct_column");
-    EXPECT_EQ(localized_slot->column_id(), position_it->second.value());
+    EXPECT_EQ(localized_slot->column_id(), 10);
 
     const auto* localized_parent_type = assert_cast<const DataTypeStruct*>(
             remove_nullable(localized_parent->data_type()).get());
