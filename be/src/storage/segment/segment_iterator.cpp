@@ -2861,8 +2861,11 @@ Status SegmentIterator::_materialize_column_for_predicate_eval(ColumnId cid,
     }
 
     const auto* field = _schema->column(cid);
+    auto storage_column_type = _storage_name_and_type[cid].second;
+    const bool is_char_type =
+            storage_column_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_CHAR;
     return _row_store_predicate_column_cache.materialize(cid, *field, *_current_return_columns[cid],
-                                                         _is_char_type[cid], predicate_column);
+                                                         is_char_type, predicate_column);
 }
 
 Status SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
