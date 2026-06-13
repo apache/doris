@@ -345,14 +345,20 @@ Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc
                                         total_length + 4 + checksum_size, buffer_size);
     }
 
-    constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
-    if (memcmp(buf + sizeof(total_length), MAGIC_NUMBER, 4) != 0) [[unlikely]] {
-        return Status::DataQualityError("Deletion vector magic number mismatch");
-    }
-
     const char* bitmap_buf = buf + 8;
     const size_t bitmap_size = buffer_size - 8 - checksum_size;
     if (format == DeleteFileDesc::Format::PAIMON) {
+        // Paimon BitmapDeletionVector stores:
+        //   [4-byte big-endian length][4-byte magic 0x5E43F2D0][32-bit roaring bitmap]
+        // The length covers magic + bitmap, and does not include the leading length field.
+        constexpr static char PAIMON_BITMAP_MAGIC[] = {'\x5E', '\x43', '\xF2', '\xD0'};
+        if (memcmp(buf + sizeof(total_length), PAIMON_BITMAP_MAGIC, 4) != 0) [[unlikely]] {
+            return Status::DataQualityError(
+                    "Paimon deletion vector magic number mismatch, expected: {}, actual: {}",
+                    BigEndian::Load32(PAIMON_BITMAP_MAGIC),
+                    BigEndian::Load32(buf + sizeof(total_length)));
+        }
+
         roaring::Roaring bitmap;
         try {
             bitmap = roaring::Roaring::readSafe(bitmap_buf, bitmap_size);
@@ -365,6 +371,13 @@ Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc
             delete_rows->push_back(*it);
         }
         return Status::OK();
+    }
+
+    constexpr static char ICEBERG_DV_MAGIC[] = {'\xD1', '\xD3', '\x39', '\x64'};
+    if (memcmp(buf + sizeof(total_length), ICEBERG_DV_MAGIC, 4) != 0) [[unlikely]] {
+        return Status::DataQualityError(
+                "Iceberg deletion vector magic number mismatch, expected: {}, actual: {}",
+                BigEndian::Load32(ICEBERG_DV_MAGIC), BigEndian::Load32(buf + sizeof(total_length)));
     }
 
     roaring::Roaring64Map bitmap;

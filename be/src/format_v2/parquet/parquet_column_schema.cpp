@@ -44,7 +44,8 @@ struct SchemaBuildContext {
 };
 
 enum class SchemaBuildMode {
-    // Normal recursive schema build. A repeated LIST/MAP annotated group is rejected in this mode
+    // Normal recursive schema build. Bare repeated fields are exposed as Doris ARRAY for
+    // protobuf/legacy Parquet compatibility, while repeated LIST/MAP annotated groups are rejected
     // because Parquet LIST/MAP outer groups are not allowed to be repeated at a top-level or struct
     // field boundary.
     NORMAL,
@@ -105,6 +106,10 @@ bool has_logical_annotation(const ::parquet::schema::Node& node) {
 
 bool has_structural_list_name(const std::string& list_name, const std::string& repeated_name) {
     return repeated_name == "array" || repeated_name == list_name + "_tuple";
+}
+
+bool should_build_repeated_field_as_list(const ::parquet::schema::Node& node) {
+    return node.is_repeated() && !is_list_node(node) && !is_map_node(node);
 }
 
 DataTypePtr nullable_if_needed(DataTypePtr type, const ::parquet::schema::Node& node) {
@@ -260,11 +265,22 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
                                    std::unique_ptr<ParquetColumnSchema>* result,
                                    SchemaBuildMode mode);
 
-// Builds a semantic ARRAY schema for a simple repeated field. Arrow handles this in
-// NodeToSchemaField()/GroupToSchemaField(); Doris only enables it while materializing the element
-// of a LIST-annotated parent, so existing top-level repeated primitive rejection is unchanged.
+// Builds a semantic ARRAY schema for a bare repeated field. Arrow handles this in
+// NodeToSchemaField()/GroupToSchemaField(); Doris needs the same compatibility behavior because
+// protobuf and old parquet writers often encode repeated fields without a LIST annotation.
 //
 // Example:
+//   optional group event {
+//     repeated group links {
+//       optional binary url (UTF8);
+//       optional int32 rank;
+//     }
+//   }
+// Doris exposes event.links as ARRAY<STRUCT<url, rank>>, not STRUCT<url, rank>. This keeps v2's
+// file-local schema aligned with the old schema parser used by HDFS TVF schema fetching.
+//
+// When the repeated field appears inside an already resolved LIST element, only the nested repeated
+// child should be wrapped:
 //   optional group a (LIST) {
 //     repeated group element {
 //       repeated int32 items;
@@ -298,8 +314,9 @@ Status build_repeated_field_as_list_schema(const ::parquet::SchemaDescriptor& sc
 }
 
 // Recursively builds ParquetColumnSchema for the given schema node and its children in Parquet
-// file's metadata. The mode only affects repeated nodes that have already been selected as LIST
-// elements by resolve_list_element_node(); normal file schema recursion remains strict.
+// file's metadata. NORMAL mode exposes bare repeated fields as ARRAY for legacy compatibility.
+// REPEATED_NODE_AS_LIST_ELEMENT mode means the current repeated node was already selected as an
+// enclosing LIST element, so only its nested bare repeated children should be wrapped.
 Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
                                    const ::parquet::schema::Node& node,
                                    const SchemaBuildContext& context,
@@ -308,6 +325,10 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
     if (result == nullptr) {
         return Status::InvalidArgument("result is null");
     }
+    if (mode == SchemaBuildMode::NORMAL && should_build_repeated_field_as_list(node)) {
+        return build_repeated_field_as_list_schema(schema, node, context, result);
+    }
+
     auto column_schema = std::make_unique<ParquetColumnSchema>();
     inherit_common_schema_state(node, context, column_schema.get());
 
@@ -405,8 +426,7 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
         const auto& child_node = *group.field(child_idx);
         std::unique_ptr<ParquetColumnSchema> child;
         const auto child_ctx = child_context(context, child_node, child_idx);
-        if (mode == SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT && child_node.is_repeated() &&
-            !is_list_node(child_node) && !is_map_node(child_node)) {
+        if (should_build_repeated_field_as_list(child_node)) {
             RETURN_IF_ERROR(
                     build_repeated_field_as_list_schema(schema, child_node, child_ctx, &child));
         } else {
