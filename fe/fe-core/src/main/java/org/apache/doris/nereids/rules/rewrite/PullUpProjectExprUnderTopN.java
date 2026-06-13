@@ -242,19 +242,19 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         if (node instanceof LogicalProject) {
             LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) node;
             for (NamedExpression ne : project.getProjects()) {
-                if (canPullUp(ne) && !blockedExprIds.contains(ne.getExprId())) {
-                    info.addPulledUpExpr(project, ne);
-                } else if (ne instanceof Alias && ne.child(0) instanceof Slot) {
-                    // Chain: this intermediate project renames a slot that may
-                    // come from a pulled-up expression deeper in the tree.
-                    // Always register Slot(alias.toSlot()) → child Slot so that
-                    // getPullUpReplaceExpression can resolve the chain later.
-                    context.pullUpExprReplaceMap.putIfAbsent(ne.toSlot(), ne.child(0));
-                    // Only propagate blocking when the alias itself is blocked
-                    // (e.g. TopN order key, Join condition). Forwarding renames
-                    // of unblocked slots must not block the underlying expression.
-                    if (blockedExprIds.contains(ne.getExprId())) {
-                        blockedExprIds.add(((Slot) ne.child(0)).getExprId());
+                if (blockedExprIds.contains(ne.getExprId())) {
+                    for (Slot slot : ne.getInputSlots()) {
+                        blockedExprIds.add(slot.getExprId());
+                    }
+                } else {
+                    if (canPullUp(ne)) {
+                        info.addPulledUpExpr(project, ne);
+                    } else if (ne instanceof Alias && ne.child(0) instanceof Slot) {
+                        // Chain: this intermediate project renames a slot that may
+                        // come from a pulled-up expression deeper in the tree.
+                        // Always register Slot(alias.toSlot()) → child Slot so that
+                        // getPullUpReplaceExpression can resolve the chain later.
+                        context.pullUpExprReplaceMap.putIfAbsent(ne.toSlot(), ne.child(0));
                     }
                 }
             }

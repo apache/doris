@@ -1550,10 +1550,9 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
 
     /**
      * Tests that when a TopN order key (z = abs(x)) depends on an intermediate
-     * slot (x), the underlying expression (x = a+b) can still be pulled up
-     * together with a non-blocked expression (y = abs(x)) that shares the same
-     * dependency. Verifies chain resolution handles shared dependencies and
-     * the blocked order key stays below TopN.
+     * slot (x), the blocked order key also blocks the dependency x from being
+     * pulled up. The non-blocked expression (y = abs(x)) can still be pulled up
+     * and should reuse x passed through TopN.
      *
      * Before pullup:
      *   TopN(order by z, limit 10)       blocked={z}
@@ -1562,24 +1561,19 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
      *         Project2(a+b as x, id)
      *           Scan(id, a, b)
      *
-     * After pullup (current code behavior, where Project handler does NOT
-     * propagate input-slot blocking for non-Slot Alias children):
-     *   Project(z, id, y = abs(a+b))     ← upper: y resolved through chain x→a+b
+     * After pullup:
+     *   Project(z, id, y = abs(x))       ← upper: y reuses x passed through TopN
      *     TopN(order by z)
-     *       Project(z = abs(a+b), id, a, b)
-     *         Project(id, a, b)
-     *           Project(id, a, b)
+     *       Project(z = abs(x), id, x)
+     *         Project(id, x)
+     *           Project(id, x = a+b)
      *             Scan(id, a, b)
      *
      * Key observations:
-     * 1. y = abs(x) IS pulled up (y was not blocked, and x was not blocked
-     *    either — Project handler doesn't propagate input-slot blocking).
-     * 2. x = a+b is also pulled up → chain resolution expands abs(x) to abs(a+b).
-     * 3. z = abs(a+b) stays below TopN (blocked as order key) — abs(a+b) is
-     *    computed below AND above (duplicate), which is suboptimal but correct.
-     * 4. If input-slot blocking were propagated for blocked Aliases, x would be
-     *    blocked → x = a+b kept below → y = abs(x) pulled up with x passing
-     *    through TopN (no duplicate abs computation).
+     * 1. z = abs(x) stays below TopN because z is the order key.
+     * 2. Blocking z propagates to its input x, so x = a+b also stays below TopN.
+     * 3. y = abs(x) is pulled up because y itself is not blocked.
+     * 4. The pulled-up y must reference x, not expand x to a+b.
      */
     @Test
     void testBlockedOrderKeySharesDependencyWithPulledUpExpression() {
@@ -1621,10 +1615,15 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
         LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
 
         // === Verify upper project output ===
-        // Must contain y (pulled up, chain-resolved to abs(a+b))
+        // Must contain y (pulled up, still depending on x passed through TopN)
         Assertions.assertTrue(upperProject.getProjects().stream()
                 .anyMatch(e -> "y".equals(e.getName())),
                 "Upper project must contain y (pulled up)");
+        Assertions.assertTrue(upperProject.getProjects().stream()
+                .filter(e -> "y".equals(e.getName()))
+                .anyMatch(e -> e.getInputSlots().stream()
+                        .anyMatch(s -> s.getExprId().equals(x.getExprId()))),
+                "Pulled-up y should still reference x");
         // Must contain z (order key, passed through from TopN output)
         Assertions.assertTrue(upperProject.getProjects().stream()
                 .anyMatch(e -> "z".equals(e.getName())),
@@ -1633,10 +1632,10 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
         Assertions.assertTrue(upperProject.getProjects().stream()
                 .anyMatch(e -> e.getExprId().equals(id.getExprId())),
                 "Upper project must contain id");
-        // Must NOT contain x (intermediate, resolved away)
+        // Must NOT expose x as final output.
         Assertions.assertFalse(upperProject.getProjects().stream()
                 .anyMatch(e -> "x".equals(e.getName())),
-                "Upper project must NOT contain x (resolved away)");
+                "Upper project must NOT expose x");
         // Base slots must NOT leak
         Assertions.assertFalse(upperProject.getProjects().stream()
                 .anyMatch(e -> e.getExprId().equals(a.getExprId())),
@@ -1654,25 +1653,33 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 "TopN order key should still be z");
 
         // === Verify project below TopN ===
-        // Must contain z (order key, computed as abs(a+b) after chain resolution)
-        // and base slots a, b for lazy mat
+        // Must contain z (order key), id and x. x is kept below TopN because z depends on it.
         LogicalProject<?> lowerProject = (LogicalProject<?>) rewrittenTopN.child(0);
         Assertions.assertTrue(lowerProject.getProjects().stream()
                 .anyMatch(e -> "z".equals(e.getName())),
                 "Lower project must contain z (order key expression)");
         Assertions.assertTrue(lowerProject.getProjects().stream()
-                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
-                "Lower project must contain base slot a");
-        Assertions.assertTrue(lowerProject.getProjects().stream()
-                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
-                "Lower project must contain base slot b");
-        // Must NOT contain x or y (both pulled up / resolved away)
-        Assertions.assertFalse(lowerProject.getProjects().stream()
-                .anyMatch(e -> "x".equals(e.getName())),
-                "Lower project must NOT contain x");
+                .anyMatch(e -> e.getExprId().equals(x.getExprId())),
+                "Lower project must contain x because order key z depends on it");
         Assertions.assertFalse(lowerProject.getProjects().stream()
                 .anyMatch(e -> "y".equals(e.getName())),
                 "Lower project must NOT contain y (pulled above)");
+
+        LogicalProject<?> middleProject = (LogicalProject<?>) lowerProject.child(0);
+        Assertions.assertTrue(middleProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(x.getExprId())),
+                "Middle project must pass through x");
+
+        LogicalProject<?> lowestProject = (LogicalProject<?>) middleProject.child(0);
+        Assertions.assertTrue(lowestProject.getProjects().stream()
+                .anyMatch(e -> "x".equals(e.getName())),
+                "Lowest project must still compute x");
+        Assertions.assertFalse(lowestProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Lowest project should not expose base slot a when x is blocked");
+        Assertions.assertFalse(lowestProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(b.getExprId())),
+                "Lowest project should not expose base slot b when x is blocked");
     }
 
 }
