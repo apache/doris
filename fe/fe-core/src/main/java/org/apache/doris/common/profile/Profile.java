@@ -348,6 +348,7 @@ public class Profile {
             LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
         }
         // add summary to builder
+        updateProfileCompletionStateForDisplay();
         summaryProfile.prettyPrint(builder);
         if (!builder.isTruncated()) {
             getChangedSessionVars(builder);
@@ -637,6 +638,10 @@ public class Profile {
 
     private void updateProfileCompletionStateForStorage() {
         summaryProfile.setProfileCompletionState(getProfileCompletionStateForStorage());
+    }
+
+    private void updateProfileCompletionStateForDisplay() {
+        summaryProfile.setProfileCompletionState(getProfileCompletionState());
     }
 
     // Profile IO threads races with Coordinator threads.
