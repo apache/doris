@@ -131,6 +131,25 @@ under the License.
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>apache-client</artifactId>
         </dependency>
+        <!-- s3-transfer-manager completes the RC-3 AWS-SDK closure. hadoop-aws 3.4.2 pulls
+             software.amazon.s3.analyticsaccelerator:analyticsaccelerator-s3, whose ApacheHttpClient/S3 client
+             build loads the SPI resource software/amazon/awssdk/services/s3/execution.interceptors. That
+             resource (listing software.amazon.awssdk.transfer.s3.internal.ApplyUserAgentInterceptor) lives
+             ONLY in s3-transfer-manager.jar — NOT in s3.jar. With s3-transfer-manager unbundled, the plugin's
+             child-first sdk-core ClasspathInterceptorChainFactory found NO child copy of the resource, so
+             ChildFirstClassLoader.getResources fell back to the PARENT s3-transfer-manager, loading its
+             ApplyUserAgentInterceptor (which implements the PARENT sdk-core's ExecutionInterceptor) — a
+             different Class than the child sdk-core's ExecutionInterceptor → SdkClientException "request
+             handler ... does not implement the interface ... ExecutionInterceptor", which broke S3A and
+             cascaded to "Could not find a file io implementation for scheme 's3'" + "Unknown database"
+             (FIX-PAIMON-S3-TRANSFER-MANAGER, CI 968994). Bundling it child-first (BOM-managed
+             ${awssdk.version}, matching the s3/sdk-core already bundled) puts ApplyUserAgentInterceptor +
+             the execution.interceptors resource in the child loader so they resolve against the child
+             sdk-core. MUST stay child-first like the rest of software.amazon.awssdk. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+        </dependency>
 
         <!-- hive-common supplies org.apache.hadoop.hive.conf.HiveConf for the hms/dlf flavors
              (buildHmsHiveConf / buildDlfHiveConf). We deliberately use the plain hive-common
