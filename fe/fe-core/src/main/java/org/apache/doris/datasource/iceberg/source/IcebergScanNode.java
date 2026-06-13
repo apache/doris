@@ -65,6 +65,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
