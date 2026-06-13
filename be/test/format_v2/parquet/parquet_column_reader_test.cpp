@@ -3799,7 +3799,9 @@ TEST_F(ParquetColumnReaderTest, RejectRecordReaderUnsupportedDecimalPrecision) {
     }
 }
 
-TEST_F(ParquetColumnReaderTest, RejectRepeatedPrimitiveAsFlatScalarReader) {
+// Legacy/protobuf writers may encode an array as a bare repeated primitive without LIST
+// annotation. The v2 schema builder should expose it as ARRAY instead of a flat scalar.
+TEST_F(ParquetColumnReaderTest, BuildBareRepeatedPrimitiveAsListSchema) {
     auto schema = ::parquet::schema::GroupNode::Make(
             "schema", ::parquet::Repetition::REQUIRED,
             {::parquet::schema::PrimitiveNode::Make("repeated_int32_col",
@@ -3812,13 +3814,62 @@ TEST_F(ParquetColumnReaderTest, RejectRepeatedPrimitiveAsFlatScalarReader) {
     auto st = build_parquet_column_schema(descriptor, &fields);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(fields.size(), 1);
-    ASSERT_EQ(fields[0]->descriptor->max_repetition_level(), 1);
-    ASSERT_TRUE(supports_record_reader(fields[0]->type_descriptor));
+    EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::LIST);
+    EXPECT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_ARRAY);
+    ASSERT_EQ(fields[0]->children.size(), 1);
+    const auto& element_schema = *fields[0]->children[0];
+    EXPECT_EQ(element_schema.kind, ParquetColumnSchemaKind::PRIMITIVE);
+    ASSERT_NE(element_schema.descriptor, nullptr);
+    EXPECT_EQ(element_schema.descriptor->max_repetition_level(), 1);
+    EXPECT_TRUE(supports_record_reader(element_schema.type_descriptor));
+}
 
-    ParquetColumnReaderFactory factory(nullptr, descriptor.num_columns());
-    std::unique_ptr<ParquetColumnReader> reader;
-    st = factory.create(*fields[0], &reader);
-    ASSERT_FALSE(st.ok()) << st;
+// Legacy/protobuf repeated message fields are bare repeated groups. They must be exposed as
+// ARRAY<STRUCT<...>> so HDFS TVF schema fetched by the old parser matches the v2 execution schema.
+TEST_F(ParquetColumnReaderTest, BuildBareRepeatedGroupInsideStructAsListStructSchema) {
+    auto schema = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED,
+            {::parquet::schema::GroupNode::Make(
+                    "event", ::parquet::Repetition::OPTIONAL,
+                    {::parquet::schema::GroupNode::Make(
+                            "links", ::parquet::Repetition::REPEATED,
+                            {
+                                    ::parquet::schema::PrimitiveNode::Make(
+                                            "url", ::parquet::Repetition::OPTIONAL,
+                                            ::parquet::Type::BYTE_ARRAY,
+                                            ::parquet::ConvertedType::UTF8),
+                                    ::parquet::schema::PrimitiveNode::Make(
+                                            "rank", ::parquet::Repetition::OPTIONAL,
+                                            ::parquet::Type::INT32),
+                            })})});
+    ::parquet::SchemaDescriptor descriptor;
+    descriptor.Init(schema);
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    auto st = build_parquet_column_schema(descriptor, &fields);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::STRUCT);
+    ASSERT_EQ(fields[0]->children.size(), 1);
+
+    const auto& links_schema = *fields[0]->children[0];
+    EXPECT_EQ(links_schema.name, "links");
+    EXPECT_EQ(links_schema.kind, ParquetColumnSchemaKind::LIST);
+    ASSERT_EQ(links_schema.children.size(), 1);
+    EXPECT_EQ(remove_nullable(links_schema.type)->get_primitive_type(), TYPE_ARRAY);
+    const auto* links_type =
+            assert_cast<const DataTypeArray*>(remove_nullable(links_schema.type).get());
+    EXPECT_EQ(remove_nullable(links_type->get_nested_type())->get_primitive_type(), TYPE_STRUCT);
+
+    const auto& element_schema = *links_schema.children[0];
+    EXPECT_EQ(element_schema.kind, ParquetColumnSchemaKind::STRUCT);
+    ASSERT_EQ(element_schema.children.size(), 2);
+    EXPECT_EQ(element_schema.children[0]->name, "url");
+    EXPECT_EQ(element_schema.children[1]->name, "rank");
+    ASSERT_NE(element_schema.children[0]->descriptor, nullptr);
+    ASSERT_NE(element_schema.children[1]->descriptor, nullptr);
+    EXPECT_EQ(element_schema.children[0]->descriptor->max_repetition_level(), 1);
+    EXPECT_EQ(element_schema.children[1]->descriptor->max_repetition_level(), 1);
 }
 
 } // namespace
